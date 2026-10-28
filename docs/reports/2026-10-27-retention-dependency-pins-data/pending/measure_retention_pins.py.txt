@@ -1,47 +1,30 @@
-"""Measure the pin reads before and after fix/retention-dependency-pins.
+"""One old/new retention pin-query comparison on a synthetic, scratch-owned store.
 
-Builds synthetic stores (never the live ~/.subfleet) at the scale the hub's survey
-saw and larger, then times, with the store's own connection:
-
-- before: the old `worktree-in-use` SQL and `_UNRECORDED_IN_USE` (copied verbatim
-  from release/217 c9430763f), over all jobs;
-- after: `dependencies.live` + `users` + the loop `_pin_reasons` runs, over all
-  jobs; and `dependents` for one tree inside a transaction (selection, commit);
-- `_pin_reasons` whole, before (base module) and after, for the pass and `only`;
-- admission: `dependencies.fences` for a job's folder and three places, versus
-  `folders.retiring` per place.
-
-Usage: python tools/measure_retention_pins.py <out.json> [<base worktree>]
+Ported from the pending 2026-10-06 measurement. Exactly one timed read per side;
+no repetitions or other scale runs. The old SQL is from release/217 c9430763f.
+The new read mirrors the final _pin_reasons owner query and dependency loop.
+Run under suite_hold.sh: python tools/measure_retention_pins.py OUT JOBS LIVE.
+Only JOBS/LIVE pairs 3000/100 and 6000/600 are supported.
 """
 from __future__ import annotations
-
-import json
-import platform
-import os
-import random
-import statistics
-import sys
-import tempfile
-import time
+import argparse,datetime,hashlib,json,os,platform,random,sqlite3,sys,tempfile,time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from subfleet import dependencies, folders, retention
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from subfleet import dependencies,retention
 from subfleet.store import Store
-
 OLD_IN_USE = ("SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
               "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
               "AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE "
               "OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') "
               "WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'")
+
 OLD_UNRECORDED = ("SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                   "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
                   "AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE "
                   "OR b.workdir LIKE ?1 || a.job_id || '/%' OR b.worktree LIKE ?1 || a.job_id || '/%') "
                   "WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'")
-ROOT = "/Users/x/.subfleet"
 
+ROOT = "/Users/x/.subfleet"
 
 def build(path: Path, *, owners: int, live: int, events_per_job: int, long_waiters: int, long_events: int,
           legacy: int, exports: int, seed: int = 7) -> Store:
@@ -83,105 +66,57 @@ def build(path: Path, *, owners: int, live: int, events_per_job: int, long_waite
     conn.execute("ANALYZE")
     return store
 
+def old_pin_query(store: Store) -> set[str]:
+    return {row["job_id"] for row in [*store.query(OLD_IN_USE),
+            *store.query(OLD_UNRECORDED, (f"{ROOT}/worktrees/",))]}
+
 
 def new_pin_query(store: Store) -> set[str]:
-    """The replacement read, including the owner query and per-owner lookup."""
-    needed = dependencies.users(dependencies.live(store.query))
+    jobs = store.query("SELECT job_id,kind,state,finished_at,worktree,sandbox,in_place FROM jobs")
+    needs = dependencies.users(dependencies.live(store.query))
     found = set()
-    for job in store.query("SELECT job_id,worktree,sandbox,in_place FROM jobs"):
-        if job["sandbox"] != "workspace-write" or job["in_place"]:
+    for row in jobs:
+        if row["sandbox"] != "workspace-write" or row["in_place"]:
             continue
-        tree = job["worktree"] or f"{ROOT}/worktrees/{job['job_id']}"
-        if needed.get(dependencies.key(tree), set()) - {job["job_id"]}:
-            found.add(job["job_id"])
+        tree = row["worktree"] or str(Path(ROOT) / "worktrees" / row["job_id"])
+        if tree and needs.get(dependencies.key(tree), set()) - {row["job_id"]}:
+            found.add(row["job_id"])
     return found
 
 
-def timed(fn, repeat: int = 5) -> dict:
-    samples = []
-    for _ in range(repeat):
-        start = time.perf_counter()
-        fn()
-        samples.append((time.perf_counter() - start) * 1000)
-    return {"median_ms": round(statistics.median(samples), 3), "max_ms": round(max(samples), 3)}
-
-
-def load_base(base: Path):
-    """The base's `subfleet.retention`, imported from the base worktree as its own
-    package (its relative imports resolve there), then the current one restored."""
-    import importlib
-    saved = {k: v for k, v in sys.modules.items() if k == "subfleet" or k.startswith("subfleet.")}
-    for k in saved:
-        del sys.modules[k]
-    sys.path.insert(0, str(base))
-    try:
-        return importlib.import_module("subfleet.retention")
-    finally:
-        sys.path.remove(str(base))
-        for k in [k for k in sys.modules if k == "subfleet" or k.startswith("subfleet.")]:
-            del sys.modules[k]
-        sys.modules.update(saved)
-
-
 def main() -> None:
-    out = Path(sys.argv[1])
-    base = Path(sys.argv[2]) if len(sys.argv) > 2 else None
-    base_retention = load_base(base) if base else None
-    scales = {
-        "survey (546 jobs, 20 live)": dict(owners=526, live=20, events_per_job=40, long_waiters=2, long_events=3000,
-                                           legacy=0, exports=3),
-        "large (3,000 jobs, 100 live)": dict(owners=2900, live=100, events_per_job=40, long_waiters=5,
-                                             long_events=5000, legacy=0, exports=10),
-        "large with 10 legacy live jobs": dict(owners=2900, live=100, events_per_job=40, long_waiters=5,
-                                               long_events=5000, legacy=10, exports=10),
-        "stress (6,000 jobs, 600 live)": dict(owners=5400, live=600, events_per_job=40, long_waiters=20,
-                                              long_events=5000, legacy=0, exports=50),
-    }
-    report = {"python": sys.version.split()[0], "sqlite": __import__("sqlite3").sqlite_version, "host": platform.node(),
-              "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-              "load_start": os.getloadavg(), "scales": {}}
-    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as directory:
-        for name, params in scales.items():
-            store = build(Path(directory) / f"{abs(hash(name))}.sqlite3", **params)
-            try:
-                tree_id = store.query("SELECT job_id FROM jobs WHERE worktree IS NOT NULL LIMIT 1 OFFSET 7")[0]["job_id"]
-                tree = f"{ROOT}/worktrees/{tree_id}"
-                counts = store.one("SELECT (SELECT count(*) FROM jobs) AS jobs, (SELECT count(*) FROM events) AS events")
-                row = {"jobs": counts["jobs"], "events": counts["events"], **params}
-                row["before: worktree-in-use SQL (both queries)"] = timed(lambda: (
-                    store.query(OLD_IN_USE), store.query(OLD_UNRECORDED, (f"{ROOT}/worktrees/",))))
-                row["after: live + users + loop"] = timed(lambda: new_pin_query(store))
-                with store.transaction("measure") as tx:
-                    read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
-                    row["after: dependents(tree) in a transaction"] = timed(
-                        lambda: dependencies.dependents(read, tree, exclude=tree_id))
-                row["after: _pin_reasons pass"] = timed(lambda: retention._pin_reasons(
-                    store, set(), None, root=Path(ROOT)), repeat=3)
-                row["after: _pin_reasons only"] = timed(lambda: retention._pin_reasons(
-                    store, set(), None, root=Path(ROOT), only=tree_id))
-                if base_retention is not None:
-                    row["before: _pin_reasons pass"] = timed(lambda: base_retention._pin_reasons(
-                        store, set(), None, root=Path(ROOT)), repeat=3)
-                    row["before: _pin_reasons only"] = timed(lambda: base_retention._pin_reasons(
-                        store, set(), None, root=Path(ROOT), only=tree_id))
-                places = [(None, f"/Users/x/src/repo3/sub"), ("review-root", "/Users/x/src/repo3"),
-                          ("output", "/Users/x/out/1.md"), ("git-storage", "/Users/x/src/repo3/.git")]
-                row["admission: fences(4 places), one statement"] = timed(
-                    lambda: dependencies.fences(store.query, places), repeat=50)
-                row["admission: retiring per place (4 statements)"] = timed(
-                    lambda: [folders.retiring(store.query, p) for _, p in places], repeat=50)
-                row["plans"] = {
-                    "live": [r["detail"] for r in store.query("EXPLAIN QUERY PLAN " + dependencies._LIVE)],
-                    "exporting": [r["detail"] for r in store.query("EXPLAIN QUERY PLAN " + dependencies._EXPORTING)],
-                    "old worktree-in-use": [r["detail"] for r in store.query("EXPLAIN QUERY PLAN " + OLD_IN_USE)],
-                }
-                report["scales"][name] = row
-                print(name, json.dumps({k: v for k, v in row.items() if k != "plans"}, indent=1))
-            finally:
-                store.close()
-    report["load_end"] = os.getloadavg()
-    out.write_text(json.dumps(report, indent=2) + "\n")
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("out",type=Path);parser.add_argument("jobs",type=int);parser.add_argument("live",type=int)
+    args=parser.parse_args()
+    if (args.jobs,args.live) not in ((3000,100),(6000,600)):
+        parser.error("choose 3000/100 or 6000/600")
+    params=dict(owners=args.jobs-args.live,live=args.live,events_per_job=40,
+                long_waiters=5 if args.jobs==3000 else 20,long_events=5000,legacy=0,
+                exports=10 if args.jobs==3000 else 50)
+    report=dict(start=datetime.datetime.now(datetime.timezone.utc).isoformat(),load=os.getloadavg(),
+                jobs=args.jobs,live=args.live,parameters=params,python=sys.version.split()[0],sqlite=sqlite3.sqlite_version,
+                host=platform.node(),source_sha256={p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+                  for p in ('subfleet/dependencies.py','subfleet/retention.py')})
+    with tempfile.TemporaryDirectory(prefix="pin-measure-",dir=os.environ["TMPDIR"]) as directory:
+        store=build(Path(directory)/"synthetic.sqlite3",**params)
+        try:
+            report['events']=store.one('SELECT count(*) AS n FROM events')['n']
+            with store.transaction('measure.pin-reads'):
+                report['load_at_queries']=os.getloadavg()
+                start=time.perf_counter();old=old_pin_query(store);report['old_ms']=(time.perf_counter()-start)*1000
+                report['load_at_new_query']=os.getloadavg()
+                start=time.perf_counter();new=new_pin_query(store);report['new_ms']=(time.perf_counter()-start)*1000
+            assert old==new,(sorted(old-new),sorted(new-old))
+            # These fixtures add outside-tree dependencies and exports: the pin sets
+            # should agree, even though the new query covers more roles in general.
+            report['pins']=len(new);report['ratio']=report['new_ms']/report['old_ms']
+            report['plans']={name:[r['detail'] for r in store.query('EXPLAIN QUERY PLAN '+sql,values)]
+                for name,sql,values in [('old recorded',OLD_IN_USE,()),('old unrecorded',OLD_UNRECORDED,(f'{ROOT}/worktrees/',)),
+                                       ('new live',dependencies._LIVE,()),('new exports',dependencies._EXPORTING,()),
+                                       ('new owners','SELECT job_id,kind,state,finished_at,worktree,sandbox,in_place FROM jobs',())]}
+        finally:store.close()
+    report['load_end']=os.getloadavg()
+    args.out.write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))
 
 
-if __name__ == "__main__":
-    main()
+if __name__=='__main__':main()

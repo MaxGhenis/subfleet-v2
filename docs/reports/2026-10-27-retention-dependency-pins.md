@@ -1,20 +1,145 @@
-# Retention dependency pins: continuation 3 in progress, 2026-10-28
+# Retention dependency pins: continuation 3 handoff, 2026-10-28
 
-**Not ready to land.** Continuation 3 has all 37 imported folded-pin cases passing and closes the observed legacy-spelled-folder mutation gap with a deterministic red/green test. 15 original mutants have run: 14 are killed and one is an intended equivalent. 18 original mutant holds remain, with measurement and contract audit still unstarted. The current property hold caps and remaining correctness work are explicit below. Earlier continuation sections preserve their historical results.
+**Not ready for review.** The firmlink fixture is resolved and its WIP is subsumed. Of 33 mutants, **16 are killed, 1 is an intended equivalent, and 16 are unrun**. Current head coverage is **333/357 passed**; incomplete and unstarted nodes remain explicit. Measurements and contract audit are unbuilt. Earlier sections preserve historical continuation results.
 
-Original build (2026-10-27): the lane started at approximately 14:51Z; new holds/steps stop at 17:49:00Z, conservatively before its three-hour start cutoff. Lock waits count toward that wall. The final update is 2026-10-27T18:08:30Z.
+## Continuation 3, 2026-10-28
 
-## Continuation 3 (in progress), 2026-10-28
+Started approximately **19:43Z**; **23:42Z** stops new holds and steps conservatively before four hours. Previously queued holds drain under their individual 1,140-second caps. Shared git metadata refused `index.lock`, so commits use private scratch metadata on `fix/retention-dependency-pins-217`. The assigned `.git` file remains unchanged; `rdp217c3.bundle` delivers the ordered commits based on `62c5d05f68b8`. No fetch, push, real provider, live store or production CLI ran.
 
-Started at approximately **19:43Z**; **23:42Z** is the conservative cutoff for new holds and steps. Shared metadata rejected `index.lock`, so commits use private scratch metadata on `fix/retention-dependency-pins-217`; the assigned worktree's `.git` file stays unchanged. A verified `rdp217c3.bundle` will deliver the ordered commits. No fetch, push, real provider, live store or production CLI is used.
+### Fixture verdict
 
-The three imported firmlink assertions now check recorded canonical identity and the fixture's canonical folded identity. **TURN, READER and writer all pass their behavioral assertions (3 passed).** The other **34 cases pass**, with **500 passing / 217 invalid** string examples and **150 passing / 17 invalid** real-volume examples. **WIP `454ed9528` is subsumed; its production change is not ported.** The imported file has no other change.
+The only imported-file edit replaces the obsolete firmlink-prefix assertion with recorded canonical identity and the fixture's folded canonical identity. **TURN, READER and writer pass all behavioral assertions (3 passed)**; the other **34 cases pass**. Observed string examples: **500 passing / 217 invalid**; real-volume examples: **150 passing / 17 invalid** ([statistics](2026-10-27-retention-dependency-pins-data/c3-folded-statistics.txt)). **WIP `454ed9528` is subsumed. Its `retention.py` change was not ported.** No production source changed in this continuation.
 
-The mutation table below is observed evidence, with unrun rows still explicit. The first four mutation holds used normal Hypothesis settings; later mutation holds retain the same strategies, seed 217 and configured example counts but use explicit/generate phases with no shrinking and stop at the first counterexample. Head-only correctness keeps normal settings. `live-ignores-spelled-folder` survived its planned property. The new `test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends` isolates `job.folder_spelled`: **red 1 failed** against that mutant, then **green 1 passed** at head. It also checks transactional dependents and release after the job ends. Its actual killing node replaces the planned selector in the table. `pin-counts-own-places` is an intended equivalent on a consistent pin census: own live evidence is already `active`, and own pending-export evidence is already `job-lease`; `add()` keeps that earlier reason. The transactional checks are unchanged.
+### Mutation results
 
-Head-only holds completed so far include **17 dependency units**, **44 dependency/spelling cases**, and the **37 imported folded-pin cases**. A combined property hold reached its **1,140 s cap**: selection safety completed with passing teardown; the independent-reference case was incomplete. A standalone reference hold and a monotonicity hold also reached the cap without a test outcome. Those two current properties remain open. The generated fence property passed **24 generated examples / 0 invalid**, plus its explicit case. Its completed safety result is preserved; no generated-example count is claimed for that capped hold because its terminal statistics were not retained. The properties and neighbouring batches are split into separate holds; detached and shared basic cases are split further by `-k`.
+Each mutant has its own hold. Selectors were adapted to the final implementation, including folded `dependencies.fences`, and every replacement was statically checked to apply exactly once and parse. The original 29 and four additions are all defined in [c3-mutant-definitions.json](2026-10-27-retention-dependency-pins-data/c3-mutant-definitions.json). [c3-mutants.json](2026-10-27-retention-dependency-pins-data/c3-mutants.json) joins planned tests to actual failures; the table names observed killers only.
 
-The supplied environment sync ran once. Holds use that locked Python 3.14.7 environment, private TMPDIR/Hypothesis roots and the supplied suite lock. A green-waiter preflight hit a concurrent JSON rewrite before starting any hold; atomic ledger writes and tolerant reads fixed that orchestration race, and its restarted green hold passed. No test result is credited to the aborted preflight. Early holds invoked the installed environment's Python directly; later holds use `uv run --no-sync` with the same explicit environment/cache. This changes no dependencies. At most four pytest workers execute concurrently. Independent head batches use three workers; all mutant test executions, including the survivor replay in its own copy, serialize on one scratch file lock. The green replay waits for the guard worker to end before it starts. Completed results and failures are saved as compact JSON; passing logs are not committed. Scratch was sampled at **200 MiB**. The two pin-query timing runs and contract audit remain unstarted at this checkpoint.
+The first four mutation holds used normal Hypothesis settings. Later mutation holds keep the same strategies, seed 217 and configured maximum examples, but use explicit/generate phases with no shrinking and stop at the first counterexample. Head correctness uses normal settings. Mutant bodies serialize, including the survivor replay.
+
+`live-ignores-spelled-folder` survived its planned property. Added **`test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends`** is **red (1 failed)** on that mutant and **green (1 passed)** at head. It isolates `job.folder_spelled`, checks transactional dependents, and checks release after the job ends.
+
+`pin-counts-own-places` is an **intended equivalent for a consistent census**: own live evidence already pins as `active`; own pending exports pin as `job-lease`; `add()` preserves the earlier reason. Transactional rechecks are unchanged.
+
+| # | Mutant | Observed result / killing node |
+|---:|---|---|
+| 1 | `submit-records-nothing` | killed: `tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]` |
+| 2 | `live-ignores-depends` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| 3 | `live-ignores-row-places` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| 4 | `live-ignores-recorded-folder` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| 5 | `live-ignores-spelled-folder` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends` (added test; red/green) |
+| 6 | `live-ignores-exports` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` |
+| 7 | `exports-only-recorded-path` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` |
+| 8 | `no-fold` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| 9 | `within-not-prefix-boundary` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| 10 | `pin-ignores-unrecorded-tree` | killed: `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| 11 | `pin-counts-own-places` | intended equivalent; consistent-census reason above |
+| 12 | `selection-no-dependents` | killed: `tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling` |
+| 13 | `commit-no-dependents` | killed: `tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling` |
+| 14 | `no-legacy-evidence` | killed: `tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]` |
+| 15 | `legacy-admission-reads-nothing` | killed: `tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage` |
+| 16 | `early-look-folder-only` | killed: `tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]` |
+| 17 | `transaction-no-needs-blockers` | killed: `tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]` |
+| 18 | `transaction-own-not-filtered` | unrun; no observed killer |
+| 19 | `transaction-hold-names-no-place` | unrun; no observed killer |
+| 20 | `git-storage-no-commondir` | unrun; no observed killer |
+| 21 | `git-storage-no-worktrees-fallback` | unrun; no observed killer |
+| 22 | `git-storage-no-alternates` | unrun; no observed killer |
+| 23 | `git-storage-alternates-one-level` | unrun; no observed killer |
+| 24 | `git-storage-gitfile-relative-to-cwd` | unrun; no observed killer |
+| 25 | `git-storage-nearest-ignores-gitfiles` | unrun; no observed killer |
+| 26 | `record-raw-spelling` | unrun; no observed killer |
+| 27 | `fences-not-retention-only` | unrun; no observed killer |
+| 28 | `render-ignores-needs` | unrun; no observed killer |
+| 29 | `turn-reason-ignores-needs` | unrun; no observed killer |
+| 30 | `collate-nocase-restored` | unrun; no observed killer |
+| 31 | `record-no-output` | unrun; no observed killer |
+| 32 | `record-no-git` | unrun; no observed killer |
+| 33 | `admission-no-needs-role` | unrun; no observed killer |
+
+### Measurement
+
+**Zero timing runs.** Build order and the four-hour cutoff leave step 3 unbuilt. The pending tool was adapted statically to the final owner query, `live()`/`users()` loop and the original old SQL, but has not had its required final revalidation or execution. The updated [pending tool](2026-10-27-retention-dependency-pins-data/pending/measure_retention_pins.py.txt) is preparation only. No query-plan or speed claim is made.
+
+| Scale | Old query | New query | Host load | Query plan |
+|---|---|---|---|---|
+| 3,000 jobs / 100 live | unrun | unrun | unmeasured | unrun |
+| 6,000 jobs / 600 live | unrun | unrun | unmeasured | unrun |
+
+### Contract audit
+
+Step 4 is **unbuilt**; no contract/decision sentences were edited and no clause is certified by this continuation. The pre-edit guard passes are listed below. These are the outstanding checks, not a completed audit:
+
+| Clause / document | Status |
+|---|---|
+| C-6.5 | unbuilt; reconcile read-only reader leases |
+| C-6.11 | unbuilt; check dependency hold role and rendering |
+| C-8.3 | unbuilt; check pending export pin lifecycle |
+| C-8.4 | unbuilt; correct exact dependency-fence claims to the folded lookup, then check remaining guarantees |
+| C-13.4 | unbuilt; check linked guarantees |
+| C-24.5 | unbuilt; check linked guarantees |
+| C-26.3 | unbuilt; check linked guarantees |
+| `docs/decisions/2026-10-05-turn-folder-case-alias.md` | unbuilt; reconcile SQL/firmlink known-limit statements |
+| `docs/desktop/retention-archive.md` | unbuilt; reconcile merged implementation and fence statements |
+
+### Correctness and per-hold evidence
+
+The [coverage join](2026-10-27-retention-dependency-pins-data/c3-coverage.json) covers continuation 2's actual 356-node collection plus the validated added node: **333 passed, 0 failed, 4 incomplete, 20 unstarted**. [Remaining nodes](2026-10-27-retention-dependency-pins-data/c3-remaining-nodes.txt) names every open test. [c3-check-results.py](2026-10-27-retention-dependency-pins-data/c3-check-results.py) reproduces the join; `--allow-open` is required until the list is empty. Mutant failures never count as head failures.
+
+A capped hold credits only nodes with passing setup, call and teardown. Selection safety and the detached oracle finished before their respective later cases capped; no terminal generated-example count is claimed for those capped holds. The fence property completed 24 generated passing / 0 invalid examples, plus its explicit example. The standalone detached interleaving retry passed with 12 generated passing / 0 invalid examples. Short [property statistics](2026-10-27-retention-dependency-pins-data/c3-property-statistics.txt) retain terminal proof. Reference and monotonicity caps are unfinished checks, not assertion failures. Prior continuation 2 results remain historical evidence.
+
+Each row links to actual per-phase evidence. Counts are **passed / failed / unfinished** among that hold's selected nodes; expected mutation failures are included. Start/load are recorded inside the test process, after admission (1-minute load from `os.getloadavg()`); the wrapper's denied `sysctl` output is not used. Queue time is excluded from the 1,140-second execution cap. “Outside” means that hold's own lock waiter admitted nothing for 30 minutes and the supplied fallback was then used. All holds contain one pytest, with at most four pytest workers executing concurrently.
+
+| Hold | Test start UTC | 1-min load | P / F / unfinished | Lock | Outcome |
+|---|---|---:|---:|---|---|
+| [c3-firmlink](2026-10-27-retention-dependency-pins-data/c3-firmlink.json) | 19:50:02 | 113.0 | 3 / 0 / 0 | locked | exit 0 |
+| [c3-mutant-submit-records-nothing](2026-10-27-retention-dependency-pins-data/c3-mutant-submit-records-nothing.json) | 20:10:39 | 184.8 | 0 / 1 / 1 | locked | exit 1 |
+| [c3-mutant-live-ignores-depends](2026-10-27-retention-dependency-pins-data/c3-mutant-live-ignores-depends.json) | 20:15:25 | 135.2 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-units](2026-10-27-retention-dependency-pins-data/c3-units.json) | 20:22:17 | 136.6 | 17 / 0 / 0 | locked | exit 0 |
+| [c3-mutant-live-ignores-row-places](2026-10-27-retention-dependency-pins-data/c3-mutant-live-ignores-row-places.json) | 20:23:56 | 121.7 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-dependencies](2026-10-27-retention-dependency-pins-data/c3-dependencies.json) | 20:32:42 | 89.2 | 44 / 0 / 0 | locked | exit 0 |
+| [c3-mutant-live-ignores-recorded-folder](2026-10-27-retention-dependency-pins-data/c3-mutant-live-ignores-recorded-folder.json) | 20:33:03 | 107.2 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-mutant-live-ignores-spelled-folder](2026-10-27-retention-dependency-pins-data/c3-mutant-live-ignores-spelled-folder.json) | 20:41:40 | 166.6 | 1 / 0 / 0 | locked | exit 0 |
+| [c3-mutant-live-ignores-exports](2026-10-27-retention-dependency-pins-data/c3-mutant-live-ignores-exports.json) | 20:46:18 | 87.9 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-mutant-exports-only-recorded-path](2026-10-27-retention-dependency-pins-data/c3-mutant-exports-only-recorded-path.json) | 20:47:18 | 102.8 | 0 / 1 / 1 | locked | exit 1 |
+| [c3-mutant-no-fold](2026-10-27-retention-dependency-pins-data/c3-mutant-no-fold.json) | 20:50:32 | 144.1 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-mutant-within-not-prefix-boundary](2026-10-27-retention-dependency-pins-data/c3-mutant-within-not-prefix-boundary.json) | 20:51:40 | 132.3 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-folded](2026-10-27-retention-dependency-pins-data/c3-folded.json) | 20:52:31 | 124.6 | 34 / 0 / 0 | locked | exit 0 |
+| [c3-properties-selection](2026-10-27-retention-dependency-pins-data/c3-properties-selection.json) | 21:01:39 | 113.2 | 1 / 0 / 1 | locked | capped; complete prefix only |
+| [c3-mutant-pin-ignores-unrecorded-tree](2026-10-27-retention-dependency-pins-data/c3-mutant-pin-ignores-unrecorded-tree.json) | 21:16:32 | 100.2 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-mutant-pin-counts-own-places](2026-10-27-retention-dependency-pins-data/c3-mutant-pin-counts-own-places.json) | 21:21:15 | 133.4 | 1 / 0 / 0 | locked | exit 0 |
+| [c3-properties-reference](2026-10-27-retention-dependency-pins-data/c3-properties-reference.json) | 21:28:25 | 140.8 | 0 / 0 / 1 | locked | capped; complete prefix only |
+| [c3-mutant-selection-no-dependents](2026-10-27-retention-dependency-pins-data/c3-mutant-selection-no-dependents.json) | 21:46:43 | 91.3 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-mutant-commit-no-dependents](2026-10-27-retention-dependency-pins-data/c3-mutant-commit-no-dependents.json) | 21:47:40 | 78.3 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-properties-monotone](2026-10-27-retention-dependency-pins-data/c3-properties-monotone.json) | 21:51:03 | 71.9 | 0 / 0 / 1 | locked | capped; complete prefix only |
+| [c3-detached-basic-a](2026-10-27-retention-dependency-pins-data/c3-detached-basic-a.json) | 22:10:24 | 126.0 | 28 / 0 / 0 | locked | exit 0 |
+| [c3-mutant-no-legacy-evidence](2026-10-27-retention-dependency-pins-data/c3-mutant-no-legacy-evidence.json) | 22:18:39 | 65.5 | 0 / 1 / 0 | outside after 30 minutes | exit 1 |
+| [c3-detached-basic-b](2026-10-27-retention-dependency-pins-data/c3-detached-basic-b.json) | 22:23:25 | 65.6 | 59 / 0 / 0 | locked | exit 0 |
+| [c3-properties-fence](2026-10-27-retention-dependency-pins-data/c3-properties-fence.json) | 22:24:38 | 69.5 | 1 / 0 / 0 | outside after 30 minutes | exit 0 |
+| [c3-writer-rediscovery](2026-10-27-retention-dependency-pins-data/c3-writer-rediscovery.json) | 22:29:49 | 78.4 | 40 / 0 / 0 | locked | exit 0 |
+| [c3-shared-basic-a](2026-10-27-retention-dependency-pins-data/c3-shared-basic-a.json) | 22:39:06 | 71.5 | 20 / 0 / 0 | locked | exit 0 |
+| [c3-guards-plan](2026-10-27-retention-dependency-pins-data/c3-guards-plan.json) | 22:40:23 | 105.2 | 63 / 0 / 0 | outside after 30 minutes | exit 0 |
+| [c3-mutant-live-ignores-spelled-folder-red](2026-10-27-retention-dependency-pins-data/c3-mutant-live-ignores-spelled-folder-red.json) | 22:42:17 | 137.3 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-killing-tests-green](2026-10-27-retention-dependency-pins-data/c3-killing-tests-green.json) | 22:47:21 | 101.3 | 1 / 0 / 0 | locked | exit 0 |
+| [c3-mutant-legacy-admission-reads-nothing](2026-10-27-retention-dependency-pins-data/c3-mutant-legacy-admission-reads-nothing.json) | 22:49:29 | 134.0 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-detached-generated](2026-10-27-retention-dependency-pins-data/c3-detached-generated.json) | 22:50:47 | 124.0 | 1 / 0 / 1 | locked | capped; complete prefix only |
+| [c3-shared-basic-b](2026-10-27-retention-dependency-pins-data/c3-shared-basic-b.json) | 23:12:51 | 113.7 | 18 / 0 / 21 | locked | capped; complete prefix only |
+| [c3-shared-reservation](2026-10-27-retention-dependency-pins-data/c3-shared-reservation.json) | 23:22:57 | 100.3 | 0 / 0 / 1 | locked | capped; complete prefix only |
+| [c3-mutant-early-look-folder-only](2026-10-27-retention-dependency-pins-data/c3-mutant-early-look-folder-only.json) | 23:23:34 | 106.8 | 0 / 1 / 0 | outside after 30 minutes | exit 1 |
+| [c3-detached-interleavings](2026-10-27-retention-dependency-pins-data/c3-detached-interleavings.json) | 23:43:15 | 39.0 | 1 / 0 / 0 | outside after 30 minutes | exit 0 |
+| [c3-shared-generated](2026-10-27-retention-dependency-pins-data/c3-shared-generated.json) | 23:44:17 | 47.6 | 2 / 0 / 0 | locked | exit 0 |
+| [c3-mutant-transaction-no-needs-blockers](2026-10-27-retention-dependency-pins-data/c3-mutant-transaction-no-needs-blockers.json) | 23:45:07 | 51.7 | 0 / 1 / 0 | locked | exit 1 |
+
+The supplied environment sync ran once. Tests use the same locked Python 3.14.7 environment, private TMPDIR and Hypothesis roots. Early holds invoked that environment's Python directly; later holds use `uv run --no-sync` with the same environment/cache. A green-waiter JSON preflight race was fixed with atomic writes and tolerant reads before the successful retry; the failed preflight started no pytest and receives no test credit. Only compact results, actual failure traces, definitions, coverage/checking data and short statistics proof are retained. Scratch stayed below 2 GB; no host-load generator was started.
+
+### Unbuilt and unrun
+
+- **16 mutants** remain unrun (rows above); any new survivor still needs a red/green killing test or an equivalence argument.
+- **24 current correctness nodes** remain open, listed in the coverage join and remaining-node file.
+- Both one-shot measurements, final tool revalidation, host loads and any required >2x query plans remain unrun.
+- The clause/decision audit and a post-edit state-contract guard remain unbuilt.
+- The PR is **not ready for review**. The fixture and added killing test are complete; the later ordered steps must resume after the mutation work.
+
+The full suite and Python 3.12 were not run locally. `tests/frontend/test_core_live.py` remains CI-only under the lane rules; these are CI scope, not additional local holds for this continuation.
 
 ## Continuation 2 correctness, 2026-10-28
 
@@ -217,58 +342,3 @@ The required contract helper refused C-6.5, C-6.11 and C-8.4. Its non-overlappin
 - retention hunk 3: keep release nested worktree leases and jobs-directory turn pins; omit superseded SQL unrecorded pin.
 - retention hunk 4: retain both legacy dependencies and orphan-retention lease state.
 - retention_archive hunk 1: retain both canonical dependency recheck and release nested exclusive-lease recheck.
-
-## Unbuilt and unrun: continuation 3
-
-- Mutation work remains in progress: the table records completed holds and the resolved legacy-folder survivor; unrun rows are still open.
-- The requested measurement and contract audit have not started.
-- The firmlink fixture and all three guards are resolved (37 imported cases and 63 guard cases pass). Remaining correctness holds and the capped reference/monotonicity properties are still open in this continuation.
-
-The full suite and Python 3.12 were not run on this lane. `tests/frontend/test_core_live.py` remains CI-only under the lane rules because its person-only probe cannot run here; these are CI scope, not extra local continuation 3 holds.
-
-| Scale | Old pin-query time | New pin-query time | Measurement load |
-|---|---:|---:|---:|
-| 3,000 jobs / 100 live | not measured | not measured | not measured |
-| 6,000 jobs / 600 live | not measured | not measured | not measured |
-
-The pending property and spelling sketches are superseded by continuation 2's committed tests. Remaining mutation and measurement preparation still references old scratch helpers and requires revalidation and adaptation; it is not executed evidence.
-
-## Mutation results: continuation 3 in progress
-
-“Planned test” names the first selection. Observed results below come from separate serial holds; only selections from the first test file run together. Definitions and exact failures are retained in `c3-mutant-definitions.json`, `c3-mutants.json` and the per-hold JSON files in the data folder.
-
-| Mutant | Planned test | Observed result / killing test |
-|---|---|---|
-| `submit-records-nothing` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]` | killed by `tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]` |
-| `live-ignores-depends` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
-| `live-ignores-row-places` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
-| `live-ignores-recorded-folder` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
-| `live-ignores-spelled-folder` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends` (added deterministic test; red/green complete) |
-| `live-ignores-exports` | `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` |
-| `exports-only-recorded-path` | `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` |
-| `no-fold` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
-| `within-not-prefix-boundary` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
-| `pin-ignores-unrecorded-tree` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
-| `pin-counts-own-places` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | intended equivalent: earlier `active` / `job-lease` protection wins (consistent census) |
-| `selection-no-dependents` | `tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling` | killed by `tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling` |
-| `commit-no-dependents` | `tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling` | killed by `tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling` |
-| `no-legacy-evidence` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]` | killed by `tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]` |
-| `legacy-admission-reads-nothing` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage` | killed by `tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage` |
-| `early-look-folder-only` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]` | not run / none |
-| `transaction-no-needs-blockers` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]` | not run / none |
-| `transaction-own-not-filtered` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once` | not run / none |
-| `transaction-hold-names-no-place` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]` | not run / none |
-| `git-storage-no-commondir` | `tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in` | not run / none |
-| `git-storage-no-worktrees-fallback` | `tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone` | not run / none |
-| `git-storage-no-alternates` | `tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed` | not run / none |
-| `git-storage-alternates-one-level` | `tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed` | not run / none |
-| `git-storage-gitfile-relative-to-cwd` | `tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile` | not run / none |
-| `git-storage-nearest-ignores-gitfiles` | `tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in` | not run / none |
-| `record-raw-spelling` | `tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once` | not run / none |
-| `fences-not-retention-only` | `tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place` | not run / none |
-| `render-ignores-needs` | `tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired` | not run / none |
-| `turn-reason-ignores-needs` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]` | not run / none |
-| `collate-nocase-restored` | `tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree` | not run / none |
-| `record-no-output` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]` | not run / none |
-| `record-no-git` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]` | not run / none |
-| `admission-no-needs-role` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]` | not run / none |
