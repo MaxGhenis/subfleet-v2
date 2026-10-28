@@ -1388,17 +1388,25 @@ under the lock; each batch's control passed every named test and the fence):
 | r6 1 | `r6-body-unread` | `test_r6_an_unquoted_heredoc_bodys_substitutions_are_judged` | M5 (21:03:37Z, 120) |
 | r6 2 | `r6-xargs-shell-unread` | `test_r6_xargs_into_a_shell_whose_script_names_a_searcher` | M5 |
 | r6 3 | `r6-filter-heredoc-dropped` | `test_r6_any_producers_heredoc_piped_into_a_shell_is_its_script` | M5 |
+| r6 6 | `r6-equals-backtick-dropped` | `test_r6_zsh_equals_cmd_after_a_backtick_is_read` | D (21:47Z, 77) |
+| r6 7 | `r6-span-backtick-dropped` | `test_r6_a_markdown_code_span_in_a_quoted_body_is_an_intended_over_block` | D |
+| r6 9 | `r6-psub-unread`, `r6-loop-words-dropped` | `test_r6_process_substitutions_and_loops_are_judged` | D |
+| r6 budget | `r6-budget-dropped` (retargeted) | `test_r6_dense_substitutions_fail_closed_fast` | D (21:48Z, 66) |
+| r6 8 | `r6-cap-dropped` | `test_r6_hostile_words_fail_closed_fast` fails on it, but with a `JSONDecodeError`, not an assertion: the mutant allows `rg foo src` + 4,097 `$`, and the test parses the empty stdout | D (21:49Z, 80) |
 
-All eleven listed are killed. r7 retargets six older edits whose lines it touched, each to the same edit on its new
+All eleven run under the lock are killed. D is outside the lock: my waiters went unadmitted for 30 minutes (21:16:49Z
+to 21:47Z, five bounded attempts at load 98-137), so, as the lane rules allow, I ran r6's last six directly
+(`mutdirect.py` in scratch: the driver's own `mutate()` on a small scratch tree, the named test function called in the
+fixture seam, a kill only on `AssertionError`), each after its control passed. Five are killed. `r6-cap-dropped`'s
+named test fails on it, which pytest reports as a failure (the driver would count it killed), but my direct runner
+counts only an assertion, so I list it as caught, not killed; an `assert rule(...) is not None` before the
+`json.loads` would make it an assertion. r7 retargets six older edits whose lines it touched, each to the same edit on its new
 text (`r5-heredoc-unread`, `r6-arith-unread`, `r6-budget-dropped`, `r4-keywords-dropped`, `r5-bound-hides-producer`,
 `rv4-function-keyword-dropped`; the tool commit's subject says five), and all 78 of the driver's edits match their file
 exactly once.
 
 **Unrun at this head:**
-- r6's other six mutants (`r6-equals-backtick-dropped`, `r6-span-backtick-dropped`, `r6-psub-unread`,
-  `r6-loop-words-dropped`, `r6-cap-dropped`, `r6-budget-dropped`, the last retargeted): the lock admitted none of my
-  five attempts from 21:16:49Z to 21:35Z at load 98-137. Each edit matches the hook exactly once, and each named test
-  passed at this head (H1, H2).
+- r6's last six mutants ran outside the lock (above), not under it.
 - Of `test_guard_subfleet_root.py`'s 128 items, 66 ran (H1-H6, all passed). Unrun: S1-protection, S2, S3 ×2, the cwd
   list, S5, S1-r3, and r3's, r3b's and r3c's tests (examples, the three properties, shells, mounts, folded code
   points). r7 changes only the command prep (`parend`, `arend`, `lnend`, `hdbody`, `prep`, `simple`), not the
@@ -1413,7 +1421,7 @@ exactly once.
   that took 771 s at load 100-144, so it also passed the brief's 9-minute line; polled to completion in the
   foreground) and the mutant batches M1 and M5 (polled to completion; each one's slow part was removing its exports).
   No process of mine outlived its own run.
-- Everything else outside the lock was a probe: the red runs, the direct calls of r7's tests while building, the
+- Outside the lock besides the six mutants, all probes: the red runs, the direct calls of r7's tests while building, the
   differential, the step counts (an instrumented copy of the prep's awk in scratch that prints its step count) and the
   timing rows.
 - The 18 lane commands are r6's reconstruction; review r5's list is not on disk.
