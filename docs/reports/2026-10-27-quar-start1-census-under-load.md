@@ -332,8 +332,9 @@ but could not run:
    was too broad. What holds is that no unverifiable census is ever taken as empty
    (`containment_empty`). The report, the `_start_extends` docstring and the change entry
    now say that (Sol).
-2. **A verifiable census with no unread pids extends.** The list of what ends the
-   extension now says "an unverifiable census that names no unread pids" (Sol).
+2. **A verifiable census with no unread pids can extend,** when every other condition of
+   the rule holds. The list of what ends the extension now says "an unverifiable census
+   that names no unread pids" (Sol).
 3. **The rule section states the empty-state refusal,** for the readers and for the
    guardian. C-4.2's row now states the guardian's whole condition: a state is present,
    and it is neither `T` nor `Z` (#275 r1's P3-1 and P3-5).
