@@ -34,7 +34,7 @@ import pytest
 
 from subfleet.conversations import redact
 from subfleet.policy import DEFAULT_POLICY_PATH, HANDOFF_BRIEF_MAX_CHARS, PolicyError, load_policy
-from subfleet.sessions import handoff
+from subfleet.sessions import handoff, scrub_release
 from tests.cpu_scaling import GROWTH_RATIO_MAX
 
 BUDGET = handoff.MAX_SCRUB_CHARS
@@ -64,6 +64,15 @@ FRAGMENTS = st.sampled_from([
 ])
 
 
+def _bound_path(scrubbed: str, limit: int) -> str:
+    """Which of `truncate`'s paths a limit takes for a text within the budget."""
+    length = len(scrubbed.strip())
+    if length <= limit:
+        return "within the budget: not cut"
+    marker = f"\n… [{length - limit:,} characters omitted] …\n"
+    return "within the budget: cut" if limit > len(marker) else "within the budget: elided"
+
+
 @hypothesis.settings(max_examples=200, deadline=None)
 @hypothesis.given(parts=st.lists(FRAGMENTS, max_size=40), limit=st.integers(0, 400),
                   strip=st.booleans())
@@ -71,8 +80,45 @@ def test_within_the_budget_it_is_scrub_then_truncate(parts, limit, strip):
     """C-23.36: the bounded scrub changes nothing for a text within the budget."""
     text = "".join(parts)
     scrubbed, count = handoff.scrub_secrets(text, strip_reminders=strip)
+    hypothesis.event(_bound_path(scrubbed, limit))
     assert handoff.scrub_bounded(text, limit, strip_reminders=strip) == (handoff.truncate(scrubbed, limit), count)
     assert handoff.scrub_bounded(text, None, strip_reminders=strip) == (scrubbed, count)
+
+
+@hypothesis.settings(max_examples=200, deadline=None)
+@hypothesis.given(parts=st.lists(FRAGMENTS, min_size=1, max_size=40), short=st.integers(1, 200),
+                  strip=st.booleans())
+def test_within_the_budget_a_text_its_limit_cuts_is_the_whole_scrub_cut(parts, short, strip):
+    """C-23.36 (#239 round 9): the property above with a limit `short` characters under
+    the length of the whole-text scrub, so that every case is cut or elided (CI run
+    40545353102's case is cut, and only some of the property's are): the bounded scrub is
+    that scrub, cut, and is release's wherever the two scrubbers write the same."""
+    text = "".join(parts)
+    scrubbed, count = handoff.scrub_secrets(text, strip_reminders=strip)
+    hypothesis.assume(scrubbed.strip())
+    limit = max(0, len(scrubbed.strip()) - short)
+    hypothesis.event(_bound_path(scrubbed, limit))
+    out = handoff.scrub_bounded(text, limit, strip_reminders=strip)
+    assert out == (handoff.truncate(scrubbed, limit), count)
+    if scrub_release.scrub_secrets(text, strip_reminders=strip)[0] == scrubbed:
+        assert out[0] == scrub_release.scrub_bounded(text, limit, strip_reminders=strip)[0]
+
+
+def test_within_the_budget_ci_40545353102_password_thrice_at_30_is_scrub_then_truncate():
+    """C-23.36, CI run 40545353102's counterexample to the property above (#239 round 9):
+    a text within the budget that its limit cuts is the whole-text scrub, cut. Round 8
+    composed release's cut pieces instead, each kept for the runs the head's scrub of the
+    whole text holds; that scrub holds no `p`, the piece release's cut leaves of
+    `password`, so the piece became `[REDACTED]` and the result was cut again:
+    `[`, then 9 characters omitted. Both scrubbers write the same here, so the result is
+    release's too."""
+    text = "password = " * 3
+    for strip in (False, True):
+        assert handoff.scrub_secrets(text, strip_reminders=strip) == ("password = [REDACTED] = [REDACTED] = ", 2)
+        assert handoff.scrub_bounded(text, 30, strip_reminders=strip) == ("p\n… [6 characters omitted] …\n=", 2)
+        assert handoff.scrub_bounded(text, 30, strip_reminders=strip) == \
+            scrub_release.scrub_bounded(text, 30, strip_reminders=strip)
+    assert handoff.clean(text, 30) == ("p\n… [6 characters omitted] …\n=", 2)
 
 
 # --- over the budget: what the excerpts keep ------------------------------------------
