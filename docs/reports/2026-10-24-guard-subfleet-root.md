@@ -1345,8 +1345,9 @@ the first three entries below into D-LANE-SCOPE2.
     trailing `/.` or `/..`, `~/".subfleet"`, `~/.Subfleet` and `/System/Volumes/Data/…`; r3c took
     `~user`, `…/jobs/*/a1` (1(c)), braces, zsh alternation, backslash escapes, `***`, a `/` inside
     brackets, U+017F and U+212A, and `/Volumes/<entry>/…`;
-  - shell structure: a quoted for-loop list (`for d in "$HOME/.subfleet"; do find $d …; done`
-    passes; the unquoted form is denied);
+  - shell structure: a for-loop variable used inside a word or after a `cd` (`for d in
+    "$HOME/.subfleet"; do find $d/x …; done` passes; r6 decision 9 took the whole-operand form,
+    quoted list or not, and `R6_CLOSED_LIMITS` holds the quoted pair r2 listed);
   - searchers the rule does not know: fd, bfs, gfind, ggrep, ag, `git grep --no-index`, tree, du
     and `ls -R`, and a searcher named through a variable (`RG=rg; $RG --files ~/.subfleet`; r3c
     finds one named by a path, a backslash, a quote or `$(which …)`, and egrep, fgrep, rgrep and

@@ -1330,7 +1330,8 @@ def corpus(repos) -> dict:
     fixed += [(cmd + "; " + search, repos[where]) for where, cmd, _ in OTHER_RULES for search in COMBINED]
     fixed += [(c, SCOPED_CWD) for c, _ in ENV_DENIED] + [(c, SCOPED_CWD) for c in ENV_ALLOWED]
     fixed += [(cmd, cwd) for pairs in R2_LIMITS for cwd, cmd in pairs]
-    fixed += [(cmd, cwd) for cwd, cmd in R2_OVER_APPROXIMATIONS + R3_RESOLVED + R3C_CLOSED_LIMITS + R3C_STILL_ALLOWED]
+    fixed += [(cmd, cwd) for cwd, cmd in R2_OVER_APPROXIMATIONS + R3_RESOLVED + R3C_CLOSED_LIMITS + R3C_STILL_ALLOWED
+              + R6_CLOSED_LIMITS]
     fixed += [(c, SCOPED_CWD) for c in R3_CORPUS]
     return {"generated": generated, "fixed": list(dict.fromkeys(fixed))}
 
@@ -1550,8 +1551,6 @@ R2_LIMITS = [
     ((S_, "rg --files $'/Users/tester/.subfleet'"), (S_, "rg --files $'/Users/tester'")),
     ((S_, "env -C ~/.subfleet rg --files"), (S_, "env -C ~ rg --files")),
     ((S_, "rg --files ${SUBFLEET_ROOT:-~/.subfleet}"), (S_, "rg --files ${HOME:-/Users/tester}")),
-    # P3-3: shell structure the rule misses
-    ((S_, 'for d in "$SUBFLEET_ROOT"; do find $d -name x; done'), (S_, 'for d in "$HOME"; do find $d -name x; done')),
     # P3-3: searchers the rule does not know
     ((S_, "fd -H AGENTS.md ~/.subfleet"), (S_, "fd -H AGENTS.md ~")),
     ((S_, "bfs ~/.subfleet -name AGENTS.md"), (S_, "bfs ~ -name AGENTS.md")),
@@ -1574,6 +1573,9 @@ R3C_CLOSED_LIMITS = [(S_, "rg --files ~tester/.subfleet"), (S_, "rg --files ~tes
                      (S_, "rg -l foo ~/.subfleet/jobs/*/a1"), (S_, "bash -c 'rg --files $SUBFLEET_ROOT'"),
                      (S_, "bash -c 'rg --files ~'")]
 R3C_STILL_ALLOWED = [(S_, "rg -l foo ~/*/src")]
+#: r6 decision 9 closed P3-3's quoted loop list (a for loop variable that is find's whole operand stands for its
+#: words): denied by the new hook, allowed by the installed one, for the new root and the existing one alike.
+R6_CLOSED_LIMITS = [(S_, 'for d in "$SUBFLEET_ROOT"; do find $d -name x; done'), (S_, 'for d in "$HOME"; do find $d -name x; done')]
 R2_OVER_APPROXIMATIONS = [
     (S_, "cd ~/.subfleet/jobs && rg -n foo 20261024-115712-x/a1/out.md"),
     (S_, "ls -t ~/.subfleet/jobs | head -5 | xargs -I{} rg -l foo ~/.subfleet/jobs/{}/a1"),
@@ -1597,7 +1599,7 @@ def test_known_limits_r2_lists_are_pre_existing_for_every_root(hooks):
     for case in over:
         assert rule(new[case]) == "unscoped-search", case
         assert rule(old[case]) is None, case
-    closed = [(cmd, cwd) for cwd, cmd in R3C_CLOSED_LIMITS]
+    closed = [(cmd, cwd) for cwd, cmd in R3C_CLOSED_LIMITS + R6_CLOSED_LIMITS]
     new, old = judge_all(hooks["new"], closed), judge_all(hooks["old"], closed)
     for case in closed:
         assert rule(new[case]) == "unscoped-search", case
