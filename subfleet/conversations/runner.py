@@ -48,6 +48,9 @@ READ_CHUNK = 1 << 20
 # (C-24.7, `CONTAIN_AFTER_S` below). It is a constant: it does not follow a
 # customised policy.
 EXIT_DRAIN_S = 30.0
+# A failed stat of stdout at the drain's entry, other than its absence, is tried again
+# this many times, POLL_S apart; a size still unknown is never taken as zero (C-26.4).
+STDOUT_STAT_RETRIES = 3
 
 # Stop escalation (C-24.7, review IR-3, design D-13 revision 3), seconds after the stop request:
 # the provider's interrupt at once, then SIGINT (ends a Claude turn; SIGTERM
@@ -162,7 +165,8 @@ class TurnRunner:
         self.relay_failed = False
         self.relay_io_ended = False             # permanent, independent of the child
         self.exit_proved_at: float | None = None
-        self.drain_entry_size: int | None = None      # stdout's size on disk when this runner's exit drain began
+        self.drain_entry_size: int | None = None      # stdout's size on disk when this runner's exit drain began,
+                                                      # None in the drain when unknown (`_stdout_size`)
         self.drain_caught_up_at: float | None = None  # when the drain had read that much: EXIT_DRAIN_S runs from it
         self.handshaken = False
         self.optional_ack_lost = False         # a title write went unanswered: resynchronize first
@@ -429,25 +433,48 @@ class TurnRunner:
         still going at the deadline (a reaped child does not rule out a
         descendant) gets containment, which needs no working relay or guardian
         receipt, and the turn settles from everything read so far. A runner
-        rebuilt after a restart records its own entry and starts its own clock."""
+        rebuilt after a restart records its own entry and starts its own clock.
+        An entry size that stays unknown (`_stdout_size`) is not taken as zero:
+        the drain has caught up at the first read that reaches the end of the
+        file, one short of a whole chunk or empty, since stdout is append-only
+        and so then holds all it held at the entry."""
         self.drain_entry_size = self._stdout_size()
         while True:
             now = self.clock()
-            if self.drain_caught_up_at is None and self.offset + len(self.partial) >= self.drain_entry_size:
-                self.drain_caught_up_at = now
+            if self.drain_entry_size is not None:
+                if self.drain_caught_up_at is None and self.offset + len(self.partial) >= self.drain_entry_size:
+                    self.drain_caught_up_at = now
             if self.drain_caught_up_at is not None and now - self.drain_caught_up_at >= EXIT_DRAIN_S:
                 self.stop_reason = self.stop_reason or "stdout-drain-timeout"
                 self.contained = True
                 self.on_contain(self.attempt_id)
                 return
-            if not self._read_stdout():
+            position = self.offset + len(self.partial)
+            progressed = self._read_stdout()
+            if (self.drain_entry_size is None and self.drain_caught_up_at is None
+                    and self.offset + len(self.partial) - position < READ_CHUNK):
+                self.drain_caught_up_at = self.clock()
+            if not progressed:
                 return
 
-    def _stdout_size(self) -> int:
-        try:
-            return (self.adir / "stdout").stat().st_size
-        except FileNotFoundError:
-            return 0
+    def _stdout_size(self) -> int | None:
+        """stdout's size on disk; 0 when it is missing. Any other failure is tried
+        again up to STDOUT_STAT_RETRIES times, POLL_S apart, and a size still unknown
+        is None: never zero, which would start the drain's bound before the
+        backlog on disk is read (fix r3 of #271)."""
+        for retry in range(STDOUT_STAT_RETRIES + 1):
+            if retry:
+                time.sleep(POLL_S)
+            try:
+                return (self.adir / "stdout").stat().st_size
+            except FileNotFoundError:
+                return 0
+            except OSError as exc:
+                failure = exc
+        if self.log:
+            self.log.warning("turn %s stdout size unknown at its exit drain, read to the end first: %s",
+                             self.attempt_id, refusals.scrubbed_words(failure))
+        return None
 
     def _read_stdout(self) -> bool:
         path = self.adir / "stdout"

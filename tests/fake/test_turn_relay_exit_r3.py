@@ -209,3 +209,96 @@ def test_a_real_exited_fake_is_not_a_relay_failure_while_the_guardian_wait_holds
     assert outcome.reason == "ended-without-result", {
         "reason": outcome.reason, "poll_statuses": statuses, "exit_status": observed[0].si_status,
         "refusals": refusals, "stop_reason": r.runner.stop_reason}
+
+
+# Fix r3 (hub decision 2): a failed entry stat never abandons the turn. A recoverable
+# OSError is tried again up to STDOUT_STAT_RETRIES times, POLL_S apart; a size still
+# unknown is never zero, and the drain catches up once a read reaches the end of the
+# append-only file.
+def _stdout_stat_fails(r, monkeypatch, failures):
+    stat, calls = Path.stat, []
+
+    def failing(path, *args, **kwargs):
+        if path == r.adir / "stdout":
+            calls.append(True)
+            if len(calls) <= failures:
+                raise OSError(errno.EIO, "SECRET7 stdout metadata failure")
+        return stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", failing)
+    return calls
+
+
+@pytest.mark.parametrize("failures", [0, 3, 4, "missing"])
+def test_an_entry_stat_is_tried_again_at_most_three_times(recovery, monkeypatch, failures):
+    r = recovery
+    if failures == "missing":
+        (r.adir / "stdout").unlink()
+    on_disk = 0 if failures == "missing" else (r.adir / "stdout").stat().st_size
+    calls = _stdout_stat_fails(r, monkeypatch, 0 if failures == "missing" else failures)
+    size = r.runner._stdout_size()
+    if failures == "missing":
+        assert (size, len(calls), r.polls) == (0, 1, [])          # absent: empty, as before
+    elif failures == 4:
+        assert (size, len(calls), len(r.polls)) == (None, 4, 3)   # unknown, never zero
+    else:
+        assert (size, len(calls), len(r.polls)) == (on_disk, failures + 1, failures)
+
+
+def _backlog(r):
+    rows = [{"type": "assistant", "message": {"id": "answer", "content": [
+        {"type": "text", "text": f"[part-{index}]"}]}} for index in range(100)]
+    rows.append({"type": "result", "subtype": "success", "is_error": False, "result": "[done]"})
+    with (r.adir / "stdout").open("a") as stream:
+        stream.writelines(json.dumps(row) + "\n" for row in rows)
+    return (r.adir / "stdout").stat().st_size
+
+
+@pytest.mark.parametrize("boundary", ["proof", "owner-ended"])
+def test_every_entry_stat_failing_still_reads_the_whole_backlog_and_settles(recovery, monkeypatch, boundary):
+    r = recovery
+    r.runner._apply(r.runner.driver.start())
+    assert r.runner._read_stdout()  # a real refused settings frame proves exit
+    size = _backlog(r)               # on disk at the drain's entry, no writer left
+    runner = r.runner if boundary == "proof" else rebuild(r, ended=True)
+    calls = _stdout_stat_fails(r, monkeypatch, failures=1 << 30)
+    monkeypatch.setattr(runner_module, "READ_CHUNK", 256)
+    read = runner._read_stdout
+
+    def slow_read():
+        r.now[0] += 1  # one fake second per chunk: the backlog takes longer than the bound
+        return read()
+
+    monkeypatch.setattr(runner, "_read_stdout", slow_read)
+    runner._run()
+    assert len(calls) == runner_module.STDOUT_STAT_RETRIES + 1
+    assert runner.drain_entry_size is None and runner.drain_caught_up_at is not None
+    assert runner.offset == size, {"read": runner.offset, "size": size, "stop_reason": runner.stop_reason}
+    assert r.reported == [runner] and not r.contained
+    assert runner.driver.outcome.reason is None  # the provider's result decides
+
+
+def test_an_unknown_entry_size_still_bounds_a_writer_that_never_pauses(recovery, monkeypatch):
+    """No read of a descendant's continuous output comes back empty, so the
+    first empty read alone would never start the bound. A read short of a whole
+    chunk reached the end of the file, which holds all that was on disk at entry."""
+    r = recovery
+    r.runner._relay_lost("SECRET7 exit proof", child_exited=True)
+    on_disk = (r.adir / "stdout").stat().st_size       # the initialize answer, unread
+    _stdout_stat_fails(r, monkeypatch, failures=1 << 30)
+    read, reads = r.runner._read_stdout, []
+
+    def write_then_read():
+        reads.append(True)
+        assert len(reads) < 4 * runner_module.EXIT_DRAIN_S, "SECRET7 the drain never started its bound"
+        with (r.adir / "stdout").open("ab") as stream:
+            stream.write(b"{}\n")
+        r.now[0] += 1
+        return read()
+
+    monkeypatch.setattr(r.runner, "_read_stdout", write_then_read)
+    r.runner._drain_stdout()
+    assert r.runner.drain_entry_size is None
+    assert r.runner.offset >= on_disk
+    assert r.runner.drain_caught_up_at == r.now[0] - runner_module.EXIT_DRAIN_S
+    assert r.contained == [r.runner.attempt_id]
