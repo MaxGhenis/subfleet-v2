@@ -1850,7 +1850,7 @@ It used `cw9.py`, `drive9.py` and `an9.py` (kept with the holds' logs and the mu
 | 4,000 | 0 | 0 | 0 | 58,309 (58,309) | 0 (0) | 0 (0) | 0 (0) |
 
 - **"A whole-text scrub"** is release's, the head's own or the composed one; each is 0 separately.
-- **Release's own cut:** every value the bound now shows that release's own `clean` cut out is one release's whole-text scrub shows (294, 249 and 24, all of them). Round 8 showed none, since it kept only release's pieces; that is the property this round gives up for C-23.36's equality. The two cannot both hold: the equality fixes the cut in the composed text, and a cut in release's own text writes runs the head's scrub does not hold.
+- **Release's own cut:** every value the bound now shows that release's own `clean` cut out is one release's whole-text scrub shows (294, 249 and 24, all of them). Round 8 showed none, since it kept only release's pieces; that is the property this round gives up for C-23.36's equality. The two cannot both hold wherever the composed scrub's length differs from release's: the equality puts the cut in the composed text, and release's own cut falls elsewhere.
 - **Matching release:** the bound now writes release's own `clean` exactly more often than round 8 did, at every limit that cuts, since a text both scrubbers scrub alike is now cut alike.
 
 ### Tests
