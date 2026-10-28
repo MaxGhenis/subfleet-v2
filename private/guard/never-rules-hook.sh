@@ -1696,16 +1696,57 @@ pw_prep_awk="$pw_lib_awk"'
   }
   function inner(q, depth, ctx) { return (mode == "prep" && depth < 6 && q ~ SRCH) ? prep(q, depth + 1, 1, ctx) : q }
   # parend(t, i): where the ) matching the ( at i is, quotes and escapes skipped; 0 at none. btend(t, i): where
-  # the backtick closing the one at i is; 0 at none.
-  function parend(t, i,   n, d, c, j) {
-    n = length(t); d = 0
+  # the backtick closing the one at i is; 0 at none. r6 decision 5: the body of each heredoc is read, the lines
+  # after the line holding its << to its delimiter line (a body that never ends disables only its <<, and PF
+  # remembers it), and a double-quoted string ends where dqhend says. Every call shares one budget of 20,000
+  # steps: past it, no end is found and the command is too complex to judge (cplx), since a dense run of ( or $(
+  # costs a step each and each $( or (( read walks the rest of the command once. (A special character is taken
+  # without the window match, which costs its whole window when it fails.)
+  function parend(t, i,   n, d, c, j, np, PD, PS, PF, m, e, s, f, line) {
+    n = length(t); d = 0; np = 0
     while (i <= n) {
-      if (match(substr(t, i, 512), /^[^\\\047"()]+/)) { i += RLENGTH; continue }
+      if (++pst > 20000) { cplx = 1; return 0 }
       c = substr(t, i, 1)
+      if (c !~ /[\\\047"()<\n]/ && match(substr(t, i, 512), /^[^\\\047"()<\n]+/)) { i += RLENGTH; continue }
       if (c == "\\") { i += 2; continue }
       if (c == "\047") { j = sqend(t, i); if (!j) return 0; i = j + 1; continue }
-      if (c == "\"") { j = dqend(t, i); if (!j) return 0; i = j + 1; continue }
+      if (c == "\"") { j = dqhend(t, i); if (!j) return 0; i = j + 1; continue }
+      if (c == "<") {
+        if (substr(t, i, 3) == "<<<") { i += 3; continue }
+        if (substr(t, i + 1, 1) == "<" && (j = hdword(t, i))) {
+          if (!((HDS, HDD) in PF) && index(substr(t, j), HDD)) { PD[++np] = HDD; PS[np] = HDS }
+          i = j; continue
+        }
+        i++; continue
+      }
+      if (c == "\n") {
+        i++
+        for (m = 1; m <= np; m++) {
+          s = i; f = 0
+          while (i <= n) {
+            e = index(substr(t, i), "\n"); line = e ? substr(t, i, e - 1) : substr(t, i); i = e ? i + e : n + 1
+            if (PS[m]) sub(/^\t+/, "", line)
+            if (line == PD[m]) { f = 1; break }
+          }
+          if (!f) { i = s; PF[PS[m], PD[m]] = 1 }
+        }
+        np = 0; continue
+      }
       if (c == "(") d++; else if (--d == 0) return i
+      i++
+    }
+    return 0
+  }
+  # dqhend(t, i): dqend, but a $( inside the double quotes runs to the ) parend finds, its heredocs read, so a lone
+  # " in one hides nothing (r6 decision 5); a $( with no end is read as dqend reads it
+  function dqhend(t, i,   n, c, j) {
+    n = length(t); i++
+    while (i <= n) {
+      c = substr(t, i, 1)
+      if (c !~ /[\\"$]/ && match(substr(t, i, 512), /^[^\\"$]+/)) { i += RLENGTH; continue }
+      if (c == "\\") { i += 2; continue }
+      if (c == "\"") return i
+      if (c == "$" && substr(t, i + 1, 1) == "(" && (j = parend(t, i + 1))) { i = j + 1; continue }
       i++
     }
     return 0
@@ -1714,7 +1755,7 @@ pw_prep_awk="$pw_lib_awk"'
   # skipped) that names a searcher is judged as its own lines; with ev, what it writes is (r5 decision 11)
   function spans(s, ctx, depth, ev,   n, i, c, j, x) {
     n = length(s); i = 1
-    while (i <= n) {
+    while (i <= n && !cplx) {
       if (match(substr(s, i, 512), /^[^\\$`]+/)) { i += RLENGTH; continue }
       c = substr(s, i, 1); j = 0
       if (c == "\\") { i += 2; continue }
@@ -1827,7 +1868,7 @@ pw_prep_awk="$pw_lib_awk"'
           tk[nt] = tk[nt] "\047" inner(substr(seg, i + 1, j - 1), depth, ctx) "\047"; i += j + 1; continue
         }
         if (c == "\"") {
-          j = dqend(seg, i)
+          j = dqhend(seg, i)
           if (!j) { tk[nt] = tk[nt] substr(seg, i); i = n + 1; continue }
           # r5 (decision 5): a command substitution in double quotes runs, so its command is judged on its own
           if (mode == "prep" && !noext) spans(substr(seg, i + 1, j - i - 1), ctx, depth)
@@ -2057,7 +2098,7 @@ pw_prep_awk="$pw_lib_awk"'
       if (c == "\\") { i += 2; continue }
       if (c == "$" && substr(t, i + 1, 1) == "\047") { j = sqend(t, i + 1); if (!j) return 0; i = j + 1; continue }
       if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) return 0; i += j + 1; continue }
-      if (c == "\"") { j = dqend(t, i); if (!j) return 0; i = j + 1; continue }
+      if (c == "\"") { j = dqhend(t, i); if (!j) return 0; i = j + 1; continue }
       if (c == "#" && (i == 1 || substr(t, i - 1, 1) ~ /[[:space:]]/)) { j = index(substr(t, i), "\n"); return j ? i + j - 1 : 0 }
       i++
     }
@@ -2094,15 +2135,12 @@ pw_prep_awk="$pw_lib_awk"'
   }
   # arith(t, i, AO, AD, na, AV): 1 when the << at i is inside $((...)) or ((...)): one of the na open (( (AO their
   # first ( and AD the depth before it, innermost last) that is arithmetic, its inner ( closing right before its
-  # outer one, as the shells read them (AV keeps each verdict: the end, or -1). Past 64 looks, with r6 decision 9,
-  # the command is too complex to judge (cplx) (r6 decision 4).
+  # outer one, as the shells read them (AV keeps each verdict: the end, or -1; parend bounds the cost) (r6
+  # decision 4).
   function arith(t, i, AO, AD, na, AV,   m, k, j) {
     for (m = na; m >= 1; m--) {
       k = AO[m]
-      if (!(k in AV)) {
-        if (++nar > 64) { cplx = 1; return 0 }
-        AV[k] = ((j = parend(t, k)) && parend(t, k + 1) == j - 1) ? j : -1
-      }
+      if (!(k in AV)) AV[k] = ((j = parend(t, k)) && parend(t, k + 1) == j - 1) ? j : -1
       if (AV[k] > i) return 1
     }
     return 0
@@ -2111,6 +2149,8 @@ pw_prep_awk="$pw_lib_awk"'
     n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hz = 0; hn = 0; he = 0; nl = 0; bto = 0
     pd = 0; na = 0
     while (i <= n) {
+      # (a command past the step budget is denied as too complex to judge: nothing more need be read)
+      if (cplx) return res
       if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n<]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
       if (c == "\\") { seg = seg substr(t, i, 2); i += 2; continue }
@@ -2155,7 +2195,7 @@ pw_prep_awk="$pw_lib_awk"'
       }
       if (c == "$") { seg = seg c; i++; continue }
       if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i; seg = seg substr(t, i, j + 1); i += j + 1; continue }
-      if (c == "\"") { j = dqend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
+      if (c == "\"") { j = dqhend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
       if (c == "#" && (seg == "" || seg ~ /[[:space:]]$/)) { while (i <= n && substr(t, i, 1) != "\n") i++; continue }
       if (c == "#") { seg = seg c; i++; continue }
       # a redirection holding & (>&, <&, &>) is no separator
@@ -2197,7 +2237,7 @@ pw_prep_awk="$pw_lib_awk"'
   mode == "prep" { gsub(/\003/, "?"); printf "%s%s", (NR > 1 ? "\001" : ""), prep(subst($0), 0, 0, "z") }
   mode == "nopath" { prep($0, 0, 1, "z") }
   END {
-    if (mode == "nopath") print (found ? 1 : 0)
+    if (mode == "nopath") print ((found || cplx) ? 1 : 0)
     if (mode == "prep") printf "%s%s%s", xlines, (deep ? "\n\003D\003" : ""), (cplx ? "\n\003C\003" : "")
   }'
 # pw_nopath CMD: CMD (prepped) holds a recursive searcher given no path.
@@ -2217,6 +2257,9 @@ if pw_named "$command"; then
   # the prep's readings (names, keywords, scripts, heredocs, the no-path judgment) can be made
   [ "${#command}" -le 65536 ] || block "[unscoped-search] Command too long to judge: it is over 64 KB and names a searcher (find, rg or grep), so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth."
   pw_cmd=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' -v mode=prep "$pw_prep_awk" 2>/dev/null) || pw_cmd=""
+  # r6 decisions 4, 5 and 9: a command whose $(...), $((...)), ((...)), <(...) and heredoc forms take the prep past
+  # its step budget (parend, shared) is too complex to judge; the prep stops there and ends with \003C\003
+  case "$pw_cmd" in *$'\003C\003') block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more nested \$(...), \$((...)), <(...) and heredoc forms than the guard reads, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth." ;; esac
   [ -n "$pw_cmd" ] || pw_cmd=$command
 fi
 # <<< r3 path words: end <<<
@@ -2305,7 +2348,7 @@ if [ -n "$searcher" ]; then
   pw_root_re="^(${root_core})\$"
   pw_normalize "$HOME"; pw_home=$pw_n
   case "$pw_home" in /*/*/*/*) pw_hfast="" ;; *) pw_hfast=1 ;; esac
-  pw_nt=0 pw_nd=0 pw_dec="" pw_deep="" pw_cplx=""
+  pw_nt=0 pw_nd=0 pw_dec="" pw_deep=""
   pw_awk="$pw_lib_awk"'
     function lit(c) {
       if (c == "{") return "\001"; if (c == "}") return "\002"; if (c == ",") return "\003"
@@ -2394,7 +2437,6 @@ if [ -n "$searcher" ]; then
     }
     pass == 2 && NR <= nb { split($0, f, "\t"); tok[f[1]] = f[2]; next }
     $0 == "\003D\003" { if (pass == 1) print "0\tdeep"; else print; next }
-    $0 == "\003C\003" { if (pass == 1) print "0\tcomplex"; else print; next }
     substr($0, 1, 1) == "\003" && substr($0, 3, 2) == "\003 " { line = substr($0, 1, 4) walk(substr($0, 5), substr($0, 2, 1)); if (pass == 2) print line; next }
     { line = walk($0, "z"); if (pass == 2) print line }'
   # (pass 1's lines are split in memory: read takes a pipe a byte at a time)
@@ -2412,7 +2454,6 @@ if [ -n "$searcher" ]; then
     if [ -n "$pw_ifs_set" ]; then IFS=$pw_ifs; else unset IFS; fi
     if [ "${pw_fl[0]-}" = 0 ]; then
       [ "${pw_fl[1]-}" != deep ] || pw_deep=1
-      [ "${pw_fl[1]-}" != complex ] || pw_cplx=1
       continue
     fi
     [ "${#pw_fl[@]}" -eq 6 ] || continue
@@ -2423,11 +2464,6 @@ if [ -n "$searcher" ]; then
   done
   if [ "$pw_nd" -gt 0 ]; then
     pw_j=$( { printf '%s' "$pw_dec"; printf '%s\n' "$judged"; } | LC_ALL=C awk -v pass=2 -v nb="$pw_nd" "$pw_awk" 2>/dev/null) && [ -n "$pw_j" ] && judged=$pw_j
-  fi
-  # More than 64 arithmetic or process-substitution forms read by the prep is too complex to judge (r6
-  # decisions 4 and 9: each read walks the rest of the command once).
-  if [ -n "$pw_cplx" ]; then
-    block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more than 64 arithmetic \$((...)) or process-substitution <(...) forms, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth."
   fi
   # A searcher nested deeper than 4 shells is denied (r3c decision 6).
   if [ -n "$pw_deep" ]; then
