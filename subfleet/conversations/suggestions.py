@@ -214,21 +214,20 @@ def _scrub_line(text: str) -> tuple[str, int]:
 def scrubbed_line(text: str, limit: int = ERROR_MAX) -> str:
     """`text` scrubbed whole (C-25.5) first, so no secret is cut into a fragment the
     rules no longer know, then folded and scrubbed again, then a marker-safe cut
-    to at most `limit` characters (`bounded`). Release's line is cut first, then kept
-    only for the runs the head's line holds (`_line_bounded`)."""
+    to at most `limit` characters (`bounded`). Release's line is kept only for the runs
+    the head's line holds, then cut (`_line_bounded`)."""
     return _line_bounded(text, limit, "…")
 
 
 def _line_bounded(text: str, limit: int, mark: str = "") -> str:
-    """A folded line cut to `limit` (`bounded`): release's line (`scrub_release`) cut
-    first, as release cuts it, then each run of what that keeps that the head's line does
-    not hold replaced (`shown_by_both`), and cut again if that made it longer. So the
-    cut keeps nothing release's cut left out (C-23.14, #239 round 8)."""
+    """A folded line cut to `limit` (`bounded`): release's line (`scrub_release`) with each
+    run the head's line does not hold replaced (`shown_by_both`), then cut as `bounded`
+    cuts a line, so it shows nothing either line hides (C-23.14). Cut first, the part-word
+    at the cut would be a run the head's line holds only whole, so it became `[REDACTED]`
+    and an ordinary word was lost (#239 review r9b, P2-2); the cut can now keep a
+    character release's own cut left out, but none either scrub hides."""
     released, head, _ = _both(text, _fold)
-    cut = bounded(released, limit, mark)
-    marked = bool(mark) and cut != released and cut.endswith(mark)
-    kept = shown_by_both(cut[:len(cut) - len(mark)] if marked else cut, head) + (mark if marked else "")
-    return bounded(kept, limit, mark)
+    return bounded(shown_by_both(released, head), limit, mark)
 
 
 # Public diagnostics are selected from this vocabulary, never rendered from an
