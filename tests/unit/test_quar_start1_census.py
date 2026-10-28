@@ -95,21 +95,26 @@ def test_a_census_with_any_other_error_is_not_only_markers_unread(monkeypatch):
 
 @settings(max_examples=120, deadline=None, database=None, derandomize=True,
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
-@given(strangers=st.lists(st.tuples(st.booleans(), st.booleans(), st.booleans()), max_size=6),
+@given(strangers=st.lists(st.tuples(st.sampled_from(["whole", "refused", "cut"]), st.booleans(), st.booleans()),
+                         max_size=6),
        guardian_unread=st.booleans(), table_fails=st.booleans())
-def test_markers_unread_is_exactly_the_refused_live_readable_processes(strangers, guardian_unread, table_fails):
+def test_markers_unread_is_exactly_the_unread_live_readable_processes(strangers, guardian_unread, table_fails):
     """For every world: `markers_unread` is the set of live processes of this user whose
-    read was refused, the census is unverifiable iff it has an error, and
-    `only_markers_unread` holds iff its errors are exactly those reads' errors."""
+    marker read failed, refused or with a buffer that fills the read (`cut`), the census is
+    unverifiable iff it has an error, and `only_markers_unread` holds iff its errors are
+    exactly those reads' errors."""
     with pytest.MonkeyPatch.context() as patch:
         world = World(ATTEMPT, "/state").install(patch)
         world.add(GUARDIAN, 1, GUARDIAN, start=STARTED, marked=True)
         refused = set()
-        for n, (unread, marked, other_user) in enumerate(strangers):
+        for n, (read, marked, other_user) in enumerate(strangers):
             pid = 7000 + n
             world.add(pid, 1, pid, marked=marked, uid=os.geteuid() + 1 if other_user else os.geteuid())
-            if unread:
-                world.fail_reads[pid] = ALWAYS
+            if read != "whole":
+                if read == "refused":
+                    world.fail_reads[pid] = ALWAYS
+                else:
+                    world.cut_reads.add(pid)
                 if not other_user:                      # another user's is skipped (EPERM), never read
                     refused.add(pid)
         if guardian_unread:
@@ -127,12 +132,17 @@ def test_markers_unread_is_exactly_the_refused_live_readable_processes(strangers
 
 # 2. Start grace's extension.
 
-def test_a_strangers_refused_marker_read_does_not_end_a_slow_start(daemon, world, monkeypatch):
+@pytest.mark.parametrize("read", ["refused", "cut-short"])
+def test_a_strangers_refused_marker_read_does_not_end_a_slow_start(daemon, world, monkeypatch, read):
     """The 2026-10-27 shape: the guardian alone, alive and running, past start grace, while a
-    stranger refuses its marker read on every census."""
+    stranger refuses its marker read on every census. A stranger whose buffer fills the
+    read (`cut-short`) is a failed marker read too, and is tolerated alike."""
     guardian = world.add(GUARDIAN, 1, GUARDIAN, start=STARTED, marked=True, ignores_term=True, term_handler=True)
     world.add(7000, 1, 7000)
-    world.fail_reads[7000] = ALWAYS
+    if read == "refused":
+        world.fail_reads[7000] = ALWAYS
+    else:
+        world.cut_reads.add(7000)
     starting(daemon, expired_s=1)
     for _ in range(4):                                  # four censuses at the census's pacing
         daemon._inspect_next.pop(ATTEMPT, None)
@@ -201,12 +211,17 @@ PIDS = {"stranger-a": 7000, "stranger-b": 7001, "guardian": GUARDIAN}
 @example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a"}, named=True, bare=False)
 @example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "guardian"}, named=True, bare=False)
 @example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "table"}, named=True, bare=False)
+@example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "responsibility"}, named=True, bare=False)
+@example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "identity"}, named=True, bare=False)
+@example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "process"}, named=True, bare=False)
+@example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "enumeration"}, named=True, bare=False)
 def test_extension_is_granted_exactly_while_every_condition_holds_whatever_the_census_could_not_read(
         daemon, stopped, member, elapsed, errors, named, bare):
     """Invariant 3, with D4: no extension passes `START_GRACE_MAX_S`; a stopped guardian,
     another member, or an unverifiable census never extends, unless its only errors are
     failed marker reads of other processes, named as such (`named`). `bare` is an
-    unverifiable census with no error at all, which no census makes."""
+    unverifiable census with no error at all, which no census makes. Every error kind
+    that is not a failed marker read is pinned beside a stranger's (#274 review r1's P3-1)."""
     world = World(ATTEMPT, str(daemon.root))
     with pytest.MonkeyPatch.context() as patch:
         world.install(patch)
@@ -240,7 +255,7 @@ READER = 4243
 def test_the_guardians_identity_reader_does_not_end_a_slow_start(daemon, world, monkeypatch, unread):
     """Before `start.json` the guardian runs `sysctl` and `ps` (`procs._read`), each a child
     in its group for a few milliseconds; a census that lands on one sees two members. Taken
-    in that child's first milliseconds (`unread`), its marker read fails as well."""
+    in that child's first milliseconds (`unread`), its marker read can fail as well."""
     guardian = world.add(GUARDIAN, 1, GUARDIAN, start=STARTED, marked=True, ignores_term=True, term_handler=True)
     reader = world.add(READER, GUARDIAN, GUARDIAN)
     if unread:
@@ -290,11 +305,13 @@ def test_no_extension_beside_any_member_but_an_identity_reader(daemon, world, mo
     held=st.booleans())
 @example(members=[{"child": True, "own_group": False, "stat": "S", "marked": False, "grouped": True, "shaped": True}],
          held=False)
+@example(members=[{"child": True, "own_group": False, "stat": "", "marked": False, "grouped": True, "shaped": True}],
+         held=False)
 def test_the_identity_readers_are_exactly_the_unmarked_running_children_in_the_guardians_group(
         daemon, members, held):
     """For every census: `_identity_readers` is the set of live members other than the
     guardian whose shape has the guardian as parent and its group as group, whose state is
-    neither stopped nor zombie, that are in the group's members and not marked; and the
+    known and neither stopped nor zombie, that are in the group's members and not marked; and the
     extension, every other condition holding, is granted iff every other member is one."""
     world = World(ATTEMPT, str(daemon.root))
     with pytest.MonkeyPatch.context() as patch:
@@ -317,7 +334,7 @@ def test_the_identity_readers_are_exactly_the_unmarked_running_children_in_the_g
         extends = daemon._start_extends(a, census, time.monotonic() - 1 + START_GRACE_S)
     expected = {pid for pid, m in zip(pids, members)
                 if m["child"] and not m["own_group"] and m["grouped"] and m["shaped"] and not m["marked"]
-                and m["stat"][:1] not in ("T", "Z")}
+                and m["stat"][:1] not in ("", "T", "Z")}
     assert readers == expected, (members, readers)
     assert extends == (not held and set(pids) == expected), (members, held)
 
@@ -327,12 +344,16 @@ def test_the_identity_readers_are_exactly_the_unmarked_running_children_in_the_g
 MARKERS = ("SUBFLEET_ATTEMPT", "SUBFLEET_ROOT")
 
 
-def test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers(tmp_path, monkeypatch):
+@pytest.mark.parametrize("relay", [False, True])
+def test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers(
+        tmp_path, monkeypatch, root, relay):
     """The guardian runs in this process with its real identity readers (`boot_id`, which
     `sysctl` reads, and `proc_start`, which `ps` reads); only `setsid` and its signal
     handlers are left out, as in `test_guardian.py`. Every process it starts is recorded
     with whether `start.json` was published then and whether its environment holds a
-    marker (names only, never a value)."""
+    marker (names only, never a value). With `relay`, the guardian binds its control
+    socket and builds a turn job's daemon peer check before `start.json`, as a turn job's
+    does (#274 review r1's P3-6); the socket lives under the short `/tmp` root."""
     monkeypatch.setattr(guardian_module.os, "setsid", lambda: None)
     monkeypatch.setattr(guardian_module.signal, "signal", lambda *args: None)
     monkeypatch.setenv("SUBFLEET_ATTEMPT", ATTEMPT)
@@ -365,7 +386,9 @@ def test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_atte
     try:
         rc = guardian_module.run_guardian([sys.executable, "-c", "pass"], attempt_dir=tmp_path, cwd=str(tmp_path),
                                           stdin_path=None, stdout_path=str(tmp_path / "stdout"),
-                                          stderr_path=str(tmp_path / "stderr"), env_pass=MARKERS)
+                                          stderr_path=str(tmp_path / "stderr"), env_pass=MARKERS,
+                                          **({"control_socket": str(root / "run" / "c.sock"),
+                                              "relay_peer_lock": str(root / "daemon.lock")} if relay else {}))
     finally:
         os.umask(previous)
         procs.forget_boot_id()
@@ -377,6 +400,8 @@ def test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_atte
     assert {name for name, _ in before} == {"sysctl", "ps"}, spawned
     assert not any(marked for _, marked in before), before
     assert after and all(marked for _, marked in after), after          # the provider does carry them
+    if relay:
+        assert json.loads((tmp_path / "start.json").read_text())["control_socket"] == str(root / "run" / "c.sock")
 
 
 def test_the_identity_readers_environment_is_four_names_and_never_a_marker(monkeypatch):
@@ -400,7 +425,7 @@ MUTANTS = {
     "guardian-unread": ("extension", "guardian-unread",
                         [(Daemon, "_start_extends", [("(unread is None or guardian in unread)", "unread is None")])]),
     # The census does not record what it could not read: D4 is lost.
-    "unread-unrecorded": ("stranger", None,
+    "unread-unrecorded": ("stranger", "refused",
                           [(procs, "containment", [("unread = {pid for pid in candidates if marker_unread(pid) in refused}",
                                                     "unread = set()")])]),
     # The guardian's identity readers are not admitted: H1 is lost.
@@ -420,6 +445,17 @@ MUTANTS = {
     "readers-own-group": ("beside", "own-group",
                           [(Daemon, "_identity_readers", [("shape.get(\"pgid\") == group and pid in census.group_pids",
                                                            "True")])]),
+    # A child with no state is admitted (#274 review r1's P3-5).
+    "readers-stateless": ("readers", None,
+                          [(Daemon, "_identity_readers", [('(stat := str(shape.get("stat") or "")) and not stat',
+                                                           'not (stat := str(shape.get("stat") or ""))')])]),
+    # A read cut short is an error under another name, so it is not in `markers_unread`
+    # (#275 review r1's OM-A).
+    "cut-unnamed": ("stranger", "cut-short",
+                    [(procs, "_kernel_sources", [(
+                        "# a buffer that may be cut short\n                errors.append(marker_unread(pid))",
+                        "# a buffer that may be cut short\n                errors.append("
+                        "f\"argument read unavailable for pid {pid}\")")])]),
 }
 
 
@@ -435,8 +471,10 @@ def test_d4_mutant_fails_its_named_regression(mutant, daemon, world, monkeypatch
         test_the_guardians_identity_reader_does_not_end_a_slow_start(daemon, world, monkeypatch, parameter)
     elif regression == "beside":
         test_no_extension_beside_any_member_but_an_identity_reader(daemon, world, monkeypatch, parameter)
+    elif regression == "readers":
+        test_the_identity_readers_are_exactly_the_unmarked_running_children_in_the_guardians_group(daemon)
     else:
-        test_a_strangers_refused_marker_read_does_not_end_a_slow_start(daemon, world, monkeypatch)
+        test_a_strangers_refused_marker_read_does_not_end_a_slow_start(daemon, world, monkeypatch, parameter)
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="the property must detect this mutant")
@@ -444,3 +482,25 @@ def test_the_any_marker_error_mutant_fails_the_extension_property(daemon, monkey
     """`only_markers_unread` true whenever any failed marker read is named, other errors aside."""
     monkeypatch.setattr(procs.Containment, "only_markers_unread", property(lambda self: bool(self.markers_unread)))
     test_extension_is_granted_exactly_while_every_condition_holds_whatever_the_census_could_not_read(daemon)
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the property must detect this mutant")
+@pytest.mark.parametrize("kind", ["responsibility", "table", "identity", "process", "enumeration"])
+def test_a_mutant_tolerating_one_more_error_kind_fails_the_extension_property(daemon, monkeypatch, kind):
+    """`only_markers_unread` true beside one error that is not a failed marker read. With only
+    `table` pinned, review r1's mutant tolerating `enumeration` passed the property."""
+    tolerated = ERRORS[kind]
+    monkeypatch.setattr(procs.Containment, "only_markers_unread", property(lambda self: bool(self.markers_unread) and (
+        set(self.errors) - {tolerated}) == {procs.marker_unread(pid) for pid in self.markers_unread}))
+    test_extension_is_granted_exactly_while_every_condition_holds_whatever_the_census_could_not_read(daemon)
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the relay case must detect this mutant")
+def test_a_relay_that_starts_a_process_before_start_json_fails_the_premise(tmp_path, monkeypatch, root):
+    """The relay's `bind`, which runs before `start.json`, starts `/usr/bin/true` with the
+    guardian's marked environment (#275 review r1's OM-B). Only the `relay` case binds."""
+    from subfleet.relay import RelayServer
+    replace_function(monkeypatch, RelayServer, "bind", [(
+        "directory = self.path.parent", "__import__('subprocess').run(['/usr/bin/true']); directory = self.path.parent")])
+    test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers(
+        tmp_path, monkeypatch, root, True)
