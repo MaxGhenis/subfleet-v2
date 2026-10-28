@@ -1,10 +1,10 @@
 # Retention dependency pins: continuation 3 handoff, 2026-10-28
 
-**Not ready for review.** The firmlink fixture is resolved and its WIP is subsumed. Of 33 mutants, **16 are killed, 1 is an intended equivalent, and 16 are unrun**. Current head coverage is **333/357 passed**; incomplete and unstarted nodes remain explicit. Measurements and contract audit are unbuilt. Earlier sections preserve historical continuation results.
+**Not ready for review.** The firmlink fixture is resolved and its WIP is subsumed. Of 33 mutants, **16 are killed, 1 is an intended equivalent, and 16 are unrun**. Current head coverage is **354/357 passed**; incomplete and unstarted nodes remain explicit. Measurements and contract audit are unbuilt. Earlier sections preserve historical continuation results.
 
 ## Continuation 3, 2026-10-28
 
-Started approximately **19:43Z**; **23:42Z** stops new holds and steps conservatively before four hours. Previously queued holds drain under their individual 1,140-second caps. Shared git metadata refused `index.lock`, so commits use private scratch metadata on `fix/retention-dependency-pins-217`. The assigned `.git` file remains unchanged; `rdp217c3.bundle` delivers the ordered commits based on `62c5d05f68b8`. No fetch, push, real provider, live store or production CLI ran.
+Started approximately **19:43Z**; **23:42Z** stops new holds and steps conservatively before four hours. Previously queued holds drained under their individual 1,140-second caps; the last finished at approximately 23:58Z. All 110 recorded owned process IDs were absent at close. Shared git metadata refused `index.lock`, so commits use private scratch metadata on `fix/retention-dependency-pins-217`. The assigned `.git` file remains unchanged; `rdp217c3.bundle` delivers the ordered commits based on `62c5d05f68b8`. No fetch, push, real provider, live store or production CLI ran.
 
 ### Fixture verdict
 
@@ -83,7 +83,7 @@ Step 4 is **unbuilt**; no contract/decision sentences were edited and no clause 
 
 ### Correctness and per-hold evidence
 
-The [coverage join](2026-10-27-retention-dependency-pins-data/c3-coverage.json) covers continuation 2's actual 356-node collection plus the validated added node: **333 passed, 0 failed, 4 incomplete, 20 unstarted**. [Remaining nodes](2026-10-27-retention-dependency-pins-data/c3-remaining-nodes.txt) names every open test. [c3-check-results.py](2026-10-27-retention-dependency-pins-data/c3-check-results.py) reproduces the join; `--allow-open` is required until the list is empty. Mutant failures never count as head failures.
+The [coverage join](2026-10-27-retention-dependency-pins-data/c3-coverage.json) covers continuation 2's actual 356-node collection plus the validated added node: **354 passed, 0 failed, 3 incomplete, 0 unstarted**. [Remaining nodes](2026-10-27-retention-dependency-pins-data/c3-remaining-nodes.txt) names every open test. [c3-check-results.py](2026-10-27-retention-dependency-pins-data/c3-check-results.py) reproduces the join; `--allow-open` is required until the list is empty. Mutant failures never count as head failures.
 
 A capped hold credits only nodes with passing setup, call and teardown. Selection safety and the detached oracle finished before their respective later cases capped; no terminal generated-example count is claimed for those capped holds. The fence property completed 24 generated passing / 0 invalid examples, plus its explicit example. The standalone detached interleaving retry passed with 12 generated passing / 0 invalid examples. Short [property statistics](2026-10-27-retention-dependency-pins-data/c3-property-statistics.txt) retain terminal proof. Reference and monotonicity caps are unfinished checks, not assertion failures. Prior continuation 2 results remain historical evidence.
 
@@ -128,13 +128,14 @@ Each row links to actual per-phase evidence. Counts are **passed / failed / unfi
 | [c3-detached-interleavings](2026-10-27-retention-dependency-pins-data/c3-detached-interleavings.json) | 23:43:15 | 39.0 | 1 / 0 / 0 | outside after 30 minutes | exit 0 |
 | [c3-shared-generated](2026-10-27-retention-dependency-pins-data/c3-shared-generated.json) | 23:44:17 | 47.6 | 2 / 0 / 0 | locked | exit 0 |
 | [c3-mutant-transaction-no-needs-blockers](2026-10-27-retention-dependency-pins-data/c3-mutant-transaction-no-needs-blockers.json) | 23:45:07 | 51.7 | 0 / 1 / 0 | locked | exit 1 |
+| [c3-shared-basic-b-resume](2026-10-27-retention-dependency-pins-data/c3-shared-basic-b-resume.json) | 23:55:47 | 32.9 | 21 / 0 / 0 | locked | exit 0 |
 
-The supplied environment sync ran once. Tests use the same locked Python 3.14.7 environment, private TMPDIR and Hypothesis roots. Early holds invoked that environment's Python directly; later holds use `uv run --no-sync` with the same environment/cache. A green-waiter JSON preflight race was fixed with atomic writes and tolerant reads before the successful retry; the failed preflight started no pytest and receives no test credit. Only compact results, actual failure traces, definitions, coverage/checking data and short statistics proof are retained. Scratch stayed below 2 GB; no host-load generator was started.
+The supplied environment sync ran once. Tests use the same locked Python 3.14.7 environment, private TMPDIR and Hypothesis roots. Early holds invoked that environment's Python directly; later holds use `uv run --no-sync` with the same environment/cache. A green-waiter JSON preflight race was fixed with atomic writes and tolerant reads before the successful retry; the failed preflight started no pytest and receives no test credit. Only compact results, actual failure traces, definitions, coverage/checking data and short statistics proof are retained. Scratch was sampled at 391 MiB, below 2 GB; no host-load generator was started. All tool-owned test sessions have ended. The verified ordered bundle is retained at the worktree root, and scratch is removed with the supplied guarded cleanup after delivery verification.
 
 ### Unbuilt and unrun
 
 - **16 mutants** remain unrun (rows above); any new survivor still needs a red/green killing test or an equivalence argument.
-- **24 current correctness nodes** remain open, listed in the coverage join and remaining-node file.
+- **3 current correctness nodes** remain open, listed in the coverage join and remaining-node file.
 - Both one-shot measurements, final tool revalidation, host loads and any required >2x query plans remain unrun.
 - The clause/decision audit and a post-edit state-contract guard remain unbuilt.
 - The PR is **not ready for review**. The fixture and added killing test are complete; the later ordered steps must resume after the mutation work.

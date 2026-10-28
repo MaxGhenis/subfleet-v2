@@ -595,5 +595,21 @@
     "capped": false,
     "exit": 1,
     "queue_seconds": 1164.425
+  },
+  {
+    "hold": "c3-shared-basic-b-resume",
+    "start": "2026-10-28T23:55:47.073941+00:00",
+    "load": [
+      32.93017578125,
+      49.6142578125,
+      64.51318359375
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 21
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 838.429
   }
 ]

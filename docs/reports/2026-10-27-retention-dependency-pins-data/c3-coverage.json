@@ -3,9 +3,8 @@
   "added_required": 1,
   "required": 357,
   "counts": {
-    "passed": 333,
-    "incomplete": 4,
-    "missing": 20
+    "passed": 354,
+    "incomplete": 3
   },
   "nodes": {
     "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]": {
@@ -1369,69 +1368,109 @@
       "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]": {
-      "hold": "c3-shared-basic-b.json",
-      "start": "2026-10-28T23:12:51.136695+00:00",
-      "outcome": "incomplete"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in": {
-      "outcome": "missing"
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
     },
     "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts": {
       "hold": "c3-guards-plan.json",

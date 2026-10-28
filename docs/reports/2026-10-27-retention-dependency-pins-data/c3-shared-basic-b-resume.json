@@ -1,0 +1,469 @@
+{
+  "start": "2026-10-28T23:55:47.073941+00:00",
+  "load": [
+    32.93017578125,
+    49.6142578125,
+    64.51318359375
+  ],
+  "pid": 3141,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 3.9680225000047358
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 17.83134308300214
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.09293270901252981
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 3.284167208999861
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.40016887499950826
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.07294804199773353
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.7045005830004811
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.8095133339957101
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0878238340083044
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.4143600840034196
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4040013329940848
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.06832795799709857
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.0907430419902084
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2921116659999825
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.044927124996320345
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.6896601670014206
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.896740708005382
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.08724441700906027
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.1978984999877866
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5020531250047497
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.013028540997765958
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.2696252919995459
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.92324879100488
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0030790419987170026
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.401811000003363
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 8.076596124999924
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.07561645799432881
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.0064435829990543
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.703892334000557
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.17583149998972658
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 2.1332495829992695
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.095376958997804
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0669069169962313
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.9111387920129346
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.453622250002809
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.01998829199874308
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.9531323339906521
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.5545999160094652
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.004284166992874816
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.1346350410021842
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.004477583002881
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.04013870800554287
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.2759949169994798
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.499468166002771
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.2763173330022255
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.5586551659944234
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.577704041003017
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.1141875839966815
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.0840518749901094
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.130292292000377
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.08533604099648073
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.6187926670099841
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.595556875006878
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.010210790991550311
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.8040822080074577
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.8436751249973895
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.02158433299337048
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.9826196250069188
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5340706659917487
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.04550162500527222
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.007888833002652973
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 23.712955374998273
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0005502919957507402,
+      "_hypothesis_stats": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in:\n\n  - during generate phase (23.70 seconds):\n    - Typical runtimes: ~ 1-310 ms, of which ~ 0-126 ms in data generation\n    - 150 passing, 0 failing, and 37 invalid test cases\n    - Events:\n      * 36.90%, Retried draw from text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')).filter(lambda name: '/' not in name) to satisfy filter\n      * 11.76%, gave up because: Aborted test because unable to satisfy text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')).filter(lambda name: '/' not in name)\n      * 4.81%, Retried draw from text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')) to satisfy filter\n\n  - Stopped because settings.max_examples=150"
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "exit": 0,
+  "seconds": 156.47938666699338,
+  "maxrss": 120143872,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "locked",
+  "command": [
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "admission_utc": "2026-10-28T23:55:35.241178+00:00",
+  "wall_seconds": 1008.331,
+  "queue_seconds": 838.429
+}
