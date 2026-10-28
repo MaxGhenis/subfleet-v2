@@ -8748,6 +8748,12 @@ class Daemon:
         # altering an explicitly authorized provider PYTHONPATH.
         provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
+        # C-5.1, D-QOS-BOOKED1: decided at this launch, from the policy and the caller
+        # ancestry as they are now; only an honoured request asks for `inherit`. Read
+        # before the launch gate is made, so a failed read leaves no descriptor open.
+        qos, qos_reason = self._launch_qos(job)
+        if scheduler.requested_qos(job) == "default":
+            self.log.info("attempt %s: %s", a["attempt_id"], qos_reason)
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(adir),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
@@ -8760,11 +8766,6 @@ class Daemon:
                         "--relay-peer-lock", str(self.root / "daemon.lock")]
         if self.guardian_start_delay_s:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
-        # C-5.1, D-QOS-BOOKED1: decided at this launch, from the policy and the caller
-        # ancestry as they are now; only an honoured request asks for `inherit`.
-        qos, qos_reason = self._launch_qos(job)
-        if scheduler.requested_qos(job) == "default":
-            self.log.info("attempt %s: %s", a["attempt_id"], qos_reason)
         command += [*guardian_qos_args(qos), *provider_env_args, "--", *launch.argv]
         child = None
         try:

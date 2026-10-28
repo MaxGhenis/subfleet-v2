@@ -15,6 +15,7 @@ priorities a real launch gets are read in tests/fake/test_provider_qos_booked.py
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -130,6 +131,25 @@ def test_d_qos_booked1_each_attempt_decides_afresh(priority):
     third, command = launch_again(daemon, calls, second)
     assert third["seq"] == 3 and asks_inherit(command), command
 
+
+def test_d_qos_booked1_a_failed_ancestry_read_opens_no_launch_gate(priority, monkeypatch):
+    """The decision is read before the launch gate is made: a store that cannot answer
+    leaves no descriptor open and starts no guardian (C-4.2, C-5.1)."""
+    daemon, harness, calls = priority
+    job_id = submit(daemon, harness, caller_session=CHOSEN, provider_qos="default")
+    daemon._admit()
+    attempt = daemon.store.list_attempts(job_id)[-1]
+    gates = []
+    real = daemon_module.procs.pipe_above_stdio
+    monkeypatch.setattr(daemon_module.procs, "pipe_above_stdio", lambda: gates.append(real()) or gates[-1])
+
+    def unreadable(jobs):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(daemon, "_priority_jobs", unreadable)
+    calls.clear()
+    with pytest.raises(sqlite3.OperationalError):
+        daemon._launch(attempt)
+    assert gates == [] and guardian_commands(calls) == []
 
 def test_d_qos_booked1_a_probe_for_an_honoured_job_stays_clamped(routing_state, monkeypatch):  # noqa: F811
     """C-11.4: a probe is the daemon's own read of a lane, never the job's work."""
