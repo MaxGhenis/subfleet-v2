@@ -9,7 +9,8 @@ output but for the runs the head's own pipeline for that mode does not hold, so 
   of the same text, does not hold replaced by `[REDACTED]`. Each pipeline is the mode's
   whole one, fold and second scrub included (review r8, P2-1: composing each scrub loses what
   release's second pass reads in its own fold): the excerpt and whole scrubs, `scrub_bounded`
-  and `clean` (release's pieces, each kept for the head's scrub of the same piece of text),
+  and `clean` (release's pieces, each kept for the head's scrub of the same piece of text;
+  within the budget one piece, the whole-text scrub, which `truncate` then cuts, C-23.36),
   daemon.log's folded line, `detail_line` and `suggestions.scrubbed_line` (release's line cut
   first), a suggestion's brief (`normalize`) and daemon.log's block form. `mask_approval`
   masks what release's masking leaves (`redact._head_mask_approval`).
@@ -200,27 +201,38 @@ PIECE_LINES = ("ordinary line", "token: SECRET7a1", "Authorization: Basic SECRET
 @given(lines=st.lists(st.sampled_from(PIECE_LINES), min_size=1, max_size=24),
        limit=st.sampled_from((None, 30, 80, 200, 4000)), strip=st.booleans(), chars=st.sampled_from((40, 90, 400)))
 def test_release_s_pieces_join_to_release_s_output(lines, limit, strip, chars):
-    """`_released_pieces` is release's `scrub_bounded` as the pieces it joins (truncated,
-    elided or whole, each as release writes it), beside the head's scrub of the same text;
-    an excerpt is cut where both scrubbers allow, so the pieces join to release's output
-    wherever both cut alike. The bounded mode writes no character release's output lacks,
-    no value it hides, and keeps to `limit`."""
+    """`_released_pieces` is release's `scrub_bounded` as the pieces it joins (excerpts
+    elided or whole, each as release writes it; within the budget, release's scrub before
+    its `truncate`), beside the head's scrub of the same text; an excerpt is cut where both
+    scrubbers allow, so the pieces, bounded as `scrub_bounded` bounds them, join to
+    release's output wherever both cut alike. Within the budget the bounded mode is the
+    whole-text mode, cut (C-23.36, #239 round 9): it writes a head and a tail of that mode's
+    output, so no value release's scrub of the text hides. Past it, the mode writes no value
+    release's output hides. Either way it keeps to `limit`."""
     text = "\n".join(lines)
     with _bounds(chars):
         pieces, outer_strip, count, heads, _ = handoff._released_pieces(text, limit, strip)
         joined = "".join(piece for piece, _ in pieces)
+        joined = joined.strip() if outer_strip else joined
         released, released_count = scrub_release.scrub_bounded(text, limit, strip_reminders=strip)
         resolved = (scrub_release._resolve_blocks(text, strip, scrub_release._Tally())
                     if len(text) > scrub_release.MAX_SCRUB_CHARS else text)
-        alike = len(resolved) <= scrub_release.MAX_SCRUB_CHARS or (
-            scrub_release._head_cut(resolved), scrub_release._tail_cut(resolved)) == (
+        within = len(resolved) <= scrub_release.MAX_SCRUB_CHARS
+        alike = within or (scrub_release._head_cut(resolved), scrub_release._tail_cut(resolved)) == (
             handoff._head_cut(resolved), handoff._tail_cut(resolved))
         if alike:
-            assert ((joined.strip() if outer_strip else joined), count) == (released, released_count)
+            bounded = joined if limit is None or len(joined) <= limit else handoff.truncate(joined, limit)
+            assert (bounded, count) == (released, released_count)
         assert len(heads) == len(pieces)
         out = handoff.scrub_bounded(text, limit, strip_reminders=strip)[0]
         assert out == _bounded(text, limit, strip)
-        assert _new(set(SECRET.findall(text)), out, released) == []
+        values = set(SECRET.findall(text))
+        if within:
+            whole = handoff.scrub_bounded(text, None, strip_reminders=strip)[0]
+            assert out == (whole if limit is None else handoff.truncate(whole, limit))
+            assert _new(values, out, scrub_release.scrub_bounded(text, None, strip_reminders=strip)[0]) == []
+        else:
+            assert _new(values, out, released) == []
         assert limit is None or len(out) <= limit
 
 

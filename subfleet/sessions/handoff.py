@@ -624,9 +624,13 @@ def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False
     each excerpt cut where both scrubbers allow a cut), and each scrubbed piece keeps
     only the runs that the head's own scrub of the same text holds (`shown_by_both`): of
     the text release scrubbed whole, or of the same excerpt, before release scrubbed it. Release's markers are kept as it wrote
-    them. Where the replacements make the result longer than `limit`, it is bounded
-    again (`truncate`), which only cuts. The count is release's or the head's, whichever
-    replaced more."""
+    them. A text release scrubs whole (within the budget, or once its blocks are
+    resolved) is one piece, release's scrub before its `truncate`, and `truncate` bounds
+    what is written of it, as release bounds its own scrub: so within the budget this is
+    exactly `truncate(scrub_secrets(text), limit)` (#239 round 9), and its cut, made in the
+    written text, can fall elsewhere than release's cut of its own. Where an excerpt's
+    replacements make the result longer than `limit`, it is bounded again (`truncate`),
+    which only cuts. The count is release's or the head's, whichever replaced more."""
     pieces, outer_strip, count, heads, head_count = _released_pieces(text, limit, strip_reminders)
     out = "".join(piece if kept else shown_by_both(piece, head) for (piece, kept), head in zip(pieces, heads))
     out = out.strip() if outer_strip else out
@@ -656,9 +660,11 @@ def _released_pieces(text: str, limit: int | None, strip_reminders: bool):
     of the text release scrubbed, whole or the same excerpt of it; "" for a marker), and
     the head's count. The steps are release's, in its order, by its helpers, and the
     blocks it resolves first are the head's too (`_resolve_blocks`); a text that needs no
-    excerpt, or whose cuts both scrubbers make alike, joins to release's output exactly,
-    which a test checks. Where the head's cut is the more cautious, each excerpt is the
-    head's, and its pieces the start and end of release's own."""
+    excerpt is one piece, release's scrub before the `truncate` that `scrub_bounded` then
+    applies to the written text, and the pieces of one whose cuts both scrubbers make
+    alike join to release's output exactly, which a test checks. Where the head's cut is
+    the more cautious, each excerpt is the head's, and its pieces the start and end of
+    release's own."""
     release = scrub_release
     original, count = len(text), 0
     if original > release.MAX_SCRUB_CHARS:
@@ -668,22 +674,13 @@ def _released_pieces(text: str, limit: int | None, strip_reminders: bool):
     if len(text) <= release.MAX_SCRUB_CHARS:
         scrubbed, found = release._scrub(text, strip_reminders)
         head, head_found = _scrub(text, strip_reminders)
-        heads, counts = [head], (count + found, count + head_found)
-        if limit is None:
-            return [(scrubbed, False)], False, counts[0], heads, counts[1]
-        # `release.truncate(scrubbed, limit)`, as its pieces.
-        scrubbed = scrubbed.strip()
-        if len(scrubbed) <= limit:
-            return [(scrubbed, False)], False, counts[0], heads, counts[1]
-        marker = f"\n… [{len(scrubbed) - limit:,} characters omitted] …\n"
-        usable = limit - len(marker)
-        if usable <= 0:
-            elided = release.ELIDED[:limit] if limit < len(release.ELIDED) else release.ELIDED
-            return [(elided, True)], False, counts[0], [""], counts[1]
-        cut = int(usable * 0.6)
-        tail = usable - cut
-        return ([(scrubbed[:cut].rstrip(), False), (marker, True), (scrubbed[-tail:].lstrip() if tail else "", False)],
-                False, counts[0], [head, "", head], counts[1])
+        # Release bounds this scrub with `truncate`; `scrub_bounded` bounds the composed scrub
+        # with it instead, so within the budget the bounded mode is the whole-text mode, cut
+        # (C-23.36). A cut piece of release's would hold the start or end of a run that the
+        # head's scrub holds only whole (`p` of `password`), which `shown_by_both` would hide
+        # (#239 round 9). `truncate` strips first, so the piece is stripped here.
+        return ([(scrubbed if limit is None else scrubbed.strip(), False)], False, count + found, [head],
+                count + head_found)
     # Each excerpt is cut where both scrubbers allow a cut: the head refuses every break
     # release refuses, and more (a credential flag's, whose value the head's fold reads on
     # the next line), so its head cut is at or before release's and its tail cut at or
