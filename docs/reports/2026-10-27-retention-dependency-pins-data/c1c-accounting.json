@@ -5,11 +5,9 @@
   "lost_salvage_remaining": 759,
   "reused_replacement": 27,
   "process_start_remaining": 732,
-  "completed_this_process": 721,
-  "remaining": 11,
-  "unresolved_failures": [
-    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
-  ],
+  "completed_this_process": 722,
+  "remaining": 10,
+  "unresolved_failures": [],
   "holds": [
     {
       "label": "c1c-remaining-02",
@@ -1978,6 +1976,56 @@
       "partial": [
         "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored"
       ],
+      "coverage": true
+    },
+    {
+      "label": "c1c-remaining-58",
+      "args": [
+        "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+      ],
+      "queued": {
+        "utc": "2026-10-28T10:40:05.055894+00:00",
+        "load": [
+          70.4609375,
+          76.90478515625,
+          86.87939453125
+        ]
+      },
+      "outside_lock": true,
+      "rc": 0,
+      "wall_s": 2748.24,
+      "end": {
+        "utc": "2026-10-28T11:25:53.358602+00:00",
+        "load": [
+          53.1748046875,
+          64.98974609375,
+          71.0751953125
+        ]
+      },
+      "admitted": {
+        "utc": "2026-10-28T11:10:13.791851+00:00",
+        "load": [
+          57.48583984375,
+          68.66650390625,
+          81.4560546875
+        ],
+        "pid": 92664
+      },
+      "finished": {
+        "utc": "2026-10-28T11:25:50.181401+00:00",
+        "load": [
+          56.498046875,
+          65.833984375,
+          71.40576171875
+        ],
+        "rc": 0,
+        "seconds": 936.3721323749996,
+        "rss": 130056192
+      },
+      "counts": {
+        "passed": 1
+      },
+      "partial": [],
       "coverage": true
     }
   ]
