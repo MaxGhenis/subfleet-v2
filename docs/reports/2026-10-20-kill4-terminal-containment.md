@@ -730,3 +730,43 @@ Review r3 approved #250 at `966262ed7` with three P3s; #250 merged into `release
    - **What it holds:** `seconds` from the deadline's start to that read; `deadline_start`, `launch` or `restart`; and the grace and bound in force. `restart` means a restarted daemon's first look: the deadline lives in daemon memory, so `_starting_first_look` keeps the attempts whose deadline began there, and a `start.json` already there at that look reads 0 s.
    - **Not recorded:** the daemon keeps no count of extensions, so the event has none. An attempt never extended records nothing.
    - **No behaviour change:** nothing reads the record. The `daemon-reads-first` mutant is retargeted at `_abandon_start`'s new body, with the same reordering.
+
+### Red runs
+
+At `c9430763f`'s code with the red tests (`72e5436d4`), one hold at 05:40Z: 13 failed, 8 passed.
+- **P3-1:** all three of case 3's variants and both of the new sequence's answered `containment requested`, and so did the tainted walk member's test. Both controls (listing failed, an untainted walk member) passed, as they should.
+- **P3-3:** both mutants survived the committed property and were detected by the new one; the new property passes on the real code.
+- **Check 5:** the five landing tests failed (no event); the two "records nothing" tests passed, as they should.
+
+### Mutants
+
+Strict xfail (`tests/unit/test_kill4_p3_mutations.py`); all detected in hold U1a.
+
+| Mutant | The change | Named test |
+|---|---|---|
+| p3-1-unverifiable-always | every unverifiable census runs the protocol again (review r3's input) | `test_case_3_kill_force_release_kill_kill_on_an_unverifiable_census_runs_no_protocol[legacy-attempt-boot]` |
+| p3-1-taint-ignored | a tainted walk member qualifies | `test_an_unverifiable_census_whose_walk_members_are_tainted_runs_no_protocol` |
+| p3-2-starting-stop-terms-first | a cancel or wall stop while starting TERMs first | `test_every_ending_of_a_starting_attempt_writes_the_abandon_before_any_signal_or_end[cancel]` and `[wall]` |
+| p3-3-extend-at-the-bound | `>` for `>=` | the extension property (the at-the-bound example) |
+| p3-3-bound-from-the-deadline | the bound counted from the deadline (+10 s) | the extension property (the just-past example) |
+| check-5-landed-unextended | a landing recorded without an extension | `test_a_start_that_lands_within_start_grace_records_nothing` |
+
+### Holds
+
+One pytest per hold under the suite lock, at `f224c5e90`'s code, from this worktree; load1 was 44 to 170.
+
+| Hold (UTC) | Files | Result |
+|---|---|---|
+| U1a (06:51) | `test_kill4_boot_scope` 51, `test_quar_start1_landed` 7; `test_kill4_boot_scope_mutations` 4 xfailed, `test_kill4_p3_mutations` 7 xfailed | 58 passed, 11 xfailed |
+| G (07:01) | `tests/fake/test_state_contract.py` 37, `test_test_module_names` 1, `test_invariants_index` 25 | 63 passed |
+| U1b (07:12) | `test_kill4_fix2b` 21, `test_kill4_review_r3` 12, `test_kill4_properties` 1; `test_kill4_fix2b_mutations` 8 xfailed, `test_kill4_review_r3` 1 xfailed | 34 passed, 9 xfailed |
+| P1 (07:31) | `tests/process/test_quar_start1_process.py` 4 passed and 2 xfailed (both handshake order mutants, `daemon-reads-first` retargeted), `test_kill4_fix1_process` 3, `test_census_parent_chain_process` 3 | 10 passed, 2 xfailed, in 632 s at load 99 to 138 |
+
+Two earlier holds found two faults of this round, both fixed in `b4fe073dd`: cores built without `__init__` had no `_starting_first_look`, and the tests' `landed()` counted `add_event`'s bare audit row.
+
+**Not run here,** because the lock queue at load 120 to 200 used the round's time:
+- the rest of review r3's U1: `test_kill4_terminal_containment`, `test_kill4_fix1`, `test_kill4_mutations` and `test_kill4_fix1_mutations`. Their `kill` tests assert that nothing is signalled, or that a signallable member is contained, and decision 1 only removes protocol runs;
+- review r3's F1, U2 and F2;
+- `tests/frontend/test_core_live.py`, which cannot run on a lane.
+
+CI runs them.
