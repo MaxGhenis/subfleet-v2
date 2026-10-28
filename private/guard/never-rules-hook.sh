@@ -1963,8 +1963,10 @@ pw_prep_awk="$pw_lib_awk"'
         prod = hstr (hstr != "" && hd != "" ? "\n" : "") hd
       } else {
         # r5 decision 11: any other command (cat, tee, a filter) writes its words, failing closed, and passes
-        # on what it reads (the pipe carries every earlier stage)
+        # on what it reads (the pipe carries every earlier stage); r6 decision 3: its here-string and its
+        # heredoc too, as cat does
         for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : " ") val[k]
+        if (hstr hd != "") prod = prod (prod == "" ? "" : "\n") hstr (hstr != "" && hd != "" ? "\n" : "") hd
       }
     }
     # r5 decision 3: the command find runs with -exec, -execdir, -ok or -okdir is judged on its own, each {}
