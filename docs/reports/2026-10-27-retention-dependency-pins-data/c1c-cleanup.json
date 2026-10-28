@@ -11,6 +11,14 @@
     "subfleet/__pycache__/procs.cpython-314.pyc"
   ],
   "scratch_owned_subtree": "sf-rdp217c1/recovery-0747",
-  "scratch_final_cleanup": "pending final bundle verification",
-  "release_comparison_worktree": "removed"
+  "release_comparison_worktree": "removed",
+  "scratch_cleanup_procedure": "Guarded removal of only sf-rdp217c1/recovery-0747 after final bundle verification; delivery checks that the subtree is absent.",
+  "all_test_drivers_ended": true,
+  "final_pre_bundle_scratch_kib": 27580,
+  "workspace_generated_directories": {
+    "build": false,
+    ".hypothesis": false,
+    ".venv": false,
+    "__pycache__": false
+  }
 }

@@ -1,8 +1,8 @@
 {
   "summary": {
     "planned": 1104,
-    "completed": 1102,
-    "remaining": 2
+    "completed": 1104,
+    "remaining": 0
   },
   "nodes": [
     {
@@ -1505,7 +1505,13 @@
           "admission-b-1"
         ]
       ],
-      "completion_evidence": []
+      "completion_evidence": [
+        {
+          "source": "c1c-remaining-61-results.jsonl",
+          "outcome": "passed",
+          "xfail": null
+        }
+      ]
     },
     {
       "nodeid": "tests/fake/test_admission_liveness.py::test_c6_3_readings_ageing_out_on_sixty_unrelated_lanes_never_hold_a_job_back",
@@ -4910,7 +4916,13 @@
           "admission-b-2"
         ]
       ],
-      "completion_evidence": []
+      "completion_evidence": [
+        {
+          "source": "c1c-remaining-62-results.jsonl",
+          "outcome": "passed",
+          "xfail": null
+        }
+      ]
     },
     {
       "nodeid": "tests/fake/test_admission_stateful.py::test_a_permanently_excluded_retry_does_not_hold_a_younger_provider_peer",

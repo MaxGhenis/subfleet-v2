@@ -5,8 +5,8 @@
   "lost_salvage_remaining": 759,
   "reused_replacement": 27,
   "process_start_remaining": 732,
-  "completed_this_process": 730,
-  "remaining": 2,
+  "completed_this_process": 732,
+  "remaining": 0,
   "unresolved_failures": [],
   "holds": [
     {
@@ -2224,6 +2224,106 @@
         "rc": 0,
         "seconds": 520.3747629159989,
         "rss": 120111104
+      },
+      "counts": {
+        "passed": 1
+      },
+      "partial": [],
+      "coverage": true
+    },
+    {
+      "label": "c1c-remaining-62",
+      "args": [
+        "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest"
+      ],
+      "queued": {
+        "utc": "2026-10-28T11:43:42.030953+00:00",
+        "load": [
+          83.07470703125,
+          74.8076171875,
+          75.853515625
+        ]
+      },
+      "outside_lock": true,
+      "rc": 0,
+      "wall_s": 2287.25,
+      "end": {
+        "utc": "2026-10-28T12:21:49.310765+00:00",
+        "load": [
+          56.9365234375,
+          59.69140625,
+          62.9462890625
+        ]
+      },
+      "admitted": {
+        "utc": "2026-10-28T12:14:04.262170+00:00",
+        "load": [
+          64.13232421875,
+          64.21630859375,
+          65.46875
+        ],
+        "pid": 34957
+      },
+      "finished": {
+        "utc": "2026-10-28T12:21:43.834986+00:00",
+        "load": [
+          61.10986328125,
+          60.54736328125,
+          63.2646484375
+        ],
+        "rc": 0,
+        "seconds": 459.5658680000015,
+        "rss": 130187264
+      },
+      "counts": {
+        "passed": 1
+      },
+      "partial": [],
+      "coverage": true
+    },
+    {
+      "label": "c1c-remaining-61",
+      "args": [
+        "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass"
+      ],
+      "queued": {
+        "utc": "2026-10-28T11:44:52.853487+00:00",
+        "load": [
+          76.94580078125,
+          74.9111328125,
+          75.8212890625
+        ]
+      },
+      "outside_lock": true,
+      "rc": 0,
+      "wall_s": 2730.69,
+      "end": {
+        "utc": "2026-10-28T12:30:23.546992+00:00",
+        "load": [
+          63.33203125,
+          65.08984375,
+          62.90234375
+        ]
+      },
+      "admitted": {
+        "utc": "2026-10-28T12:15:19.819641+00:00",
+        "load": [
+          64.31494140625,
+          61.95166015625,
+          64.3525390625
+        ],
+        "pid": 57050
+      },
+      "finished": {
+        "utc": "2026-10-28T12:30:20.018835+00:00",
+        "load": [
+          63.33203125,
+          65.08984375,
+          62.90234375
+        ],
+        "rc": 0,
+        "seconds": 900.2220142920014,
+        "rss": 126763008
       },
       "counts": {
         "passed": 1
