@@ -1853,8 +1853,10 @@ pw_prep_awk="$pw_lib_awk"'
     }
     return 0
   }
+  # (this awk takes at most 50 arguments and locals in a call, so r6 keeps its own in st: st["ps"] what a process
+  # substitution writes, st["pr"] the roots a pipe carries)
   function simple(seg, depth, piped, noext, ctx, bt, hd,   ex, isfr, fw, xe, nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
-    pin = pipein
+    pin = pipein; st["pr"] = piperoots; st["ps"] = pipeps
     nt = 0; i = 1; n = length(seg); sp[0] = ""
     while (i <= n) {
       # (runs of blanks and of plain characters are taken at once: one at a time is quadratic on a long word)
@@ -1921,6 +1923,27 @@ pw_prep_awk="$pw_lib_awk"'
       if (t <= nt && !qd[t] && val[t] ~ /^=[A-Za-z_.\/]/) val[t] = substr(val[t], 2)
     }
     if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }
+    # r6 decision 9: a for loop variable stands for its words, and a variable a piped while-read reads for the roots
+    # of what the pipe carries (find: its roots; any other command: its words), as {} does for -exec; a searcher
+    # operand that is only $V, "$V", ${V} or "${V}" is read as them (LVAR)
+    if (mode == "prep" && t <= nt) {
+      if (val[t] == "for" && t + 2 <= nt && val[t + 2] == "in" && val[t + 1] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
+        w = ""; for (k = t + 3; k <= nt; k++) if (!rd[k]) w = w (w == "" ? "" : " ") tk[k]
+        if (w != "") LVAR[val[t + 1]] = w
+      } else if (val[t] == "read" && st["pr"] != "") {
+        for (k = t + 1; k <= nt; k++) {
+          if (rd[k]) continue
+          if (val[k] ~ /^-[a-zA-Z]*[adnNptu]$/) { k++; continue }
+          if (val[k] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) LVAR[val[k]] = st["pr"]
+        }
+      } else if (isname(base(val[t])) || val[t] == "grep -r") {
+        for (k = t + 1; k <= nt; k++) {
+          if (rd[k] || tk[k] !~ /^"?\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)"?$/) continue
+          w = tk[k]; gsub(/["${}]/, "", w)
+          if (w in LVAR) { tk[k] = LVAR[w]; val[k] = value(tk[k]); qd[k] = (tk[k] ~ /["\047\\]/) }
+        }
+      }
+    }
     # a searcher right after an opening backtick gets a space before it, so the rules see its name
     if (bt && t == 1 && sp[0] == "" && isname(base(val[1]))) sp[0] = " "
     # r5 decision 3: find arguments end at -exec, -execdir, -ok or -okdir (ex: 1 for the operator and its
@@ -2009,14 +2032,15 @@ pw_prep_awk="$pw_lib_awk"'
         # r5 decision 11: the format with its arguments in order, then each word (r4)
         prod = pfmt(val, rd, k, nt)
         for (; k <= nt; k++) if (!rd[k]) prod = prod "\n" val[k]
-      } else if (pc == "cat" && hstr hd != "") {
-        prod = hstr (hstr != "" && hd != "" ? "\n" : "") hd
+      } else if (pc == "cat" && hstr hd st["ps"] != "") {
+        prod = hstr (hstr != "" && hd != "" ? "\n" : "") hd (hstr hd != "" && st["ps"] != "" ? "\n" : "") st["ps"]
       } else {
         # r5 decision 11: any other command (cat, tee, a filter) writes its words, failing closed, and passes
         # on what it reads (the pipe carries every earlier stage); r6 decision 3: its here-string and its
         # heredoc too, as cat does
         for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : " ") val[k]
         if (hstr hd != "") prod = prod (prod == "" ? "" : "\n") hstr (hstr != "" && hd != "" ? "\n" : "") hd
+        if (st["ps"] != "") prod = prod (prod == "" ? "" : "\n") st["ps"]
       }
     }
     # r5 decision 3: the command find runs with -exec, -execdir, -ok or -okdir is judged on its own, each {}
@@ -2025,8 +2049,8 @@ pw_prep_awk="$pw_lib_awk"'
     # r5 decision 3: a depth bound covers the walk of its own command only: its words stay for the xargs rule
     # (its searcher names made :, the roots of find as the shell reads them), and what find runs was judged
     # on its own above
-    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; if (collect) coll = coll "\n" prod; return out }
-    lastprod = prod
+    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; lastroots = proots(val[t], fw, prod); if (collect) coll = coll "\n" prod; return out }
+    lastprod = prod; lastroots = proots(val[t], fw, prod)
     if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]
     # the scripts a shell or eval runs (r4 decision 3), each judged as its own lines
     if (!noext) {
@@ -2047,11 +2071,13 @@ pw_prep_awk="$pw_lib_awk"'
       # command under the xargs rule (xsh: the prep ends with \003X\003)
       if (mode == "prep" && st["a"] && st["s"] && st["c"] && st["g"] && pwn(val[st["g"]])) xsh = 1
       if (st["s"] && !st["c"] && (!st["f"] || st["S"])) {
-        # its here-string, its heredoc (r5 decision 2) or what every earlier stage of its pipeline writes
-        # (r5 decision 11)
-        scr = (hstr != "") ? hstr : (hd != "") ? hd : pin
+        # its process substitution (r6 decision 9: bash <(...), bash < <(...)), here-string, heredoc (r5 decision
+        # 2) or what every earlier stage of its pipeline writes (r5 decision 11)
+        scr = (st["ps"] != "") ? st["ps"] : (hstr != "") ? hstr : (hd != "") ? hd : pin
         if (scr != "") script(scr, sx(st, scr), depth)
       }
+      # r6 decision 9: source <(...) and . <(...) run what the substitution writes in this shell
+      if (t <= nt && (val[t] == "source" || val[t] == ".") && st["ps"] != "") script(st["ps"], ctx, depth)
       # r5 decision 11: a -c script that only runs its arguments ("$@", $@, "$1", $*) runs the words after its
       # name operand; under xargs such a script, or a -c with no script, runs what xargs reads
       # (st["g"]: the script word; st["a"]: xargs runs the shell)
@@ -2063,7 +2089,7 @@ pw_prep_awk="$pw_lib_awk"'
       k = st["g"]
       if (st["a"] && st["s"] && pin != "" && (k ? val[k] ~ /^"?\$\{?[@*1]\}?"?$/ : st["c"])) script(pin, sx(st, pin), depth)
     }
-    lastprod = prod
+    lastprod = prod; lastroots = proots(val[t], fw, prod)
     if (collect) coll = coll "\n" prod
     if (nt == 1 && tk[1] == "cd") tk[1] = "cd ~"
     else if (nt == 2 && tk[1] == "cd" && tk[2] == "--") tk[2] = "~"
@@ -2071,6 +2097,9 @@ pw_prep_awk="$pw_lib_awk"'
     for (t = 1; t <= nt; t++) out = out ((xe && ex[t] == 2) ? "" : tk[t]) sp[t]
     return out
   }
+  # proots(b, fw, prod): the roots a command whose name is b writes to a pipe, for a while-read after it (r6 decision
+  # 9): the roots of find (. when it names none), any other command its words
+  function proots(b, fw, prod) { return (b == "find") ? ((fw == "") ? "." : fw) : prod }
   # execs(tk, val, ex, t, nt, roots, ctx, depth): each command the find at t runs (ex 2) judged as its own lines,
   # {} as roots (a {} inside a word as the first root); 1 when there was one (r5 decision 3).
   function execs(tk, val, ex, t, nt, roots, ctx, depth,   k, cmd, q, x, any) {
@@ -2156,7 +2185,7 @@ pw_prep_awk="$pw_lib_awk"'
     }
     return 0
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hz, hn, he, hl, nl, LN, LP, bto, pi, pd, na, AO, AD, AV, HZ) {
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hz, hn, he, hl, nl, LN, LP, bto, pi, pd, na, AO, AD, AV, HZ, psb, nextroots, ri) {
     n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hz = 0; hn = 0; he = 0; nl = 0; bto = 0
     pd = 0; na = 0
     while (i <= n) {
@@ -2191,6 +2220,11 @@ pw_prep_awk="$pw_lib_awk"'
         }
         seg = seg HDW; i = j; continue
       }
+      # r6 decision 9: what a process substitution <(...) writes goes to the command it is a word of (psb), as its
+      # script when that is a shell or source (its commands are read as commands here too)
+      if (c == "<" && substr(t, i + 1, 1) == "(" && mode == "prep" && !noext && (j = parend(t, i + 1))) {
+        x = subout(substr(t, i + 2, j - i - 2), depth, ctx); if (x != "") psb = psb (psb == "" ? "" : "\n") x
+      }
       if (c == "<") { seg = seg c; i++; continue }
       if (c == "$" && substr(t, i + 1, 1) == "\047") { j = sqend(t, i + 1); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
       # r5 decision 10: a word that starts ~$( or ~` is read from the home, and the command its substitution
@@ -2215,8 +2249,9 @@ pw_prep_awk="$pw_lib_awk"'
       if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
       else if (c == "|" && substr(t, i + 1, 1) == "&") sep = "|&"
       # r5 decision 11: a pipe carries what every earlier stage writes
-      pi = nextin; pipein = pi; r = simple(seg, depth, piped, noext, ctx, bt, sb); sb = ""
+      pi = nextin; pipein = pi; ri = nextroots; piperoots = ri; pipeps = psb; r = simple(seg, depth, piped, noext, ctx, bt, sb); sb = ""; psb = ""
       nextin = (sep == "|" || sep == "|&") ? pi (pi == "" ? "" : "\n") lastprod : ""
+      nextroots = (sep == "|" || sep == "|&") ? ri (ri == "" ? "" : " ") lastroots : ""
       # r5 decision 5: a space before a closing backtick too, so a root right before it ends there
       if (sep == "`") { if (bto) r = r " "; bto = !bto }
       res = res r sep; seg = ""
@@ -2227,7 +2262,7 @@ pw_prep_awk="$pw_lib_awk"'
       if (sep == "\n") { if (he > i) { res = res substr(t, i, he - i); i = he }; hn = 0; he = 0 }
       piped = (sep == "|" || sep == "|&"); bt = (sep == "`")
     }
-    pipein = nextin
+    pipein = nextin; piperoots = nextroots; pipeps = psb
     return res simple(seg, depth, piped, noext, ctx, bt, sb)
   }
   BEGIN {
