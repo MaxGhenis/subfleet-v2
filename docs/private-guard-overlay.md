@@ -85,7 +85,7 @@ are unchanged. The test fixture in `tests/fake/guard.py` is deliberately synthet
 and must never be staged as operator security policy. It is absent from both
 prepared distributions, and the runtime has no test-fixture fallback.
 
-## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25; r3c and r4 2026-10-26; r5 2026-10-27; r6 2026-10-28)
+## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25; r3c and r4 2026-10-26; r5 2026-10-27; r6 and r7 2026-10-28)
 
 The table above is the original pair of 2026-09-05. It is not the rollback: its TRUST
 (`0b9d688e…`) pins `codex-cli 0.153.3`, and staging it would make preflight refuse every
@@ -218,11 +218,23 @@ than 4,096 of one of `$`, `#` or `\` is denied as too complex to judge, and so i
 words) or a piped `while read` variable (the producer's roots) that is a searcher's whole operand is
 read as what it stands for.
 
+Its r7 (2026-10-28) closes the findings of the hub's review r6. A `<<` inside `$((…))`, `((…))`, `$[…]`
+or `let '…'` is a shift even when the span crosses lines, in `parend` as in the prep, while a `$(` or
+a backtick inside it is still a command whose heredoc is read; a `((` is arithmetic when its inner `(`
+closes right before its outer one, as the shells read it. A heredoc body is read a line at a time with
+no copy of the rest of the command, and each line read, by `parend` and by the prep, is a step of the
+shared 20,000-step budget. What a `<(…)` writes, the `cat`, `tee`, `sort` or other filter it is a word
+of passes down the pipe after it, into a shell given no script (`cat <(echo 'rg --files ~/.subfleet')
+| bash`). A plain assignment after a loop's `done` that lasts (at the top of the command, with no loop,
+`if`, `case` or brace group open, after `;`, a newline, `&` or nothing and before `;`, a newline, `&&`
+or `||`) ends the loop variable's reading, and a literal value is read in its place: `for d in
+~/.subfleet/*; do …; done; d=src; rg foo "$d"` passes, and `…; d=~/.subfleet; rg foo "$d"` is denied.
+
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
 globs and computed list of folders a glob reads, and the command reading follows its keywords,
 wrapper table, shell options, `eval`, stdin scripts, stdin model and print-and-exit forms. Their
-shared limits are in the report's known limits. Known differences that remain after r6, read from
+shared limits are in the report's known limits. Known differences that remain after r7, read from
 the code as it stands, with review r5's check 8 forms marked (snapshot-5 read from its frozen
 `.ref`: `for` at `:2179-2187`, `read` at `:2192-2197`, shells at `:2227-2252`):
 
@@ -232,8 +244,8 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     knows only its fixed list (`rg --files .` or `rg foo` sitting in `~/.subfleet` or in `/usr`);
     snapshot-5 follows the cwd. These are D-LANE-SCOPE2's.
   - Variables: a searcher named through a variable (`RG=rg; $RG …`), a root held in any variable but
-    `$HOME`, `$SUBFLEET_ROOT`, `$SUBFLEET_HOME` and a loop variable read as below (`d=~/.subfleet;
-    rg --files $d`), and a parameter form other than `$NAME` and `${NAME}`
+    `$HOME`, `$SUBFLEET_ROOT`, `$SUBFLEET_HOME` and a loop variable read as below (its loop's words,
+    or a literal assigned to it after its loop, r7 decision 5) (`d=~/.subfleet; rg --files $d`), and a parameter form other than `$NAME` and `${NAME}`
     (`${SUBFLEET_ROOT:-~/.subfleet}`, `${HOME%/}/.subfleet`); snapshot-5 tracks assignments and
     expands these forms.
   - A `for` loop variable inside a word or after a `cd` (`for d in ~/.subfleet/*; do rg foo
@@ -278,7 +290,7 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     at this head (r7 decision 4).
   - *Fixed at this head:* the filter-heredoc pipe (`tee <<'EOF' | bash`, review r5's P3-1, decision 3;
     snapshot-5 models only echo, printf and cat there, so this overlay is now the stricter);
-    arithmetic `<<` (P3-2, decision 4); the lone `"` in `"$(cat <<'EOF' … EOF)"` (P3-3, decision 5);
+    arithmetic `<<` (P3-2, decision 4; across lines since r7 decision 1, review r6's P3-1 and P3-2); the lone `"` in `"$(cat <<'EOF' … EOF)"` (P3-3, decision 5);
     `` `=cmd` `` (P3-4, decision 6); xargs into a shell `-c` script (P2-2, decision 2); `<(…)` scripts
     and `for`/piped `while read` loops feeding a searcher (P3-7, decision 9: snapshot-5 runs no
     script from a shell given a `<(…)` file, `:2247-2252`, and leaves a `read` variable unknown, so
@@ -318,23 +330,31 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     searcher's span does (`` Run `rg --files` in `~/.subfleet` ``), as does naming a scoped path.
   - A command over 64 KB that names a searcher anywhere, prose included, is denied unread, and so
     is one that holds more than 4,096 of one of `$`, `#` or `\` (r6 decision 8), or whose `$(…)`,
-    `$((…))`, `((…))`, `<(…)` and heredoc forms take the prep past its 20,000-step budget (r6).
+    `$((…))`, `((…))`, `<(…)` and heredoc forms take the prep past its 20,000-step budget (r6). Since
+    r7 decision 2 each heredoc body line read is a step: a body inside `"$(…)"` is read three times, so
+    6,661 lines are past the budget, and one at the top of the command once, so 20,000 lines are.
   - A component bash can match against `..` is read as its parent in zsh's reading too, and a word
     with more than three such components is denied unread.
   - A pipe into a shell given no script reads every earlier stage's words as its script, also for a
-    filter whose output differs from its words (and a filter's heredoc, here-string or `<(…)`), and
-    a `{}` in what find's `-exec` runs stands for all of find's roots.
+    filter whose output differs from its words (and a filter's heredoc, here-string or `<(…)`; the
+    `<(…)` since r7 decision 3: review r6's P3-4 found r6's pass-on never reached a pipe), and a `{}`
+    in what find's `-exec` runs stands for all of find's roots.
   - xargs running a shell whose `-c` script names a searcher is judged by the xargs rule: a root
     anywhere in the command denies, also one the script never reads (r6 decision 2).
   - A loop variable that is a searcher's whole operand stands for all its words or roots at once,
     and a piped `while read` takes any producer's words as roots (`ls ~/.subfleet | while read d;
     do rg foo "$d"; done` is denied, though ls writes names relative to `~/.subfleet`).
   - An unterminated heredoc leaves the rest read as commands; the shells read it all as the body.
+  - A loop variable's reading ends only at an assignment that lasts (r7 decision 5): one inside a
+    compound command (`if`, a brace group) or a nested script, one after a `case` pattern written
+    without its optional leading `(` anywhere earlier in the command (the prep reads its `)` as a
+    close), or one whose value holds `$` or a backtick leaves the loop's words in place, so `for d in ~/.subfleet/*; do :; done; { d=src; }; rg foo "$d"` is denied though no
+    shell walks a root (`R7_LOOPVAR_STRICTER`).
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `6671496ba743cfcd18decbec3f92594f0af5022614cae4a6a0acc76f838caea3` |
-| `TRUST` | `955bc7fa641afdf90ae76a29443404e268e5e316b0c486be7b2ee13599513d2f` |
+| `never-rules-hook.sh` | `89b0efe18b64ea939cf0c14b2b6e416162a66560759903a60e69592af961aa5d` |
+| `TRUST` | `b749db5afabaf72482e22c53d0e9ae9bd3b4dd3df80efe174bf409453f36e9eb` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one

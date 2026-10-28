@@ -177,7 +177,7 @@ R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a51
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
 #: The overlay's hook after r4 (review r3's walk-arounds closed; 4b382c29... at r4's end) and r4v (the
 #: decision-6 fast path's lstat goes through pw_islink): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "6671496ba743cfcd18decbec3f92594f0af5022614cae4a6a0acc76f838caea3"
+NEW_HOOK_SHA256 = "89b0efe18b64ea939cf0c14b2b6e416162a66560759903a60e69592af961aa5d"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
