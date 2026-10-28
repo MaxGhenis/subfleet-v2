@@ -46,6 +46,12 @@ The corrected detached dependency oracle passed in `c1c-remaining-04-resume-4` (
 
 The writer oracle has now exposed the same omitted Git-storage evidence as the detached oracle. Its equivalent correction and both counterexamples are prepared, with its node assigned to an isolated worker; it is not yet claimed green. Full 400-example fence differential coverage still remains after its keyword-stub correction. The required step 3, spelling-gap red/green and new step 4 properties remain unstarted in the required order.
 
+### Writer oracle green
+
+The writer oracle's red hold omitted its linked checkout's external Git storage. Its matching independent dependency comparison and both explicit counterexamples now pass: **1 passed in 106.30 s**, outside the lock after the 30-minute wait, at admission load **110.0** (`c1c-remaining-47`). It retains the 60-example assertion and refreshes readings per example as before. This correction changes the reference expectation, not production admission.
+
+The still-uncompleted 400-example early/reservation differential is assigned to isolated slice 58; other workers exclude that node to avoid duplicate retries.
+
 ## Checkpoints and recovery
 
 Shared Git metadata rejected `ORIG_HEAD.lock` with `Operation not permitted`. The original workspace metadata remains at `8f106c64595c`; checkpoints were committed in scratch Git metadata on `fix/retention-dependency-pins-217`. The delivery bundle contains those ordered commits and requires the already-present `8f106c645` and `c9430763f` histories. No shared branch update was possible.

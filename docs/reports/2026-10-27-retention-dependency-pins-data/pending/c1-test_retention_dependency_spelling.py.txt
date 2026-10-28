@@ -1,0 +1,97 @@
+"""C-8.4: recorded dependency aliases wait even while their tree is away."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from subfleet import folders
+from tests.fake.test_admission_latency import fleet_daemon
+from tests.fake.test_admission_liveness import _end, _live
+from tests.fake.test_detached_retention_fence import Workspaces
+from tests.fake.test_retention_dependencies import external_checkout, needing
+from tests.fake.test_writer_retention_fence import look, measured
+from tests.unit.test_retention_folded_pin import ID, host
+
+ALIASES = (ID.upper(), ID.replace("fi", "ﬁ"), ID.replace("first", "firſt"), ID[:-1] + "K")
+
+
+def record_alias(daemon, job_id, role, path):
+    """Replay recorded evidence whose spelling survived an earlier quarantine."""
+    with daemon.store.transaction() as tx:
+        row = tx.execute("SELECT event_id,data_json FROM events WHERE job_id=? AND kind='job.submitted'",
+                         (job_id,)).fetchone()
+        data = json.loads(row[1])
+        data["depends"][role] = path
+        tx.execute("UPDATE events SET data_json=? WHERE event_id=?", (json.dumps(data), row[0]))
+        # Git storage lives only in the submission; row paths agree otherwise.
+        if role == "git":
+            return
+        tx.execute(f"UPDATE jobs SET {role}=? WHERE job_id=?", (path, job_id))
+
+
+def alias_waits(base, alias, kind, late):
+    with fleet_daemon(base / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        tree, nested = host(daemon, harness, ID)
+        tree = Path(folders.canonical(tree))
+        aside = tree.with_name(".quarantined")
+        named = nested.replace(ID, alias)
+        fence = folders.exclusive_key(str(tree))
+        holder = "retention:" + ID
+        workspaces = Workspaces(daemon, patch, real=False)
+        if kind == "linked":
+            external_checkout(base, nested)
+        if not late:
+            assert daemon.store.acquire_lease(fence, holder)
+        if kind == "output":
+            # This is an actual submit with an absent aliased parent and tail.
+            tree.rename(aside)
+        try:
+            job, _, role = needing(daemon, harness, base, str(tree), named if kind == "output" else nested, kind)
+            field = {"output": "out_path", "review-root": "review_root", "linked": "git"}[kind]
+            recorded = named + "/result.md" if kind == "output" else named
+            if kind == "linked":
+                paths = [path.replace(ID, alias) for path in daemon._submitted(job)["depends"]["git"]]
+                record_alias(daemon, job, "git", paths)
+                recorded = paths[0]
+                tree.rename(aside)
+            if kind == "review-root":
+                record_alias(daemon, job, field, recorded)
+                tree.rename(aside)
+            evidence = daemon._submitted(job)["depends"][field]
+            assert (evidence[0] if field == "git" else evidence) == recorded
+            assert not Path(recorded).exists()
+            assert folders.fold(recorded).startswith(folders.fold(str(tree)) + "/")
+
+            if late:
+                def selection_lands(row):
+                    assert daemon.store.acquire_lease(fence, holder)
+                    return workspaces(row)
+                patch.setattr(daemon, "_workspace", selection_lands)
+
+            hold = look(daemon, job)
+            assert not _live(daemon, job), hold
+            assert hold["retiring"] == [fence]
+            assert hold["folder"] == recorded and hold["needs"] == role
+            assert workspaces.calls == ([job] if late else [])
+            # The same alias also holds before workspace preparation on a later look.
+            patch.setattr(daemon, "_workspace", workspaces)
+            workspaces.calls.clear()
+            assert look(daemon, job)["retiring"] == [fence]
+            assert not workspaces.calls
+        finally:
+            if aside.exists():
+                aside.rename(tree)
+        daemon.store.release_leases(holder)
+        look(daemon, job)
+        assert _live(daemon, job), daemon._holds.get(job)
+        _end(daemon, job)
+
+
+@pytest.mark.parametrize("alias", ALIASES, ids=("case", "fi", "long-s", "kelvin"))
+@pytest.mark.parametrize("kind", ("output", "review-root"))
+@pytest.mark.parametrize("late", (False, True), ids=("early", "transaction"))
+def test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted(tmp_path, alias, kind, late):
+    alias_waits(tmp_path, alias, kind, late)

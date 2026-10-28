@@ -5,10 +5,9 @@
   "lost_salvage_remaining": 759,
   "reused_replacement": 27,
   "process_start_remaining": 732,
-  "completed_this_process": 605,
-  "remaining": 127,
+  "completed_this_process": 606,
+  "remaining": 126,
   "unresolved_failures": [
-    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
     "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
   ],
   "holds": [
@@ -1671,6 +1670,56 @@
       "partial": [
         "tests/unit/test_retention_readback.py::test_ten_thousand_copy_fast_path"
       ],
+      "coverage": true
+    },
+    {
+      "label": "c1c-remaining-47",
+      "args": [
+        "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases"
+      ],
+      "queued": {
+        "utc": "2026-10-28T10:05:02.371667+00:00",
+        "load": [
+          115.42138671875,
+          93.0703125,
+          90.7607421875
+        ]
+      },
+      "outside_lock": true,
+      "rc": 0,
+      "wall_s": 1953.85,
+      "end": {
+        "utc": "2026-10-28T10:37:36.253256+00:00",
+        "load": [
+          49.5322265625,
+          79.41650390625,
+          89.6044921875
+        ]
+      },
+      "admitted": {
+        "utc": "2026-10-28T10:35:18.235387+00:00",
+        "load": [
+          110.0322265625,
+          93.20654296875,
+          95.033203125
+        ],
+        "pid": 60927
+      },
+      "finished": {
+        "utc": "2026-10-28T10:37:35.118401+00:00",
+        "load": [
+          49.5322265625,
+          79.41650390625,
+          89.6044921875
+        ],
+        "rc": 0,
+        "seconds": 136.88201845800359,
+        "rss": 124829696
+      },
+      "counts": {
+        "passed": 1
+      },
+      "partial": [],
       "coverage": true
     }
   ]
