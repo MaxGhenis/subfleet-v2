@@ -42,7 +42,8 @@ from .lockwatch import WatchedLock, thread_name
 
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
-SCHEMA_VERSION = LAUNCH_CAPABILITY_MIGRATION
+PROVIDER_QOS_MIGRATION = 10
+SCHEMA_VERSION = PROVIDER_QOS_MIGRATION
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -122,15 +123,25 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
         "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
     ),
+    # C-5.1, D-QOS-BOOKED1: the provider QoS a job requested (`run --qos`); an older job
+    # requested none, which is `utility`, the clamp.
+    PROVIDER_QOS_MIGRATION: (
+        "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
+        "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
+    ),
 }
 
 
 def shell_flags(row: Mapping[str, Any]) -> Row:
-    """Boolean launch fields for domain records, never arbitrary SQL results."""
+    """Boolean launch fields for domain records, never arbitrary SQL results, and the
+    provider QoS a job requested: NULL, which every job before the column has, is
+    `utility` (C-5.1, D-QOS-BOOKED1)."""
     value = dict(row)
     for key in ("needs_shell", "has_shell", "publish_denied"):
         if key in value and value[key] is not None:
             value[key] = bool(value[key])
+    if "provider_qos" in value and value["provider_qos"] is None:
+        value["provider_qos"] = "utility"
     return value
 
 

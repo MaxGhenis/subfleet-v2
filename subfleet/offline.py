@@ -318,6 +318,7 @@ class Offline:
         # The daemon's boolean launch fields (C-12.4), for `show` and `list` alike
         # (#221 review r1b, P3-4): offline JSON gave 1 where the daemon gave true.
         job = shell_flags({key: row[key] for key in row.keys()})
+        job.setdefault("provider_qos", "utility")   # D-QOS-BOOKED1: a store from before the column
         job["duration_s"] = _duration_s(job.get("started_at"), job.get("finished_at"))
         job["model"] = job.get("model_served") or job.get("model_requested")
         job["family"] = job.get("provider")
