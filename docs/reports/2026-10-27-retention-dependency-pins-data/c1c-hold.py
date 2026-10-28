@@ -6,7 +6,9 @@ import json
 import os
 from pathlib import Path
 import resource
+import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -22,7 +24,12 @@ def stamp():
 
 
 def child(label, args):
+    sys.path.insert(0, str(Path.cwd()))
     import pytest
+    if label == "c1c-remaining-46":
+        import faulthandler
+        faulthandler.dump_traceback_later(240, repeat=True)
+        args = [*args, "--capture=no", "--hypothesis-verbosity=verbose"]
     from tests import failed_keep
     failed_keep.ROOT = SCRATCH / "failed"
     start = time.monotonic()
@@ -30,9 +37,20 @@ def child(label, args):
     (DATA / f'{label}-admitted.json').write_text(json.dumps(admitted))
     print('ADMITTED ' + json.dumps(admitted), flush=True)
     class Evidence:
+        def pytest_collection_modifyitems(self, items):
+            if label.startswith('c1c-remaining-'):
+                def cost(item):
+                    if item.nodeid.endswith('::runTest') or any(name in item.nodeid for name in (
+                            'test_no_schedule_of_sweep_moves', 'test_c6_3_c26_9_admission_places')):
+                        return 2
+                    return int(bool(getattr(item.obj, 'is_hypothesis_test', False)))
+                items.sort(key=cost)
         def pytest_collection_finish(self, session):
             (DATA / f'{label}-collected.json').write_text(json.dumps([i.nodeid for i in session.items], indent=2) + '\n')
         def pytest_runtest_logreport(self, report):
+            if report.failed:
+                with (DATA / f'{label}-failures.txt').open('a') as out:
+                    out.write(report.nodeid + '\n' + str(report.longrepr) + '\n')
             with (DATA / f'{label}-results.jsonl').open('a') as out:
                 out.write(json.dumps({'nodeid': report.nodeid, 'when': report.when,
                                      'outcome': report.outcome, 'xfail': getattr(report, 'wasxfail', None)}) + '\n')
@@ -80,15 +98,52 @@ def stop(proc):
         proc.wait()
 
 
+def grouped_nodes(label, args):
+    """Combine future short slices belonging to this same foreground worker."""
+    match = re.fullmatch(r'c1c-remaining-(\d+)(?:-resume-\d+)?', label)
+    groups = ([4, 6, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44],
+              [7, 11, 15, 19, 23, 27, 31, 35, 39, 43],
+              [5, 9, 13, 17, 21, 25, 29, 33, 37, 41],
+              [14, 12, 10, 8, 45, 46])
+    number = int(match[1]) if match else None
+    group = next((g for g in groups if number in g), None)
+    if not group:
+        return args
+    batches = json.loads((DATA / 'c1c-batches.json').read_text())
+    nodes = [n for i in group[group.index(number):] for n in batches[i - 1]]
+    done = set()
+    for file in DATA.glob('c1c-remaining-*-results.jsonl'):
+        reports = collections.defaultdict(dict)
+        for line in file.read_text().splitlines():
+            row = json.loads(line)
+            reports[row['nodeid']][row['when']] = row['outcome']
+        done.update(n for n, phases in reports.items() if phases.get('teardown') == 'passed'
+                    and (phases.get('call') in ('passed', 'skipped') or phases.get('setup') == 'skipped')
+                    and 'failed' not in phases.values())
+    return [n for n in nodes if n not in done]
+
+
 def main(label, args):
     if args[:1] == ['--nodes']:
         args = Path(args[1]).read_text().splitlines() + args[2:]
+        args = grouped_nodes(label, args)
         if not args:
             print(label + ': consolidated into another batch; no pytest started', flush=True)
             return 0
     claim = DATA / f"{label}-claimed.json"
-    with claim.open("x") as out:
-        json.dump({"pid": os.getpid(), **stamp()}, out)
+    try:
+        with claim.open("x") as out:
+            json.dump({"pid": os.getpid(), **stamp()}, out)
+    except FileExistsError:
+        # A foreground peer may reach this same future slice first. Reuse it.
+        while datetime.now(timezone.utc) < datetime(2026, 10, 28, 11, 46, tzinfo=timezone.utc):
+            ledger = DATA / 'c1c-holds.jsonl'
+            records = [json.loads(line) for line in ledger.read_text().splitlines()] if ledger.exists() else []
+            if any(record['label'] == label for record in records):
+                print(label + ': foreground peer finished; driver will recheck successful phases', flush=True)
+                return 2
+            time.sleep(5)
+        return 2
     marker = DATA / f'{label}-admitted.json'
     assert not marker.exists(), label
     env = os.environ.copy()
@@ -136,8 +191,8 @@ def main(label, args):
     with (DATA / 'c1c-holds.jsonl').open('a') as out:
         out.write(json.dumps(record) + '\n')
     print(json.dumps({**{k: v for k, v in record.items() if k != 'args'}, 'nodes': len(args)}), flush=True)
-    print(body[-9000:], flush=True)
-    return proc.returncode
+    print('\n'.join(line for line in body.splitlines() if not line.startswith('sysctl: '))[-7000:], flush=True)
+    return 2 if proc.returncode in (-signal.SIGKILL, -signal.SIGINT) else proc.returncode
 
 if __name__ == '__main__':
     if sys.argv[1] == '--child':

@@ -13,7 +13,7 @@ CUTOFF = datetime(2026, 10, 28, 11, 46, tzinfo=timezone.utc)
 
 def completed():
     done = set()
-    for file in DATA.glob('c1c-*-results.jsonl'):
+    for file in DATA.glob('c1c-remaining-*-results.jsonl'):
         reports = collections.defaultdict(dict)
         for line in file.read_text().splitlines():
             row = json.loads(line)
@@ -36,13 +36,21 @@ def main(numbers):
                 return 2
             attempt += 1
             label = f'c1c-remaining-{number:02}' + (f'-resume-{attempt}' if attempt > 1 else '')
+            ledger = DATA / 'c1c-holds.jsonl'
+            ended = {json.loads(line)['label'] for line in ledger.read_text().splitlines()} if ledger.exists() else set()
+            while label in ended:
+                attempt += 1
+                label = f'c1c-remaining-{number:02}-resume-{attempt}'
             path = DATA / f'{label}-nodes.txt'
             path.write_text(''.join(n + '\n' for n in remaining))
             result = subprocess.run([sys.executable, str(DATA / 'c1c-hold.py'), label, '--nodes', str(path)])
             now_remaining = set(nodes) - completed()
-            if result.returncode not in (0, 2) or len(now_remaining) >= len(remaining):
+            if result.returncode not in (0, 2):
                 print(f'{label}: stopped for review, rc={result.returncode}, unfinished={len(now_remaining)}', flush=True)
-                return result.returncode or 1
+                return result.returncode
+            if len(now_remaining) >= len(remaining):
+                print(f'{label}: no completed node; leaving {len(now_remaining)} unfinished and continuing other slices', flush=True)
+                break
     return 0
 
 

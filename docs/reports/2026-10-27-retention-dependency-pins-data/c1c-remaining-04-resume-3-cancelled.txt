@@ -1,0 +1,1 @@
+Queued hold cancelled through its foreground tool session before admission, to run the release comparison in that same worker slot.

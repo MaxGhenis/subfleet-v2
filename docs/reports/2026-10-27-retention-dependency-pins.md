@@ -27,6 +27,19 @@ Shared metadata rejects `index.lock` with `Operation not permitted`. The preserv
 
 The JSONL hold ledgers and matching collection/results/log files in the data folder are the detailed evidence. All other continuation holds remain in progress or unstarted at this checkpoint.
 
+### Resumed coverage checkpoint, 09:36Z (still step 2)
+
+This process has complete successful phase evidence for **506** of its 732 starting nodes; **226** remain. Finished and interrupted holds are distinguished in `c1c-accounting.json`; `c1c-current-remaining.txt` is the exact continuation list. Release-comparison results never count toward branch coverage.
+
+Integration findings so far (corrections prepared in the working tree; their green reruns are pending):
+
+- The detached-fence oracle omitted recorded dependencies. Its red hold produced **49 passed, 1 failed** at load **93.1**, outside the lock after its 30-minute wait. It now compares durable dependency evidence independently and retains both discovered external-Git-storage counterexamples explicitly.
+- Its first rerun failed `no-slot` once the shared fixture's readings aged beyond the normal **120 seconds**. The original test at detached release **`46ab44d72` passed (1 passed, 81.28 s, load 23.5)**, so this is **not classified as a pre-existing failure**. The correction refreshes fixture readings per example and leaves the production freshness bound unchanged. The release worktree was removed after the comparison.
+- Three old `_fence_hold` stubs need to accept the new `needs` keyword. The affected generated and explicit comparisons retain their intended assertions.
+- An interleaving injected its fence after only the first early query; the dependency query then correctly held the job before preparation. The injection is moved after the entire early check so the test still exercises the reserving transaction.
+
+The unverified corrections are preserved as `c1c-integration-fixes-in-progress.diff`; this evidence checkpoint does not assert they are green. No production source or contract change has been made in this resumed process. Steps 3, the spelling gap and step 4 remain unstarted pending completion of the required coverage.
+
 ## Checkpoints and recovery
 
 Shared Git metadata rejected `ORIG_HEAD.lock` with `Operation not permitted`. The original workspace metadata remains at `8f106c64595c`; checkpoints were committed in scratch Git metadata on `fix/retention-dependency-pins-217`. The delivery bundle contains those ordered commits and requires the already-present `8f106c645` and `c9430763f` histories. No shared branch update was possible.
