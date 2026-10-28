@@ -1,8 +1,8 @@
 {
   "summary": {
     "planned": 1104,
-    "completed": 1101,
-    "remaining": 3
+    "completed": 1102,
+    "remaining": 2
   },
   "nodes": [
     {
@@ -18648,7 +18648,13 @@
           "retention-shared_folders"
         ]
       ],
-      "completion_evidence": []
+      "completion_evidence": [
+        {
+          "source": "c1c-remaining-60-results.jsonl",
+          "outcome": "passed",
+          "xfail": null
+        }
+      ]
     },
     {
       "nodeid": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",

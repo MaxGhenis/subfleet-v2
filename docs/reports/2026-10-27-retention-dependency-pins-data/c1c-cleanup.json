@@ -1,0 +1,16 @@
+{
+  "utc": "2026-10-28T11:47:04.348135+00:00",
+  "removed_bytecode": [
+    "docs/reports/2026-10-27-retention-dependency-pins-data/__pycache__/c1b-hold.cpython-314.pyc",
+    "subfleet/__pycache__/__init__.cpython-314.pyc",
+    "subfleet/__pycache__/boot_identity.cpython-314.pyc",
+    "subfleet/__pycache__/contracts.cpython-314.pyc",
+    "subfleet/__pycache__/guardian.cpython-314.pyc",
+    "subfleet/__pycache__/home_paths.cpython-314.pyc",
+    "subfleet/__pycache__/launch_env.cpython-314.pyc",
+    "subfleet/__pycache__/procs.cpython-314.pyc"
+  ],
+  "scratch_owned_subtree": "sf-rdp217c1/recovery-0747",
+  "scratch_final_cleanup": "pending final bundle verification",
+  "release_comparison_worktree": "removed"
+}

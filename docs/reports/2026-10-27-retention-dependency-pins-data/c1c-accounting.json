@@ -5,8 +5,8 @@
   "lost_salvage_remaining": 759,
   "reused_replacement": 27,
   "process_start_remaining": 732,
-  "completed_this_process": 729,
-  "remaining": 3,
+  "completed_this_process": 730,
+  "remaining": 2,
   "unresolved_failures": [],
   "holds": [
     {
@@ -2179,6 +2179,56 @@
       "partial": [
         "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
       ],
+      "coverage": true
+    },
+    {
+      "label": "c1c-remaining-60",
+      "args": [
+        "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+      ],
+      "queued": {
+        "utc": "2026-10-28T11:44:52.916289+00:00",
+        "load": [
+          77.83056640625,
+          75.12841796875,
+          75.892578125
+        ]
+      },
+      "outside_lock": false,
+      "rc": 0,
+      "wall_s": 1849.31,
+      "end": {
+        "utc": "2026-10-28T12:15:42.245798+00:00",
+        "load": [
+          62.2021484375,
+          61.70654296875,
+          64.212890625
+        ]
+      },
+      "admitted": {
+        "utc": "2026-10-28T12:06:57.169299+00:00",
+        "load": [
+          39.39794921875,
+          51.54443359375,
+          65.83154296875
+        ],
+        "pid": 88191
+      },
+      "finished": {
+        "utc": "2026-10-28T12:15:37.552079+00:00",
+        "load": [
+          66.74658203125,
+          62.57958984375,
+          64.53271484375
+        ],
+        "rc": 0,
+        "seconds": 520.3747629159989,
+        "rss": 120111104
+      },
+      "counts": {
+        "passed": 1
+      },
+      "partial": [],
       "coverage": true
     }
   ]
