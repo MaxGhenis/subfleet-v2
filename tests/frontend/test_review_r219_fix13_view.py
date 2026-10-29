@@ -88,6 +88,15 @@ def assert_stale_glide_order(result, steps):
     assert own_send_landings(result, steps), diagnostic
 
 
+def assert_shrunk_stale_glide_order(result, steps):
+    """CI's input: the document shrank across the send, so the end measured before it lies past
+    the end the clip came to rest at. The glide's last frame still lands far above that end."""
+    diagnostic = json.dumps(result, sort_keys=True)
+    old, new = steps["pending"]["position"], steps["stale_glide"]["position"]
+    assert old["content"] - old["viewport"] > new["content"] - new["viewport"], diagnostic
+    assert_stale_glide_order(result, steps)
+
+
 def assert_rests_at_the_end(result, steps):
     """The landing is measured once the glide's last frame has landed, and from then on the clip
     stays at the end: no move takes it away before the send has rested."""
@@ -124,6 +133,18 @@ def test_send_rests_at_the_end_after_its_glides_last_frame(fix8_view_binary, tmp
     then took the clip 1,662–1,676 pt from the end after the check had ended."""
     result, steps, _ = landing_run(fix8_view_binary, tmp_path, "stale-glide")
     assert_stale_glide_order(result, steps)
+    assert_rests_at_the_end(result, steps)
+    assert_landing_follows(result, steps)
+
+
+def test_send_rests_at_the_end_when_the_document_shrinks_across_it(fix8_view_binary, tmp_path):
+    """CI on 10/29 (runs 40812690386, 40813021187, 40813080519): the lazy stack re-estimated the
+    rows above as the send landed, and the document lost 2,777-3,499 pt across the send. Staged at
+    the old end's offset, the glide's last frame then took the clip that far past the new end, and
+    the stale-glide premise failed in 5 of 5 shards. This scene replays it: the send's own update
+    takes away 9,000 pt of room above the rows."""
+    result, steps, _ = landing_run(fix8_view_binary, tmp_path, "stale-glide-shrink")
+    assert_shrunk_stale_glide_order(result, steps)
     assert_rests_at_the_end(result, steps)
     assert_landing_follows(result, steps)
 

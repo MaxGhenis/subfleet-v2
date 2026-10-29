@@ -2222,6 +2222,9 @@ let staleGlideFromEnd: CGFloat = 1_680
 // 350 ms after the landing callback instead.
 // A `-natural` scene removes both animation controls. Round 10's `stale-glide` lands
 // the glide's last frame on its stale target inside the landing check's quiet window.
+// `stale-glide-shrink` replays CI's 10/29 input to it: the document shrinks across the
+// send. 9,000 pt of room above the rows goes in the send's own update; with 4,500 pt the
+// lazy stack's re-estimate still grew the document 1,016 pt in one of five local runs.
 @MainActor func ownSendDuringReveal(_ root: URL, catchup: Bool, landing: String? = nil) async -> [String: Any] {
     let record = Fix12Record(landing ?? (catchup ? "send-catchup" : "send-ordinary"))
     let natural = landing?.hasSuffix("-natural") == true
@@ -2233,6 +2236,8 @@ let staleGlideFromEnd: CGFloat = 1_680
         ConversationFollowTest.inset.top = 0
     }
     let target = "person:m000040"
+    let shrink = landing == "stale-glide-shrink"
+    if shrink { ConversationFollowTest.inset.top = 9_000 }
     let scene = await Scene(record.name, root: root, prior: 120,
                             priorText: { "person message \($0) asks something" }, tray: [],
                             pageDelay: catchup ? 0.25 : 0, pageSize: catchup ? 40 : 200, pauseCatchup: catchup,
@@ -2250,8 +2255,9 @@ let staleGlideFromEnd: CGFloat = 1_680
         let oldEnd = (record.position()["content"] ?? 0) - (record.position()["viewport"] ?? 0)
         ProbePresentation.afterAnimation = { record.clipTo(offset: oldEnd) }
     }
+    let stale = landing == "stale-glide" || shrink
     var staleGlide: QuietMove?
-    if landing == "stale-glide", let scroll = timelineScroll(scene.host) {
+    if stale, let scroll = timelineScroll(scene.host) {
         // The glide's last frame lands on its stale target, the old end: 150 ms (the
         // glide's length) after the clip came to rest at the new end, inside the landing
         // check's 300 ms quiet window. Place the old end from the new end, not at its offset
@@ -2275,6 +2281,8 @@ let staleGlideFromEnd: CGFloat = 1_680
     }.joined(separator: "\n\n")
     scene.model.send(conversationID: record.name, text: text, staged: [],
                      settings: ConversationSettings(model: "claude-opus-5-5"))
+    // As CI's lazy stack re-estimated the rows above while the send landed.
+    if shrink { ConversationFollowTest.inset.top = 0 }
     if landing?.contains("regrow") == true {
         // Grow above the clip on the marker's first appearance, before a settled
         // end can be measured. A lazy marker can appear over 100 pt from the end.
@@ -2285,7 +2293,7 @@ let staleGlideFromEnd: CGFloat = 1_680
         record.step("growing", target: target)
         ConversationFollowTest.inset.top += 600
     }
-    if landing == "stale-glide" {
+    if stale {
         await waitReady("send.stale_landed", view: scene.host, state: { scene.readiness() }) {
             landed() != nil && record.steps.contains { $0["step"] as? String == "stale_glide" }
         }
@@ -2558,7 +2566,7 @@ final class FlippedDocument: NSView { override var isFlipped: Bool { true } }
     case "send-catchup": return await ownSendDuringReveal(root, catchup: true)
     case "send-ordinary": return await ownSendDuringReveal(root, catchup: false)
     case "short", "regrow", "person", "regrow-natural", "quiet-regrow", "quiet-regrow-natural", "quiet-regrow-late",
-         "stale-glide":
+         "stale-glide", "stale-glide-shrink":
         return await ownSendDuringReveal(root, catchup: false, landing: mode)
     case "mark":
         var out: [String: Any] = [:]
