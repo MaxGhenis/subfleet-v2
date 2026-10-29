@@ -12,9 +12,11 @@ did not execute, on the simulated host (`tests/kill4_world.py`, as `BootWorld` i
    member answered `kill` with `already finished` and left it running; the rule before P3-1
    ran the protocol, whose next census read the member and TERMed it as owned. Fix round r2
    counts an owned member in the unread set (its `owned_identities` record not of another
-   boot than the attempt's).
+   boot than the attempt's). Its mutants: the owned term dropped fails the constructed case
+   and the kill; owned records counted whatever their boot fail the other-boot case.
 2. The verified-group term of the unread set: its constructed case, as fix round r1 built it,
-   fails when the term is dropped.
+   fails when the term is dropped; and the never-signalled marked case fails when the unread
+   set keeps `_never_signalled` pids (review r2's scratch mutant, now a control).
 3. `_terminal_census` returns the attempt row it read before its census (review r1's
    observation, left as it is). A member that census first records as unverified is not yet
    tainted for `_may_signal`, so that one `kill` runs a protocol that signals no member, and
@@ -49,7 +51,20 @@ MUTANTS = {
     # P2-1's fix without the verified group's members.
     "p2-1-group-dropped": (Daemon, "_may_signal", [
         ("| (census.group_pids if census.leader_verified else frozenset())", "")]),
+    # P2-1's fix counting never-signalled members of the unread set (review r2's scratch mutant).
+    "p2-1-never-kept": (Daemon, "_may_signal", [("if unread - census.held_pids - never:",
+                                                 "if unread - census.held_pids:")]),
+    # Fix round r2: the unread set without owned members (review r2's P2-1 again).
+    "p2-1-owned-dropped": (Daemon, "_may_signal", [(" | (census.live_pids & owned)", "")]),
+    # Fix round r2: owned records counted whatever their boot.
+    "p2-1-owned-boot-unchecked": (Daemon, "_may_signal", [
+        ('if not procs.boot_identity.differ(value.get("boot_id"), boot)}', "if True}")]),
 }
+
+
+def mutate(monkeypatch, mutant: str) -> None:
+    owner, name, replacements = MUTANTS[mutant]
+    replace_function(monkeypatch, owner, name, replacements)
 
 
 def before_p3_1(monkeypatch) -> None:
@@ -149,13 +164,34 @@ def test_an_unverifiable_census_runs_the_protocol_for_an_owned_member_it_could_n
     assert Daemon._may_signal(daemon, attempt(daemon), census) is runs
 
 
-# 2. The verified group's term.
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the owned member's constructed case must detect this mutant")
+@pytest.mark.parametrize(("mutant", "taint"), [("p2-1-owned-dropped", "below-a-tainted-parent"),
+                                               ("p2-1-owned-boot-unchecked", "owned-on-another-boot")])
+def test_an_owned_term_mutant_fails_its_constructed_case(daemon, monkeypatch, mutant, taint):
+    mutate(monkeypatch, mutant)
+    test_an_unverifiable_census_runs_the_protocol_for_an_owned_member_it_could_not_identify(
+        daemon, taint, taint == "below-a-tainted-parent")
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the owned member's kill must detect this mutant")
+def test_an_unread_set_without_owned_members_fails_the_owned_members_kill(daemon, world, monkeypatch):
+    mutate(monkeypatch, "p2-1-owned-dropped")
+    test_an_owned_member_the_kills_census_could_not_identify_is_contained(daemon, world, monkeypatch, "head")
+
+
+# 2. The verified group's term, and never-signalled members.
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="the verified group's case must detect this mutant")
 def test_an_unread_set_without_the_verified_group_fails_its_case(daemon, monkeypatch):
     owner, name, replacements = MUTANTS["p2-1-group-dropped"]
     replace_function(monkeypatch, owner, name, replacements)
     unread_case(daemon, "unidentified-verified-group-member")
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the never-signalled marked case must detect this mutant")
+def test_an_unread_set_keeping_never_signalled_members_fails_its_case(daemon, monkeypatch):
+    mutate(monkeypatch, "p2-1-never-kept")
+    unread_case(daemon, "unidentified-never-signalled-marker-member")
 
 
 # 3. `_terminal_census`'s row from before its census.
