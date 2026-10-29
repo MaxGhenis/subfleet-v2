@@ -911,3 +911,53 @@ Review r3 approved `0eec8c92f` with four P3s, and found a P2 in release/217's `p
 2. **Mutant:** the owned term keeping the recycled pids (`owned-recycled-kept`) fails both stranger cases: `_may_signal` on the census (`test_pr276_review_r3.py:170`) and the four-kill sequence (`:179`).
 3. **Text:** review r3's P3-4 lines, in its words: this report's fix round r2 section (the unread-set bullet, the property's random-search result, the shrunk counterexample's walk claim, and the mutant table's line numbers), `_may_signal`'s docstring, C-5.7 with P3-1's fix built, `test_kill4_boot_scope.py`'s tainted-walk docstring, and a sentence in the "Changes in version 3" entry.
 4. **Left for a follow-up:** review r3's P2 outside this PR. Release/217's parent-chain rule drops a recorded ancestor, or a held parent, when the table shows no start, and records no error. This round changes neither `procs.py` nor `_contain`, and review r3's `documented_limitation` tests record the gap.
+
+#### Red and green
+
+- **Red** at `90b3c5029`, with `--runxfail`: `test_pr276_review_r3.py` 22 passed, 6 failed. P3-1's case failed at its first assertion (each `kill` answered `containment requested`), and the other five were review r3's mutant controls, which `--runxfail` fails by design.
+- **Green** at `c44b3e07d`, with the mark removed: 23 passed, 5 xfailed.
+
+#### Holds
+
+All ran under the suite lock, one pytest per hold, with no xdist. Times are UTC; load is the 1-minute average at admission and at the end. The briefed globs match five `test_kill4_*mutations.py` files, and all five ran.
+
+| Hold | Admitted (load) → end (load) | Per file |
+|---|---|---|
+| Red | 10:50:52, slot B (20) → 10:51:24 (23) | `pr276_review_r3` with `--runxfail`: 22 passed, 6 failed, at `90b3c5029` |
+| Green | 11:12:26, slot B (44) → 11:13:12 (39) | `pr276_review_r3` 23 + 5 xfailed, at `c44b3e07d` |
+| R3M, M0 | 11:14:41, slot B (35) → 11:15:33 (31); 11:22:24, slot A (31) → 11:22:49 (25) | `pr276_review_r3` 23 + 7 xfailed with the new control; the control's two cases with `--runxfail` failed at `:170` and `:179` |
+| H1 | 11:46:39, slot B (11) → 11:48:27 (12) | `pr276_review_r1` 14 + 9 xfailed, `pr276_review_r2` 10 + 8 xfailed, `pr276_review_r3` 23 + 7 xfailed, `quar_start1_census` 21 + 17 xfailed, `quar_start1_landed` 16, `census_parent_chain` 14, `census_boot_seeds` 36, `p3_mutations` 7 xfailed |
+| U1 | 11:49:12, slot A (12) → 11:51:07 (25) | `boot_scope` 51, `terminal_containment` 17, `fix1` 21, `fix2b` 21; xfailed: `kill4_mutations` 8, `fix1_mutations` 6, `fix2b_mutations` 8, `boot_scope_mutations` 4 |
+| F1 | 11:51:26, slot A (27) → 11:53:07 (30) | `kill4_terminal_daemon` 7 |
+| P1 | 12:08:55, slot A (14) → 12:09:21 (17) | `kill4_fix1_process` 3 |
+| G | 12:10:17, slot B (22) → 12:11:22 (25) | `state_contract` 37, `test_module_names` 1, `invariants_index` 25 |
+| M | 12:19:12, slot B (19) → 12:20:03 (19) | the 26 mutant control cases of `p3_mutations`, `pr276_review_r1`, `pr276_review_r2` and `pr276_review_r3` with `--runxfail`: each failed at its named assertion |
+| M2, U2 | 12:21:49, slot A (17) → 12:22:18 (15); 12:23:36, slot B (17) → 12:24:26 (15) | after `5a069ba37` kept the tainted-walk docstring at three lines: the two P3-1 controls failed at `boot_scope:276` and `:344`; `boot_scope` 51, `p3_mutations` 7 xfailed, `boot_scope_mutations` 4 xfailed |
+| M3 | 12:28:39, slot A (22) → 12:28:55 (19) | review r1's constructed cases under `marker-dropped` (a scratch plugin): `[unidentified-marker-member]` failed at `test_pr276_review_r1.py:187`, the other 6 passed |
+| Probe | 12:31:41, slot B (20) → 12:31:57 (17); 12:34:49, slot A (21) → 12:35:07 (19) | a scratch copy of review r3's daemon-census property with the current boot unreadable on the partial read, so a proven-recycled pid can be an unread owned member (seeds 0 and 1, 300 examples each): it never failed. A strategy with only launchd children in the leaderless group (300 examples) had the subtraction decide 5 examples, none with a target in the whole read |
+
+#### Mutants
+
+| Mutant | Killing test | Result |
+|---|---|---|
+| p3-1-unverifiable-always (round 3) | case 3's sequence, `[legacy-attempt-boot]` (`test_kill4_boot_scope.py:276`) | detected |
+| p3-1-taint-ignored (round 3) | the tainted-walk test (`test_kill4_boot_scope.py:344`) | detected |
+| `_kill_attempt`'s handshake inlined (review r1) | the last-read landing, `[guardian-only]` (`test_pr276_review_r1.py:240`) | detected |
+| p3-1-responsibility-dropped (review r1) | `[responsibility-member]` (`test_pr276_review_r1.py:187`) | detected |
+| p3-1-never-ignored (review r1) | `[never-signalled-walk-member]` (`:187`) | detected |
+| `>` for `>=` against D4's property (review r1's P3-3) | D4's extension property (`test_quar_start1_census.py:253`) | detected |
+| p2-1-chain-dropped (fix round r1) | `[unidentified-chain-member]` (`test_pr276_review_r1.py:187`); the soundness property (`test_pr276_review_r2.py:339`) | detected by both |
+| p2-1-group-unchecked (fix round r1) | `[unidentified-leaderless-group-member]` (`test_pr276_review_r1.py:187`) | detected |
+| start-landed-not-once (review r1) | the landing `[after-the-census]` (`test_quar_start1_landed.py:102`) and the abandon's last read (`:255`) | detected by both |
+| p2-1-group-dropped (review r2) | `[unidentified-verified-group-member]` (`test_pr276_review_r1.py:187`); the soundness property (`test_pr276_review_r2.py:339`) | detected by both |
+| p2-1-never-kept (review r2) | `[unidentified-never-signalled-marker-member]` (`test_pr276_review_r1.py:187`) | detected |
+| p2-1-owned-dropped (fix round r2) | `[below-a-tainted-parent]` (`test_pr276_review_r2.py:175`); the owned member's kill (`:140`); the soundness property (`:339`); the property on the daemon's census (`test_pr276_review_r3.py:306`) | detected by all four |
+| p2-1-owned-boot-unchecked (fix round r2) | `[owned-on-another-boot]` (`test_pr276_review_r2.py:175`) | detected |
+| owned-boot-exact (review r3) | the owned filter's `[legacy-seconds]` and `[none]` records (`test_pr276_review_r3.py:105`) | detected by both |
+| owned-not-live (review r3) | the exited owned record (`test_pr276_review_r3.py:135`) | detected |
+| marker-dropped (review r3) | the property on the daemon's census (`test_pr276_review_r3.py:306`); `[unidentified-marker-member]` (`test_pr276_review_r1.py:187`, M3) | detected by both |
+| owned-recycled-kept (this round) | the stranger's census (`test_pr276_review_r3.py:170`) and its four kills (`:179`) | detected by both |
+
+H1, U1 and U2 ran each control as a strict xfail, and M, M0, M2 and M3 showed each failing at its named assertion.
+
+**Not run here:** `tests/frontend/test_core_live.py`, which cannot run on a lane, and the rest of the suite, which CI runs.
