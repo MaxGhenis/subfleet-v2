@@ -626,7 +626,11 @@ class Retirement:
         The cwd can differ from the Git hold, so also read queued/live turn jobs.
         """
         assert self.journal is not None
-        folder = folders.canonical(self.journal["job_dir"])
+        folder = self.journal.get("job_folder") or folders.canonical(self.journal["job_dir"])
+        if "job_folder" not in self.journal:
+            # Keep the fence's spelling for the final check, even after quarantine.
+            # Leave job_dir unchanged so the rename still refuses a symlink there.
+            self.save(job_folder=folder)
         key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
         with self.ctx.store.transaction("retention.job_folder", job_id=self.job_id) as conn:
             self.ctx.check()
@@ -885,6 +889,8 @@ class Retirement:
         self.ctx.check()
         j = self.journal
         assert j is not None
+        # Old archived journals have no job_folder; spell their path off the store lock.
+        job_folder = j.get("job_folder") or folders.canonical(j["job_dir"])
         manifest = self.manifest()
         name = self._archive_name()
         for _ in range(3):
@@ -921,7 +927,7 @@ class Retirement:
                     # folder, review root, `-o` path or git storage), or an export
                     # pending to a path there (`dependencies`), on the same spelling.
                     for place, pin in ((j["worktree"], "worktree-in-use"),
-                                       (j["job_dir"], "job-directory-in-use")):
+                                       (job_folder, "job-directory-in-use")):
                         if not reason and place and dependencies.dependents(
                                 lambda sql, params: conn.execute(sql, params).fetchall(), place,
                                 exclude=self.job_id, legacy_places=self.ctx.legacy):

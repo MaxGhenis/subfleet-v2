@@ -103,3 +103,28 @@ def test_c8_4_job_directory_pending_export_pins_until_written(world):
     assert "owner" not in run(world)["pruned"]
     world.store.release_leases("reader")
     assert "owner" in run(world)["pruned"]
+
+
+def test_c8_4_commit_rechecks_the_canonical_job_directory_fence(world, monkeypatch):
+    """A symlinked jobs parent makes the journal path differ from its fence."""
+    world.job("owner", worktree=False)
+    storage = world.base / "job-storage"
+    (world.root / "jobs").rename(storage)
+    (world.root / "jobs").symlink_to(storage)
+    folder = storage / "owner"
+    before = snapshot(folder)
+    original = rarch.Retirement.final_check
+
+    def final(self):
+        original(self)
+        world.store.add_job(job_id="reader", request_id="reader", payload_digest="d", kind="dispatch",
+                            state="queued", workdir="/outside", prompt_path="/p", sandbox="read-only")
+        world.store.add_event("job.submitted", job_id="reader", data={
+            "depends": {"out_path": str(folder / "result.md")}})
+        self.ctx.pinned = lambda *_: None
+
+    monkeypatch.setattr(rarch.Retirement, "final_check", final)
+    result = run(world)
+    assert "owner" not in result["pruned"], result
+    assert snapshot(folder) == before
+    assert result["deferred"]["owner"] == "pinned: job-directory-in-use"
