@@ -70,8 +70,7 @@ def test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree(worl
 
 
 @pytest.mark.parametrize("recorded", [
-    pytest.param(False, marks=pytest.mark.xfail(
-        strict=True, reason="R3-F2: recovery quarantines before discovering legacy incomplete evidence"), id="legacy"),
+    pytest.param(False, id="legacy"),
     pytest.param(True, id="recorded"),
 ])
 @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])

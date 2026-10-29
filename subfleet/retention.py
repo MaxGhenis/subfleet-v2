@@ -536,11 +536,13 @@ class _Pass:
     # the pass ----------------------------------------------------------------------
 
     def run(self) -> dict[str, Any]:
+        # Recovery can quarantine: discover legacy dependencies before any move.
+        # If the census raises, this pass cannot enter recovery with empty evidence.
+        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)
         in_flight = self._recover()
         jobs = list(reversed(self.store.list_jobs()))        # oldest first
         by_id = {job["job_id"]: job for job in jobs}
         self.hosted = nested_hosts(jobs, self.root)
-        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)
         reasons = self._reasons()
         for job_id in in_flight:
             reasons.pop(job_id, None)
