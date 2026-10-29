@@ -25,11 +25,11 @@ closes those of the hub's review r4 (REQUEST_CHANGES at `6afb5ce19`): a long wor
 bodies, a depth bound beside xargs or `-exec`, a root before a closing backtick, bash's `.*` and `.?`,
 the data volume's alias before a mount, commands too long to read, `~{…}`, `~$NAME` and `~$(…)`,
 zsh's `=cmd`, pipes into a shell, `"$@"` scripts, `eval $(…)` and `<&0`. Rounds r6 and r7 (2026-10-28) close the
-findings of the hub's reviews r5 and r6 (below). Nothing here touches the live guard; the hub installs it with the steps below.
+findings of the hub's reviews r5 and r6, and round r8 (2026-10-29) those of review r7 (below). Nothing here touches the live guard; the hub installs it with the steps below.
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `89b0efe1…aa5d` after r7; r6's was `6671496b…aea3`, r5's `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `740728e3…20e9` after r8; r7's was `89b0efe1…aa5d`, r6's `6671496b…aea3`, r5's `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
 was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
@@ -67,7 +67,7 @@ region's header comments, and since r3c the prefilter's third term, `pw_cmd` in 
 (`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
 line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`b749db5a…e9eb` after r7; r6's was `955bc7fa…3d2f`, r5's `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`f5e5268e…c073` after r8; r7's was `b749db5a…e9eb`, r6's `955bc7fa…3d2f`, r5's `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
@@ -1309,7 +1309,8 @@ whole hook in the fixture (`test_r7_*`), and each command pin and control also r
 
 **Nothing is looser than r6 but decision 5's narrowing.** Over S1's generated corpus (528 pairs), the fixed corpus,
 every r4 to r7 command list in the test and 48 probes of mine (1,108 pairs), this head against r6: 15 newly denied
-(all r7 pins) and 5 newly allowed, each one of decision 5's `R7_LOOPVAR_ALLOWED`, which neither shell walks.
+(all r7 pins; r8 recounts 14 over r7's pin lists, 16 with the two body-line edges, see r8's decision 7) and 5 newly
+allowed, each one of decision 5's `R7_LOOPVAR_ALLOWED`, which neither shell walks.
 
 **Red runs at `016a256be`** (the fixture seam, home `/Users/tester`, load 64-79). The probe over the brief's pins: the
 three decision 1 inputs, the four decision 3 inputs and decision 5's first pin were allowed (8 of 14 pins; the controls
@@ -1394,7 +1395,7 @@ under the lock; each batch's control passed every named test and the fence):
 | r6 budget | `r6-budget-dropped` (retargeted) | `test_r6_dense_substitutions_fail_closed_fast` | D (21:48Z, 66) |
 | r6 8 | `r6-cap-dropped` | `test_r6_hostile_words_fail_closed_fast` fails on it, but with a `JSONDecodeError`, not an assertion: the mutant allows `rg foo src` + 4,097 `$`, and the test parses the empty stdout | D (21:49Z, 80) |
 
-All eleven run under the lock are killed. D is outside the lock: my waiters went unadmitted for 30 minutes (21:16:49Z
+All thirteen run under the lock are killed (r7 first wrote "eleven"; r8's decision 7). D is outside the lock: my waiters went unadmitted for 30 minutes (21:16:49Z
 to 21:47Z, five bounded attempts at load 98-137), so, as the lane rules allow, I ran r6's last six directly
 (`mutdirect.py` in scratch: the driver's own `mutate()` on a small scratch tree, the named test function called in the
 fixture seam, a kill only on `AssertionError`), each after its control passed. Five are killed. `r6-cap-dropped`'s
@@ -1425,6 +1426,226 @@ exactly once.
   differential, the step counts (an instrumented copy of the prep's awk in scratch that prints its step count) and the
   timing rows.
 - The 18 lane commands are r6's reconstruction; review r5's list is not on disk.
+
+## r8: review r7's findings closed (2026-10-29)
+
+The hub's review r7 (REQUEST_CHANGES at `7447e9dce`, all P3) found six P3s and three report nits. Its three test-only
+commits (`cecca6e25`, `0f337c7bf` and `c83be9c89`: `test_review_r7_pins_r7s_unpinned_readings`, 29 denied and 9 allowed
+forms, and the `assert` that makes `r6-cap-dropped` fail on an assertion) stay and pass. r8 builds on `c83be9c89`.
+Every pin is review r7's input or the brief's, judged through the whole hook in the fixture (`test_r8_*`), and each
+command pin and control also runs in real `/bin/zsh -f` and `/bin/bash` 3.2 over the fixture with r6's stubs and the
+fixture's HOME (`test_r8_command_pins_agree_with_real_shells`).
+
+**Decisions as built.**
+
+1. **A loop variable keeps its root wherever the shells keep it** (review r7's P3-1, review r7's measured variant).
+   - A newline right after `&&`, `||`, `|` or `|&` (blanks and a comment between) continues the line: the prep skips
+     it as a separator, so the operator stays `pv`.
+   - `time` or `time -p` before a compound command (`if`, `while`, `until`, `for`, `select`, `case`, `repeat`,
+     `foreach`, `coproc`, `!`, `{`) is a keyword, so `ld` counts the command it times. zsh's `repeat` and
+     `foreach` open one too. A `foreach` closes on `end`, which the prep doesn't count, so it stays open, and so
+     does a `repeat` with no `do … done`.
+   - A `name()` (any empty `()`) or the word `function` anywhere in the command sets `FN`, which the prep reads once
+     over the whole command, and `FN` turns the reset off.
+   - Only a plain word (no `$`, backtick, quote, backslash or blank) replaces the loop's words.
+   - The hook denies review r7's fifteen inputs. It still allows the sixteenth (`…; d=src; read d <<< ~/.subfleet;
+     rg foo "$d"`), which the doc names under "a root held in any variable" (`R8_KNOWN_OPEN`), and r7's five
+     intended forms.
+   - *Deviation, the smallest change that keeps the intent:* a value that is not a plain word joins the loop's words
+     instead of leaving them alone. The counterexample: r7 denies `for d in src; do :; done; d='/'; rg foo "$d"`
+     (and `d=\/`, `d='/Users/tester/.subfleet'`), and both shells walk the root. If a quoted value only left the
+     loop's words (`src`), the hook would allow all three. With the join, `d='src /'` keeps the loop's root and `d='/'`
+     still reads `/`. The join also denies a `$` value that spells a root after a scoped loop (`d=$HOME`,
+     `d="$HOME"`), which both shells walk and r7 allowed.
+   - *How:* `time` before a simple command stays a wrapper (`WRAP` reads its `-o` and `-f` values), so `time -o f rg
+     …` reads as before. A timed simple command is never an assignment-only command, so it never resets.
+   - *Addition:* the continuation also keeps the pipe's state, so the command on the next line is still in the
+     pipe. That closes `echo 'rg --files ~/.subfleet' |⏎bash`, `find ~/.subfleet -maxdepth 1 |⏎while read d; …` and
+     `cat <(…) |⏎⏎bash`. r7 and the installed hook allow all three, and both shells walk them. From the home, it also
+     allows `echo x |⏎rg foo` and `git log |⏎⏎rg foo`. r7 denied them: the newline ended the pipe, so rg's stdin
+     looked empty and rg looked as if it walked `.`. The installed hook allows them, and in both shells rg reads the
+     pipe and walks nothing. The hook still denies `rg foo |⏎cat` from the home.
+2. **The 4,096 cap counts `'` and backtick** (P3-2). r6 decision 8's one-pass count also counts them, and the
+   message names them. The hook denies review r7's `''`×30,000 row as too complex in 0.22 s of CPU, against the
+   installed hook's 0.46 s and r7's 4.05 s. The tests pin the edges: the prep reads 4,096 of either beside a scoped
+   search, 4,098 is too complex, and the hook denies a file-writing heredoc with 4,099 quotes that names a searcher.
+   That heredoc is the trade-off, which the doc lists under "stricter".
+3. **In `$((`, a `<<` is a shift whenever the span ends in `))`** (P3-3). `arend` reads a `$((` span as arithmetic
+   when it ends in `))`, whatever its inner `(` closes on. Review r7's `echo $((1) + (1<<X⏎))⏎/usr/bin/find / -name
+   x⏎X` is now denied (bash walks it; zsh doesn't). The hook still allows r7's six arithmetic controls, and the
+   command form `((1) + (1<<X⏎))…`, which walks in neither shell. The overlay doc's r7 sentence now names this
+   reading.
+4. **A piped `while read` takes the roots of what a filter passes on** (P3-4). When r7's pass-on puts a filter's
+   `<(…)` output on the pipe (`nextin`), its words also join `nextroots`. The hook denies review r7's two inputs and
+   a two-`<(…)` form. It allows the brief's control (`cat <(git ls-files) | while read f; do wc -l "$f"; done`), and
+   the same loop with `rg -n foo "$f"`.
+5. **The hook still denies `tee <(echo 'rg --files ~/.subfleet') | bash`** (P3-5). The doc lists it under
+   "stricter", and `R8_STRICTER` pins it: denied, walked by neither shell, named by the doc.
+6. **The doc lists the joined productions open** (P3-6), and `R8_KNOWN_OPEN` pins each: allowed here, walked by a
+   real shell, named by the doc.
+   - `cat <(printf 'rg --files ') <(echo ~/.subfleet) | bash` and `paste -d' ' <(echo 'rg --files') <(echo
+     ~/.subfleet) | bash`: the prep joins the two `<(…)` outputs with a line break and judges each line on its own.
+   - `{ printf 'rg --files '; echo ~/.subfleet; } | bash`: a pipe carries what the simple command right before it
+     writes, and only the group's closing `}` stands there.
+   - *Addition:* this round's probes found two more of the last kind, `{ echo 'rg --files ~/.subfleet'; } | bash`
+     and `(echo 'rg --files ~/.subfleet') | bash`. r7 and the installed hook allow both, and both shells walk them.
+     The doc lists them, and the test pins them, beside review r7's three.
+7. **Report nits.**
+   - The driver holds 19 r6 and r7 mutants: r7's seven and r6's twelve. r7's final answer said 20.
+   - r7 retargeted six edits. r7's tool commit says five; r7's section above already says six.
+   - Over r7's own pin lists (57 commands), r7 newly denies 14 walk pins against r6: five arithmetic, eight
+     pass-on and one loop variable. With the two body-line budget edges (too complex at r7, read at r6) it is 16.
+     That agrees with review r7's 14; r7's section said 15, and now carries this recount.
+   - r7's section also said "all eleven run under the lock", but its table lists thirteen there (M1-M5); the
+     sentence now says thirteen.
+8. **TRUST and docs.**
+   - TRUST changes only `hook_sha256`.
+   - The overlay doc gains r8's paragraph. Its "Known differences" now reads after r8: the open forms of decisions 1
+     and 6, the stricter forms of decisions 1, 2 and 5, and the `while read` sentence for decision 4.
+   - The doc's r7 sentences on arithmetic and on the loop variable now say what r8 changed.
+
+**Nothing is looser than r7 but two corrected over-blocks.** I compared this head with r7 and the installed hook over 1,401 distinct pairs: S1's
+779 (its generated and fixed corpus), the 594 pairs of every r4–r8 command list in the test (92 lists), and 79 probes
+of mine, 36 of them in no list. This head newly denies 33 and newly allows none. No rule changed, and the installed
+hook denies nothing this head allows. The 33:
+- 19 are decision 1's pins;
+- 4 are decision 2's;
+- 1 is decision 3's;
+- 3 are decision 4's;
+- 2 are the `$HOME` values after a scoped loop, which both shells walk;
+- 4 are the function pre-scan's over-blocks: `echo "f()"`, a commit message holding "function", an uncalled
+  `function g { :; }` and a comment holding "function". Neither shell walks them, and the doc lists them under
+  "stricter".
+
+The two corrected over-blocks are decision 1's pipe continuations from the home (`echo x |⏎rg foo`, `git log
+|⏎⏎rg foo`), which a probe of mine found from that cwd: neither shell walks them, and the installed hook allows them
+too.
+
+**Red runs at `c83be9c89`** (the fixture seam, home `/Users/tester`; the probe at 02:04Z, load 24).
+- **The probe over the brief's pins:** the hook allowed every decision 1-4 pin: decision 1's fifteen, the
+  `''`×30,000 row, decision 3's input and decision 4's two. It already denied the tee form, and it allowed the three
+  joined productions, the sixteenth input and every control.
+- **The new tests, under the lock** (queued 02:12:24Z, slot B, done 02:14:54Z at load 35): six of the seven failed.
+  The must-allow test passed: `c83be9c89` denies no new control.
+
+**Holds** (one pytest each, `-k` selections of `test_guard_subfleet_root.py` unless named, home `/Users/tester`).
+Every hold ran under the lock, and each was admitted within a minute of being queued.
+
+| Hold | Admitted (slot, load) | Selection | Result, pytest time |
+| --- | --- | --- | --- |
+| red | queued 02:12:24Z (B, 35 at the end) | `test_r8_*` at `c83be9c89` | 6 failed, 1 passed, 117 s |
+| T | 02:44:33Z (B, 19) | TRUST, the fence, the doc pins, both known-differences tests, the overlay pair | 8 passed, 17 s |
+| H1 | 02:49:01Z (B, 24) | `test_r8_*`, `test_r7_*`, review r7's test | 15 passed, 184 s |
+| H9 | 02:53:48Z (A, 20) | S1 | 1 passed, 361 s |
+| H10 | 03:00:13Z (B, 26) | S1-protection, S2, S3 ×2, the cwd list, S5, S4 ×2, S1-r3, known limits ×2 | 9 passed, 2 skipped (S4), 260 s |
+| H2 | 03:04:46Z (B, 15) | r5's and r6's tests, reviews r5 and r6 | 26 passed, 112 s |
+| H3 | 03:07:02Z (A, 23) | r4's tests, review r4 | 14 passed, 69 s |
+| H4 | 03:08:15Z (A, 23) | r3c's property | 1 passed, 190 s |
+| H5 | 03:11:42Z (A, 28) | r3's examples, settings and real-shell globs | 26 passed, 117 s |
+| H6 | 03:13:49Z (A, 26) | r3's property | 1 passed, 130 s |
+| H7 | 03:16:10Z (A, 11) | r3b's property | 1 passed, 46 s |
+| H8 | 03:16:57Z (A, 20) | r3b's and r3c's examples, shells, mounts and folded code points | 24 passed, 59 s |
+| H11 | 03:18:07Z (A, 15) | the rest (r1/r2, TRUST, the fence, env spellings, logging) | 16 passed, 27 s |
+| HA | 03:18:35Z (A, 11) | `test_guard_overlay.py`, `test_guard_trust.py` | 127 passed, 70 s |
+| HB | 03:20:03Z (A, 9) | the three guards | 63 passed, 22 s |
+
+H1 to H11 cover all 136 items of `test_guard_subfleet_root.py` exactly once (checked with `--collect-only`): 134
+passed and S4's 2 skipped. H9 wrote the corpus verdicts to a fresh `GUARD_DIFF_CACHE`, and H10 read them, as the
+cache is meant to be read across holds. S1 at this head has 779 commands; the old hook denies 119 and this one
+313, and the 194 newly denied are r3's intended moves, as at r7.
+
+**Timing rows** (child CPU in seconds, one run each, this head / r7 / the installed hook, load 9-10 at 03:20Z):
+
+| Row | This head | r7 | Installed |
+| --- | --- | --- | --- |
+| `cat <<A ` + `''`×30,000 (pinned; too complex here) | 0.22 | 4.05 | 0.46 |
+| `rg foo src; cat ` + `<<'' `×12,000 (too complex) | 0.16 | 1.82 | 0.28 |
+| `rg foo src; echo ` + `''`×30,000 (too complex) | 0.13 | 2.92 | 0.43 |
+| `rg foo src; echo ` + `` `:` ``×16,000 (too complex) | 0.13 | 1.44 | 0.15 |
+| `` `rg` ``×13,000 (too complex) | 0.13 | 1.48 | 0.05 |
+| 300 delimiters, 20,000 lines / 40 and 8,000 / 300 missing (too complex) | 0.43 / 0.18 / 0.34 | 0.43 / 0.17 / 0.33 | 0.52 / 0.21 / 0.50 |
+| r5's nine long-word rows | 0.08-0.23 | 0.10-0.25 | 0.11-0.19 |
+| r6's 60,000 `$` / 60,000 `#` / 30,000 backslash pairs (too complex) | 0.13 / 0.18 / 0.21 | 0.14 / 0.21 / 0.17 | 0.21 / 0.24 / 0.27 |
+| r6's three dense rows (too complex) | 0.12 | 0.11-0.16 | 0.13 |
+| r4's four hostile rows | 0.17-0.20 | 0.16-0.18 | 0.10-0.14 |
+| r4's cap edge, 64 `{` / 64 `/[` in 4 KB (reported, not bounded) | 0.28 / 0.50 | 0.25 / 0.53 | 0.13 / 0.13 |
+
+The installed hook allows every row; "too complex" and "too long" mark this head's denials, and r7 allows review r7's
+five rows and denies the rest as this head does.
+
+Best of three on review r7's five rows (load 8-9): 0.17, 0.11, 0.12, 0.15 and 0.17 here, against 3.69, 1.75, 2.65,
+1.71 and 1.90 at r7 and 0.45, 0.33, 0.55, 0.19 and 0.04 for the installed hook. The test bounds the pinned row at
+twice the installed hook (`test_r8_quotes_and_backticks_count_against_the_cap`): in H1, at load 23, it took 0.21 s against
+the installed hook's 0.53 s.
+
+The `` `rg` ``×13,000 row runs above twice the installed hook: 0.13 s against 0.05 s single, and 0.17 s against
+0.04 s best of three.
+- The installed hook spends on it what it spends on a command that names no searcher (`` `xy` ``×13,000: 0.05 s),
+  so it most likely never reads a searcher in `` `rg` ``.
+- A stage split of this head (scratch copies with an `exit` inserted, best of three, load 10.5): 0.086 s before
+  `pw_named`, then 0.034 s for `pw_named`, 0.016 s for decision 2's count and 0.031 s for the deny.
+- Decision 2 costs 0.016 s of that and takes r7's 1.48-1.90 s down to the cap's floor, which every capped command
+  pays (r6's hostile rows cost 0.13-0.21 s here). So this round ships it, and the row's bound stays the brief's: the
+  pinned row only.
+
+The 300-path cost test (`test_r4_absolute_paths_cost_at_most_twice_the_installed_hook`, H3, load 23) gave a median
+child CPU of 0.237 s against the installed hook's 0.150 s, **1.58×**. r4's hostile rows took 0.17-0.23 s best of
+three, and the cap edge 0.24 and 0.55 s.
+
+**The real shells.** r8 runs 56 commands (H1): the hook denies 29; zsh walked a root in 29 and bash in 31 (both in
+26), and neither walked in 22.
+- Every run agrees but the listed forms: the tee form (denied, walked by neither) and the six open forms (allowed,
+  walked by both).
+- bash alone walks `…; echo x |⏎d=src⏎…`, `d='src /'; rg foo $d`, `time -p while …` and decision 3's two inputs.
+- zsh alone walks `f(); d=src`, `f()⏎d=src` and `repeat 0 do … done`.
+- r7's 46 runs and r6's 69 (H1, H2) agree as before.
+
+**Must-allow cases.** `test_r8_scoped_searches_stay_allowed` holds 248 cases (220 distinct):
+- r6's 198 (with review r4's allowed forms, the print-and-exit forms from three cwds, the routine `git commit -F -
+  <<'EOF'⏎It's fixed⏎EOF` and r6's 17 allowed lane commands);
+- review r6's 8 and review r7's 9 allowed forms;
+- r7's 15 allowed forms;
+- r8's 18: r7's five loop forms again, six continuation and `time` controls, three cap edges, two pass-on
+  controls and two pipes from the home.
+
+The hook allows all of them, and r7's and r6's own must-allow tests pass too (H1, H2).
+
+**Mutants** (`tools/guard_subfleet_root_mutations.py`, one `git archive` of HEAD each, the named test and the fence,
+all under the lock; each batch's control passed every named test and the fence):
+
+| Decision | Mutant | Killing test | Batch (admitted, load) |
+| --- | --- | --- | --- |
+| 1, continuation | `r8-continuation-dropped` | `test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it` | M1 (03:23:10Z, 9) |
+| 1, `time` | `r8-time-keyword-dropped` | the same | M1 |
+| 1, function pre-scan | `r8-function-prescan-dropped` | the same | M1 |
+| 1, plain word | `r8-plain-word-dropped` | the same | M1 |
+| 1, deviation (the join) | `r8-value-joins-dropped` | the same | M1 |
+| 1, zsh's `repeat` | `r8-repeat-uncounted` | the same | M1 |
+| 2 | `r8-cap-quotes-dropped` | `test_r8_quotes_and_backticks_count_against_the_cap` | M1 |
+| 3 | `r8-dollar-arith-dropped` | `test_r8_a_dollar_double_paren_span_ending_in_two_closes_is_arithmetic` | M1 |
+| 4 | `r8-passon-roots-dropped` | `test_r8_a_piped_while_read_takes_the_roots_a_filter_passes_on` | M1 |
+| 5, 6 | `r8-known-form-unlisted` (the paste form's name dropped from the doc) | `test_r8_known_differences_name_the_stricter_and_open_forms` | M1b (03:24:30Z, 10) |
+| review r7 | `rv7-bto-dropped` (`!bto` dropped from both `vtop` lines) | `test_review_r7_pins_r7s_unpinned_readings` | M1b |
+| r7 1-5, review r6 | r7's seven (`r7-arith-plain`, `r7-scan-uncounted`, `r7-passon-dropped`, `rv6-psub-passon-dropped`, `r7-known-form-unlisted`, `r7-loopvar-unscoped`, `r7-loopvar-anywhere`) | each one's named test | M2 (03:25:07Z, 9) |
+| r6 1-9, budget | r6's twelve (`r6-body-unread` … `r6-budget-dropped`) | each one's named test; `r6-span-backtick-dropped` also fails the fence | M3 (03:25:47Z, 10) |
+
+The tests kill all 30. I rebuilt `rv7-bto-dropped` from review r7's description (its scratch is gone). r8 rewrote
+two lines older mutants edit (`r7-passon-dropped`, `r7-loopvar-unscoped`); I retargeted each to the same edit on its
+new text, and all 95 of the driver's edits match their file exactly once. M1's first run stopped at
+`r8-known-form-unlisted`, whose edit predated the doc bullet's final wording. I retargeted it (`6e26da6ea`) and reran
+it with `rv7-bto-dropped` as M1b.
+
+**Unrun at this head:**
+- S4's two items. They need the operator's Claude hook, so they skip here.
+- `tests/frontend/test_core_live.py`: it can't run on a lane. CI runs both.
+
+**Disclosures.**
+- The head-against-r7 differential ran longer than the tool's 10-minute limit. The tool moved it to its background
+  mode, as this round's brief allows, and I polled it to completion; no process of mine outlived its run.
+- Outside the lock, all probes: the red probe, the decision probes while building, the differential, the timing rows,
+  the best-of-three rows, the stage split and the shell probes. Every test and mutant run ran under the lock.
+- Review r7 writes the fourth row as `` echo `:` ``×16,000, which names no searcher, so no hook would prep it. I
+  rebuilt it as `rg foo src; echo ` + `` `:` ``×16,000. The other four rows follow review r7's text.
 
 ## Invariants and how they were checked
 
@@ -1733,9 +1954,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r7)
-   # 89b0efe18b64ea939cf0c14b2b6e416162a66560759903a60e69592af961aa5d  private/guard/never-rules-hook.sh
-   # b749db5afabaf72482e22c53d0e9ae9bd3b4dd3df80efe174bf409453f36e9eb  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r8)
+   # 740728e3a290c77d8d6e2f4dfe196f6b3f1e018f0673e38de48cc23beb0120e9  private/guard/never-rules-hook.sh
+   # f5e5268ec44701db1752204b444e5e00ce0fea9dff6d11cc0f7bb39b388fc073  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -1772,7 +1993,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 89b0efe1…aa5d, b749db5a…e9eb
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 740728e3…20e9, f5e5268e…c073
    ls -la ~/.subfleet/guard
    ```
 
