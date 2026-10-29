@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 
-from subfleet import daemon as daemon_module, folders, retention
+from subfleet import daemon as daemon_module, dependencies, folders, retention
 from subfleet import retention_archive as rarch
 from subfleet.store import Store
 from tests.unit.retention_world import git, snapshot
@@ -231,6 +231,68 @@ def test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job(case, 
     assert held == keeps, (case, where, recorded, held, keeps)
     if shape in ("tree", "inside"):
         assert held, case                          # the volume finds the tree by this name
+
+
+# D1: every generated path includes the Greek pair that distinguished the old
+# attribution fold, with additional canonical/caseless spellings in each tail.
+DEPENDENCY_COMPONENTS = st.lists(st.sampled_from([
+    ("ΐ", "Ϊ\u0301"), ("ΰ", "Ϋ\u0301"), ("ß", "SS"), ("ﬁ", "FI"),
+    ("K", "k"), ("é", "E\u0301"), ("a\u0323\u0301", "A\u0301\u0323"), ("MiXeD", "mIxEd"),
+]), min_size=1, max_size=4)
+
+
+def test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks():
+    """C-6.11/C-8.4: the query's dependency key also identifies the held place."""
+    from tests.fake.test_admission_latency import fleet_daemon, submit
+    from tests.fake.test_admission_liveness import _live
+    from tests.fake.test_detached_retention_fence import Workspaces
+    from tests.fake.test_retention_dependency_spelling import record_alias
+    from tests.fake.test_writer_retention_fence import look, measured
+
+    @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @example([("ΐ", "Ϊ\u0301"), ("ß", "SS"), ("ﬁ", "FI"), ("K", "k"),
+              ("a\u0323\u0301", "A\u0301\u0323"), ("MiXeD", "mIxEd")], "review-root", True, "/vendor/lib")
+    @given(DEPENDENCY_COMPONENTS, st.sampled_from(["review-root", "output", "git-storage"]),
+           st.booleans(), st.sampled_from(["", "/vendor/lib", "/absent/../result.md"]))
+    def check(parts, role, late, tail):
+        def reference(path):
+            return unicodedata.normalize("NFD", unicodedata.normalize("NFD", os.path.normpath(path)).casefold())
+
+        with tempfile.TemporaryDirectory() as directory:
+            with fleet_daemon(Path(directory) / "state") as (daemon, harness, patch):
+                measured(daemon, harness)
+                base = Path(folders.canonical(daemon.root / "worktrees" / ID))
+                tree = str(base.joinpath("ΐ", *(actual for actual, _ in parts)))
+                alias = str(base.joinpath("Ϊ\u0301", *(typed for _, typed in parts))) + tail
+                lease = folders.exclusive_key(tree)
+                assert dependencies.key(tree) == reference(tree) == reference(alias)[:len(reference(tree))]
+                assert dependencies.key(alias) == reference(alias)
+                # No filesystem lookup can repair the recorded alias during quarantine.
+                assert not Path(alias).exists()
+                assert not folders.fences(lease, alias, fold=True)
+                job = submit(daemon, harness, sandbox="read-only")
+                field = {"review-root": "review_root", "output": "out_path", "git-storage": "git"}[role]
+                record_alias(daemon, job, field, [alias] if field == "git" else alias)
+                workspaces = Workspaces(daemon, patch, real=False)
+
+                def lands(row):
+                    assert daemon.store.acquire_lease(lease, "retention:" + ID)
+                    return workspaces(row)
+
+                if late:
+                    patch.setattr(daemon, "_workspace", lands)
+                else:
+                    assert daemon.store.acquire_lease(lease, "retention:" + ID)
+                hold = look(daemon, job)
+                blocked = dependencies.fences(daemon.store.query, [(role, alias)])
+                assert blocked == [(role, alias, [lease])]
+                assert not _live(daemon, job), hold
+                assert hold["retiring"] == [lease]
+                assert (hold.get("needs"), hold.get("folder")) == (role, alias), hold
+                assert dependencies.key(hold["folder"]) == reference(blocked[0][1])
+                assert workspaces.calls == ([job] if late else [])
+
+    check()
 
 
 # Through the daemon: real submission, workspace and admission, the archive
