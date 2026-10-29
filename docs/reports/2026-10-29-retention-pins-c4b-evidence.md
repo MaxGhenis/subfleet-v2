@@ -1,12 +1,12 @@
 # Retention dependency pins: continuation 4b evidence, 2026-10-29
 
-Base: `2f1c81ab982d030eef62e2db0e21fcc773b7585f`. Started 00:19:36 UTC on October 29; new holds and steps stop by 04:49:36 UTC. Product code, the contract and the main report are unchanged. Only the unit killing test and this report are delivered.
+Base: `2f1c81ab982d030eef62e2db0e21fcc773b7585f`. Started 00:19:36 UTC on October 29; new holds and steps stop by 04:49:36 UTC. Product code, the contract and the main report are unchanged. The versioned changes are the unit killing test and this report.
 
 Shared git metadata refused `index.lock`. Commits use private scratch metadata on `fix/retention-dependency-pins-217`; the assigned `.git` file is unchanged. The ordered commits are delivered in `rdp217c4b.bundle`, based on the commit above. No fetch, push, production CLI, provider or live store was used.
 
 ## Step 1: the sixteen remaining mutants
 
-Each mutant ran in its own hold. The committed [continuation 3 definitions](2026-10-27-retention-dependency-pins-data/c3-mutant-definitions.json) were applied by an in-memory import loader: each replacement matched exactly once, compiled, and its target module was observed loading. No product file was edited. Settings retained the configured maxima and strategies, seed **217**, and **explicit/generate phases without shrinking** (`-x` stops at the first counterexample). Independent holds used the supplied lock, with at most four pytest processes; no sub-agents or xdist were used.
+All sixteen mutants are killed. Each mutant ran in its own hold. The committed [continuation 3 definitions](2026-10-27-retention-dependency-pins-data/c3-mutant-definitions.json) were applied by an in-memory import loader: each replacement matched exactly once, compiled, and its target module was observed loading. No product file was edited. Settings retained the configured maxima and strategies, seed **217**, and **explicit/generate phases without shrinking** (`-x` stops at the first counterexample). Independent holds used the supplied lock, with at most four pytest processes; no sub-agents or xdist were used.
 
 P/F/U means passed / failed / unfinished selected nodes, requiring all three passing phases for P and completed teardown for F. A mutation F is expected killing evidence; U after `-x` is an unexecuted selected node, not a head failure. All starts are October 29 UTC; load columns give the observed one-minute host load from `os.getloadavg()` inside the admitted process.
 
@@ -59,9 +59,9 @@ Each property runs alone in its own hold at its existing normal settings, with a
 
 | Property | Observed examples | Outcome | Start UTC | Load | P/F/U |
 |---|---|---|---|---:|---|
-| `test_python_pins_and_transaction_agree_with_independent_reference` | unrun | unrun/in progress | — | — | — |
-| `test_live_dependents_are_monotone_and_the_last_ending_allows_retirement` | unrun | unrun/in progress | — | — | — |
-| `test_early_fences_equal_reservation_before_and_after_quarantine` | unrun | unrun/in progress | — | — | — |
+| `test_python_pins_and_transaction_agree_with_independent_reference` | 100 generated passing / 1 invalid | passed | 00:55:11 | 19.5 | 1/0/0 |
+| `test_live_dependents_are_monotone_and_the_last_ending_allows_retirement` | 100 generated passing / 2 invalid | passed | 00:56:15 | 19.6 | 1/0/0 |
+| `test_early_fences_equal_reservation_before_and_after_quarantine` | 12 explicit passing + 400 generated passing / 90 invalid | passed | 01:02:19 | 10.2 | 1/0/0 |
 
 ## Step 3: measurement
 
@@ -100,6 +100,12 @@ An early optional wrapper RSS check using `ps` was denied. It was removed in fav
 | `turn-reason-ignores-needs` | 00:47:15 | 36.2 | 0/1/0 | locked | exit 1 |
 | `admission-no-needs-role` | 00:47:20 | 35.2 | 0/1/0 | locked | exit 1 |
 | `collate-nocase-restored` | 00:47:53 | 33.6 | 0/1/19 | locked | exit 1 |
+| `guards` | 00:49:56 | 25.9 | 63/0/0 | locked | exit 0 |
+| `head-units` | 00:50:32 | 18.1 | 19/0/0 | locked | exit 0 |
+| `head-dependencies` | 00:51:58 | 15.0 | 28/0/0 | locked | exit 0 |
+| `property-reference` | 00:55:11 | 19.5 | 1/0/0 | locked | exit 0 |
+| `property-monotone` | 00:56:15 | 19.6 | 1/0/0 | locked | exit 0 |
+| `property-fences` | 01:02:19 | 10.2 | 1/0/0 | locked | exit 0 |
 
 ## Closeout and open work
 
