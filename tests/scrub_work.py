@@ -12,7 +12,9 @@ The counts here are the same on every run of one interpreter:
   release/217's frozen pipeline, which every mode runs first since #239), the ones
   their rule tuples hold (`_TOKEN_RULES`, `_BLOCK_RULES`) included: one counting
   stand-in for each pattern, wherever a module keeps it, so `pattern is _HEADER_RE`
-  and `pattern in (_PEM_RE, …)` still hold.
+  and `pattern in (_PEM_RE, …)` still hold. A pattern both modules hold (`re.compile`'s
+  cache hands them one object) has one stand-in, named after `handoff`: `over` and
+  `widest` credit that name with both pipelines' reads (#266 review r4).
 - `lines`: the lines of `subfleet` Python runs during the call (`sys.settrace`), so a
   loop of the scrubber's own counts too.
 - `uncounted`: what `sys.setprofile` sees the reads miss. That is a regex call made

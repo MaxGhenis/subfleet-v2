@@ -560,7 +560,7 @@ def test_the_bearer_rule_keeps_scrubbing_linear(token, suffix):
     holds (`tests.scrub_work`); the instruction test below sees those. Once the Bearer
     rule redacts a plain run, the later passes read `Bearer [REDACTED]`, so its lines
     stay flat but for `x.`; a refused run is left to the named-value and flag rules,
-    whose lines grow with it (3.4x and 3.7x). Neither test sees growth like n log n
+    whose lines grow with it (3.7x and 3.4x). Neither test sees growth like n log n
     (about 4.7x here) or shapes other than these runs."""
     measured = _scrubber_probe(f"token, suffix = {token!r}, {suffix!r}\nreads_per_char = {READS_PER_CHAR_MAX}\n" + '''
 import json, sys
@@ -595,8 +595,9 @@ def test_the_bearer_scrub_retires_linear_instructions(token, suffix):
     two before; #266 review r2, P3-2, and round 4). So the test goes on to the next size
     after each linear pair, and stops at the first pair past the bound, before a
     catastrophic scrub outruns the probe's timeout; at 131,072 the four calls
-    `fewest_instructions` makes of the linear scrub take under 0.2 s. CI's virtual
-    machines hide the counter, so CI skips this test: there only the counts above run."""
+    `fewest_instructions` makes of the linear scrub took 0.08 to 0.42 s of CPU, and up
+    to 1.6 s of wall time, on the lanes' host (#266 review r4). CI's virtual machines
+    hide the counter, so CI skips this test: there only the counts above run."""
     measured = _scrubber_probe(f"token, suffix = {token!r}, {suffix!r}\n" + '''
 import json
 from tests.cpu_scaling import COUNT_GROWTH_MAX, fewest_instructions
@@ -620,7 +621,7 @@ def test_the_counted_scrub_is_the_scrub(text):
     over the key-order grammar and the seeded fuzz, the counted scrub gives the plain
     scrub's output, each call's matches `re`'s own, and the profile names no regex call
     made from Python past the count, nor any call to `re`'s API. The budget only bounds
-    the run: through both pipelines these short texts read up to about 210 a character,
-    where each pass's fixed reads outweigh the text (#266 round 4)."""
+    the run: through both pipelines these short texts read up to about 220 a character
+    (221 for `aaaaaa`), where each pass's fixed reads outweigh the text (#266 review r4)."""
     work = scrub_work(text, reads_per_char=4096)
     assert (work["over"], work["same"], work["uncounted"]) == (None, True, []), (text, work)

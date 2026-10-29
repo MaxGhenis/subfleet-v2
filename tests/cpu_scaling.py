@@ -25,9 +25,10 @@ GROWTH_RATIO_MAX = 8
 COUNT_GROWTH_MAX = 5
 #: The constant-factor bound against release/217's own scrub on one input
 #: (`best_cpu_ratio`, C-23.14). Since #239 round 8 every mode runs release's pipeline
-#: first and the head's on what it leaves, so the head's scrub does release's work and
-#: then its own: 2.5 leaves the head's own pass up to 1.5 times release's, and catches
-#: a pass that does several times that.
+#: and then the head's, each on the original text, and hides what either hides
+#: (`shown_by_both`), so the head's scrub does release's work and then its own: 2.5
+#: leaves the head's own pass up to 1.5 times release's, and catches a pass that does
+#: several times that.
 COST_RATIO_MAX = 2.5
 
 
