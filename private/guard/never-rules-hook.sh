@@ -2343,9 +2343,17 @@ pw_prep_awk="$pw_lib_awk"'
       nextroots = (sep == "|" || sep == "|&") ? ri (ri == "" ? "" : " ") lastroots : ""
       # r7 decision 3: a command that passes on what its <(...) writes (cat, tee, any filter: lastps) passes it down
       # the pipe after the substitution closes, with what came into it (oc), and so for each later <(...) of it,
-      # until its words end (ow)
+      # until its words end (ow); r8 decision 4: the words of what it passes on are also roots a piped while read
+      # reads (nextroots), as for any other producer
       if (oo) { if (ow) oc = oc "\n" pps; else if (lastps) { oc = pi (pi == "" ? "" : "\n") lastprod; ow = 1 }; oo = 0 }
-      else if (!oe && ow) { if (sep == "|" || sep == "|&") nextin = nextin (nextin == "" ? "" : "\n") oc; oc = ""; ow = 0 }
+      else if (!oe && ow) {
+        if (sep == "|" || sep == "|&") {
+          nextin = nextin (nextin == "" ? "" : "\n") oc
+          x = oc; gsub(/[[:space:]]+/, " ", x); sub(/^ /, "", x); sub(/ $/, "", x)
+          if (x != "") nextroots = nextroots (nextroots == "" ? "" : " ") x
+        }
+        oc = ""; ow = 0
+      }
       if (i == oe) oe = 0
       pv = sep
       # r5 decision 5: a space before a closing backtick too, so a root right before it ends there
