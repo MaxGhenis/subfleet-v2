@@ -40,6 +40,10 @@ from tests.unit.test_quar_start1_census import (
 from tests.unit.test_kill4_terminal_containment import world  # noqa: F401
 from tests.unit.test_quar_start1_landed import (D4_SHAPES, LAUNCH, STRANGER, clock, d4_shape,  # noqa: F401
                                                 extended, extended_by_d4, landed, launched, record)
+from tests.unit.test_quar_start1_landed import (
+    test_a_start_d4_extended_found_by_the_abandons_last_read_is_recorded_once as d4_last_read_once,
+    test_a_start_that_lands_after_an_extension_is_recorded_once_with_its_seconds as landed_once,
+)
 
 RUNNER = 4500
 MUTANTS = {
@@ -59,6 +63,9 @@ MUTANTS = {
     "kill-attempt-handshake-unrecorded": (Daemon, "_kill_attempt", [
         ("unlaunched = self._abandon_start(a, unlaunched_detail())",
          'unlaunched = not self._read_json(self._abandon(a, unlaunched_detail()) / "start.json")')]),
+    # Check 5: `_start_landed` without its once-only check (review r1's unrun mutant).
+    "start-landed-not-once": (Daemon, "_start_landed", [
+        ("kind='attempt.start_landed'\"", "kind='attempt.start_landed' AND 0\"")]),
 }
 
 
@@ -241,6 +248,20 @@ def test_a_kill_attempt_that_inlines_the_handshake_fails_the_last_read_landing(d
     mutate(monkeypatch, "kill-attempt-handshake-unrecorded")
     test_a_start_json_kill_attempts_last_read_finds_at_the_bound_is_recorded_once_and_contained_as_launched(
         daemon, world, clock, "guardian-only")
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the recorded-once landings must detect this mutant")
+@pytest.mark.parametrize("read", ["after-the-census", "abandons-last-read"])
+def test_a_start_landed_without_its_once_only_check_fails_the_recorded_once_landings(
+        daemon, world, clock, monkeypatch, read):
+    """`after-the-census`: the read after start grace's census and the next pass's first
+    read both find `start.json`. `abandons-last-read`: the abandon's last read runs twice.
+    Either records the landing twice without the check."""
+    mutate(monkeypatch, "start-landed-not-once")
+    if read == "after-the-census":
+        landed_once(daemon, world, clock, "after-the-census")
+    else:
+        d4_last_read_once(daemon, world, clock, "stranger-unread")
 
 
 # 3. P3-3 for D4's extension property (`test_quar_start1_census.py`), now on a fake clock.
