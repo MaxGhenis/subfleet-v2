@@ -517,6 +517,7 @@ class Retirement:
         self.journal = {
             "schema": SCHEMA, "job_id": self.job_id, "state": "selected", "pool": pool,
             "worktree": str(worktree) if worktree else None, "job_dir": str(job_dir),
+            "job_folder": folders.canonical(str(job_dir)),
             "workdir": job.get("workdir"), "baseline": job.get("workdir_head"),
             "admin": str(reg.admin) if reg else (str(remnant) if remnant else None),
             "admin_remnant": remnant is not None, "common": str(common) if common else None,
@@ -628,9 +629,9 @@ class Retirement:
         assert self.journal is not None
         folder = self.journal.get("job_folder") or folders.canonical(self.journal["job_dir"])
         if "job_folder" not in self.journal:
-            # Keep the fence's spelling for the final check, even after quarantine.
+            # Upgrade old journals in memory; quarantine saves before any rename.
             # Leave job_dir unchanged so the rename still refuses a symlink there.
-            self.save(job_folder=folder)
+            self.journal["job_folder"] = folder
         key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
         with self.ctx.store.transaction("retention.job_folder", job_id=self.job_id) as conn:
             self.ctx.check()
