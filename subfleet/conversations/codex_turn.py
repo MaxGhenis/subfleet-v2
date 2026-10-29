@@ -32,6 +32,7 @@ import os
 from typing import Any, Callable
 
 from ..guard.preflight import HOOK_KEY
+from ..launch_env import codex_shell_args
 from . import redact
 from .turn import COMPLETE, FAILED, INTERRUPTED, Approval, Event, Frame, Image, Outcome, Step, SteerTracking, TurnSpec
 
@@ -87,7 +88,8 @@ def argv(executable: str, override: str, *, unified_exec_off: bool = False) -> l
     command = [executable, "app-server", "--listen", "stdio://", "-c", override]
     if unified_exec_off:
         command += ["-c", "features.unified_exec=false"]
-    return command
+    # D-ENV3: a turn's commands see the launch's environment, not ~/.zshrc's exports.
+    return command + codex_shell_args()
 
 
 def check_hooks(result: Any, cwd: str, hooks_hash: str | None) -> str | None:

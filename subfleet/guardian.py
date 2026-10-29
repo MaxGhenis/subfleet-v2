@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -42,6 +43,17 @@ _ERRNO_BY_TEXT = {os.strerror(number): number for number in errno.errorcode}
 # decides the attempt finds them by it (C-5.5). It looks again at these intervals.
 LINGER_FIRST_S, LINGER_MAX_S = 0.1, 2.0
 LINGER_SETTLE_ENV = "SUBFLEET_EXIT_SETTLE_S"
+# D-QUAR-START1 (b), C-4.2: the daemon's abandon marker. Before it ends an attempt that has
+# no start.json it publishes this file in the attempt folder, then reads start.json for the
+# last time; this guardian publishes start.json, then looks for the marker before it spawns.
+# Each side writes its own file before it reads the other's, so at least one sees the
+# other: the daemon finds start.json and contains the attempt as launched, or this
+# guardian finds the marker and spawns nothing. It looks after its launch gate too.
+ABANDON_NAME = "abandon.json"
+# An abandoned guardian's exit receipt: rc 127 and a `spawn_error`, as a provider that
+# could not be spawned leaves (a reader that predates `abandoned` sees exactly that:
+# nothing ran), with `abandoned` saying why and at which check ("gate" or "spawn").
+ABANDONED_RC = 127
 
 
 def provider_qos() -> str | None:
@@ -141,6 +153,39 @@ def _output(path: Path):
     return os.fdopen(fd, "wb")
 
 
+def abandoned(attempt_dir: Path) -> dict | None:
+    """The daemon's abandon marker for this attempt (D-QUAR-START1), or None if it has none.
+
+    Any entry at that name is a marker: the daemon publishes it by rename, so one that is
+    there is whole, and one this guardian cannot read (or that is no regular file) still
+    says the daemon gave the attempt up. Only a name that is not there is no marker; a
+    folder that cannot be looked in is taken as one, so no provider starts unchecked."""
+    path = Path(attempt_dir) / ABANDON_NAME
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return {"reason": "abandon marker unreadable"}
+    try:
+        with os.fdopen(fd, "rb") as stream:
+            value = json.loads(stream.read(65536)) if stat.S_ISREG(os.fstat(stream.fileno()).st_mode) else None
+    except (OSError, ValueError):
+        value = None
+    return value if isinstance(value, dict) and value else {"reason": "abandon marker unreadable"}
+
+
+def _abandon(attempt_dir: Path, marker: dict, began: float, stage: str) -> int:
+    """Spawn nothing: publish the exit receipt of an attempt abandoned before launch."""
+    reason = str(marker.get("reason") or "abandoned")
+    _receipt(attempt_dir / "exit.json", {
+        "rc": ABANDONED_RC, "signal": None, "finished_at": _utc(),
+        "wall_s": round(time.monotonic() - began, 6), "child_pid": None,
+        "spawn_error": f"abandoned before launch: {reason}",
+        "abandoned": {"at": marker.get("at"), "reason": reason, "stage": stage}})
+    return ABANDONED_RC
+
+
 def linger() -> None:
     """D-CEN1: return once no other live process names this guardian as responsible;
     at once for a guardian that is not its own responsible process (one Popen
@@ -196,6 +241,10 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
         if not released:
             return 127
     attempt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    began = time.monotonic()
+    marker = abandoned(attempt_dir)
+    if marker is not None:
+        return _abandon(attempt_dir, marker, began, "gate")
     if start_delay_s:
         time.sleep(max(0, start_delay_s))
     started = time.monotonic()
@@ -219,6 +268,14 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     child = None
     spawn_error = None
     try:
+        # D-QUAR-START1 (b): only now, with start.json published, may the daemon's abandon
+        # be looked for; looked for before it, a marker written between the look and the
+        # publish would be missed by both sides (C-4.2).
+        marker = abandoned(attempt_dir)
+        if marker is not None:
+            if relay is not None:
+                relay.stop()
+            return _abandon(attempt_dir, marker, started, "spawn")
         qos = provider_qos()
         command = provider_argv(argv, qos)
         child_env = build_environment(removals=(LINGER_SETTLE_ENV,), pass_names=env_pass)

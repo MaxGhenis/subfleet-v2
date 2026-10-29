@@ -119,7 +119,9 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
                                   "account_key": "claude:a:o", "label": request.args.get("credential")}
         elif action in ("hold", "release"):
             result["held" if action == "hold" else "released"] = request.args.get("lane_id")
-            result["closures"] = []
+            result["closures"] = ([{"lane_id": request.args["lane_id"], "scope": "account",
+                                   "reason": "operator-hold", "source_event": "operator",
+                                   "until_at": request.args["until"]}] if action == "hold" else [])
         elif action == "release-limits":
             result.update(released=request.args.get("lane_id"), limits_released=[1], limits_reported=[2])
         return result

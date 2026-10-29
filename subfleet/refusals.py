@@ -18,7 +18,7 @@ import string
 from typing import Any
 
 from . import ids
-from .contracts import JOB_ID_SLUG_MAX, Sandbox
+from .contracts import HOLD_NOTE_CREDENTIAL_RULE, HOLD_NOTE_RULE, JOB_ID_SLUG_MAX, Sandbox
 from .sessions.registry import CONVERSATION_FIX
 
 # Checkout checks select these fixed diagnostics and repairs at their raise
@@ -296,7 +296,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                                "token and cannot be bound to an account (C-10.6)"),
     # Lanes: holds, releases and transfers (C-9.6, C-10.4).
     "unknown-lane": ("lanes {action}: unknown lane {lane_id}", "subfleet lanes list"),
+    "hold-until-past": ("lanes hold: --until must be in the future; hold is not in force", None),
     "hold-until": ("lanes hold: --until must be an ISO 8601 instant", None),
+    # The rule a note broke (`contracts.hold_note`), never the note (review r1 of #263).
+    "hold-note": ("lanes hold: {hold_rule}", None),
     "release-limits-note": ("lanes release --limits: --note is required", None),
     "release-limits-none": ("lanes release --limits: no open provider-limit or credits closures", None),
     "release-limits-reported": ("lanes release --limits: reported clock; provider clocks cannot be released by hand",
@@ -395,6 +398,7 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
                          "use a lane with no managed or nonempty configuration layer"),),
     "adapter-missing": (("provider adapter has no constructor", None),),
     "enroll-bound": (("lanes enroll: the credential is already bound to a lane", "subfleet lanes list"),),
+    "hold-note": ((f"lanes hold: {HOLD_NOTE_RULE}", None),),
     "unknown-lane": (("lanes {action}: unknown lane", "subfleet lanes list"),
                      ("lanes: unknown lane", "subfleet lanes list")),
     "transfer-held": (("lanes transfer: lane {lane_id} is held: its credential variable is one no lane "
@@ -437,6 +441,8 @@ def _choices() -> dict[str, tuple[str, ...]]:
     return {
         # `lanes` actions, then `sessions` actions: the daemon names them, never the caller.
         "action": ("hold", "release", "release --limits", "transfer", "retire", "unretire", "revived", "nudged"),
+        # `lanes hold --note`: the rule a note broke, each a contract text (C-9.6).
+        "hold_rule": (HOLD_NOTE_RULE, HOLD_NOTE_CREDENTIAL_RULE),
         "repository": ("this repository has no commit yet", "this directory is not a git repository"),
         "variable": MANAGED_ENV,
         "layer": CODEX_LAYERS,

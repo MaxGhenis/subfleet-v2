@@ -57,8 +57,12 @@ def test_mandatory_removal_beats_exact_policy_authority(name):
     from subfleet.provider_env import ProviderEnvironment
     environment = ProviderEnvironment({"env": {"pass": [name]}, "providers": {"codex": {"ca_bundle": None}}})
     parent = {name: "dummy", name + "_OTHER": "dummy"}
-    assert set(environment.build("codex", environ=parent)) == {name}
-    assert environment.build("codex", env_remove=(name,), environ=parent) == {}
+    # D-ENV3: a vendor's credential reaches only its own vendor's launches.
+    own, other = ("claude", "codex") if "ANTHROPIC" in name else ("codex", "claude")
+    assert set(environment.build(own, environ=parent)) == {name}
+    assert environment.build(own, env_remove=(name,), environ=parent) == {}
+    vendor = any(word in name for word in ("OPENAI", "CODEX", "ANTHROPIC", "CLAUDE"))
+    assert set(environment.build(other, environ=parent)) == (set() if vendor else {name})
 
 
 def test_daemon_start_refuses_invalid_env_policy_before_spawn(tmp_path, monkeypatch, capsys):

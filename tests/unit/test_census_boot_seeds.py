@@ -27,6 +27,12 @@ no process now alive can be the child or descend from it:
 An unknown attempt boot (none recorded, legacy `kern.boottime` seconds, or a current boot
 that cannot be read) keeps release/217's conservative answer, and on the attempt's own
 boot every source counts what it counted at 15bd8c172.
+
+Since #250 (D-KILL4) merged, the census this change is measured against is #250's at
+380b626cf (`tests/reference_census_380b626cf.py`): release/217's with D-KILL4's
+parent-chain rule and group-leader check, which change the census on every boot by
+design. The differentials (`at_base`) compare with it, so "15bd8c172" in the invariants
+below reads "the census before the boot scope" on this line.
 """
 
 from __future__ import annotations
@@ -42,7 +48,9 @@ import pytest
 
 from subfleet import boot_identity, procs
 from subfleet.daemon import Daemon
-from tests import reference_census_15bd8c172 as base
+from tests import reference_census_15bd8c172 as release_217
+from tests import reference_census_380b626cf as base
+from tests.fake_kernel import procargs
 from tests.unit.test_census_procargs import Store, captured
 from tests.unit.test_procs import BOOT_A, BOOT_B, census
 
@@ -105,10 +113,22 @@ def recording(patch) -> list[dict]:
 
 
 def at_base(call: dict) -> procs.Containment:
-    """15bd8c172's census of the same request (it had no `attempt_boot`)."""
+    """The census before the boot scope, of the same request (it had no `attempt_boot`):
+    15bd8c172's at #259, 380b626cf's (D-KILL4, with `parent_chain`) since the merge. Its
+    `_parent_chain` is today's, the same as 380b626cf's while nothing is stored or carried."""
     procs.forget_boot_id()
     kwargs = {key: value for key, value in call["kwargs"].items() if key != "attempt_boot"}
+    chain = kwargs.get("parent_chain")
+    assert chain is None or not (chain.held or chain.recorded or chain.carried), chain
     return base.containment(*call["args"], **kwargs)
+
+
+def at_release_217(call: dict) -> procs.Containment:
+    """15bd8c172's census of the same request: release/217's, before D-KILL4 and the boot
+    scope (no `parent_chain`, no `attempt_boot`), for what the incident's line counted."""
+    procs.forget_boot_id()
+    kwargs = {key: value for key, value in call["kwargs"].items() if key not in ("attempt_boot", "parent_chain")}
+    return release_217.containment(*call["args"], **kwargs)
 
 
 def ident(pid: int, boot: str, start: str) -> procs.ProcessIdentity:
@@ -259,7 +279,7 @@ def test_an_orphaned_group_and_an_absent_seeds_children_on_a_later_boot_are_not_
     assert result.verified_empty and result.group_pids == result.descendant_pids == frozenset()
     assert result.recycled[GUARDIAN]["reason"] == REASON
     assert result.recycled[GUARDIAN]["now"] == {"pid": GUARDIAN, "boot_id": BOOT_B, "proc_start": None}
-    before = at_base(calls[-1])
+    before = at_release_217(calls[-1])
     assert before.group_pids == {500} and before.descendant_pids == {501}
 
 
@@ -295,7 +315,7 @@ def root_shape(patch, row: dict, shape: str) -> dict:
 def test_the_attempts_responsibility_root_never_holds_it_on_a_later_boot(monkeypatch, shape):
     """The root is the guardian, a recorded pid of the attempt's boot, and no process of a later
     boot names it: a root recorded without a unique id needs no live matching start there, and a
-    known one no final holder read ("a proven other boot needs no final holder check", C-5.5).
+    known one's final holder read is made but cannot hold it (only its failure is dropped, C-5.5).
     At 993a28ef3 and at 15bd8c172 each held trackb's shape with `responsibility root identity
     unavailable for pid 76526`; the first for as long as pid 76526 stayed free."""
     row = trackb_row()
@@ -322,6 +342,64 @@ def test_the_roots_identity_checks_are_unchanged_without_a_boot_known_over(monke
     result = Daemon._contain(trackb_core(row, receipt_child=None, start_boot=attempt_boot), dict(row))
     assert ROOT_ERROR in result.errors and result.unverifiable
     assert result.to_dict() == at_base(calls[-1]).to_dict()
+
+
+MEMBER = 83100
+#: C-5.5's boot-scope sentence in trackb's shape (the attempt on boot A, the census on boot B), by
+#: root shape: the root's recorded unique id, its pid on boot B ("free"; "unreadable", free with
+#: the kernel's read of it failing; "stranger", a row of boot B) and whether a process names it as
+#: responsible, then `kernel.process(76526)` calls, of those the final holder read after the member
+#: scan, and whether the scan was given the root, so read its members. Review r6 of #240 executed
+#: the first four rows. The last two are a root the census proves recycled, which disables the
+#: source.
+BOOT_SCOPE = {
+    "known-id-holder-read-fails": ((9000, "unreadable", False), (1, 1, True)),
+    "known-id-holder-gone": ((9000, "free", False), (1, 1, True)),
+    "unique-id-unrecorded": ((None, "free", False), (0, 0, False)),
+    "a-member-names-the-root": ((9000, "free", True), (0, 0, True)),
+    "known-id-pid-held-by-a-stranger": ((9000, "stranger", False), (1, 0, False)),
+    "unique-id-unrecorded-pid-held-by-a-stranger": ((None, "stranger", False), (1, 0, False)),
+}
+
+
+@pytest.mark.parametrize("shape", list(BOOT_SCOPE))
+def test_c5_5_boot_scope_the_final_holder_read_by_root_shape(monkeypatch, shape):
+    """C-5.5 once the attempt's boot is over (review r6 of #240, P3-1). A root with a recorded unique
+    id takes its final holder read unless the census proved the root recycled or a member's read
+    proved the other boot, and that read's failure is dropped. A root recorded without one, whose
+    start is absent or changed, drops the responsibility source without an error, so neither its
+    members nor its holder are read. Every shape verifies empty with no error. A stranger's pid is
+    a listed pid, so the marker source reads it once in the scan; that read is not a holder read."""
+    (unique_id, holder, member), (process_calls, final_reads, source) = BOOT_SCOPE[shape]
+    row = trackb_row()
+    evidence = json.loads(row["evidence_json"])
+    evidence["responsible_root"] = {"pid": GUARDIAN, "unique_id": unique_id}
+    row["evidence_json"] = json.dumps(evidence)
+    extra = (f"{GUARDIAN} 1 {GUARDIAN} Ss {STRANGER_START}\n",) if holder == "stranger" else ()
+    install(monkeypatch, stranger_table(*extra))
+    kernel = procs.kernel
+    if holder == "unreadable":
+        kernel.fail.add(("process", GUARDIAN))
+    if member:
+        kernel.processes[MEMBER] = procargs(["tail"])
+        kernel.boss[MEMBER] = GUARDIAN
+    scans, real = [], procs._kernel_sources
+
+    def scan(kernel_reader, candidates, marker, root, ours):
+        try:
+            return real(kernel_reader, candidates, marker, root, ours)
+        finally:
+            scans.append((len(kernel.calls), root is not None))
+    monkeypatch.setattr(procs, "_kernel_sources", scan)
+    result = Daemon._contain(trackb_core(row), dict(row))
+    assert result.verified_empty and result.errors == (), result.to_dict()
+    assert [rooted for _, rooted in scans] == [source], scans
+    assert kernel.calls.count(("process", GUARDIAN)) == process_calls, kernel.calls
+    assert kernel.calls[scans[0][0]:].count(("process", GUARDIAN)) == final_reads, kernel.calls
+    if holder == "stranger":
+        assert result.recycled[GUARDIAN]["reason"] == "different start identity"
+    if member:
+        assert ("responsible", MEMBER) in kernel.calls and MEMBER not in result.responsible_pids
 
 
 def test_c5_12_the_attempts_boot_is_read_only_when_a_seed_depends_on_it(monkeypatch):

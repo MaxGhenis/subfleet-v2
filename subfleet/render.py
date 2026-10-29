@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
-from .contracts import READING_TTL_S, attempt_dir
+from .contracts import READING_TTL_S, attempt_dir, hold_note_of, hold_source
 from .launch_env import refused_reference
 from .quota_projection import instant, weekly_projections
 
@@ -70,9 +70,43 @@ def reading_text(value: Any) -> str:
     return result + (" [" + "; ".join(details) + "]" if details else "")
 
 
-def closure_text(value: Any) -> str:
-    """C-9.6: closures show their scope, reason, source, and explicit clock."""
+#: D-STATUS-SRC1: what `status` calls each kind of limit.
+LIMIT_WORDS = {"provider-limit": "provider limit", "credits": "credits limit", "cooldown": "cooldown"}
+
+
+def lane_home(lane: Mapping[str, Any]) -> str:
+    """The same public lane name in alerts, status, notices and acknowledgements."""
+    return str(lane.get("home") or lane.get("credential_ref") or lane.get("lane_id") or "the lane")
+
+
+def _held_text(closure: Mapping[str, Any], *, home: str | None = None) -> str:
+    """C-9.6: the operator's end is a safety bound, with the validated stored note."""
+    note = hold_note_of(closure.get("source_event"))
+    return (f"{home or lane_home(closure)}: held by the operator" + (f": {note}" if note else "")
+            + f" (until {closure.get('until_at')} at the latest)")
+
+
+def closure_line(value: Any, *, home: str | None = None) -> str:
+    """D-STATUS-SRC1: one closure as `subfleet status` lists it, saying what it is.
+
+    `<home>: held by the operator[: <note>] (until <end> at the latest)` for an operator hold, else
+    `<lane> provider limit on account until <end> (reported)`, with the limit's
+    kind, its scope and its clock source."""
     closure = _row(value)
+    reason = _label(closure.get("reason", "closed"))
+    if reason == "operator-hold":
+        return _held_text(closure, home=home)
+    clock = f" ({_label(closure['clock_source'])})" if closure.get("clock_source") else ""
+    return (f"{closure.get('lane_id')} {LIMIT_WORDS.get(reason, reason)} on {closure.get('scope')} "
+            f"until {closure.get('until_at')}{clock}")
+
+
+def closure_text(value: Any, *, home: str | None = None) -> str:
+    """C-9.6: closures show their scope, reason, source, and explicit clock; a hold
+    says it is the operator's, with its note (D-STATUS-SRC1)."""
+    closure = _row(value)
+    if _label(closure.get("reason", "closed")) == "operator-hold":
+        return _held_text(closure, home=home)
     result = f"{closure['scope']} until {closure['until_at']} ({_label(closure.get('reason', 'closed'))}"
     if closure.get("clock_source"):
         result += f"; {_label(closure['clock_source'])} clock"
@@ -242,7 +276,7 @@ def status(view: Mapping[str, Any]) -> str:
                          " · " + projection_text(lane["weekly_projections"][row["scope"]])
                          if row["window"] == "seven_day" and row["scope"] in lane["weekly_projections"] else "")
                          for row in lane["readings"]) or "unknown",
-                     "; ".join(closure_text(row) for row in lane["closures"]) or "none"])
+                     "; ".join(closure_text(row, home=lane_home(lane)) for row in lane["closures"]) or "none"])
     lines.append(_table(["Lane", "Provider", "Account", "Owner", "Flags", "In-flight",
                          "Weekly reset", "Readings", "Closures"], rows))
     lines.extend(projection_totals(snapshot["lanes"]))
@@ -380,17 +414,32 @@ def pin_refusals(stuck: Mapping[str, Any]) -> str:
 
     A hold and a limit keep separate rows (C-9.6), so two closures can share a
     scope and an end, and `scheduler.judge_lane` then names that refusal once
-    per row: it is said once, with every row's reason (review of PR #208)."""
+    per row. Keep the operator's hold apart from provider reasons sharing its
+    clock (D-RAMP-HOLD-LABEL)."""
     lane = stuck.get("lane_id") or "the lane"
     closures: dict[str, list[Mapping[str, Any]]] = {}
     for row in stuck.get("closures") or ():
         closures.setdefault(f"closed:{row['scope']}:{row['until_at']}", []).append(row)
     parts = []
-    for reason in dict.fromkeys(stuck.get("reasons") or ()):
+    reasons = list(dict.fromkeys(stuck.get("reasons") or ()))
+    # Canonicalize closure order while preserving the other standing refusals.
+    closed_reasons = iter(sorted(reason for reason in reasons if reason in closures))
+    for original in reasons:
+        reason = next(closed_reasons) if original in closures else original
         rows = closures.get(reason)
         if rows:
-            why = ", ".join(dict.fromkeys(str(getattr(row["reason"], "value", row["reason"]))
-                                          for row in rows if row.get("reason")))
+            rows = sorted(rows, key=lambda row: (str(_label(row.get("reason"))), str(row.get("source_event"))))
+            for row in rows:
+                if _label(row.get("reason")) == "operator-hold":
+                    # #263 pin evidence has no source field. An explicitly present
+                    # source still goes through the unchanged strict note reader.
+                    source = row if "source_event" in row else {**row, "source_event": hold_source(None)}
+                    parts.append(closure_text(source, home=lane_home(stuck)))
+            rows = [row for row in rows if _label(row.get("reason")) != "operator-hold"]
+            if not rows:
+                continue
+            why = ", ".join(sorted({str(getattr(row["reason"], "value", row["reason"]))
+                                    for row in rows if row.get("reason")}))
             parts.append(f"{lane} is closed for {rows[0]['scope']}" + (f" ({why})" if why else "")
                          + f" until {rows[0]['until_at']}")
         elif str(reason).startswith("closed:"):
@@ -591,7 +640,24 @@ def why(decision: Any) -> str:
             lines.append(line)
         for rejection in evaluation.get("rejections", ()):
             reasons = rejection.get("reasons") or [rejection.get("reason", "unknown")]
-            lines.append(f"  rejected {rejection['lane_id']}: {', '.join(reasons)}")
+            # An operator hold must not escape as a raw closed:<scope>:<end> label.
+            shown = []
+            rendered_holds = set()
+            for reason in reasons:
+                matching = [row for row in evaluation.get("closures", ())
+                            if row.get("lane_id") == rejection["lane_id"]
+                            and reason == f"closed:{row['scope']}:{row['until_at']}"]
+                holds = [row for row in matching if _label(row.get("reason")) == "operator-hold"]
+                if holds:
+                    if reason in rendered_holds:
+                        continue
+                    rendered_holds.add(reason)
+                    shown.extend(closure_text(row) for row in holds)
+                    if len(matching) > len(holds):
+                        shown.append(reason)
+                else:
+                    shown.append(reason)
+            lines.append(f"  rejected {rejection['lane_id']}: {', '.join(shown)}")
         for reading in evaluation.get("readings", ()):
             lines.append(f"  reading {reading['lane_id']}: {reading_text(reading)}")
         for reading in evaluation.get("capacity_readings", ()):

@@ -8,6 +8,7 @@ of its responsible process and its unique id. Every read is recorded in `calls`.
 from __future__ import annotations
 
 from collections.abc import Iterable
+import os
 
 from subfleet import procs
 
@@ -44,8 +45,11 @@ class FakeKernel:
     `exiting` pids have begun to exit, `responsible` maps a pid to its responsible
     process's pid (absent: its own), `unique` to its unique id (absent: the pid), and `starts` to its kernel birth
     rendered as ps lstart (absent: the standard census fixture start).
+    `uids` maps a pid to its effective uid (absent: this test's own) and `cwds`
+    to its cwd (absent: none), for D-KILL4's parent-chain rule.
     `fail` names reads that raise `InspectionError`: "pids", or ("process" |
-    "responsible", pid)."""
+    "responsible" | "cwd" | "arguments", pid); an "arguments" one is a buffer that fills
+    the read, so it may be cut short."""
 
     readable = True
 
@@ -53,7 +57,8 @@ class FakeKernel:
                  exiting: Iterable[int] = (), responsible: dict[int, int] | None = None,
                  unique: dict[int, int | None] | None = None, fail: Iterable = (), responsibility: bool = True,
                  starts: dict[int, str | None] | None = None,
-                 gone_after_process: Iterable[int] = ()):
+                 gone_after_process: Iterable[int] = (),
+                 uids: dict[int, int] | None = None, cwds: dict[int, str] | None = None):
         self.processes = dict(processes or {})
         self.others = set(others)
         self.exiting = set(exiting)
@@ -63,6 +68,8 @@ class FakeKernel:
         self.fail = set(fail)
         self.responsibility = responsibility
         self.gone_after_process = set(gone_after_process)
+        self.uids = dict(uids or {})
+        self.cwds = dict(cwds or {})
         self.calls: list[tuple] = []
 
     def pids(self) -> frozenset[int]:
@@ -80,10 +87,21 @@ class FakeKernel:
         if pid in self.gone_after_process and sum(1 for call in self.calls if call == ("process", pid)) > 1:
             return None
         return procs.KernelProcess(pid, pid in self.exiting, self.unique.get(pid, pid),
-                                   self.starts.get(pid, "Sat Sep  5 10:00:00 2026"))
+                                   self.starts.get(pid, "Sat Sep  5 10:00:00 2026"),
+                                   self.uids.get(pid, os.geteuid()))
+
+    def cwd(self, pid: int) -> str | None:
+        self.calls.append(("cwd", pid))
+        if ("cwd", pid) in self.fail:
+            raise procs.InspectionError(f"cwd inspection of pid {pid} unavailable")
+        if pid not in self.processes or pid in self.others:
+            return None
+        return self.cwds.get(pid)
 
     def arguments(self, pid: int, buffer=None) -> bytes | None:
         self.calls.append(("arguments", pid))
+        if ("arguments", pid) in self.fail:
+            raise procs.InspectionError(f"argument buffer of pid {pid} fills the read")
         return self.processes.get(pid)
 
     def responsible(self, pid: int) -> int | None:

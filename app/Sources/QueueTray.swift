@@ -25,11 +25,14 @@ struct QueuedMessage: Identifiable, Equatable {
     var sending: Bool
     /// A second caption when the row is not simply waiting: "Sending", a deferral.
     var status: String?
-    /// Whether the row offers Steer: deliver it into the running turn instead of
-    /// after it. Only the head of the queue, a person's message the daemon holds,
-    /// and only while a turn is live and the daemon steers this provider
-    /// (`steer.v1`; the steer build turns it on).
-    var canSteer = false
+    /// The running turn the row's Send now steers into, as the tray shows it: set only
+    /// on the head of the queue, a person's message the daemon holds, while a turn is
+    /// live and the daemon steers this provider (`steer.v1`). Send now captures it when
+    /// it is offered and names it (`into`): one used after that turn ended is refused,
+    /// never joined to the next turn (C-24.9). Nil: the row offers no Send now.
+    var steerInto: String? = nil
+    /// Whether the row offers Send now: deliver it into the running turn instead of after it.
+    var canSteer: Bool { steerInto != nil }
     /// What Withdraw does: `message.cancel` for a message the daemon holds, the
     /// outbox's withdrawal for one with no receipt (D-22), and nothing for an
     /// unblock note, which the person does not withdraw: without it the next turn
@@ -122,19 +125,30 @@ struct FollowKey: Equatable {
     /// - Anything else only while the end is on screen: a new row, a new
     ///   followed row, or a tray that changed the timeline's height glide; a
     ///   growing block, or the first page of history landing above, jumps.
-    /// An explicit row reveal suspends catch-up jumps until the end is visible again.
+    /// An explicit row reveal suspends ordinary following even while the end
+    /// marker's disappearance is pending. The marker resumes following when it
+    /// appears again, or its presented geometry confirms that a completed reveal
+    /// left it visible.
+    /// Catch-up resumes after that confirmation releases suspension. The view
+    /// releases suspension for the person's own send before asking (`ownSend`),
+    /// so during catch-up it jumps to the end and otherwise glides.
     /// A message queued or withdrawn while the person reads further up moves
     /// nothing; the tray shows it.
     static func move(from old: FollowKey, to new: FollowKey, atBottom: Bool, suspended: Bool = false) -> Move {
         guard old != new else { return .stay }
-        if old.settling || new.settling { return suspended && !atBottom ? .stay : .jump }
-        if new.last != old.last && new.lastIsOwnSend,
-           new.localSend == nil || new.localSend != old.localSend { return .glide }
+        if old.settling || new.settling { return suspended ? .stay : .jump }
+        if ownSend(from: old, to: new) { return .glide }
+        guard !suspended else { return .stay }
         guard atBottom else { return .stay }
         if new.last != old.last || new.followed != old.followed || new.tray != old.tray { return .glide }
         if new.followedLength != old.followedLength || new.hasHistory != old.hasHistory
             || new.live != old.live || new.held != old.held { return .jump }
         return .stay
+    }
+
+    /// The change is the person's own new message: the last row is one this app sent.
+    static func ownSend(from old: FollowKey, to new: FollowKey) -> Bool {
+        new.last != old.last && new.lastIsOwnSend && (new.localSend == nil || new.localSend != old.localSend)
     }
 }
 
@@ -168,8 +182,9 @@ extension Timeline {
     func layout(held: Bool, steerOffered: Bool = false, assistant: String = "Claude") -> ConversationLayout {
         var tray = queueTray(held: held, assistant: assistant)
         let live = liveMessageID != nil
-        if steerOffered, live, let head = steerCandidate(tray), turn(head)?.messageState == .queued, let index = tray.firstIndex(where: { $0.id == head }) {
-            tray[index].canSteer = true
+        if steerOffered, let host = liveMessageID, let head = steerCandidate(tray), turn(head)?.messageState == .queued,
+           let index = tray.firstIndex(where: { $0.id == head }) {
+            tray[index].steerInto = host
         }
         let inTray = Set(tray.map(\.id))
         var shown: [TimelineItem] = []
@@ -323,9 +338,9 @@ extension ConversationStoreState {
         var layout = timeline.layout(held: conversation.blocked_by != nil || conversation.live_elsewhere == true,
                                      assistant: conversation.provider == "codex" ? "Codex" : "Claude")
         if let head = layout.tray.first, timeline.queue.first == head.id,
-           canSteer(messageID: head.id, conversation: conversation, timeline: timeline,
-                    capabilities: availability.capabilities) {
-            layout.tray[0].canSteer = true
+           let host = queuedSteerHost(messageID: head.id, conversation: conversation, timeline: timeline,
+                                      capabilities: availability.capabilities) {
+            layout.tray[0].steerInto = host.messageID
         }
         return layout
     }
