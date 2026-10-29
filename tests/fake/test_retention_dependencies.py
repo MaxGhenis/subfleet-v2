@@ -38,7 +38,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import folders, render, retention
+from subfleet import dependencies, folders, render, retention
 from subfleet import retention_archive as rarch
 from tests.fake.test_admission_latency import fleet_daemon, submit
 from tests.fake.test_admission_liveness import _end, _live
@@ -53,6 +53,45 @@ SHAPES = {"read-only": {"sandbox": "read-only"}, "worktree": {"sandbox": "worksp
           "in-place": {"sandbox": "workspace-write", "in_place": True}}
 #: What `why` calls each place a job needs besides its folder.
 WORDS = {"review-root": "review root (-D)", "output": "output path (-o)", "git-storage": "git storage"}
+
+
+@pytest.mark.parametrize("late", [False, True], ids=["early", "transaction"])
+def test_c6_11_unicode_dependency_hold_names_its_place(tmp_path, late):
+    """D1: blocking and hold attribution agree for canonical-caseless aliases."""
+    with fleet_daemon(tmp_path / "\u0390" / "state") as (daemon, harness, patch):
+        measured(daemon, harness)
+        owner = "20261029-000000-owner"
+        actual = daemon.root / "worktrees" / owner
+        actual.mkdir(parents=True)
+        tree = folders.canonical(actual)
+        alias = str(Path(*("\u03aa\u0301" if folders.fold(part) == folders.fold("\u0390") else part
+                           for part in Path(tree).parts)) / "vendor" / "lib")
+        assert dependencies.key(alias).startswith(dependencies.key(tree) + "/")
+        assert not folders.fences(folders.exclusive_key(tree), alias, fold=True)
+        job = submit(daemon, harness, sandbox="read-only")
+        # Replay valid absolute dependency evidence retained under another case.
+        with daemon.store.transaction() as tx:
+            event = tx.execute("SELECT event_id,data_json FROM events WHERE job_id=? AND kind='job.submitted'",
+                               (job,)).fetchone()
+            data = json.loads(event[1])
+            data["depends"] = {"review_root": alias}
+            tx.execute("UPDATE events SET data_json=? WHERE event_id=?", (json.dumps(data), event[0]))
+            tx.execute("UPDATE jobs SET review_root=? WHERE job_id=?", (alias, job))
+        fence = folders.exclusive_key(tree)
+        workspaces = Workspaces(daemon, patch, real=False)
+        if late:
+            def lands(row):
+                assert daemon.store.acquire_lease(fence, "retention:" + owner)
+                return workspaces(row)
+            patch.setattr(daemon, "_workspace", lands)
+        else:
+            assert daemon.store.acquire_lease(fence, "retention:" + owner)
+        hold = look(daemon, job)
+        assert not _live(daemon, job), hold
+        assert hold["retiring"] == [fence], hold
+        assert workspaces.calls == ([job] if late else []), workspaces.calls
+        assert {key: hold.get(key) for key in ("folder", "needs")} == {
+            "folder": alias, "needs": "review-root"}, hold
 
 
 def retire(daemon) -> dict:
