@@ -54,7 +54,8 @@ import sqlite3
 import uuid
 from typing import Any
 
-from ..sessions.handoff import REDACTION_MARKERS, scrub_secrets
+from ..sessions import scrub_release
+from ..sessions.handoff import REDACTION_MARKERS, _head_scrub_secrets, scrub_secrets, shown_by_both
 from .store import EVENT_ROW_MAX, ConversationError, new_id, utcnow
 
 #: C-25.7: the shapes `suggestion.create` takes, in characters (title, summary)
@@ -170,19 +171,63 @@ def bounded(clean: str, limit: int, mark: str = "") -> str:
     return clean[:end] + mark[:limit]
 
 
+def _twice(scrub, text: str, between) -> tuple[str, int]:
+    """`text` scrubbed whole by `scrub`, changed by `between` (a fold, a brief's line
+    ends), and scrubbed whole again: one scrubber's pipeline for a two-pass mode."""
+    clean, count = scrub(text, strip_reminders=True, whole=True)
+    clean, again = scrub(between(clean), strip_reminders=True, whole=True)
+    return clean, count + again
+
+
+def _fold(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _line_ends(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _both(text: str, between) -> tuple[str, str, int]:
+    """A two-pass mode (`_twice`) as release/217 runs it (`scrub_release`, frozen) and as
+    the head does (`_head_scrub_secrets`), each over `text` with its own fold and second
+    pass (C-23.14, #239 round 8): release's output, the head's, and the larger count.
+    Composing each pass instead loses what release's second pass reads in its own fold
+    (review r8, P2-1)."""
+    released, count = _twice(scrub_release.scrub_secrets, text, between)
+    head, head_count = _twice(_head_scrub_secrets, text, between)
+    return released, head, max(count, head_count)
+
+
+def _released_first(text: str, between) -> tuple[str, int]:
+    """A two-pass mode: release's output of it, keeping only the runs the head's output
+    of it holds too (`handoff.shown_by_both`), so it shows nothing either hides."""
+    released, head, count = _both(text, between)
+    return shown_by_both(released, head), count
+
+
 def _scrub_line(text: str) -> tuple[str, int]:
-    """Scrub raw text before folding; scrub any shapes folding creates too."""
-    clean, count = scrub_secrets(text, strip_reminders=True, whole=True)
-    clean, folded_count = scrub_secrets(" ".join(clean.split()), strip_reminders=True, whole=True)
-    return clean, count + folded_count
+    """Scrub raw text before folding; scrub any shapes folding creates too: release's
+    line, keeping only the runs the head's line holds too (`_released_first`)."""
+    return _released_first(text, _fold)
 
 
 def scrubbed_line(text: str, limit: int = ERROR_MAX) -> str:
     """`text` scrubbed whole (C-25.5) first, so no secret is cut into a fragment the
     rules no longer know, then folded and scrubbed again, then a marker-safe cut
-    to at most `limit` characters (`bounded`)."""
-    clean, _ = _scrub_line(text)
-    return bounded(clean, limit, "…")
+    to at most `limit` characters (`bounded`). Release's line is kept only for the runs
+    the head's line holds, then cut (`_line_bounded`)."""
+    return _line_bounded(text, limit, "…")
+
+
+def _line_bounded(text: str, limit: int, mark: str = "") -> str:
+    """A folded line cut to `limit` (`bounded`): release's line (`scrub_release`) with each
+    run the head's line does not hold replaced (`shown_by_both`), then cut as `bounded`
+    cuts a line, so it shows nothing either line hides (C-23.14). Cut first, the part-word
+    at the cut would be a run the head's line holds only whole, so it became `[REDACTED]`
+    and an ordinary word was lost (#239 review r9b, P2-2); the cut can now keep a
+    character release's own cut left out, but none either scrub hides."""
+    released, head, _ = _both(text, _fold)
+    return bounded(shown_by_both(released, head), limit, mark)
 
 
 # Public diagnostics are selected from this vocabulary, never rendered from an
@@ -454,11 +499,11 @@ def _line(value: Any, name: str, limit: int) -> tuple[str, int]:
     """Admit the original length; scrub before folding, then bound the clean line."""
     if not isinstance(value, str) or not value.strip():
         raise ConversationError(f"bad-{name}", f"{name} must be 1 to {limit} characters")
-    clean, count = _scrub_line(value)
+    _, count = _scrub_line(value)
     original_length = len(" ".join(value.split()))
     if original_length > limit:
         raise ConversationError(f"bad-{name}", f"{name} must be 1 to {limit} characters (it is {original_length})")
-    clean = bounded(clean, limit)
+    clean = _line_bounded(value, limit)
     if not clean.strip():
         raise ConversationError(f"bad-{name}", f"nothing of the {name} is left once secrets are removed")
     return clean, count
@@ -473,13 +518,12 @@ def normalize(title: Any, tldr: Any, brief: Any) -> tuple[dict, int]:
         raise ConversationError("bad-brief", "the brief must say what the new conversation should do")
     # As a message's text is read back (C-24.3, `message_text`): the brief kept, shown
     # and sent is the same text, so the first message is exactly the brief.
-    clean, count = scrub_secrets(brief, strip_reminders=True, whole=True)
-    brief = brief.replace("\r\n", "\n").replace("\r", "\n")
-    clean = clean.replace("\r\n", "\n").replace("\r", "\n")
     # A bare CR can become a header boundary: scrub shapes normalization creates,
-    # just as _scrub_line scrubs the shapes whitespace folding creates.
-    clean, normalized_count = scrub_secrets(clean, strip_reminders=True, whole=True)
-    count += normalized_count
+    # just as _scrub_line scrubs the shapes whitespace folding creates. Release's two
+    # passes and the head's both read the brief, and release's output is kept for the
+    # runs the head's holds, as the line's is (`_released_first`).
+    clean, count = _released_first(brief, _line_ends)
+    brief = _line_ends(brief)
     if len(brief.encode("utf-8")) > BRIEF_MAX_BYTES:
         raise ConversationError("bad-brief", f"the brief must be at most {BRIEF_MAX_BYTES} bytes of UTF-8 "
                                 f"(it is {len(brief.encode('utf-8'))})", fix="shorten it, or point it at a file")

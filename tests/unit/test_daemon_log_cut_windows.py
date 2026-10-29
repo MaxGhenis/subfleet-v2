@@ -539,7 +539,13 @@ def test_the_windowed_cut_is_the_reference_cut_where_margins_cross_its_windows(l
 
 MARGIN = re.compile(r"(?m)^((?:  )+)[|+](?= |$)")
 NOT_BODY = re.compile(r"[^A-Za-z0-9+/=\s]")
-LEADING_HEADER = re.compile(r"(?i)\s*(?:authorization|cookie|set-cookie)\s*:")
+#: `_HEADER_RE`'s name (C-23.14, #239): an identifier ending in `authorization` or
+#: `cookie`, case ignored, so `ſ`, `ı`, `İ` and the Kelvin sign are among its characters.
+LEADING_HEADER = re.compile(r"(?i)\s*[A-Za-z0-9_-]*(?:authorization|cookie)\s*:")
+#: Leads only the reading's looks are checked on: names `_HEADER_RE` reads since #239,
+#: which the reference cut (cce8f1af7) does not.
+WIDER_LEADS = ["X-Authorization: x\n", "  |\n  | Proxy-Authorization : y\n", "Coo\u212aie: z\n", "ıd-cookie:\n",
+               "x" * 300 + "-Cookie:\n", "Cookies: no\n", "Authorization-x: no\n"]
 SMALL_TEXTS = st.text(alphabet=[" ", " ", " ", "\n", "|", "+", "\t", "\r", "x", "A", "　", "\xa0", ",", "/", ":"],
                       max_size=30)
 
@@ -562,7 +568,7 @@ def test_the_margin_scans_read_what_the_margin_regex_blanks(text, data):
 
 
 @settings(max_examples=600, derandomize=True, database=None, deadline=None)
-@given(lead=st.sampled_from(LEADS), segments=st.lists(SEGMENTS, min_size=1, max_size=8), data=st.data())
+@given(lead=st.sampled_from(LEADS + WIDER_LEADS), segments=st.lists(SEGMENTS, min_size=1, max_size=8), data=st.data())
 def test_the_reading_s_looks_are_the_blanked_text_s(lead, segments, data):
     """`_Reading.before` and `.after`, from any position, with any windows, are
     `_last_visible` and `_run_end` on the text with every margin blanked; and the
@@ -577,6 +583,16 @@ def test_the_reading_s_looks_are_the_blanked_text_s(lead, segments, data):
         assert reading.after(at) == handoff._run_end(blanked, at), (text, at)
     assert handoff._leads_with_header(reading) is (LEADING_HEADER.match(blanked) is not None)
     assert handoff._holds_reminder_tag(text) is (handoff._REMINDER_TAG_RE.search(text) is not None)
+
+
+def test_the_header_name_characters_are_every_one_the_header_regex_reads():
+    """`_HEADER_NAME_CHARS`, which `_leads_with_header` scans by, holds exactly the code
+    points `_HEADER_RE`'s name reads (`[A-Za-z0-9_-]`, case ignored: `ſ`, `ı`, `İ` and
+    the Kelvin sign too; #239)."""
+    import sys
+    name = re.compile(r"(?i)[A-Za-z0-9_-]")
+    assert handoff._HEADER_NAME_CHARS == "".join(chr(point) for point in range(sys.maxunicode + 1)
+                                                 if name.fullmatch(chr(point)))
 
 
 def test_the_reminder_folds_are_every_character_the_tag_regex_takes_for_a_letter():

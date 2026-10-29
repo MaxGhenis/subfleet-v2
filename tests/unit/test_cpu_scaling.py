@@ -56,3 +56,24 @@ def test_work_quadratic_in_the_input_fails_the_growth_criterion():
     grows about 16 times for an input four times larger, over the ceiling."""
     measured = best_cpu_samples(quadratic, SIZES)
     assert measured["ratio"] >= GROWTH_RATIO_MAX, measured
+
+
+def test_the_cpu_ratio_sees_a_constant_factor_against_its_reference():
+    """`best_cpu_ratio`'s scope: the same work as its reference reads about 1, and
+    four times the work about 4, at one size; machine speed scales both alike."""
+    from tests.cpu_scaling import best_cpu_ratio
+    same = best_cpu_ratio(linear(SIZES[1]), linear(SIZES[1]))
+    four = best_cpu_ratio(linear(SIZES[1], times=4), linear(SIZES[1]))
+    assert same["ratio"] < 2, same
+    assert four["ratio"] > 2, four
+
+
+def test_the_cost_bound_admits_release_s_work_and_the_head_s_and_no_more():
+    """C-23.14 (#239 round 8): `COST_RATIO_MAX`, the scrubber's cost guards' bound against
+    release/217's own scrub, reads the composed shape (release's work, then the head's
+    about as much again) under it, and four times the reference's work over it."""
+    from tests.cpu_scaling import COST_RATIO_MAX, best_cpu_ratio
+    composed = best_cpu_ratio(linear(SIZES[1], times=2), linear(SIZES[1]))
+    four = best_cpu_ratio(linear(SIZES[1], times=4), linear(SIZES[1]))
+    assert composed["ratio"] < COST_RATIO_MAX, composed
+    assert four["ratio"] > COST_RATIO_MAX, four
