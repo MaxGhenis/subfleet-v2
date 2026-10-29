@@ -34,7 +34,7 @@ import pytest
 
 from subfleet.conversations import redact
 from subfleet.policy import DEFAULT_POLICY_PATH, HANDOFF_BRIEF_MAX_CHARS, PolicyError, load_policy
-from subfleet.sessions import handoff
+from subfleet.sessions import handoff, scrub_release
 from tests.cpu_scaling import GROWTH_RATIO_MAX
 
 BUDGET = handoff.MAX_SCRUB_CHARS
@@ -64,6 +64,15 @@ FRAGMENTS = st.sampled_from([
 ])
 
 
+def _bound_path(scrubbed: str, limit: int) -> str:
+    """Which of `truncate`'s paths a limit takes for a text within the budget."""
+    length = len(scrubbed.strip())
+    if length <= limit:
+        return "within the budget: not cut"
+    marker = f"\n… [{length - limit:,} characters omitted] …\n"
+    return "within the budget: cut" if limit > len(marker) else "within the budget: elided"
+
+
 @hypothesis.settings(max_examples=200, deadline=None)
 @hypothesis.given(parts=st.lists(FRAGMENTS, max_size=40), limit=st.integers(0, 400),
                   strip=st.booleans())
@@ -71,15 +80,54 @@ def test_within_the_budget_it_is_scrub_then_truncate(parts, limit, strip):
     """C-23.36: the bounded scrub changes nothing for a text within the budget."""
     text = "".join(parts)
     scrubbed, count = handoff.scrub_secrets(text, strip_reminders=strip)
+    hypothesis.event(_bound_path(scrubbed, limit))
     assert handoff.scrub_bounded(text, limit, strip_reminders=strip) == (handoff.truncate(scrubbed, limit), count)
     assert handoff.scrub_bounded(text, None, strip_reminders=strip) == (scrubbed, count)
+
+
+@hypothesis.settings(max_examples=200, deadline=None)
+@hypothesis.given(parts=st.lists(FRAGMENTS, min_size=1, max_size=40), short=st.integers(1, 200),
+                  strip=st.booleans())
+def test_within_the_budget_a_text_its_limit_cuts_is_the_whole_scrub_cut(parts, short, strip):
+    """C-23.36 (#239 round 9): the property above with a limit `short` characters under
+    the length of the whole-text scrub, so that every case is cut or elided (CI run
+    40545353102's case is cut, and only some of the property's are): the bounded scrub is
+    that scrub, cut, and is release's wherever the two scrubbers write the same."""
+    text = "".join(parts)
+    scrubbed, count = handoff.scrub_secrets(text, strip_reminders=strip)
+    hypothesis.assume(scrubbed.strip())
+    limit = max(0, len(scrubbed.strip()) - short)
+    hypothesis.event(_bound_path(scrubbed, limit))
+    out = handoff.scrub_bounded(text, limit, strip_reminders=strip)
+    assert out == (handoff.truncate(scrubbed, limit), count)
+    if scrub_release.scrub_secrets(text, strip_reminders=strip)[0] == scrubbed:
+        assert out[0] == scrub_release.scrub_bounded(text, limit, strip_reminders=strip)[0]
+
+
+def test_within_the_budget_ci_40545353102_password_thrice_at_30_is_scrub_then_truncate():
+    """C-23.36, CI run 40545353102's counterexample to the property above (#239 round 9):
+    a text within the budget that its limit cuts is the whole-text scrub, cut. Round 8
+    composed release's cut pieces instead, each kept for the runs the head's scrub of the
+    whole text holds; that scrub holds no `p`, the piece release's cut leaves of
+    `password`, so the piece became `[REDACTED]` and the result was cut again:
+    `[`, then 9 characters omitted. Both scrubbers write the same here, so the result is
+    release's too."""
+    text = "password = " * 3
+    for strip in (False, True):
+        assert handoff.scrub_secrets(text, strip_reminders=strip) == ("password = [REDACTED] = [REDACTED] = ", 2)
+        assert handoff.scrub_bounded(text, 30, strip_reminders=strip) == ("p\n… [6 characters omitted] …\n=", 2)
+        assert handoff.scrub_bounded(text, 30, strip_reminders=strip) == \
+            scrub_release.scrub_bounded(text, 30, strip_reminders=strip)
+    assert handoff.clean(text, 30) == ("p\n… [6 characters omitted] …\n=", 2)
 
 
 # --- over the budget: what the excerpts keep ------------------------------------------
 
 def test_an_oversized_text_keeps_a_scrubbed_head_and_tail_within_the_work_bound(monkeypatch):
-    """C-23.14, C-25.5: the head and the tail of a long block survive, scrubbed, and no
-    matcher is given more than one excerpt."""
+    """C-23.14, C-25.5: the head and the tail of a long block survive, scrubbed, joined by one
+    marker that gives release's count of the characters left out (until #239 round 10 a second
+    cut wrote one that counted 6 or 13, review r9b P2-1), and no matcher is given more than
+    one excerpt."""
     seen: list[int] = []
     real = handoff._scrub
     monkeypatch.setattr(handoff, "_scrub", lambda text, strip: (seen.append(len(text)), real(text, strip))[1])
@@ -90,7 +138,9 @@ def test_an_oversized_text_keeps_a_scrubbed_head_and_tail_within_the_work_bound(
     assert out.startswith('first line, api_key = "[REDACTED]"')
     assert 'last lines, password = "[REDACTED]"' in out
     assert "Zq1" not in out and "Zq2" not in out and count == 2
-    assert re.search(r"\n… \[[\d,]+ characters omitted\] …\n", out)
+    released = scrub_release.scrub_bounded(text, redact.TEXT_EVENT_MAX, strip_reminders=True)[0]
+    marker = re.compile(r"\n… \[([\d,]+) characters omitted\] …\n")
+    assert marker.findall(out) == marker.findall(released) and len(marker.findall(out)) == 1   # release's count
     assert seen and max(seen) <= HEAD and sum(seen) <= BUDGET
 
 
@@ -287,6 +337,9 @@ SHAPES = [
     "db:\n  password:\n  api_key:\n  secret: {s}\n", "password =\ntoken\n=\napikey\n=\n{s}\n",
     'password="{s} Bearer\nabcdefgh1234" x\n', "api_key:\n  token:\n  {s}\n",
     "Authorization:\nAuthorization\n:\nx password\n=\n{s}\n",
+    # Values release's scrub shows and the head's hides (#239 round 9): the excerpts keep
+    # those gains, as the whole-text scrub does.
+    "token:--x_token {s}\n", "sent Cookie: --password\n{s} x\n",
 ]
 
 
@@ -327,6 +380,24 @@ def test_an_excerpt_never_shows_a_value_the_whole_scrub_removes(text, strip, lim
     if limit is not None:
         assert len(out) <= limit
     assert handoff.scrub_bounded(text, limit, strip_reminders=strip) == (out, _count)
+
+
+GAINED = "Zq5x123456"
+
+
+@pytest.mark.parametrize("shape", ["token:--x_token {s}\n", "sent Cookie: --password\n{s} x\n"],
+                         ids=["flag-after-a-key", "flag-after-a-cookie"])
+@pytest.mark.parametrize("at", [1_000, 299_000], ids=["head", "tail"])
+def test_an_excerpt_hides_what_only_the_head_s_scrub_hides(shape, at):
+    """C-23.14 (#239 round 9): an excerpt may hide more than the whole-text scrub, never
+    less. Here release's excerpt shows the value and the head's hides it, as the whole
+    text's scrub does, so the excerpt hides it too, in the head excerpt and in the tail."""
+    shape = shape.replace("{s}", GAINED)
+    text = around(at - len(shape), shape, 300_000)
+    assert GAINED in scrub_release.scrub_bounded(text, None)[0]
+    assert GAINED not in handoff.scrub_secrets(text, whole=True)[0]
+    out, count = handoff.scrub_bounded(text, None)
+    assert GAINED not in out and count >= scrub_release.scrub_bounded(text, None)[1]
 
 
 # --- the assembled brief is scrubbed whole (C-23.36) -----------------------------------
