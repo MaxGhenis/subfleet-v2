@@ -4655,10 +4655,14 @@ class Daemon:
         signal nothing, and its "next `kill`" never reported the last result.
 
         Review r1 of #276, P2-1: so is a member whose source attributes it in any census (a
-        marked or parent-chain member, or a group member under a verified leader) but whose
-        identity this census could not read: `_signal_reasons` skips it only for want of
-        that identity, and a read that captures it signals it. Only those sources count
-        here: a leaderless group's member with no identity is still attributed by no read."""
+        marked or parent-chain member, a group member under a verified leader, or an owned
+        one, its `owned_identities` record not of another boot than the attempt's) but
+        whose identity this census could not read: `_signal_reasons` skips it only for want
+        of that identity, and a read that captures it signals it. An owned member needs its
+        own term (review r2 of #276): the walk term drops it when a tainted census parent
+        taints it by its link, while `_signal_reasons` reads the owned record before any
+        taint. Only those sources count here: a member only a leaderless group names, with
+        no identity, is still attributed by no read."""
         if Daemon._signal_reasons(self, a, census):
             return True
         if not census.unverifiable:
@@ -4666,11 +4670,16 @@ class Daemon:
         if not census.live_pids and not census.held_pids:
             return True
         never = Daemon._never_signalled(self, a)
-        unread = (census.marker_pids | census.chain_pids
+        evidence = json.loads(a.get("evidence_json") or "{}")
+        boot = Daemon._attempt_boot(self, a)
+        # As `_signal_reasons` reads it: an owned identity of another boot attributes nothing.
+        owned = {int(pid) for pid, value in (evidence.get("owned_identities") or {}).items()
+                 if not procs.boot_identity.differ(value.get("boot_id"), boot)}
+        unread = (census.marker_pids | census.chain_pids | (census.live_pids & owned)
                   | (census.group_pids if census.leader_verified else frozenset())) - set(census.identities)
         if unread - census.held_pids - never:
             return True
-        tainted = Daemon._tainted(json.loads(a.get("evidence_json") or "{}"), census, Daemon._attempt_boot(self, a))
+        tainted = Daemon._tainted(evidence, census, boot)
         return bool((census.descendant_pids | census.responsible_pids) - census.held_pids - never - tainted)
 
     @staticmethod

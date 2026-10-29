@@ -2,16 +2,17 @@
 did not execute, on the simulated host (`tests/kill4_world.py`, as `BootWorld` in
 `test_kill4_boot_scope.py`).
 
-1. P2-1's unread set (`Daemon._may_signal`) names three of the four sources C-5.4 lets
+1. P2-1's unread set (`Daemon._may_signal`) named three of the four sources C-5.4 lets
    attribute a member in any census: a marked member, a parent-chain member, and a member of
    the recorded group under a verified leader. The fourth is an owned identity
    (`owned_identities`, recorded while the guardian led its group), which `_signal_reasons`
    reads before taint and before the census's unverifiability. An owned member whose identity
-   the census could not read reaches `_may_signal` only through the walk term, and that term
+   the census could not read reached `_may_signal` only through the walk term, and that term
    drops it when a tainted census parent taints it by its link. A finished job with such a
-   member answers `kill` with `already finished` and leaves it running; the rule before P3-1
-   ran the protocol, whose next census read the member and TERMed it as owned. Strict xfail
-   until the unread set counts owned members.
+   member answered `kill` with `already finished` and left it running; the rule before P3-1
+   ran the protocol, whose next census read the member and TERMed it as owned. Fix round r2
+   counts an owned member in the unread set (its `owned_identities` record not of another
+   boot than the attempt's).
 2. The verified-group term of the unread set: its constructed case, as fix round r1 built it,
    fails when the term is dropped.
 3. `_terminal_census` returns the attempt row it read before its census (review r1's
@@ -34,7 +35,8 @@ from subfleet import procs, protocol
 from subfleet.daemon import Daemon
 from tests.unit.test_census_round1_mutations import replace_function
 from tests.unit.test_daemon_settle import ATTEMPT, JOB, attempt, daemon  # noqa: F401
-from tests.unit.test_kill4_boot_scope import evidence, finished, inline, kept, kinds, store, world  # noqa: F401
+from tests.unit.test_kill4_boot_scope import (BOOT_A, BOOT_B, evidence, finished, inline, kept, kinds,  # noqa: F401
+                                              store, world)
 from tests.unit.test_pr276_review_r1 import (
     test_an_unverifiable_census_runs_the_protocol_exactly_when_a_verifiable_read_could_attribute_a_member
     as unread_case,
@@ -83,16 +85,13 @@ def test_an_owned_member_is_a_target_below_a_tainted_parent_in_any_census(daemon
     assert set(daemon._signal_targets(attempt(daemon), census)) == {MEMBER}
 
 
-@pytest.mark.parametrize("rule", [
-    pytest.param("head", marks=pytest.mark.xfail(
-        strict=True, raises=AssertionError,
-        reason="review r2 of #276: P2-1's unread set omits owned members; this kill answers `already finished`")),
-    "before-p3-1"])
+@pytest.mark.parametrize("rule", ["head", "before-p3-1"])
 def test_an_owned_member_the_kills_census_could_not_identify_is_contained(daemon, world, monkeypatch, rule):
     """The kill's first process table shows `MEMBER` with no start: unverifiable, and
     `MEMBER` a walk and group member with no identity, tainted by its parent's link. A read
     that captures its identity attributes it by `owned_identities`, so `kill` must run the
-    protocol. At head it answers `already finished`, naming it `held, never signalled`."""
+    protocol. Before fix round r2 it answered `already finished`, naming it `held, never
+    signalled`."""
     parent, member = owned_below_a_tainted_parent(daemon, world)
     daemon.term_grace_s, daemon.kill_settle_s = 0.2, 0.1
     if rule == "before-p3-1":
@@ -117,20 +116,25 @@ def test_an_owned_member_the_kills_census_could_not_identify_is_contained(daemon
     assert parent.alive and not [sig for kind, pid, sig in world.tried if kind == "pid" and pid == PARENT]
 
 
-@pytest.mark.parametrize(("taint", "runs"), [
-    pytest.param("below-a-tainted-parent", True, marks=pytest.mark.xfail(
-        strict=True, raises=AssertionError, reason="review r2 of #276: P2-1's unread set omits owned members")),
-    ("untainted", True)])
+@pytest.mark.parametrize(("taint", "runs"), [("below-a-tainted-parent", True), ("untainted", True),
+                                             ("owned-on-another-boot", False)])
 def test_an_unverifiable_census_runs_the_protocol_for_an_owned_member_it_could_not_identify(daemon, taint, runs):
     """The rule on constructed censuses: an owned group member with no identity in this
     census, its parent a member with one. `untainted`: the walk term counts it.
     `below-a-tainted-parent`: an unverifiable census first recorded the parent, so the walk
-    term drops both, and only the owned record attributes the member."""
-    ident = {pid: procs.ProcessIdentity(pid, "boot", f"Sat Sep  5 11:00:0{pid % 10} 2026")
+    term drops both, and only the owned record attributes the member.
+    `owned-on-another-boot` (fix round r2): the same, but the owned record names another
+    boot than the attempt's, so no read attributes the member (D-QUAR-REUSE1), and the
+    unread set must not count it either."""
+    other = taint == "owned-on-another-boot"
+    if other:
+        daemon.store.update_attempt(ATTEMPT, boot_id=BOOT_A)
+    ident = {pid: procs.ProcessIdentity(pid, BOOT_B if other and pid == MEMBER else "boot",
+                                        f"Sat Sep  5 11:00:0{pid % 10} 2026")
              for pid in (PARENT, MEMBER)}
     keys = {"owned_identities": {str(MEMBER): kept(ident[MEMBER])},
             "counted_identities": {str(PARENT): kept(ident[PARENT])}}
-    if taint == "below-a-tainted-parent":
+    if taint != "untainted":
         keys["unverified_identities"] = {str(PARENT): kept(ident[PARENT])}
     store(daemon, **keys)
     census = procs.Containment(
@@ -140,8 +144,8 @@ def test_an_unverifiable_census_runs_the_protocol_for_an_owned_member_it_could_n
         shapes={PARENT: {"ppid": 1, "pgid": 4242, "stat": "S"}, MEMBER: {"ppid": PARENT, "pgid": 4242, "stat": "S"}})
     assert not Daemon._signal_reasons(daemon, attempt(daemon), census)
     read = dataclasses.replace(census, identities=ident, unverifiable=False, errors=())
-    assert set(Daemon._signal_reasons(daemon, attempt(daemon), read)) == (
-        {MEMBER} if taint == "below-a-tainted-parent" else {PARENT, MEMBER})
+    assert set(Daemon._signal_reasons(daemon, attempt(daemon), read)) == {
+        "below-a-tainted-parent": {MEMBER}, "untainted": {PARENT, MEMBER}, "owned-on-another-boot": set()}[taint]
     assert Daemon._may_signal(daemon, attempt(daemon), census) is runs
 
 
