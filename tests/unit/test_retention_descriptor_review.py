@@ -1,6 +1,7 @@
 """Scratch review regressions for PR 279; no live trees or providers."""
 from __future__ import annotations
 
+import contextlib
 import dis
 import errno
 import os
@@ -25,6 +26,32 @@ def baseline():
         sys.modules[name] = module
         exec(compile(source, "<retention_fs at bc108d3ad>", "exec"), module.__dict__)
     return sys.modules[name]
+
+
+@contextlib.contextmanager
+def raise_at(code, offset, injected):
+    """Raise `injected` when `code` reaches the instruction at `offset`, through sys.monitoring.
+
+    sys.settrace with f_trace_opcodes set in the call event misses the first instructions of a
+    frame on Python 3.12 (CI's 3.12 shard: _layout's BUILD_MAP at offset 2 never fired), while
+    sys.monitoring's INSTRUCTION event (PEP 669) reaches every instruction on 3.12 and 3.14.
+    """
+    monitoring = sys.monitoring
+    tool = monitoring.DEBUGGER_ID
+    fired = []
+    def on_instruction(seen, at):
+        if seen is code and at == offset:
+            fired.append(at)
+            raise injected
+    monitoring.use_tool_id(tool, "descriptor review")
+    try:
+        monitoring.register_callback(tool, monitoring.events.INSTRUCTION, on_instruction)
+        monitoring.set_local_events(tool, code, monitoring.events.INSTRUCTION)
+        yield fired
+    finally:
+        monitoring.set_local_events(tool, code, 0)
+        monitoring.register_callback(tool, monitoring.events.INSTRUCTION, None)
+        monitoring.free_tool_id(tool)
 
 
 def result(exc):
@@ -212,80 +239,38 @@ def test_layout_allocation_before_open():
     instructions = list(dis.get_instructions(rfs._layout))
     target = next(ins.offset for i, ins in enumerate(instructions)
                   if ins.opname == "BUILD_MAP" and instructions[i + 1].argval == "children")
-    fired = False
-    def trace(frame, event, arg):
-        nonlocal fired
-        if frame.f_code is rfs._layout.__code__:
-            frame.f_trace_opcodes = True
-            if event == "opcode" and frame.f_lasti == target:
-                fired = True
-                raise injected
-            return trace
-        return None
     with tree(DEEP) as (_, root_fd), unchanged_descriptors(root_fd):
         st = os.stat("a", dir_fd=root_fd, follow_symlinks=False)
-        old = sys.gettrace()
-        try:
-            sys.settrace(trace)
+        with raise_at(rfs._layout.__code__, target, injected) as fired:
             with pytest.raises(MemoryError) as caught:
                 rfs._layout(root_fd, "a", st, rfs._VENV)
-            assert caught.value is injected
-            assert fired
-        finally:
-            sys.settrace(old)
+        assert caught.value is injected
+        assert fired
 
 
 def test_walk_stack_handoff_failure_closes_child():
     injected = MemoryError("walk stack registration")
     target = [ins.offset for ins in dis.get_instructions(rfs.walk)
               if ins.opname in ("LOAD_ATTR", "LOAD_METHOD") and ins.argval == "append"][-1]
-    fired = False
-    def trace(frame, event, arg):
-        nonlocal fired
-        if frame.f_code is rfs.walk.__code__:
-            frame.f_trace_opcodes = True
-            if event == "opcode" and frame.f_lasti == target:
-                fired = True
-                raise injected
-            return trace
-        return None
     with tree(DEEP) as (_, root_fd), unchanged_descriptors(root_fd):
-        old = sys.gettrace()
-        try:
-            sys.settrace(trace)
+        with raise_at(rfs.walk.__code__, target, injected) as fired:
             with pytest.raises(MemoryError) as caught:
                 list(rfs.walk(root_fd))
-            assert caught.value is injected
-            assert fired
-        finally:
-            sys.settrace(old)
+        assert caught.value is injected
+        assert fired
 
 
 def test_in_repository_registration_failure_closes_descriptor():
     injected = MemoryError("registration")
     target = next(ins.offset for ins in dis.get_instructions(rfs.RegenerableWalk._in_repository)
                   if ins.opname in ("LOAD_ATTR", "LOAD_METHOD") and ins.argval == "append")
-    fired = False
-    def trace(frame, event, arg):
-        nonlocal fired
-        if frame.f_code is rfs.RegenerableWalk._in_repository.__code__:
-            frame.f_trace_opcodes = True
-            if event == "opcode" and frame.f_lasti == target:
-                fired = True
-                raise injected
-            return trace
-        return None
     with tree(DEEP) as (_, root_fd), unchanged_descriptors(root_fd):
         walker = rfs.RegenerableWalk(root_fd, lambda _: True)
-        old = sys.gettrace()
-        try:
-            sys.settrace(trace)
+        with raise_at(rfs.RegenerableWalk._in_repository.__code__, target, injected) as fired:
             with pytest.raises(MemoryError) as caught:
                 walker._in_repository("a/b")
-            assert caught.value is injected
-            assert fired
-        finally:
-            sys.settrace(old)
+        assert caught.value is injected
+        assert fired
 
 
 def test_repository_cleanup_interruption_closes_remaining_children(monkeypatch):
