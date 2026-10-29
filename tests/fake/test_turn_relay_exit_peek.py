@@ -133,10 +133,10 @@ def test_a_binding_reads_an_exit_without_reaping_it(name, end):
         assert peek(child.pid) is None                   # still blocked on its gate
         gate.open()
         until(lambda: peek(child.pid) is not None, "the child never exited")
-        for _ in range(2):                               # a peek leaves the exit for the next one
+        assert exists(child.pid)                         # the peek that read the exit left a zombie
+        for _ in range(2):                               # and left the exit for the next one
             seen = peek(child.pid)
             assert (seen.si_pid, seen.si_status) == (child.pid, si_status)
-        assert exists(child.pid)
         assert child.wait(TIMEOUT_S) == returncode       # the guardian's wait records the real status
         assert not exists(child.pid)
         with pytest.raises(ChildProcessError):           # reaped: ECHILD
@@ -302,15 +302,16 @@ def test_every_relay_site_reads_a_live_child_that_closed_stdin_as_running(tmp_pa
         reap(child)
 
 
-# The property. A child ends with a random exit code or signal. Its wait lock is free,
-# held (the guardian's wait between taking the lock and reaping), or held by a real
-# guardian thread blocked in `child.wait()`. Its gate opens before the peeks begin or,
-# from another thread, while they run.
+# The property. A child ends with a random exit code or signal. Its wait lock is free;
+# held (the guardian's wait between taking the lock and reaping); held while the test,
+# as that wait, reaps the child once its exit is read and before Popen stores the status
+# (the ECHILD window); or held by a real guardian thread blocked in `child.wait()`. Its
+# gate opens before the peeks begin or, from another thread, while they run.
 END = st.one_of(st.integers(0, 255).map(lambda n: f"exit {n}"),
                 st.sampled_from(["kill -9 $$", "kill -15 $$", "kill -2 $$"]))
 CHILD = st.fixed_dictionaries({
     "end": END,
-    "lock": st.sampled_from(["free", "held", "guardian-waiting"]),
+    "lock": st.sampled_from(["free", "held", "reaped-unpublished", "guardian-waiting"]),
     "opens": st.sampled_from(["before-the-peeks", "during-the-peeks"]),
     "delay": st.sampled_from([0.0, 0.001, 0.005, 0.02]),
     "shut_peeks": st.integers(0, 3),
@@ -341,9 +342,9 @@ def _play(children, name, seen):
             for spec in children:
                 child, gate = start(spec["end"])
                 live.append(SimpleNamespace(spec=spec, child=child, gate=gate, held=False, waiter=None,
-                                            waited=[], opened_at=None, readings=[]))
+                                            waited=[], opened_at=None, readings=[], reaped=None))
             for x in live:
-                if x.spec["lock"] == "held":
+                if x.spec["lock"] in ("held", "reaped-unpublished"):
                     x.child._waitpid_lock.acquire()
                     x.held = True
                 elif x.spec["lock"] == "guardian-waiting":
@@ -376,6 +377,10 @@ def _play(children, name, seen):
                     x.readings.append((began, time.monotonic(), exited))
                     if exited:
                         pending.remove(x)
+                        if x.spec["lock"] == "reaped-unpublished":
+                            # The guardian's wait reaps, as Popen.wait does under its lock;
+                            # the peeks below then meet ECHILD.
+                            x.reaped = os.waitpid(x.child.pid, 0)
                         for _ in range(2):               # once read, an exit stays read
                             x.readings.append((time.monotonic(), time.monotonic(), relay.child_exited(x.child)))
                 time.sleep(0.001)                        # interleaves with the opener without spinning a core
@@ -389,7 +394,14 @@ def _play(children, name, seen):
                 assert not any(exited for _, ended, exited in x.readings if ended < x.opened_at), x.spec
                 seen["reads-before-open"] += sum(1 for _, ended, _ in x.readings if ended < x.opened_at)
                 seen["reads"] += len(results)
-                if x.held:
+                if x.spec["lock"] == "reaped-unpublished":
+                    pid, status = x.reaped
+                    assert pid == x.child.pid and x.child.returncode is None and not exists(pid), x.spec
+                    x.child._handle_exitstatus(status)   # what the guardian's wait stores next
+                    x.child._waitpid_lock.release()
+                    x.held = False
+                    seen["reaped-then-read"] += 1
+                elif x.held:
                     # Nothing else may reap while the lock is held: the exit was the kernel's,
                     # and the child is still a zombie after every peek.
                     assert x.child.returncode is None and exists(x.child.pid), x.spec
@@ -432,6 +444,7 @@ def test_a_peek_reads_exit_only_after_it_and_never_reaps(name):
 
     check()
     print(f"exit peek ({name}) exercised:", json.dumps(dict(sorted(seen.items()))))
-    assert seen["peek-exited"] and seen["shut-reads"] and seen["reads-before-open"], dict(seen)
-    assert all(seen[f"lock-{lock}"] for lock in ("free", "held", "guardian-waiting")), dict(seen)
+    assert seen["peek-exited"] and seen["peek-echild"], dict(seen)
+    assert seen["shut-reads"] and seen["reads-before-open"], dict(seen)
+    assert all(seen[f"lock-{lock}"] for lock in ("free", "held", "reaped-unpublished", "guardian-waiting")), dict(seen)
     assert seen["never-reap-checked-nonzero-status"], dict(seen)
