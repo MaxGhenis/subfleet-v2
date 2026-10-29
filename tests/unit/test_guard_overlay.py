@@ -157,8 +157,8 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     judged them with the roots, links and globs of the Claude half's
     snapshot-5, and its r3c (2026-10-26) closed the hub's review r2's
     walk-arounds (globs matching every entry, /Volumes/<entry> paths,
-    braces, links before .., searcher names, escapes, nesting), and its r4,
-    r5 and r6 (2026-10-26 to 2026-10-28) closed the hub's reviews r3 to r5;
+    braces, links before .., searcher names, escapes, nesting), and its r4
+    to r8 (2026-10-26 to 2026-10-29) closed the hub's reviews r3 to r7;
     TRUST pins those bytes. That TRUST is the installed one of
     2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with hook a60d1c51… it
     is the rollback) with the new hook hash and four dated provenance
@@ -170,8 +170,8 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "89b0efe18b64ea939cf0c14b2b6e416162a66560759903a60e69592af961aa5d",
-        "TRUST": "b749db5afabaf72482e22c53d0e9ae9bd3b4dd3df80efe174bf409453f36e9eb",
+        "never-rules-hook.sh": "740728e3a290c77d8d6e2f4dfe196f6b3f1e018f0673e38de48cc23beb0120e9",
+        "TRUST": "f5e5268ec44701db1752204b444e5e00ce0fea9dff6d11cc0f7bb39b388fc073",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest
