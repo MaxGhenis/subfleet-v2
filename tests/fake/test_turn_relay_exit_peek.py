@@ -21,6 +21,7 @@ import errno
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -33,7 +34,8 @@ from subfleet.relay import RelayServer, frame_sha256
 
 HAS_OS_WAITID = hasattr(os, "waitid")
 NO_OS_WAITID = "CPython 3.12 leaves os.waitid out of its macOS build: the relay peeks through libc there"
-BINDINGS = [pytest.param("libc", id="libc-waitid"),
+BINDINGS = [pytest.param("libc", id="libc-waitid", marks=pytest.mark.skipif(
+                sys.platform != "darwin", reason="the ctypes binding reads Darwin's siginfo_t")),
             pytest.param("os", id="os-waitid", marks=pytest.mark.skipif(not HAS_OS_WAITID, reason=NO_OS_WAITID))]
 # What a child's end looks like to Popen's wait (`returncode`) and to the kernel's
 # siginfo (`si_status`: the exit code, or the signal that ended it).
@@ -69,7 +71,9 @@ def start(end: str = "exit 0", *, closed_stdin: bool = False) -> tuple[subproces
     read_end, write_end = os.pipe()
     script = f"exec 3<&0 0<&-; read _ <&3; {end}" if closed_stdin else f"read _; {end}"
     try:
-        child = subprocess.Popen(["/bin/sh", "-c", script], stdin=read_end, env={})
+        # The session's own environment: its PATH puts the test recorder before the
+        # system directories, as conftest's exec guard requires of a shell.
+        child = subprocess.Popen(["/bin/sh", "-c", script], stdin=read_end)
     except BaseException:
         os.close(write_end)
         raise
@@ -374,6 +378,7 @@ def _play(children, name, seen):
                         pending.remove(x)
                         for _ in range(2):               # once read, an exit stays read
                             x.readings.append((time.monotonic(), time.monotonic(), relay.child_exited(x.child)))
+                time.sleep(0.001)                        # interleaves with the opener without spinning a core
             opener.join(TIMEOUT_S)
             for x in live:
                 assert x.opened_at is not None
