@@ -111,7 +111,6 @@ def test_walk_close_and_throw_at_every_yield(action):
                     iterator.close()
 
 
-@pytest.mark.xfail(strict=True, reason="P2-2: walk cleanup stops before closing remaining stack descriptors")
 @pytest.mark.parametrize("action", ["close", "throw"])
 def test_walk_cleanup_interruption_closes_remaining_children(monkeypatch, action):
     injected = KeyboardInterrupt("during cleanup")
@@ -292,7 +291,6 @@ def test_in_repository_registration_failure_closes_descriptor():
             sys.settrace(old)
 
 
-@pytest.mark.xfail(strict=True, reason="P2-2: repository cleanup stops before closing remaining descriptors")
 def test_repository_cleanup_interruption_closes_remaining_children(monkeypatch):
     injected = KeyboardInterrupt("during repository cleanup")
     with tree(DEEP) as (_, root_fd), unchanged_descriptors(root_fd):

@@ -26,7 +26,7 @@ import re
 import socket
 import stat
 import struct
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -172,6 +172,19 @@ def open_dir(name: str | os.PathLike, *, dir_fd: int | None = None,
     return fd
 
 
+def _close_all(descriptors: Iterable[int]) -> None:
+    """Close every owned descriptor, then propagate the first closing error."""
+    first: BaseException | None = None
+    for fd in descriptors:
+        try:
+            os.close(fd)
+        except BaseException as exc:
+            if first is None:
+                first = exc
+    if first is not None:
+        raise first
+
+
 def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.stat_result, int, str | None]]:
     """Every entry under an open directory, pre-order, names in byte order.
 
@@ -222,9 +235,7 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
                     os.close(child)
                     raise
     finally:
-        for fd, _, _ in stack:
-            if fd != root_fd:
-                os.close(fd)
+        _close_all(fd for fd, _, _ in stack if fd != root_fd)
 
 
 def _list(fd: int, rel: str) -> list[str]:
@@ -1038,8 +1049,7 @@ class RegenerableWalk:
         except (OSError, TreeError):
             return True
         finally:
-            for x in opened:
-                os.close(x)
+            _close_all(opened)
 
 
 def _is_dir(dir_fd: int, name: str) -> bool:
