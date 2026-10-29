@@ -40,7 +40,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from . import folders
-from .sessions.transcripts import read_regular
+from .sessions.transcripts import open_regular, read_regular
 
 #: What a reader is given: `read(sql, params)` runs one statement, as for
 #: `folders.turn_holds` (a store's `query`, or a transaction's fetchall).
@@ -49,8 +49,11 @@ Read = Callable[[str, tuple], Iterable[Any]]
 #: The `depends` roles, as a hold names them (C-6.11) and `why` words them.
 REVIEW_ROOT, OUTPUT, GIT = "review-root", "output", "git-storage"
 
-#: The most a gitfile, `commondir` or `alternates` file is read: git's own are a line or a few.
+#: The most a gitfile or `commondir` file is read: Git writes a single path.
 _FILE_LIMIT = 64 * 1024
+#: Bound only one alternates line, not the file: 256 times a 4096-byte PATH_MAX.
+#: This allows even heavily escaped paths while bounding the streaming read buffer.
+_ALTERNATE_LINE_LIMIT = 1024 * 1024
 #: How deep alternates are followed; git follows them five levels deep.
 _ALTERNATES_DEPTH = 5
 
@@ -90,13 +93,17 @@ def record(workdir: str, *, review_root: str | None = None, out_path: str | None
         found["review_root"] = folders.canonical(review_root)
     if out_path:
         found["out_path"] = folders.canonical(out_path)
-    git = git_storage(workdir) + (git_storage(review_root) if review_root else [])
+    incomplete: list[dict[str, str]] = []
+    git = git_storage(workdir, incomplete=incomplete) + (
+        git_storage(review_root, incomplete=incomplete) if review_root else [])
     if git:
         found["git"] = list(dict.fromkeys(git))
+    if incomplete:
+        found["incomplete"] = incomplete
     return found
 
 
-def git_storage(path: str) -> list[str]:
+def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) -> list[str]:
     """The git storage a checkout at `path`, or a folder in one, uses: for each
     `.git` at or above `path` (git uses the nearest a repository answers for;
     each one above is kept too, which can only keep more), the directory it is
@@ -125,11 +132,11 @@ def git_storage(path: str) -> list[str]:
         except (OSError, ValueError):
             continue
         if stat.S_ISDIR(mode):
-            found.extend(_storage(os.path.realpath(dotgit), named=False))
+            found.extend(_storage(os.path.realpath(dotgit), named=False, incomplete=incomplete))
         elif stat.S_ISREG(mode):
             gitdir = _gitfile(dotgit, folder)
             if gitdir is not None:
-                found.extend(_storage(gitdir, named=True))
+                found.extend(_storage(gitdir, named=True, incomplete=incomplete))
     return list(dict.fromkeys(folders.canonical(each) for each in found))
 
 
@@ -150,7 +157,7 @@ def _gitfile(dotgit: str, folder: str) -> str | None:
     return os.path.realpath(os.path.join(folder, named)) if named else None
 
 
-def _storage(gitdir: str, *, named: bool) -> list[str]:
+def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | None = None) -> list[str]:
     """`gitdir`, its common directory, and the alternates of that repository's objects."""
     common = gitdir
     pointer = _text(os.path.join(gitdir, "commondir"))
@@ -158,7 +165,7 @@ def _storage(gitdir: str, *, named: bool) -> list[str]:
         common = os.path.realpath(os.path.join(gitdir, pointer.strip()))
     elif named and os.path.basename(os.path.dirname(gitdir)) == "worktrees":
         common = os.path.dirname(os.path.dirname(gitdir))
-    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, "objects"))]))
+    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, "objects"), incomplete=incomplete)]))
 
 
 def _unquote(line: bytes) -> tuple[bytes, int]:
@@ -204,27 +211,39 @@ def _alternate_paths(line: bytes) -> Iterable[bytes]:
             return
 
 
-def _alternates(objects: str) -> list[str]:
-    """The object directories `objects` borrows from (`info/alternates`), followed
-    `_ALTERNATES_DEPTH` levels deep; a line may be relative to `objects`."""
+def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None) -> list[str]:
+    """Stream complete alternates files, at most one bounded byte line at a time.
+
+    The returned paths and traversal frontier grow with distinct dependencies;
+    the input buffer is bounded independently of the size of the file.
+    Failures are recorded separately, never interpreted as an empty file.
+    """
     found: list[str] = []
+    seen = {objects}
     level = [objects]
     for _ in range(_ALTERNATES_DEPTH):
         following: list[str] = []
         for directory in level:
+            filename = os.path.join(directory, "info", "alternates")
+            opened = False
             try:
-                data = read_regular(os.path.join(directory, "info", "alternates"), limit=_FILE_LIMIT)
-            except (OSError, ValueError):
-                continue
-            for line in data.split(b"\n"):
-                try:
-                    for path in _alternate_paths(line):
-                        each = os.path.realpath(os.path.join(directory, os.fsdecode(path)))
-                        if each not in found and each != objects:
-                            found.append(each)
-                            following.append(each)
-                except ValueError:
+                with open_regular(filename) as stream:
+                    opened = True
+                    while line := stream.readline(_ALTERNATE_LINE_LIMIT + 1):
+                        if len(line) > _ALTERNATE_LINE_LIMIT:
+                            raise ValueError(f"line exceeds {_ALTERNATE_LINE_LIMIT} bytes")
+                        for path in _alternate_paths(line.removesuffix(b"\n")):
+                            each = os.path.realpath(os.path.join(directory, os.fsdecode(path)))
+                            if each not in seen:
+                                seen.add(each)
+                                found.append(each)
+                                following.append(each)
+            except (OSError, ValueError) as exc:
+                # A missing file is normal, but a dangling link exists and is unreadable.
+                if isinstance(exc, FileNotFoundError) and not opened and not os.path.lexists(filename):
                     continue
+                if incomplete is not None:
+                    incomplete.append({"file": filename, "reason": str(exc)})
         level = following
     return found
 
@@ -286,40 +305,65 @@ def _loads(text: str | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def legacy(read: Read) -> dict[str, list[str]]:
+class Places(dict):
+    """A path census with incomplete discoveries kept beside, never among, paths.
+
+    `legacy` fills this outside transactions; `live` carries forward failures
+    only while the relevant job is live or exporting, using database reads alone.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.incomplete: dict[str, list[dict[str, str]]] = {}
+
+
+def legacy(read: Read) -> Places:
     """job id -> the places a job that has not ended, queued before submit
     recorded `depends`, needs (`record`, read now). Filesystem work: retention
     calls it once a pass, outside any transaction, spelling the legacy workdir
     too: release no longer caches job.folder_spelled between admission looks.
     No such job is newer than the
     pass, since no daemon that reads this queues one."""
-    found: dict[str, list[str]] = {}
+    found = Places()
     for row in read(_LIVE, ()):
         if needed(_loads(row["submitted"])) is not None or not row["workdir"]:
             continue
         depends = record(row["workdir"], review_root=row["review_root"], out_path=row["out_path"])
+        if depends.get("incomplete"):
+            found.incomplete[row["job_id"]] = depends["incomplete"]
         found[row["job_id"]] = [folders.canonical(row["workdir"]),
                                 *(path for _, path in needed({"depends": depends}) or ())]
     return found
 
 
-def live(read: Read, legacy_places: Mapping[str, Iterable[str]] | None = None) -> dict[str, set[str]]:
+def live(read: Read, legacy_places: Mapping[str, Iterable[str]] | None = None) -> Places:
     """job id -> the places (`key`ed) of each job that has not ended: its
     workdir, worktree, review root and `-o` path as its row holds them, its
     folder as submit recorded it (or admission spelled it, for an older job), and
     `depends`; and of each job whose export is pending, its `-o` path. Database
     reads alone (with `legacy_places`, read before the transaction), so a store
     transaction may call it."""
-    found: dict[str, set[str]] = {}
+    found = Places()
 
     def add(job_id: str, path: Any) -> None:
         if isinstance(path, str) and os.path.isabs(path):
             found.setdefault(job_id, set()).add(key(path))
 
+    def failures(job_id: str, submitted: Mapping[str, Any]) -> None:
+        depends = submitted.get("depends")
+        errors = depends.get("incomplete", ()) if isinstance(depends, dict) else ()
+        errors = [error for error in errors if isinstance(error, dict) and isinstance(error.get("file"), str)]
+        if errors:
+            found.incomplete[job_id] = errors
+
     for row in read(_LIVE, ()):
         job_id = row["job_id"]
         found.setdefault(job_id, set())
         submitted = _loads(row["submitted"])
+        failures(job_id, submitted)
+        errors = getattr(legacy_places, "incomplete", {}).get(job_id)
+        if errors:
+            found.incomplete[job_id] = errors
         for path in (row["workdir"], row["worktree"], row["review_root"], row["out_path"],
                      submitted.get("folder"), submitted.get("write_target")):
             add(job_id, path)
@@ -331,10 +375,14 @@ def live(read: Read, legacy_places: Mapping[str, Iterable[str]] | None = None) -
         for path in (legacy_places or {}).get(job_id) or ():
             add(job_id, path)
     for row in read(_EXPORTING, ()):
+        failures(row["job_id"], _loads(row["submitted"]))
         add(row["job_id"], row["job_out_path"])
         add(row["job_id"], row["out_path"])
         add(row["job_id"], (_loads(row["submitted"]).get("depends") or {}).get("out_path"))
-    return {job_id: paths for job_id, paths in found.items() if paths}
+    for job_id in list(found):
+        if not found[job_id]:
+            del found[job_id]
+    return found
 
 
 def users(found: Mapping[str, Iterable[str]]) -> dict[str, set[str]]:
@@ -354,5 +402,7 @@ def dependents(read: Read, tree: str, *, exclude: str | None = None,
     (`live`), for the selecting and committing transactions, which name the tree
     in the spelling their fence holds."""
     mine = key(tree)
-    return sorted(job_id for job_id, paths in live(read, legacy_places).items()
-                  if job_id != exclude and any(folders.within(path, mine) for path in paths))
+    found = live(read, legacy_places)
+    return sorted(job_id for job_id in found.keys() | found.incomplete.keys()
+                  if job_id != exclude and (found.incomplete.get(job_id) or any(
+                      folders.within(path, mine) for path in found.get(job_id, ()))))

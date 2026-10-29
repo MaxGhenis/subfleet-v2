@@ -267,10 +267,15 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     # records or, while that is NULL, the one `_workspace` allocated
     # (`rarch.owned_worktree`); paths compare folded, so a spelling in another
     # case is the same path.
-    needs = dependencies.users(dependencies.live(store.query, legacy))
+    places = dependencies.live(store.query, legacy)
+    needs = dependencies.users(places)
+    incomplete = "; ".join(f"{job}: {error['file']} ({error.get('reason', 'unreadable')})"
+                           for job, errors in places.incomplete.items() for error in errors)
     for row in jobs:
         if row["sandbox"] != "workspace-write" or row["in_place"]:
             continue
+        if incomplete:
+            add(row["job_id"], "dependency-incomplete: " + incomplete)
         tree = row["worktree"] or (str(Path(root) / "worktrees" / row["job_id"]) if root is not None else None)
         if tree and needs.get(dependencies.key(tree), set()) - {row["job_id"]}:
             add(row["job_id"], "worktree-in-use")
