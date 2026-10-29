@@ -66,6 +66,9 @@ _SUBMITTED = ("(SELECT e.data_json FROM events e WHERE e.job_id = {job} AND +e.k
 _LIVE = ("SELECT job_id, workdir, worktree, review_root, out_path, "
          + _SUBMITTED.format(job="jobs.job_id") + " AS submitted "
          f"FROM jobs WHERE state NOT IN {_TERMINAL}")
+#: Legacy discovery includes terminal jobs for as long as they hold an export.
+_DISCOVERING = (_LIVE + " OR job_id IN (SELECT holder FROM leases "
+                "WHERE lease_key >= 'out:' AND lease_key < 'out;')")
 #: Exports still to be written: a job holds `out:<path>` from its reservation
 #: until its export is written or it ends without one (`Daemon._export`).
 _EXPORTING = ("SELECT holder AS job_id, substr(lease_key, 5) AS out_path, jobs.out_path AS job_out_path, "
@@ -325,14 +328,14 @@ class Places(dict):
 
 
 def legacy(read: Read) -> Places:
-    """job id -> the places a job that has not ended, queued before submit
+    """job id -> the places a live or exporting job, queued before submit
     recorded `depends`, needs (`record`, read now). Filesystem work: retention
     calls it once a pass, outside any transaction, spelling the legacy workdir
     too: release no longer caches job.folder_spelled between admission looks.
     No such job is newer than the
     pass, since no daemon that reads this queues one."""
     found = Places()
-    for row in read(_LIVE, ()):
+    for row in read(_DISCOVERING, ()):
         if needed(_loads(row["submitted"])) is not None or not row["workdir"]:
             continue
         depends = record(row["workdir"], review_root=row["review_root"], out_path=row["out_path"])
@@ -383,6 +386,9 @@ def live(read: Read, legacy_places: Mapping[str, Iterable[str]] | None = None) -
             add(job_id, path)
     for row in read(_EXPORTING, ()):
         failures(row["job_id"], _loads(row["submitted"]))
+        errors = getattr(legacy_places, "incomplete", {}).get(row["job_id"])
+        if errors:
+            found.incomplete[row["job_id"]] = errors
         add(row["job_id"], row["job_out_path"])
         add(row["job_id"], row["out_path"])
         add(row["job_id"], (_loads(row["submitted"]).get("depends") or {}).get("out_path"))

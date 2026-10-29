@@ -108,7 +108,6 @@ def test_c8_4_unlinked_open_alternates_is_incomplete(tmp_path, monkeypatch):
     assert recorded["incomplete"][0]["file"] == str(alternate)
 
 
-@pytest.mark.xfail(strict=True, reason="R2-F2: legacy incomplete evidence is lost on transition to pending export")
 @pytest.mark.parametrize("stage", ["database", "full-pass", "already-exporting"])
 def test_c8_4_legacy_incomplete_census_survives_terminal_export(world, monkeypatch, stage):
     tree = world.job("owner")
