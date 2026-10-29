@@ -636,6 +636,8 @@ class Retirement:
             if folders.turn_holds(read, folder, inside=True) or any(
                     folders.within(row["workdir"], folder) for row in turns):
                 raise Defer("turn-folder", DEFER_PINNED_S, folder)
+            if dependencies.dependents(read, folder, exclude=self.job_id, legacy_places=self.ctx.legacy):
+                raise Defer("job-directory-in-use", DEFER_PINNED_S, folder)
             current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
             if current and current[0] != holder:
                 raise Defer("job folder lease", DEFER_CHANGED_S, folder)
@@ -918,10 +920,12 @@ class Retirement:
                     # And a job that has not ended that needs a place in the tree (its
                     # folder, review root, `-o` path or git storage), or an export
                     # pending to a path there (`dependencies`), on the same spelling.
-                    if not reason and j["worktree"] and dependencies.dependents(
-                            lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"],
-                            exclude=self.job_id, legacy_places=self.ctx.legacy):
-                        reason = "worktree-in-use"
+                    for place, pin in ((j["worktree"], "worktree-in-use"),
+                                       (j["job_dir"], "job-directory-in-use")):
+                        if not reason and place and dependencies.dependents(
+                                lambda sql, params: conn.execute(sql, params).fetchall(), place,
+                                exclude=self.job_id, legacy_places=self.ctx.legacy):
+                            reason = pin
                     # And a `worktree:` lease on a folder inside it, held by a
                     # detached writer in a repository nested there (review of
                     # 31048e67, F3); the tree's own key is checked below.

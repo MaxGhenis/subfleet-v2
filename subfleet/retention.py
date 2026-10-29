@@ -315,6 +315,8 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
             job_folder = str(Path(root) / "jobs" / row["job_id"])
             if any(folders.within(folder, job_folder) for folder in in_use | turn_workdirs):
                 add(row["job_id"], "turn-folder")
+            if needs.get(dependencies.key(job_folder), set()) - {row["job_id"]}:
+                add(row["job_id"], "job-directory-in-use")
     # A job registered in a repository inside another job's tree keeps that
     # tree while it has rows: it retires first, with its own anchor (N4).
     for host in ([only] if only else sorted(hosted or ())):
