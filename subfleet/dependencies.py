@@ -162,8 +162,8 @@ class _Aliases:
     """
 
     def __init__(self):
-        self.paths: list[tuple[str, tuple]] = []
-        self.pointers: list[tuple[str, str | None]] = []
+        self.paths: dict[str, tuple] = {}
+        self.pointers: dict[str, str | None] = {}
         self.errors: list[dict[str, str]] = []
 
     @staticmethod
@@ -182,19 +182,19 @@ class _Aliases:
         except (OSError, ValueError) as exc:
             self.errors.append({"file": path, "reason": str(exc)})
             target = (os.path.abspath(path), None)
-        self.paths.append((path, target))
+        self.paths.setdefault(path, target)
         return target[0]
 
     def text(self, path: str) -> str | None:
         self.resolve(path)
         value = _text(path)
-        self.pointers.append((path, value))
+        self.pointers.setdefault(path, value)
         return value
 
     def check(self, incomplete: list[dict[str, str]] | None) -> None:
         if incomplete is not None:
             incomplete.extend(self.errors)
-        for path, before in self.paths:
+        for path, before in self.paths.items():
             try:
                 if self._target(path) == before:
                     continue
@@ -203,7 +203,7 @@ class _Aliases:
                 reason = str(exc)
             if incomplete is not None:
                 incomplete.append({"file": path, "reason": reason})
-        for path, before in self.pointers:
+        for path, before in self.pointers.items():
             if _text(path) != before and incomplete is not None:
                 incomplete.append({"file": path, "reason": "repository pointer changed during discovery"})
 
