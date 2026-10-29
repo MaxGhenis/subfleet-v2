@@ -13,10 +13,11 @@ recorded baseline was +1 descriptor for each of N=1 and N=2, and zero for
 N=3 and N=4. Our red/green results are below. No installed release or live
 state was accessed by our reproduction.
 
-The invariant is that `walk` closes every descriptor it opens at completion,
-listing/stat/check failures, mount-point/depth/changed/swapped/unreadable
-refusals, and early generator close, while leaving the borrowed `root_fd`
-open. Hypothesis varies small directory/file/symlink trees and the k-th listing
+Tests cover normal completion, injected listing/stat/check failures, the named
+refusals, and early generator closure, while leaving the borrowed `root_fd`
+open. Review r1's interrupted cleanup cases now close the remaining owned
+descriptors before propagating the first closing exception. Hypothesis varies
+small directory/file/symlink trees and the k-th listing
 or stat, verifies exact descriptor-set equality and injected exception identity,
 and varies early close positions. It runs 100 failure examples and 60 close
 examples, plus explicit examples. Tests close detected leaks even when red,
@@ -34,11 +35,11 @@ so later examples and pytest retain their original descriptors.
 | `open_dir`, 162 | Close on failed `fstat`/signature validation, including non-`Exception` failures; mismatch still raises `swapped`. |
 | `walk`, 207 | Close if listing/stack handoff fails. |
 | `_layout`, 557 | Allocate the empty containers before opening; enter `try/finally` immediately after the open. |
-| `RegenerableWalk._in_repository`, 1020 | Close the new descriptor if registration in the tracking list fails; existing `finally` owns registered descriptors. |
-| `_open_path`, 1043 | On failed descent, close the current intermediate descriptor; retain the borrowed starting descriptor. |
+| `RegenerableWalk._in_repository`, 1020 | Registration failure closes the new descriptor; cleanup drains every registered descriptor despite an earlier closing exception, then propagates the first exception. |
+| `_open_path`, 1043 | Failed later opens close the current intermediate descriptor. The new child is protected before closing the previous descriptor; cleanup failures preserve the original exception. The borrowed starting descriptor stays open. |
 | `_remove_children`, 1167 | Already enters `try/finally` immediately; recursive work is protected. No change needed. |
 | `Reclaim._one`, 1253 | Already enters `try/finally` after the open's exception handler; mode changes and recursion are protected. No change needed. |
-| `Reclaim._conflict_dir`, 1304/1311 | Close the currently owned descriptor on any failure, including mkdir, component preparation, and later open failures. |
+| `Reclaim._conflict_dir`, 1304/1311 | Mkdir, component preparation, and later-open failures are guarded. The new child is protected while closing the previous descriptor; both cleanup scopes preserve the original exception, including cancellation through `_set_aside_fd`. |
 | Remaining opens: 123, 231, 305, 471, 482, 605, 640, 687, 709, 717, 917, 932, 1053, 1077, 1080, 1104, 1118, 1131, 1152, 1213, 1342 | `still_archived`, `tree_bytes`, `clone_or_copy`, `_package_or_scope` (both opens), `bytecode`, `installed_files`, `record_complete`, `_site_packages` (both opens), `_rule_for`, `_start`, `_small`, `_marker` (both opens), `sync_path`, `write_atomic`, `read_regular`, `remove_own_tree`, `Reclaim.run`, and `_set_aside` already protect all subsequent calls with `finally`. |
 
 3. The invariant includes ordinary exceptions and cancellation-like
@@ -115,7 +116,7 @@ G2 also captured per-file first setup-report UTC time and contemporaneous load:
 
 | Variant against the new descriptor file only | Passed | Failed | Evidence |
 | --- | --- | --- | --- |
-| Fixed source (G1 and G3) | 20 | 0 | Complete ownership invariant, including early close and root preservation. |
+| Fixed source (G1 and G3) | 20 | 0 | 20 committed build tests pass, including early close and root preservation. Review r1's additional cleanup and handoff cases now pass; see the follow-up report. |
 | M1: remove only the walk child close, retaining the reordering and other fixes | 16 | 4 | N=1, N=2, injected listing failure, and unreadable child leak. |
 | M2: restore the entire release file | 9 | 11 | Same failures as R, including validation and path-descent leaks. |
 
@@ -156,3 +157,20 @@ the requested coauthor trailer.
 Scratch samples stayed below 30 MiB combined, below the 200 MB cap. Both owned
 scratch roots are removed with the lane rules' guarded cleanup after final
 bundle verification. No test or setup process is kept running.
+
+## Review r1 follow-up
+
+The execution tables above describe the original build. Review r1 found two
+additional gaps at `d3a48269a`: descent handoff leaked a new child when closing
+the previous descriptor raised, and interrupted cleanup left later descriptors
+open. Both are fixed. The handoff preserves the original `BaseException` even
+when a cleanup close fails; `_set_aside_fd` propagates the interrupt instead of
+returning normally after a replacement `EBADF`. One `_close_all` helper drains
+the `walk` stack and `_in_repository` tracking list before raising the first
+closing exception.
+
+The [follow-up execution report](2026-10-29-walk-descriptors-r1.md) records the
+nine red review cases, their green run with only expected-failure marks removed,
+five descriptor-file repetitions, the narrower regression set, guards, and
+corrected PR-body lines. All seven inherited mutants and both new mutants are
+recorded in the [r1 mutant table](2026-10-29-walk-descriptors-r1-mutants.md).
