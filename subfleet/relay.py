@@ -47,6 +47,7 @@ provider's stdin.
 
 from __future__ import annotations
 
+import ctypes
 import errno
 import hashlib
 import json
@@ -54,10 +55,11 @@ import os
 import select
 import socket
 import stat
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from .state_files import open_state
 
@@ -190,6 +192,95 @@ def daemon_peer_check(lock_path: str | Path):
         except Exception:
             return False
     return allowed
+
+
+# The kernel exit peek (C-26.4, #271 r4). The guardian's blocking `child.wait()` holds
+# Popen's `_waitpid_lock` across `waitpid`, and while it is held `poll()` answers None
+# without asking the kernel, even for a child that has exited. `waitid` with WNOWAIT asks
+# the kernel and leaves the child waitable, so the guardian's wait stays its only reaper
+# and records its real status. CPython 3.12 leaves `os.waitid` out of its macOS build;
+# there libc's own `waitid`, the same system call, is called through ctypes.
+_PEEK_FLAGS = os.WEXITED | os.WNOHANG | os.WNOWAIT
+# Fixed text but for the errno's name.
+PEEK_FAILURE_LOG_LINE = "relay exit peek: waitid failed ({errno}); the child's exit reads as unproved (logged once)"
+
+
+class _Exited(NamedTuple):
+    si_pid: int
+    si_status: int                  # the exit code, or the signal that ended the child
+
+
+class _SigInfo(ctypes.Structure):
+    """Darwin's `siginfo_t` (sys/signal.h): 104 bytes on arm64 and x86_64."""
+    _fields_ = [("si_signo", ctypes.c_int), ("si_errno", ctypes.c_int), ("si_code", ctypes.c_int),
+                ("si_pid", ctypes.c_int), ("si_uid", ctypes.c_uint32), ("si_status", ctypes.c_int),
+                ("si_addr", ctypes.c_void_p), ("si_value", ctypes.c_void_p), ("si_band", ctypes.c_long),
+                ("_pad", ctypes.c_ulong * 7)]
+
+
+def _bind_libc_waitid():
+    """libc's `waitid(idtype_t, id_t, siginfo_t *, int)`, or None off macOS (the
+    structure above is Darwin's) or where it cannot be bound."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        function = ctypes.CDLL(None, use_errno=True).waitid
+    except (OSError, AttributeError):
+        return None
+    function.restype = ctypes.c_int
+    function.argtypes = [ctypes.c_int, ctypes.c_uint32, ctypes.POINTER(_SigInfo), ctypes.c_int]
+    return function
+
+
+_libc_waitid = _bind_libc_waitid()
+
+
+def _waitid_os(pid: int) -> _Exited | None:
+    """The peek through `os.waitid`: the child's exit, or None while it runs."""
+    found = os.waitid(os.P_PID, pid, _PEEK_FLAGS)
+    return None if found is None else _Exited(found.si_pid, found.si_status)
+
+
+def _waitid_libc(pid: int) -> _Exited | None:
+    """The same peek through libc's `waitid`. With WNOHANG a running child leaves the
+    zeroed siginfo's pid 0. A failure raises OSError (ECHILD as ChildProcessError)."""
+    if _libc_waitid is None:
+        raise OSError(errno.ENOSYS, "libc waitid is not bound on this platform")
+    info = _SigInfo()
+    if _libc_waitid(os.P_PID, pid, ctypes.byref(info), _PEEK_FLAGS) != 0:
+        failure = ctypes.get_errno()
+        raise OSError(failure, os.strerror(failure))
+    return _Exited(info.si_pid, info.si_status) if info.si_pid else None
+
+
+#: The binding `child_exited` peeks through, chosen once, at import.
+EXIT_PEEK = "os.waitid" if hasattr(os, "waitid") else "libc waitid"
+_exit_peek = _waitid_os if hasattr(os, "waitid") else _waitid_libc
+_peek_failure_logged = False
+
+
+def child_exited(child) -> bool:
+    """Whether the guardian's child has exited (C-26.4): Popen's own evidence, or else
+    the kernel's, read without reaping. While the child runs no other process can hold
+    its pid, and it stays this process's child until reaped, so a peek that finds an
+    exit at that pid, or ECHILD (the guardian's wait reaped it), proves this child's
+    exit. Any other failure proves nothing and is logged once. A child without a real
+    pid (the tests' fakes) is not peeked."""
+    global _peek_failure_logged
+    if getattr(child, "returncode", None) is not None or child.poll() is not None:
+        return True
+    pid = getattr(child, "pid", None)
+    if type(pid) is not int or pid <= 0:
+        return False
+    try:
+        return _exit_peek(pid) is not None
+    except ChildProcessError:
+        return True
+    except OSError as exc:
+        if not _peek_failure_logged:
+            _peek_failure_logged = True
+            _stderr_line(PEEK_FAILURE_LOG_LINE.format(errno=errno.errorcode.get(exc.errno, exc.errno)))
+        return False
 
 
 class RelayServer:
@@ -448,7 +539,16 @@ class RelayServer:
             child = self._child
             return {"ok": True, "status": {
                 **advertisement(), "applied": len(self._records), "closed": self._closed,
-                "child": "none" if child is None else "running" if child.poll() is None else "exited"}}
+                "child": "none" if child is None else "exited" if child_exited(child) else "running"}}
+
+    def _refusal(self, seq: int, error: str, **details) -> dict:
+        # A broken/closed pipe alone does not prove exit: a live child can close
+        # stdin too. Preserve the child's exit evidence in the reply, since
+        # shutdown may close the socket before a follow-up status arrives.
+        child = self._child
+        exited = child is not None and child_exited(child)
+        return {"seq": seq, "ok": False, "error": error, **details,
+                **({"child_exited": True} if exited else {})}
 
     def apply(self, frame: dict) -> dict:
         """Apply one frame. Public so the unit tests can drive it without a socket."""
@@ -474,7 +574,7 @@ class RelayServer:
                 if logged["sha256"] != frame["sha256"] or logged["op"] != op:
                     return {"seq": seq, "ok": False, "error": "conflict"}
                 if logged["status"] != "written":
-                    return {"seq": seq, "ok": False, "error": "no-child" if op == "signal" else "failed"}
+                    return self._refusal(seq, "no-child" if op == "signal" else "failed")
                 return {"seq": seq, "ok": True, "dup": True}
             if seq != len(self._records) + 1:
                 return {"seq": seq, "ok": False, "error": "gap", "last": len(self._records)}
@@ -487,7 +587,7 @@ class RelayServer:
                 self._records.append(record)
                 child = self._child
                 delivered = False
-                if child is not None and child.poll() is None:
+                if child is not None and not child_exited(child):
                     try:
                         child.send_signal(SIGNALS[frame["sig"]])
                         delivered = True
@@ -497,7 +597,7 @@ class RelayServer:
                 self._append({"kind": "written" if delivered else "failed", "seq": seq})
                 return {"seq": seq, "ok": delivered, **({} if delivered else {"error": "no-child"})}
             if self._closed or self._pipe is None:
-                return {"seq": seq, "ok": False, "error": "closed"}
+                return self._refusal(seq, "closed")
             intent = _intent(frame)
             self._append(intent)
             record = {**intent, "status": "pending"}
@@ -522,7 +622,7 @@ class RelayServer:
                     self._append({"kind": "failed", "seq": seq, "errno": exc.errno})
                 except OSError:
                     pass
-                return {"seq": seq, "ok": False, "error": "failed", "errno": exc.errno}
+                return self._refusal(seq, "failed", errno=exc.errno)
             self._append({"kind": "written", "seq": seq})
             record["status"] = "written"
             return {"seq": seq, "ok": True}
@@ -562,6 +662,7 @@ class Ack:
     ok: bool
     dup: bool = False
     error: str | None = None
+    child_exited: bool = False
 
 
 class RelayError(Exception):
@@ -665,4 +766,4 @@ class RelayClient:
             raise FrameTooLarge(len(payload), self.frame_max)
         body = self._exchange(payload, before_send=before_send)
         return Ack(seq=body.get("seq", seq), ok=bool(body.get("ok")), dup=bool(body.get("dup")),
-                   error=body.get("error"))
+                   error=body.get("error"), child_exited=body.get("child_exited") is True)

@@ -1,0 +1,624 @@
+{
+  "latest_unique": {
+    "passed": 1983,
+    "skipped": 44
+  },
+  "unrun_nodes": [
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_an_excerpt_edge_cuts_open_is_not_shown[1-tail-start-reminder]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_an_excerpt_edge_cuts_open_is_not_shown[40-head-end-private-key]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_an_excerpt_edge_cuts_open_is_not_shown[40-head-end-reminder]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_an_excerpt_edge_cuts_open_is_not_shown[40-tail-start-private-key]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_an_excerpt_edge_cuts_open_is_not_shown[40-tail-start-reminder]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_longer_than_any_lookbehind_is_resolved_whole[key-end-inside-a-reminder]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_longer_than_any_lookbehind_is_resolved_whole[long-key-nested-begin]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_longer_than_any_lookbehind_is_resolved_whole[reminder-quoting-its-opener]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_block_longer_than_any_lookbehind_is_resolved_whole[wrapped-data-uri]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_brief_over_the_budget_is_scrubbed_whole_not_replaced",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_complete_reminder_in_the_tail_keeps_the_text_before_it",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_data_uri_across_the_tail_cut_is_omitted",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_data_uri_the_head_cut_leaves_short_is_omitted",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_tool_input_of_any_size_is_classified_by_what_it_holds[edit]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_tool_input_of_any_size_is_classified_by_what_it_holds[printenv-in-the-middle]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_tool_input_of_any_size_is_classified_by_what_it_holds[wrapper-env-at-the-end]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_tool_input_of_any_size_is_classified_by_what_it_holds[write-dotenv]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_a_tool_input_of_any_size_is_classified_by_what_it_holds[write]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_an_excerpt_never_shows_a_value_the_whole_scrub_removes",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_blocks_that_shrink_a_text_within_the_budget_leave_it_whole",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[bearer-below-head-end]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[bearer-below-tail-start]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[bearer-joins-a-quote-head-end]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[bearer-joins-a-quote-tail-start]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[header-lines-head-end]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[header-lines-tail-start]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[quoted-lines-head-end]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[quoted-lines-tail-start]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[separator-lines-head-end]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[separator-lines-tail-start]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[yaml-chain-head-end]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_no_cut_splits_a_value_from_what_names_it_above[yaml-chain-tail-start]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_ordinary_lines_ending_in_a_colon_or_quote_are_still_cut_points",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_policy_refuses_brief_caps_the_final_scrub_could_not_hold",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_the_wrapper_walk_matches_the_single_pattern",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_wrapper_flag_runs_are_matched_in_linear_time[-a,time ]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_wrapper_flag_runs_are_matched_in_linear_time[-exec ]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_wrapper_flag_runs_are_matched_in_linear_time[-time ]",
+    "tests/unit/test_sessions_handoff_excerpts.py::test_wrapper_flag_runs_are_matched_in_linear_time[-x -nice ]"
+  ],
+  "per_file": {
+    "tests/unit/test_turn_runner.py": {
+      "passed": 83
+    },
+    "tests/unit/test_turn_replay.py": {
+      "passed": 33
+    },
+    "tests/unit/test_turn_attachment_replay.py": {
+      "passed": 13
+    },
+    "tests/fake/test_turn_relay_exit.py": {
+      "passed": 10
+    },
+    "tests/fake/test_turn_relay_exit_recovery.py": {
+      "passed": 13
+    },
+    "tests/fake/test_turn_relay_exit_properties.py": {
+      "passed": 4
+    },
+    "tests/fake/test_state_contract.py": {
+      "passed": 37
+    },
+    "tests/unit/test_test_module_names.py": {
+      "passed": 1
+    },
+    "tests/unit/test_invariants_index.py": {
+      "passed": 25
+    },
+    "tests/unit/test_conversation_steer_service.py": {
+      "passed": 45
+    },
+    "tests/unit/test_capacity_steer_route.py": {
+      "passed": 22
+    },
+    "tests/unit/test_capacity_steer_mutations.py": {
+      "passed": 10
+    },
+    "tests/fake/test_interactive_steer.py": {
+      "passed": 15
+    },
+    "tests/fake/test_capacity_steer_daemon.py": {
+      "passed": 72
+    },
+    "tests/unit/test_claude_turn.py": {
+      "passed": 69
+    },
+    "tests/unit/test_codex_turn.py": {
+      "passed": 67
+    },
+    "tests/unit/test_codex_turn_completed.py": {
+      "passed": 41
+    },
+    "tests/fake/test_codex_turn_completed_fake.py": {
+      "passed": 109
+    },
+    "tests/unit/test_turn_overlap.py": {
+      "passed": 10
+    },
+    "tests/unit/test_steer_invariants.py": {
+      "passed": 248
+    },
+    "tests/unit/test_conversation_catalog.py": {
+      "passed": 15
+    },
+    "tests/unit/test_conversation_catalog_lifecycle.py": {
+      "passed": 21
+    },
+    "tests/e2e/test_conversations.py": {
+      "skipped": 44
+    },
+    "tests/unit/test_conversation_service.py": {
+      "passed": 100
+    },
+    "tests/fake/test_conversation_pools.py": {
+      "passed": 2
+    },
+    "tests/fake/test_conversation_wakes_fake.py": {
+      "passed": 4
+    },
+    "tests/fake/test_turn_listing.py": {
+      "passed": 9
+    },
+    "tests/fake/test_turn_retention_cwd.py": {
+      "passed": 6
+    },
+    "tests/fake/test_turn_retention_cwd_properties.py": {
+      "passed": 1
+    },
+    "tests/fake/test_probe_turn.py": {
+      "passed": 43
+    },
+    "tests/unit/test_conversation_handoff.py": {
+      "passed": 48
+    },
+    "tests/unit/test_conversation_handoff_briefs.py": {
+      "passed": 28
+    },
+    "tests/unit/test_conversation_handoff_dispatch_races.py": {
+      "passed": 9
+    },
+    "tests/unit/test_conversation_peers_attachments.py": {
+      "passed": 44
+    },
+    "tests/unit/test_conversation_reconcile.py": {
+      "passed": 36
+    },
+    "tests/unit/test_conversation_redact.py": {
+      "passed": 9
+    },
+    "tests/unit/test_conversation_refresh.py": {
+      "passed": 2
+    },
+    "tests/unit/test_conversation_state_reads.py": {
+      "passed": 18
+    },
+    "tests/unit/test_conversation_status.py": {
+      "passed": 9
+    },
+    "tests/unit/test_conversation_store.py": {
+      "passed": 32
+    },
+    "tests/unit/test_conversation_stream_assertion.py": {
+      "passed": 13
+    },
+    "tests/unit/test_conversation_waits.py": {
+      "passed": 9
+    },
+    "tests/unit/test_conversation_wakes.py": {
+      "passed": 28
+    },
+    "tests/unit/test_claude_conversation_mcp_scope.py": {
+      "passed": 8
+    },
+    "tests/unit/test_relay.py": {
+      "passed": 30
+    },
+    "tests/unit/test_enrollment_runner.py": {
+      "passed": 7
+    },
+    "tests/unit/test_retention_turn_contract.py": {
+      "passed": 2
+    },
+    "tests/unit/test_retention_turn_workdirs.py": {
+      "passed": 1
+    },
+    "tests/unit/test_retention_turns.py": {
+      "passed": 7
+    },
+    "tests/unit/test_scheduler_turns.py": {
+      "passed": 10
+    },
+    "tests/unit/test_cli_turns.py": {
+      "passed": 23
+    },
+    "tests/unit/test_conversation_titles.py": {
+      "passed": 89
+    },
+    "tests/fake/test_turn_retention_job_directory.py": {
+      "passed": 2
+    },
+    "tests/fake/test_turn_retention_job_properties.py": {
+      "passed": 1
+    },
+    "tests/fake/test_turn_retention_quarantine.py": {
+      "passed": 10
+    },
+    "tests/fake/test_turn_trees.py": {
+      "passed": 18
+    },
+    "tests/unit/test_conversation_connections.py": {
+      "passed": 9
+    },
+    "tests/unit/test_conversation_fifo_reads.py": {
+      "passed": 26
+    },
+    "tests/fake/test_turn_wait_reasons.py": {
+      "passed": 7
+    },
+    "tests/unit/test_sessions_handoff.py": {
+      "passed": 145
+    },
+    "tests/unit/test_sessions_handoff_excerpts.py": {
+      "passed": 114
+    },
+    "tests/unit/test_conversation_diff.py": {
+      "passed": 39
+    },
+    "tests/unit/test_conversation_history.py": {
+      "passed": 22
+    }
+  },
+  "holds": [
+    {
+      "hold": "red-review",
+      "counts": {
+        "failed": 4,
+        "passed": 9
+      },
+      "start_utc": "2026-10-27T14:45:11.469860+00:00",
+      "seconds": 47.63,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "red-properties",
+      "counts": {
+        "failed": 4
+      },
+      "start_utc": "2026-10-27T14:56:08.192253+00:00",
+      "seconds": 169.13,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "regression",
+      "counts": {
+        "passed": 26,
+        "failed": 1
+      },
+      "start_utc": "2026-10-27T14:59:11.154516+00:00",
+      "seconds": 132.2,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "core1",
+      "counts": {
+        "passed": 129
+      },
+      "start_utc": "2026-10-27T15:01:35.238152+00:00",
+      "seconds": 556.91,
+      "outside_lock": false,
+      "split": true
+    },
+    {
+      "hold": "regression-final",
+      "counts": {
+        "passed": 26,
+        "failed": 1
+      },
+      "start_utc": "2026-10-27T15:04:45.503642+00:00",
+      "seconds": 107.55,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "regression-green",
+      "counts": {
+        "passed": 27
+      },
+      "start_utc": "2026-10-27T15:11:02.889173+00:00",
+      "seconds": 230.2,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "steer-service",
+      "counts": {
+        "passed": 142
+      },
+      "start_utc": "2026-10-27T15:14:22.368487+00:00",
+      "seconds": 567.11,
+      "outside_lock": false,
+      "split": true
+    },
+    {
+      "hold": "guards",
+      "counts": {
+        "passed": 63
+      },
+      "start_utc": "2026-10-27T15:15:05.711942+00:00",
+      "seconds": 100.54,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "mutants",
+      "counts": {
+        "passed": 10
+      },
+      "start_utc": "2026-10-27T15:16:58.938267+00:00",
+      "seconds": 109.61,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "steer-service-resume",
+      "counts": {
+        "passed": 22
+      },
+      "start_utc": "2026-10-27T15:25:05.964980+00:00",
+      "seconds": 179.86,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "core2-direct",
+      "counts": {
+        "passed": 280
+      },
+      "start_utc": "2026-10-27T15:40:34.536102+00:00",
+      "seconds": 568.61,
+      "outside_lock": true,
+      "split": true
+    },
+    {
+      "hold": "core1-overlap-direct",
+      "counts": {
+        "passed": 5
+      },
+      "start_utc": "2026-10-27T15:43:41.023410+00:00",
+      "seconds": 564.7,
+      "outside_lock": true,
+      "split": true
+    },
+    {
+      "hold": "steer-properties",
+      "counts": {
+        "passed": 225
+      },
+      "start_utc": "2026-10-27T15:43:42.993872+00:00",
+      "seconds": 556.52,
+      "outside_lock": false,
+      "split": true
+    },
+    {
+      "hold": "core2-resume-direct",
+      "counts": {
+        "passed": 6
+      },
+      "start_utc": "2026-10-27T15:52:48.474780+00:00",
+      "seconds": 54.75,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "overlap-resume-direct",
+      "counts": {
+        "passed": 1
+      },
+      "start_utc": "2026-10-27T15:55:20.876126+00:00",
+      "seconds": 392.52,
+      "outside_lock": true,
+      "split": true
+    },
+    {
+      "hold": "red-properties-frame-direct",
+      "counts": {
+        "failed": 1
+      },
+      "start_utc": "2026-10-27T15:55:40.593115+00:00",
+      "seconds": 34.82,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "catalog",
+      "counts": {
+        "passed": 34
+      },
+      "start_utc": "2026-10-27T15:59:20.892817+00:00",
+      "seconds": 323.09,
+      "outside_lock": false,
+      "split": true
+    },
+    {
+      "hold": "steer-properties-resume",
+      "counts": {
+        "passed": 16
+      },
+      "start_utc": "2026-10-27T16:04:59.059156+00:00",
+      "seconds": 133.04,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "e2e",
+      "counts": {
+        "skipped": 44
+      },
+      "start_utc": "2026-10-27T16:05:29.858341+00:00",
+      "seconds": 37.84,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "overlap-final-direct",
+      "counts": {
+        "passed": 4
+      },
+      "start_utc": "2026-10-27T16:07:28.041850+00:00",
+      "seconds": 85.58,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "steer-loop-direct",
+      "counts": {
+        "passed": 7
+      },
+      "start_utc": "2026-10-27T16:24:34.016182+00:00",
+      "seconds": 177.06,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "bulk-fakes-handoff",
+      "counts": {
+        "passed": 22
+      },
+      "start_utc": "2026-10-27T16:34:32.425544+00:00",
+      "seconds": 520.9,
+      "outside_lock": false,
+      "split": true
+    },
+    {
+      "hold": "regression-confirm-direct",
+      "counts": {
+        "passed": 30
+      },
+      "start_utc": "2026-10-27T16:36:08.903687+00:00",
+      "seconds": 316.7,
+      "outside_lock": true,
+      "split": true
+    },
+    {
+      "hold": "bulk-service-direct",
+      "counts": {
+        "passed": 14
+      },
+      "start_utc": "2026-10-27T16:36:08.923995+00:00",
+      "seconds": 342.34,
+      "outside_lock": true,
+      "split": true
+    },
+    {
+      "hold": "probe-property",
+      "counts": {
+        "passed": 1
+      },
+      "start_utc": "2026-10-27T16:46:33.282263+00:00",
+      "seconds": 235.81,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "bulk-conversations",
+      "counts": {
+        "passed": 285
+      },
+      "start_utc": "2026-10-27T16:49:52.900172+00:00",
+      "seconds": 229.61,
+      "outside_lock": false,
+      "split": false
+    },
+    {
+      "hold": "regression-guards-direct",
+      "counts": {
+        "passed": 60
+      },
+      "start_utc": "2026-10-27T16:52:52.896839+00:00",
+      "seconds": 63.98,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "service-parts-1-direct",
+      "counts": {
+        "passed": 80
+      },
+      "start_utc": "2026-10-27T16:52:55.119937+00:00",
+      "seconds": 196.24,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "service-parts-2-direct",
+      "counts": {
+        "passed": 80
+      },
+      "start_utc": "2026-10-27T16:56:24.724391+00:00",
+      "seconds": 120.68,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "service-parts-3-direct",
+      "counts": {
+        "passed": 80
+      },
+      "start_utc": "2026-10-27T16:59:10.484430+00:00",
+      "seconds": 4.62,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "service-parts-4-direct",
+      "counts": {
+        "passed": 23
+      },
+      "start_utc": "2026-10-27T17:04:48.325132+00:00",
+      "seconds": 47.24,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "fake-handoff-parts-1-direct",
+      "counts": {
+        "passed": 19
+      },
+      "start_utc": "2026-10-27T17:08:23.643772+00:00",
+      "seconds": 305.42,
+      "outside_lock": true,
+      "split": true
+    },
+    {
+      "hold": "catalog-parts-1-direct",
+      "counts": {
+        "passed": 36,
+        "failed": 1
+      },
+      "start_utc": "2026-10-27T17:12:57.102649+00:00",
+      "seconds": 305.56,
+      "outside_lock": true,
+      "split": true
+    },
+    {
+      "hold": "fake-handoff-parts-2-direct",
+      "counts": {
+        "passed": 80
+      },
+      "start_utc": "2026-10-27T17:13:47.046887+00:00",
+      "seconds": 274.57,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "fake-handoff-parts-3-direct",
+      "counts": {
+        "passed": 80
+      },
+      "start_utc": "2026-10-27T17:20:33.904607+00:00",
+      "seconds": 193.93,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "catalog-parts-2-direct",
+      "counts": {
+        "passed": 62
+      },
+      "start_utc": "2026-10-27T17:37:39.741557+00:00",
+      "seconds": 85.54,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "fake-handoff-parts-4-direct",
+      "counts": {
+        "passed": 80
+      },
+      "start_utc": "2026-10-27T17:37:56.714026+00:00",
+      "seconds": 31.98,
+      "outside_lock": true,
+      "split": false
+    },
+    {
+      "hold": "fake-handoff-parts-5-direct",
+      "counts": {
+        "passed": 80
+      },
+      "start_utc": "2026-10-27T17:38:41.288425+00:00",
+      "seconds": 109.62,
+      "outside_lock": true,
+      "split": false
+    }
+  ]
+}
