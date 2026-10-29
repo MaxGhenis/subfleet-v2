@@ -5775,3 +5775,30 @@ def test_r9_a_later_value_joins_the_loop_words_where_the_reset_does_not_apply():
     two forms; a scoped value that joins a scoped loop's words stays allowed."""
     assert r5_denied([(c, S_) for c in R9_LOOPVAR_DENIED + R9_LOOPVAR_MORE_DENIED + R9_BOUND_JOIN_DENIED]) == []
     assert r5_allowed([(c, S_) for c in R9_LOOPVAR_ALLOWED]) == []
+#: Decision 2: review r8's double-quote rows, each denied as too complex to judge: 60,000 and 30,000 " beside a scoped
+#: search, a heredoc opened before 30,000 of them, and every other capped character at exactly 4,096 with 30,000 " ...
+R9_AT_CAP = ("''" * 2048 + " " + "`:`" * 2048 + " " + "\\\\" * 2048 + " " + "${#x}" * 4096)
+R9_DQ_ROWS = {
+    "echo, 60,000 \"": "rg foo src; echo " + '""' * 30000,
+    "echo, 30,000 \"": "rg foo src; echo " + '""' * 15000,
+    "cat <<A, 30,000 \"": "cat <<A " + '""' * 15000 + "\nA\nrg foo src",
+    "every capped character at 4,096, and 30,000 \"": "rg foo src; echo " + R9_AT_CAP + " " + '""' * 15000,
+}
+#: ... and the edges: 4,097 " beside a scoped search is too complex to judge and 4,096 is read, also with every other
+#: capped character at 4,096 at once (review r8's residual row, read); the listed trade-off, a file-writing heredoc
+#: past the cap that names a searcher, is denied, and the same heredoc at the cap is read.
+R9_DQ_DENIED = ["rg foo src; echo '" + '"' * 4097 + "'",
+                "cat > notes.md <<'EOF'\n" + 'say "hi"\n' * 2049 + "EOF\nrg foo src"]
+R9_DQ_ALLOWED = ["rg foo src; echo '" + '"' * 4096 + "'",
+                 "rg foo src; echo " + R9_AT_CAP + " " + '""' * 2048,
+                 "cat > notes.md <<'EOF'\n" + 'say "hi"\n' * 2048 + "EOF\nrg foo src"]
+
+
+def test_r9_double_quotes_count_against_the_cap():
+    """Decision 2: more than 4,096 " beside a searcher is too complex to judge, and 4,096 is read, alone and with every
+    other capped character at 4,096; review r8's four rows are denied as too complex."""
+    outs = judged(HOOK, list(R9_DQ_ROWS.values()) + R9_DQ_DENIED + R9_DQ_ALLOWED, S_)
+    for command in list(R9_DQ_ROWS.values()) + R9_DQ_DENIED:
+        assert rule(outs[command]) == "unscoped-search", command[:40]
+        assert "too complex to judge" in json.loads(outs[command])["hookSpecificOutput"]["permissionDecisionReason"]
+    assert [c[:40] for c in R9_DQ_ALLOWED if rule(outs[c]) is not None] == []
