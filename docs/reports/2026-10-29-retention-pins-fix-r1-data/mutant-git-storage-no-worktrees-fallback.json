@@ -1,0 +1,27 @@
+{
+  "name": "mutant-git-storage-no-worktrees-fallback",
+  "start": "2026-10-29T05:40:08.354652+00:00",
+  "load": [
+    18.892578125,
+    21.263671875,
+    24.6416015625
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "git-storage-no-worktrees-fallback",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

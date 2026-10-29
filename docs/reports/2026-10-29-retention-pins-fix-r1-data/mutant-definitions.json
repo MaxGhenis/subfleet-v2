@@ -1,0 +1,134 @@
+{
+  "git-storage-no-commondir": {
+    "target": "subfleet/dependencies.py",
+    "old": "    if pointer is not None and pointer.strip():\n        common = os.path.realpath(os.path.join(gitdir, pointer.strip()))\n    elif",
+    "new": "    if False:\n        pass\n    elif",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-no-worktrees-fallback": {
+    "target": "subfleet/dependencies.py",
+    "old": "    elif named and os.path.basename(os.path.dirname(gitdir)) == \"worktrees\":\n        common = os.path.dirname(os.path.dirname(gitdir))\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-no-alternates": {
+    "target": "subfleet/dependencies.py",
+    "old": "    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, \"objects\"), incomplete=incomplete)]))",
+    "new": "    return list(dict.fromkeys([gitdir, common]))",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-alternates-one-level": {
+    "target": "subfleet/dependencies.py",
+    "old": "    for _ in range(_ALTERNATES_DEPTH):",
+    "new": "    for _ in range(1):",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-gitfile-relative-to-cwd": {
+    "target": "subfleet/dependencies.py",
+    "old": "    return os.path.realpath(os.path.join(folder, named)) if named else None",
+    "new": "    return os.path.realpath(named) if named else None",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-nearest-ignores-gitfiles": {
+    "target": "subfleet/dependencies.py",
+    "old": "        elif stat.S_ISREG(mode):",
+    "new": "        elif False:",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "record-raw-spelling": {
+    "target": "subfleet/dependencies.py",
+    "old": "        found[\"review_root\"] = folders.canonical(review_root)",
+    "new": "        found[\"review_root\"] = review_root",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "fences-not-retention-only": {
+    "target": "subfleet/dependencies.py",
+    "old": "            if str(holder or \"\").startswith(folders.RETENTION)]",
+    "new": "            if holder]",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "record-no-output": {
+    "target": "subfleet/dependencies.py",
+    "old": "    if out_path:\n        found[\"out_path\"] = folders.canonical(out_path)\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "record-no-git": {
+    "target": "subfleet/dependencies.py",
+    "old": "    if git:\n        found[\"git\"] = list(dict.fromkeys(git))\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "review-quoted-decode-removed": {
+    "target": "subfleet/dependencies.py",
+    "old": "            return bytes(decoded), i",
+    "new": "            return line[1:i - 1], i",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "git_c_quoted"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "review-export-row-removed": {
+    "target": "subfleet/dependencies.py",
+    "old": "        add(row[\"job_id\"], row[\"job_out_path\"])\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "pending_export"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "review-alternates-cap-restored": {
+    "target": "subfleet/dependencies.py",
+    "old": "                    opened = True\n                    while",
+    "new": "                    opened = True\n                    if os.fstat(stream.fileno()).st_size > _FILE_LIMIT:\n                        continue\n                    while",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "large_valid"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "review-job-directory-pin-removed": {
+    "target": "subfleet/retention.py",
+    "old": "            if needs.get(dependencies.key(job_folder), set()) - {row[\"job_id\"]}:\n                add(row[\"job_id\"], \"job-directory-in-use\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]"
+    ],
+    "sha256": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+  }
+}

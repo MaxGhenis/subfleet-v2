@@ -1,0 +1,27 @@
+{
+  "name": "mutant-record-no-git",
+  "start": "2026-10-29T05:54:03.560861+00:00",
+  "load": [
+    34.7900390625,
+    27.88623046875,
+    25.48193359375
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "record-no-git",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "mutant-record-no-output",
+  "start": "2026-10-29T05:53:43.933745+00:00",
+  "load": [
+    36.19384765625,
+    27.62646484375,
+    25.3349609375
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "record-no-output",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

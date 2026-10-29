@@ -113,3 +113,21 @@ def test_c8_4_incomplete_recheck_uses_database_only(tmp_path, monkeypatch):
             assert "borrower" in reason and "alternates" in reason
     finally:
         world.close()
+
+
+def test_c8_4_disappearance_during_read_is_incomplete(tmp_path, monkeypatch):
+    alternate = tmp_path / ".git" / "objects" / "info" / "alternates"
+    alternate.parent.mkdir(parents=True)
+    alternate.write_bytes(b"# first line\n")
+    original = dependencies.open_regular
+
+    class Vanished(io.BytesIO):
+        def readline(self, size=-1):
+            if self.tell():
+                alternate.unlink()
+                raise FileNotFoundError("fixture disappeared during read")
+            return super().readline(size)
+
+    monkeypatch.setattr(dependencies, "open_regular", lambda path, *a, **k:
+                        Vanished(alternate.read_bytes()) if str(path) == str(alternate) else original(path, *a, **k))
+    assert dependencies.record(str(tmp_path))["incomplete"][0]["file"] == str(alternate)
