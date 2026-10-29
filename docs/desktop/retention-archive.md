@@ -595,8 +595,9 @@ remainder, so no half-deleted tree is left where retention works. A
 
 ## 10. Pins
 
-A job is kept while any of these holds (C-8.4, unchanged from `release/217`
-except salvage): it is not terminal; it is a gate review; an attempt is live or
+A job is kept while any of these holds (C-8.4, `release/217` pins plus
+the dependency places and pending exports below): it is not terminal; it is a
+gate review; an attempt is live or
 quarantined; an unread notice addressed to a session; it is a parent of any
 job; it or an attempt holds a lease; another holder has its worktree lease, or,
 for a job with its own allocated tree, a worktree lease on a folder inside it; a
@@ -638,8 +639,12 @@ their key. The self-join it replaces compared every finished job's tree with
 every job not yet ended by `LIKE`; new timing measurements remain pending; validation status is in
 `docs/reports/2026-10-27-retention-dependency-pins.md`. A job queued before
 `depends` was recorded has those places read once a pass, before any
-transaction (`dependencies.legacy`). Admission reads retention's fence on each
-place in `depends` as on a job's folder (C-6.5, C-6.11). A written export keeps
+transaction (`dependencies.legacy`). Admission reads retention's fences on each
+place in `depends` before workspace preparation and in its reserving
+transaction, comparing normalized paths with `folders.fold` even when
+quarantine has made a recorded tail unspellable; only retention-held
+`worktree:` keys count, in one indexed lease-key range, nearest first per
+place (C-6.5, C-6.11). A written export keeps
 nothing: retention may archive a tree a finished export wrote into, the file
 with it.
 
@@ -841,7 +846,7 @@ Each is tested (section 16).
   not. A writable git job keeps the expected daemon path while it is absent,
   so its lease and journal still protect a moved or returning allocation.
 - **I16, a needed tree stays** (2026-10-06, C-8.4). A finished job's tree is
-  kept, at the pass, the selection and the commit, exactly while a job that has
+  kept, at the pass, the selection and the commit, while a job that has
   not ended needs a place in it (its folder, workdir, worktree, review root,
   `-o` path or git storage, compared folded) or an export to a path in it is
   pending; spelling a place in another case or Unicode form changes nothing,
@@ -947,19 +952,24 @@ descriptors, and deliberately adversarial same-user tricks):
   (revision 5), with the attributes the clone took.
 
 - *Fences on folders inside a job's tree; why 2.1.11 ships retention dormant*
-  (hub, 2026-10-06). Retention's fences compare a job's own tree exactly:
-  - the `turn-folder` pin and the selecting transaction compare a turn row's
-    folder with the tree;
+  (hub, 2026-10-06). The merged implementation checks the tree and folders
+  inside it:
+  - the `turn-folder` census compares row folders with `within`, and selection
+    and commit read TURN and READER rows on the canonical tree and every
+    folder inside it (`folders.turn_holds(..., inside=True)`);
   - the `worktree-lease` pin joins `worktree:<tree>`.
 
-  So a turn row or a `worktree:` lease on a folder *inside* a finished job's
-  tree, such as a repository nested in it, does not keep the tree.
+  A turn row or a `worktree:` lease on a folder *inside* an owned finished
+  job's tree therefore keeps the tree, including a repository nested in it;
+  selection and commit also read nested exclusive leases
+  (`folders.exclusive_inside`).
   `worktree-in-use` covers such a folder only while the job working there has
   not ended. Reviews of #113 and #134 reported this and related gaps: a turn
   admitted while the fence sits on a folder above its own, and a tree whose
-  name is spelled in another case. Their fixes are the stack on #134 (#137 and
-  the PRs above it). Until it lands, the 2.1.11 installer sets
-  `SUBFLEET_RETENTION_DORMANT=1` in the daemon's launchd plist. A pass then
+  name is spelled in another case. Their fixes from the stack on #134 (#137 and
+  the PRs above it) are merged here, alongside #272's folded dependency
+  pins and fences. Dormant mode remains available through
+  `SUBFLEET_RETENTION_DORMANT=1` in the daemon's environment. A pass then
   selects, archives and deletes nothing (C-8.4).
 
 **Costs, not risks:**
@@ -1070,8 +1080,8 @@ D6. Generated layouts of repositories and linked checkouts check that the git
 directory and common directory git itself uses are among the recorded git
 storage; generated stores check `worktree-in-use` (pass and `only`) and the
 transactions' `dependents` against a direct oracle, under re-spelling and
-under adding or ending a job; `fences` agrees with `folders.retiring`; the
-reads' plans use `events_job` and a lease range. `tests/fake/test_retention_dependencies.py`
+under adding or ending a job; `fences` agrees with the folded
+`folders.retiring(..., folded=True)` comparison; the reads' plans use `events_job` and a lease range. `tests/fake/test_retention_dependencies.py`
 runs the four gaps through the daemon's own submit and admission against the
 archive driver's own retirement: a queued job keeps the tree; a job submitted
 under the fence waits, unprepared, named by `why`; the commit keeps the tree for
