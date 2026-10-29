@@ -129,7 +129,7 @@ def test_confirm_dead_points_a_marked_runner_the_census_could_not_identify_to_ki
     assert answer["status"] == "not quarantined", answer
     assert f"pid {RUNNER}" in answer["detail"] and f"`subfleet kill {JOB}` contains them" in answer["detail"], answer
     assert "none of them may be signalled" not in answer["detail"], answer
-    assert runner.alive and not world.tried, world.tried
+    assert runner.alive and not world.signals, world.signals
     monkeypatch.setattr(daemon, "_schedule", lambda key, fn, *args, **kw: fn(*args))
     assert daemon.kill(protocol.KillArgs(job_id=JOB))["status"] == "containment requested"
     assert not runner.alive and runner.ended_by == TERM, world.signals
