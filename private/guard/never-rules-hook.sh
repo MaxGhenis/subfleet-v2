@@ -1769,8 +1769,11 @@ pw_prep_awk="$pw_lib_awk"'
     return 0
   }
   # arend(t, i): for the (( at i, the ) closing it when the shells read it as arithmetic (its inner ( closing right
-  # before its outer one, read in the arithmetic mode of parend), 0 when they read a subshell (r7 decision 1)
-  function arend(t, i,   j) { j = parend(t, i, 1); return (j && PAI == j - 1) ? j : 0 }
+  # before its outer one, read in the arithmetic mode of parend), 0 when they read a subshell (r7 decision 1). r8
+  # decision 3: a $(( whose span ends in )) is arithmetic whatever its inner ( closes on, as bash reads
+  # $((1) + (1<<X)), so a << in it is a shift; where a shell reads a substitution there, the lines after it are
+  # still read as commands (an over-block at worst)
+  function arend(t, i,   j) { j = parend(t, i, 1); return (j && (PAI == j - 1 || (substr(t, i - 1, 1) == "$" && substr(t, j - 1, 1) == ")"))) ? j : 0 }
   # lnend(t, i, n): where the line starting at i ends (its newline, or n + 1), read 512 bytes at a time, each window
   # past the first a step of the budget (r7 decision 2)
   function lnend(t, i, n,   k, e) {
