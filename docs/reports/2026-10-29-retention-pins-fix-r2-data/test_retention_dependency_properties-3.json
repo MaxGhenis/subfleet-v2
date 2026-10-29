@@ -1,0 +1,28 @@
+{
+  "name": "test_retention_dependency_properties-3",
+  "start": "2026-10-29T10:55:04.957817+00:00",
+  "load": [
+    20.22412109375,
+    18.2275390625,
+    14.36865234375
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "results": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "seconds": 223.21449174999725,
+  "max_rss_bytes": 131186688,
+  "end": "2026-10-29T10:58:48.175068+00:00"
+}

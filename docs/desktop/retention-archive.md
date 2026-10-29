@@ -628,10 +628,18 @@ files without running git, decoding Git C-style escapes on raw bytes before
 filesystem decoding and resolving relative alternates against the objects
 directory, five levels deep). Alternates files are streamed to their end with
 no whole-file cap and a 1 MiB per-line bound (256 times a 4096-byte PATH_MAX).
-An unreadable or interrupted file, an overlong line, or an invalid quoted entry
-records incomplete discovery. Submission and admission still accept the job;
-while it is live or exporting, every allocated worktree is kept, with a
-`dependency-incomplete` reason naming the job and the file. A checkout outside
+Read errors, overlong lines, invalid quotes and detected changes during discovery
+record incomplete discovery. For each open file, discovery compares descriptor
+identity (device/inode), size, mtime and ctime before and after reading, then
+checks the pathname's identity. Disappearance, replacement or a detected write
+fails closed. A write that leaves size, mtime and ctime unchanged within one
+timestamp tick can escape this observation; dependencies introduced after
+discovery are outside this check. Submission and admission still accept the
+job. Recorded failures and legacy failures keep every allocated worktree while
+the job is live or exporting, with a `dependency-incomplete` reason naming the
+job and file. The off-transaction legacy census includes every job holding an
+`out:` lease, terminal jobs included; database rechecks preserve that census's
+incomplete evidence even when the job ends between census and recheck. A checkout outside
 the tree can keep its
 repository in it (`git -C <tree>/vendor/lib worktree add <outside>`); every git
 command in the checkout then works in the tree, and a worktree writer submitted
@@ -874,7 +882,12 @@ Each is tested (section 16).
   exporting, with the job id and file in the pass's reason. C-quoted paths are
   decoded on bytes, and pending exports keep their actual destination beside
   their lease identity. [Fix round r1 evidence](../reports/2026-10-29-retention-pins-fix-r1.md)
-  covers these cases and the job-directory boundary.
+  covers the original cases and the job-directory boundary. Review r2 found
+  file-change detection and terminal legacy incomplete-evidence gaps at
+  `dd0e4ea8d`; [fix round r2 evidence](../reports/2026-10-29-retention-pins-fix-r2.md)
+  records their six red/green inputs and the two named mutants. Detection uses
+  descriptor metadata and final pathname identity, with the observation bounds
+  described above.
 
 ## 15. Residual risks
 

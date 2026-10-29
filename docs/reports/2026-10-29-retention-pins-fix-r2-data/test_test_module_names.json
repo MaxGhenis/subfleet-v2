@@ -1,0 +1,26 @@
+{
+  "name": "test_test_module_names",
+  "start": "2026-10-29T11:13:17.304279+00:00",
+  "load": [
+    38.83154296875,
+    39.296875,
+    32.29150390625
+  ],
+  "args": [
+    "tests/unit/test_test_module_names.py"
+  ],
+  "results": [
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+  ],
+  "seconds": 14.985763791992213,
+  "max_rss_bytes": 114147328,
+  "end": "2026-10-29T11:13:32.290345+00:00"
+}

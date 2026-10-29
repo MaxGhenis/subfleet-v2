@@ -1,0 +1,6 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:49:46Z slot A load 
+OBSERVED_START green-review-r2 2026-10-29T10:49:47.537531+00:00 load=(16.79150390625, 13.5068359375, 11.3251953125)
+....................................                                     [100%]
+36 passed in 34.98s
+OBSERVED_END green-review-r2 seconds=37.15

@@ -1,0 +1,112 @@
+{
+  "name": "test_detached_retention_fence-4",
+  "start": "2026-10-29T11:07:31.540486+00:00",
+  "load": [
+    47.1201171875,
+    39.28369140625,
+    28.70654296875
+  ],
+  "args": [
+    "tests/fake/test_detached_retention_fence.py",
+    "-k",
+    "test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves or test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded or test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence or test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission"
+  ],
+  "results": [
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[legacy]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-symlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-symlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-as-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-other-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-as-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-other-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[legacy]",
+    "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-subdirectory]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-symlink]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-case]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-subdirectory]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-symlink]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-case]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-as-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-other-case]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-as-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-other-case]"
+  ],
+  "seconds": 62.32640633400297,
+  "max_rss_bytes": 126926848,
+  "end": "2026-10-29T11:08:33.867797+00:00"
+}
