@@ -4933,6 +4933,8 @@ def test_r6_hostile_words_fail_closed_fast(hooks):
     search is denied too, and 4,096, a 5,000-$ echo and a 200-backslash pattern are allowed."""
     outs = judge_all(HOOK, [(c, S_) for c in R6_CAP_DENIED + R6_CAP_ALLOWED])
     for c in R6_CAP_DENIED:
+        # (review r7: an allow fails here as an assertion, so r6-cap-dropped is a clean kill, not a JSONDecodeError)
+        assert rule(outs[(c, S_)]) == "unscoped-search", c[:40]
         assert "too complex to judge" in json.loads(outs[(c, S_)])["hookSpecificOutput"]["permissionDecisionReason"]
     assert [c[:40] for c in R6_CAP_ALLOWED if rule(outs[(c, S_)]) is not None] == []
     rows = {}
@@ -5370,3 +5372,61 @@ def test_r7_command_pins_agree_with_real_shells(tmp_path):
                          "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
                          "rows": [(c[:120], d, s) for c, _, d, s in rows]})
     assert differ == [], differ[:10]
+
+
+# ---------------------------------------------------------------- review r7: r7's unpinned readings
+
+#: r7 readings no test pinned, from review r7's check 2. In review r7's real-shell run over the fixture (/bin/zsh -f
+#: and /bin/bash 3.2, r6's stubs, the fixture's HOME) each denied form walked a root in one shell or both, and each
+#: allowed form walked nothing. Decision 1: $[...] inside $((...)) and $((...)) inside $[...] across lines, let with a
+#: double-quoted shift, a substitution's heredoc inside ((...)), an arithmetic << on the line of a real heredoc, <<= and
+#: a << ending a line inside $((...)); an unquoted let's << is a heredoc. Decision 3: the pass-on through tee's stdin,
+#: a later tee or head, xargs -0 sh -c, cat - with a here-string, and zsh's >/dev/null | (MULTIOS). Decision 5: an
+#: assignment after ||, in a subshell, in a function body never called, in a loop that never runs, or in a case arm,
+#: a literal root value (/, \/, /*), and two assignments in one command, the last a root, all leave the loop's reading.
+R7V_L = "for d in ~/.subfleet/*; do :; done"
+R7V_R = "rg foo \"$d\""
+REVIEW_R7_DENIED = [
+    "echo $(( $[1<<X\n] + 1 ))\n" + R7_F + "\nX",
+    "echo $[ $((1<<X\n)) + 1 ]\n" + R7_F + "\nX",
+    "let \"y=1<<X\n\"\n" + R7_F + "\nX",
+    "(( x = $(cat <<EOF\n1\nEOF\n) ))\n" + R7_F,
+    "cat <<Y; echo $((1<<X\n))\nY\n" + R7_F + "\nX",
+    "echo $((1<<X\n)) <<Y\nY\n" + R7_F + "\nX",
+    "(( x <<= 1 ))\n" + R7_F,
+    "echo $(( 1 <<\nX ))\n" + R7_F + "\nX",
+    "tee /dev/null < <(echo 'rg --files ~/.subfleet') | bash",
+    "cat <(echo 'rg --files ~/.subfleet') | tee /dev/null | bash",
+    "cat <(echo 'rg --files ~/.subfleet') | head -1 | sh",
+    "cat <(echo 'rg --files ~/.subfleet') | xargs -0 sh -c",
+    "cat - <(echo 'rg --files ~/.subfleet') <<< 'echo a' | bash",
+    "cat <(echo 'rg --files ~/.subfleet') >/dev/null | bash",
+    "cat <(echo ~/.subfleet) | xargs -I{} sh -c 'rg --files {}'",
+    R7V_L + "; true || d=src; " + R7V_R,
+    R7V_L + "; (d=src); " + R7V_R,
+    R7V_L + "; ( :; d=src ); " + R7V_R,
+    R7V_L + "; f() { d=src; }; " + R7V_R,
+    R7V_L + "; while false; do\nd=src\ndone; " + R7V_R,
+    R7V_L + "\ncase x in\n(y)\nd=src\n;;\nesac\n" + R7V_R,
+    R7V_L + "; d=/; " + R7V_R,
+    R7V_L + "; d=\\/; " + R7V_R,
+    R7V_L + "; d=/*; rg foo $d",
+    R7V_L + "; d=src d=~/.subfleet; " + R7V_R,
+]
+REVIEW_R7_ALLOWED = [
+    "let y=1<<X\n" + R7_F + "\nX",
+    "let y=1<<X z=2\n" + R7_F + "\nX\nrg foo src",
+    "let 'y=1<<2' <<X\n" + R7_F + "\nX",
+    "echo $(( $[1<<2] + 1 )) <<X\n" + R7_F + "\nX",
+    "cat <<EOF; echo $((1<<2))\n" + R7_F + "\nEOF",
+    "cat <<Y; echo $((1<<X\n))\n" + R7_F + "\nY\nX",
+    "((x=1<<2)) <<Y\n" + R7_F + "\nY",
+    "cat <(git ls-files) | xargs rg -l foo",
+    R7V_L + "; d=src || true; " + R7V_R,
+]
+
+
+def test_review_r7_pins_r7s_unpinned_readings():
+    """Each reading's own input: the denied forms are denied and the allowed ones allowed."""
+    assert r5_denied([(c, S_) for c in REVIEW_R7_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in REVIEW_R7_ALLOWED]) == []
