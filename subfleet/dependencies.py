@@ -65,9 +65,10 @@ _LIVE = ("SELECT job_id, workdir, worktree, review_root, out_path, "
          f"FROM jobs WHERE state NOT IN {_TERMINAL}")
 #: Exports still to be written: a job holds `out:<path>` from its reservation
 #: until its export is written or it ends without one (`Daemon._export`).
-_EXPORTING = ("SELECT holder AS job_id, substr(lease_key, 5) AS out_path, "
+_EXPORTING = ("SELECT holder AS job_id, substr(lease_key, 5) AS out_path, jobs.out_path AS job_out_path, "
               + _SUBMITTED.format(job="leases.holder") + " AS submitted "
-              "FROM leases WHERE lease_key >= 'out:' AND lease_key < 'out;'")
+              "FROM leases LEFT JOIN jobs ON jobs.job_id = leases.holder "
+              "WHERE lease_key >= 'out:' AND lease_key < 'out;'")
 #: A legacy job's folder as admission spelled it (`Daemon._detached_folder`).
 _SPELLED = "SELECT data_json FROM events WHERE job_id = ? AND +kind = 'job.folder_spelled' ORDER BY event_id"
 
@@ -330,6 +331,7 @@ def live(read: Read, legacy_places: Mapping[str, Iterable[str]] | None = None) -
         for path in (legacy_places or {}).get(job_id) or ():
             add(job_id, path)
     for row in read(_EXPORTING, ()):
+        add(row["job_id"], row["job_out_path"])
         add(row["job_id"], row["out_path"])
         add(row["job_id"], (_loads(row["submitted"]).get("depends") or {}).get("out_path"))
     return {job_id: paths for job_id, paths in found.items() if paths}
