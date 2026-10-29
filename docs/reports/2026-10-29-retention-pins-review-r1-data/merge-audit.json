@@ -1,0 +1,29 @@
+{
+  "merge": "ce9e154eb",
+  "base": "e8ecb42e7",
+  "branch_parent": "ce8c3e98530268e5e745b9c93fd368d4311fc910",
+  "merge_base": "f1d2f116eace5350ffbca0e12a89cd67a6b7f386",
+  "noncontract_diff_equal": true,
+  "diff_sha256": "0199c15e5fa60c734529dc4446ab7f9b68d74093ad84a4f628be14388aa88c98",
+  "files_compared": 548,
+  "clauses": {
+    "e8ecb42e7": {
+      "total": 255,
+      "unique": 255
+    },
+    "ce9e154eb": {
+      "total": 255,
+      "unique": 255
+    },
+    "ce8c3e98530268e5e745b9c93fd368d4311fc910": {
+      "total": 255,
+      "unique": 255
+    },
+    "HEAD": {
+      "total": 255,
+      "unique": 255
+    }
+  },
+  "release_additions_missing": [],
+  "branch_additions_missing": []
+}

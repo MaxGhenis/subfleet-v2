@@ -1,0 +1,12 @@
+{
+  "recorded_at": "2026-10-29T04:48:18.850994+00:00",
+  "scratch_allocated_bytes": 77389824,
+  "scratch_files": 6609,
+  "scratch_budget_bytes": 1500000000,
+  "recorded_test_pids_present": [],
+  "workspace_cache_or_build_directories": [],
+  "head": "3893c7120b38004fcd43539bb557a2cd25c319e3",
+  "commit_status": "named-file staging denied: shared index.lock is outside writable roots",
+  "cleanup": "guarded removal completed; scratch absence verified after restoring owner access to one fixture directory",
+  "cleanup_verified_at": "2026-10-29T04:51:34.775794+00:00"
+}

@@ -1,0 +1,61 @@
+hold 03:45:17Z slot B load 
+F
+=================================== FAILURES ===================================
+_______ test_c6_11_unicode_dependency_hold_names_its_place[transaction] ________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-mutant-attribution-back-on-folded/test_c6_11_unicode_dependency_0')
+late = True
+
+    @pytest.mark.parametrize("late", [False, True], ids=["early", "transaction"])
+    def test_c6_11_unicode_dependency_hold_names_its_place(tmp_path, late):
+        """D1: blocking and hold attribution agree for canonical-caseless aliases."""
+        with fleet_daemon(tmp_path / "\u0390" / "state") as (daemon, harness, patch):
+            measured(daemon, harness)
+            owner = "20261029-000000-owner"
+            actual = daemon.root / "worktrees" / owner
+            actual.mkdir(parents=True)
+            tree = folders.canonical(actual)
+            alias = str(Path(*("\u03aa\u0301" if folders.fold(part) == folders.fold("\u0390") else part
+                               for part in Path(tree).parts)) / "vendor" / "lib")
+            assert dependencies.key(alias).startswith(dependencies.key(tree) + "/")
+            assert not folders.fences(folders.exclusive_key(tree), alias, fold=True)
+            job = submit(daemon, harness, sandbox="read-only")
+            # Replay valid absolute dependency evidence retained under another case.
+            with daemon.store.transaction() as tx:
+                event = tx.execute("SELECT event_id,data_json FROM events WHERE job_id=? AND kind='job.submitted'",
+                                   (job,)).fetchone()
+                data = json.loads(event[1])
+                data["depends"] = {"review_root": alias}
+                tx.execute("UPDATE events SET data_json=? WHERE event_id=?", (json.dumps(data), event[0]))
+                tx.execute("UPDATE jobs SET review_root=? WHERE job_id=?", (alias, job))
+            fence = folders.exclusive_key(tree)
+            workspaces = Workspaces(daemon, patch, real=False)
+            if late:
+                def lands(row):
+                    assert daemon.store.acquire_lease(fence, "retention:" + owner)
+                    return workspaces(row)
+                patch.setattr(daemon, "_workspace", lands)
+            else:
+                assert daemon.store.acquire_lease(fence, "retention:" + owner)
+            hold = look(daemon, job)
+            assert not _live(daemon, job), hold
+            assert hold["retiring"] == [fence], hold
+            assert workspaces.calls == ([job] if late else []), workspaces.calls
+>           assert {key: hold.get(key) for key in ("folder", "needs")} == {
+                "folder": alias, "needs": "review-root"}, hold
+E           AssertionError: {'reason': 'lease-held', 'leases': ['worktree:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-...ded/test_c6_11_unicode_dependency_0/ΐ/state/worktrees/20261029-000000-owner'], 'next_check_at': '2026-10-29T03:45:20Z'}
+E           assert {'folder': No...'needs': None} == {'folder': '/...'review-root'}
+E             
+E             Differing items:
+E             {'folder': None} != {'folder': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-mutant-attribution-back-on-folded/test_c6_11_unicode_dependency_0/Ϊ́/state/worktrees/20261029-000000-owner/vendor/lib'}
+E             {'needs': None} != {'needs': 'review-root'}
+E             Use -v to get more diff
+
+tests/fake/test_retention_dependencies.py:93: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4499213008:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499213008:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 1.57s

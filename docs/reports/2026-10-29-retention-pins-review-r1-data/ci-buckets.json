@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-29T04:42:35Z",
+  "buckets": {
+    "pass": 0,
+    "fail": 0,
+    "pending": 10,
+    "skipping": 0,
+    "cancel": 0
+  },
+  "exit": 8
+}
