@@ -247,11 +247,21 @@ of a backtick is too complex to judge, as for `$`, `#` and `\` (decision 2). A `
 `while read` reads (decision 4: `cat <(find ~/.subfleet -maxdepth 1) | while read d; do rg foo "$d";
 done` is denied).
 
+Its r9 (2026-10-29) closes the findings of the hub's review r8. Wherever an assignment does not end a
+loop variable's reading (a compound command open, a keyword before it, an assignment that may not
+last, a command that defines a function, or after zsh's `repeat` or `foreach`), its value now joins the
+loop's words, as a value that is not a plain word already did (decision 1). r8 dropped the value
+there, so after a scoped loop it let through a root assigned in a command holding `()` or the word
+`function`, after a `repeat` or a `foreach`, inside an `if` or a brace group, after `&&`, or in the
+loop's own body: `for d in src; do :; done; d=~/.subfleet; rg foo "$d"; echo '()'` and `for d in src;
+do d=/; done; rg foo "$d"` are now denied, and both shells walk the root. A command that names a
+searcher and holds more than 4,096 `"` is too complex to judge too (decision 2).
+
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
 globs and computed list of folders a glob reads, and the command reading follows its keywords,
 wrapper table, shell options, `eval`, stdin scripts, stdin model and print-and-exit forms. Their
-shared limits are in the report's known limits. Known differences that remain after r8, read from
+shared limits are in the report's known limits. Known differences that remain after r9, read from
 the code as it stands, with review r5's check 8 forms marked (snapshot-5 read from its frozen
 `.ref`: `for` at `:2179-2187`, `read` at `:2192-2197`, shells at `:2227-2252`):
 
@@ -263,7 +273,8 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
   - Variables: a searcher named through a variable (`RG=rg; $RG …`), a root held in any variable but
     `$HOME`, `$SUBFLEET_ROOT`, `$SUBFLEET_HOME` and a loop variable read as below (its loop's words,
     or a plain word assigned to it after its loop, r7 decision 5, any other value joining the loop's
-    words, r8 decision 1) (`d=~/.subfleet; rg --files $d`), and so a `read` after a plain assignment
+    words, r8 decision 1, and any value assigned where that reset does not apply joining them too, r9
+    decision 1) (`d=~/.subfleet; rg --files $d`), and so a `read` after a plain assignment
     (`for d in ~/.subfleet/*; do :; done; d=src; read d <<< ~/.subfleet; rg foo "$d"`: `d=src` ends the
     loop's reading, and a `read` from a here-string assigns nothing the prep reads, though both shells
     walk the root), and a parameter form other than `$NAME` and `${NAME}`
@@ -292,6 +303,12 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     `printf` and `cat`; any other command contributes only its words (`eval "$(sed … file)"`).
   - *Fixed at this head:* the substitutions of an unquoted heredoc body (review r5's P2-1, r6
     decision 1): snapshot-5 runs them (`read_heredocs` and `expansions`), and so does this overlay now.
+  - *Fixed at this head:* a root assigned after a scoped loop where the reset does not apply (review
+    r8's P3-1, r9 decision 1). r8 dropped such a value and kept only the loop's words, so it let
+    through `for d in src; do :; done; d=~/.subfleet; rg foo "$d"` beside a `()` or the word
+    `function` anywhere in the command, after a zsh `repeat` or `foreach`, inside an `if`, a brace
+    group or a timed group, after `&&`, or in the loop's own body (`for d in src; do d=/; done; rg foo
+    "$d"`), all of which the shells walk. The value now joins the loop's words.
 - **Forms both let through, or not checked against snapshot-5.**
   - Loop shapes other than a `for` list or a piped `while read` whose variable is a searcher's whole
     operand: `while read d; do …; done < list`, `until`, `select`, a loop variable in a nested
@@ -361,7 +378,9 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
   - A command over 64 KB that names a searcher anywhere, prose included, is denied unread, and so
     is one that holds more than 4,096 of one of `$`, `#` or `\` (r6 decision 8) or of `'` or a backtick
     (r8 decision 2: a large heredoc that names a searcher and carries more than 4,096 quotes or
-    backticks, such as a file of prose with its apostrophes or code spans, is denied), or whose `$(…)`,
+    backticks, such as a file of prose with its apostrophes or code spans, is denied) or of `"` (r9
+    decision 2: so is a heredoc that names a searcher and carries more than 4,096 double quotes, such as
+    a file of prose with its quotations or a JSON document), or whose `$(…)`,
     `$((…))`, `((…))`, `<(…)` and heredoc forms take the prep past its 20,000-step budget (r6). Since
     r7 decision 2 each heredoc body line read is a step: a body inside `"$(…)"` is read three times, so
     6,661 lines are past the budget, and one at the top of the command once, so 20,000 lines are.
@@ -390,12 +409,14 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     (`R7_LOOPVAR_STRICTER`). Since r8 decision 1 no assignment ends the reading in a command that holds a
     `name()` (any empty `()`, `$()` included) or the word `function` anywhere, prose included, or after a
     zsh `repeat` without `do … done` or a `foreach`, which the prep counts as open to the end of the
-    command.
+    command. Since r9 decision 1 the value of every such assignment joins the loop's words, so a root
+    assigned where the shells never run the assignment is denied too: `for d in src; do :; done; false
+    && d=/; rg foo "$d"` walks no root in either shell (`R9_STRICTER`).
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `740728e3a290c77d8d6e2f4dfe196f6b3f1e018f0673e38de48cc23beb0120e9` |
-| `TRUST` | `f5e5268ec44701db1752204b444e5e00ce0fea9dff6d11cc0f7bb39b388fc073` |
+| `never-rules-hook.sh` | `9eb0db0989f4cf153e52593fa6cf9fb7079227e5a4c883cea93ad8b7b4c1e7e2` |
+| `TRUST` | `339ca3f0824f94cf1150715d7881ed2f27cf686ae8eeff1b493ce2c014c2a2c4` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one

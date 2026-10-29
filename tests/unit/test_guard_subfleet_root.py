@@ -175,8 +175,8 @@ R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7
 R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
 #: The overlay's hook after r3c (review r2's walk-arounds closed), which r4 replaces.
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
-#: The overlay's hook after r8 (review r7's findings closed; 89b0efe1... at r7's end): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "740728e3a290c77d8d6e2f4dfe196f6b3f1e018f0673e38de48cc23beb0120e9"
+#: The overlay's hook after r9 (review r8's findings closed; 740728e3... at r8's end): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "9eb0db0989f4cf153e52593fa6cf9fb7079227e5a4c883cea93ad8b7b4c1e7e2"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -5839,3 +5839,27 @@ def test_r9_command_pins_agree_with_real_shells(tmp_path):
     assert differ == [], differ[:10]
     assert [c for c, _, _, s in rows if c in R9_LOOPVAR_DENIED + R9_LOOPVAR_MORE_DENIED[:6]
             and not any(s.values())] == []
+#: Decision 2's trade-off as "Known differences" names it.
+R9_DQ_TRADE_OFF = "carries more than 4,096 double quotes"
+
+
+def test_r9_known_differences_name_the_stricter_forms_and_the_double_quote_cap(tmp_path):
+    """Decisions 1 and 2: each stricter form is denied and no real shell walks a root on it, and the overlay doc's "Known
+    differences" names it and the cap's trade-off for "."""
+    known = known_differences()
+    outs = judged(HOOK, list(R9_STRICTER), S_)
+    for command, named in R9_STRICTER.items():
+        assert rule(outs[command]) == "unscoped-search", command
+        assert not any(r6_shell_walks(sh, command, S_, tmp_path) for sh in ("zsh", "bash")), command
+        assert named in known, named
+    assert R9_DQ_TRADE_OFF in known
+
+
+def test_r9_scoped_searches_stay_allowed():
+    """r9's controls (a scoped value joining a scoped loop's words, each where the reset does not apply) and the cap's
+    edges at 4,096 ", beside the routine commit and a heredoc of quoted prose; r8's must-allow test still holds every
+    earlier list."""
+    cases = ([(c, S_) for c in R9_LOOPVAR_ALLOWED + R9_DQ_ALLOWED]
+             + [("git commit -F - <<'EOF'\nQuote \"the guard\" and \"the hook\"\nEOF", LANE_W),
+                ("cat > notes.md <<'EOF'\n" + 'He said "rg foo src" twice.\n' * 100 + "EOF\nrg -n foo src", S_)])
+    assert r5_allowed(cases) == []
