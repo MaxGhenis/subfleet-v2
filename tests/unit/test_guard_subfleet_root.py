@@ -5409,6 +5409,7 @@ REVIEW_R7_DENIED = [
     R7V_L + "; ( :; d=src; : ); " + R7V_R,
     R7V_L + "; echo \"$(d=src; :)\"; " + R7V_R,
     R7V_L + "; x=`d=src; :`; " + R7V_R,
+    R7V_L + "; x=`:; d=src; :`; " + R7V_R,
     R7V_L + "; f() { d=src; }; " + R7V_R,
     R7V_L + "; while false; do\nd=src\ndone; " + R7V_R,
     R7V_L + "\ncase x in\n(y)\nd=src\n;;\nesac\n" + R7V_R,
