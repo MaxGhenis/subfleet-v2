@@ -1,6 +1,46 @@
-# Retention dependency pins: continuation 3 handoff, 2026-10-28
+# Retention dependency pins: continuation 4 handoff, 2026-10-29
 
-**Not ready for review.** The firmlink fixture is resolved and its WIP is subsumed. Of 33 mutants, **16 are killed, 1 is an intended equivalent, and 16 are unrun**. Current head coverage is **354/357 passed**; incomplete and unstarted nodes remain explicit. Measurements and contract audit are unbuilt. Earlier sections preserve historical continuation results.
+**Not ready for review: one code finding (D1) is open.** Continuations 4a and 4b (2026-10-29) closed continuation 3's open work: all 33 mutants are now killed but one intended equivalent, the three capped properties pass at normal settings, both one-shot measurements ran, and the contract and decision audit is done. The audit found D1: a late fence on a Unicode alias names the wrong `folder` and `needs` in the hold, though admission stays blocked. Continuation 3's section below keeps its own counts as of 2026-10-28.
+
+## Continuations 4a and 4b, 2026-10-29
+
+Two lane jobs ran in parallel on `2f1c81ab9` and touched disjoint files; each delivered a verified bundle, and the hub combined them (4a fast-forwarded, 4b merged beside it).
+
+### 4a: the contract and decision audit
+
+[`2026-10-29-retention-pins-c4a-audit.md`](2026-10-29-retention-pins-c4a-audit.md) checks 202 sentences against the code, with a reproducer for each correction.
+
+| Audit target | Verdict |
+|---|---|
+| C-6.5 | reader-row description corrected |
+| C-6.11 | true, but code finding D1 breaks its `folder`/`needs` promise for one input |
+| C-8.3 | true |
+| C-8.4 | folded-fence claims corrected; D1 remains |
+| C-13.4, C-24.5, C-26.3 | true |
+| Turn-folder case-alias decision | SQL and firmlink claims corrected |
+| Desktop retention archive | merged-implementation and fence claims corrected |
+
+**D1:** the blocking query (`dependencies.fences`) folds a path as NFD(casefold(NFD(path))), but the reserving hold's attribution folds it as NFC(path).casefold(). The two differ for a component such as Greek `\u0390`. So a late fence on such an alias leaves `folder` and `needs` out of the hold. The job still waits; only the hold's description is wrong. The audit's fake replay shows it (1 passed, 1 failed); product code is unchanged. Guards: 63 passed before and after the edits.
+
+### 4b: mutants, capped properties and measurement
+
+[`2026-10-29-retention-pins-c4b-evidence.md`](2026-10-29-retention-pins-c4b-evidence.md) holds the tables.
+
+- **Mutants:** continuation 3's 16 unrun mutants are all killed, with no new equivalent. `git-storage-no-commondir` survived the conventional-layout tests, so 4b added `test_d1_commondir_outside_the_worktrees_layout_is_followed` (a relocated admin directory), red on the mutant and green at head. With continuation 3's 16, that makes 32 killed and 1 intended equivalent (`pin-counts-own-places`).
+- **Properties at normal settings:** `test_python_pins_and_transaction_agree_with_independent_reference` (100 passing), `test_live_dependents_are_monotone_and_the_last_ending_allows_retirement` (100 passing) and `test_early_fences_equal_reservation_before_and_after_quarantine` (400 generated and 12 explicit passing) all pass.
+- **Measurement** (one run each; pin sets matched at both scales):
+
+| Jobs / live | Old query | New query | Load (1 min) |
+|---|---:|---:|---:|
+| 3,000 / 100 | 164.4 ms | 10.3 ms | 12.7 |
+| 6,000 / 600 | 1,565.2 ms | 32.5 ms | 12.4 |
+
+- **Head:** 117 passed across 27 locked holds, none failed or unfinished.
+
+### Still open
+
+- D1's fix and its regression test.
+- CI, the full suite and Python 3.12 (not run on the lanes).
 
 ## Continuation 3, 2026-10-28
 
