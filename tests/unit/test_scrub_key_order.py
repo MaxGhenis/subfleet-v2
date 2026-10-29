@@ -528,37 +528,46 @@ def test_the_head_leaks_nothing_release_217_keeps_out_and_no_bearer_header_or_cr
     assert [triple for triple in head if _kind(texts[triple[0]][0], triple[2]) != "other"] == []
 
 
-# --- the lookahead's work ------------------------------------------------------------
+# --- the Bearer rule's work ----------------------------------------------------------
 
-#: The most a scrub of the texts below may read a character, every regex call counted
-#: (`tests.scrub_work`): release/217 reads at most 43. A call past it is stopped before
-#: `re` runs it, so a catastrophic lookahead fails here in seconds.
+#: The most a scrub of the texts below may read a character, every regex call of both
+#: pipelines counted (`tests.scrub_work`): the scrub reads at most 66 (#266 round 4).
+#: A call past it is stopped before `re` runs it, so a catastrophic lookahead fails
+#: here in seconds.
 READS_PER_CHAR_MAX = 256
-#: The long Bearer runs the lookahead reads.
-BEARER_TOKENS = ["a_", "token", "secret_", "--a", "x."]
+#: The long Bearer runs the rule reads: a token repeated, and the same run ending in a
+#: credential word and its separator, or glued to a credential flag, which
+#: `_bearer_refusal` refuses (each reaches it once, with the whole run).
+BEARER_RUNS = [pytest.param(token, "", id=token) for token in ("a_", "token", "secret_", "--a", "x.")] + [
+    pytest.param("a_", "_token: SECRET7value", id="a_+word"),
+    pytest.param("a_", "--api-key SECRET7value", id="a_+flag")]
 #: The instruction count where the CPU's counter is exposed to the kernel: not in a
 #: virtual machine that hides it, as CI's `macos-15` runners do (run 40399635625).
 INSTRUCTIONS = pytest.mark.skipif(not counts_instructions(), reason="no CPU instruction counter here")
 
 
-@pytest.mark.parametrize("token", BEARER_TOKENS)
-def test_the_bearer_rule_keeps_scrubbing_linear(token):
-    """C-23.14 / C-25.5: the lazy lookahead reads a token once per position; four times
-    the input must not do quadratic work (`_SENSITIVE_KEY` there would). Counted, not
-    timed (D-SCRUB-LINEAR: the CPU ratio failed shared runners at about 9x on code no
-    PR had touched): what each regex call of the scrub reads, and the lines of
-    `subfleet` it runs, are the same on every run. They miss C-level `str` work and a
-    regex call C code makes on a pattern no stand-in holds (`tests.scrub_work`); the
-    instruction test below sees those. After the Bearer rule redacts the run, the later
-    passes read `Bearer [REDACTED]`, so the lines stay flat but for `x.`. Neither test
-    sees growth like n log n (about 4.7x here) or shapes other than these runs."""
-    measured = _scrubber_probe(f"token = {token!r}\nreads_per_char = {READS_PER_CHAR_MAX}\n" + '''
+@pytest.mark.parametrize(("token", "suffix"), BEARER_RUNS)
+def test_the_bearer_rule_keeps_scrubbing_linear(token, suffix):
+    """C-23.14 / C-25.5: `_bearer_refusal` reads a run's end once, and release/217's lazy
+    lookahead (`scrub_release._BEARER_RE`, whose pipeline every mode runs first) reads a
+    token once per position; four times the input must not do quadratic work (D-SCR1's
+    `_SENSITIVE_KEY` in the lookahead would, and so would a refusal that tried every
+    prefix of the run). Counted, not timed (D-SCRUB-LINEAR: the CPU ratio failed shared
+    runners at about 9x on code no PR had touched): what each regex call of both
+    pipelines reads, and the lines of `subfleet` it runs, are the same on every run.
+    They miss C-level `str` work and a regex call C code makes on a pattern no stand-in
+    holds (`tests.scrub_work`); the instruction test below sees those. Once the Bearer
+    rule redacts a plain run, the later passes read `Bearer [REDACTED]`, so its lines
+    stay flat but for `x.`; a refused run is left to the named-value and flag rules,
+    whose lines grow with it (3.4x and 3.7x). Neither test sees growth like n log n
+    (about 4.7x here) or shapes other than these runs."""
+    measured = _scrubber_probe(f"token, suffix = {token!r}, {suffix!r}\nreads_per_char = {READS_PER_CHAR_MAX}\n" + '''
 import json, sys
 from tests.scrub_work import scrub_work
 sys.setrecursionlimit(100_000)          # the emulator nests a generator per group repeat
 work = {}
 for size in (2048, 8192):
-    work[size] = scrub_work("Bearer " + token * (size // len(token)), reads_per_char=reads_per_char)
+    work[size] = scrub_work("Bearer " + token * (size // len(token)) + suffix, reads_per_char=reads_per_char)
     if work[size]["over"]:
         break
 print(json.dumps(work))
@@ -573,31 +582,34 @@ print(json.dumps(work))
 
 
 @INSTRUCTIONS
-@pytest.mark.parametrize("token", BEARER_TOKENS)
-def test_the_bearer_scrub_retires_linear_instructions(token):
+@pytest.mark.parametrize(("token", "suffix"), BEARER_RUNS)
+def test_the_bearer_scrub_retires_linear_instructions(token, suffix):
     """C-23.14 / C-25.5, what the counts above cannot see (#266 review r1, P2-1): C-level
     `str` work, and a regex call C code makes on a pattern no stand-in holds. The
     instructions the CPU retires for the plain scrub count both, and grow as the counts
     do. Unlike CPU time they barely move with the runner's load. A cheap quadratic
-    hides under the scrub's linear work at these sizes and shows as they grow (a slice
-    per identifier: 4.6x from 2,048 to 8,192, 6.1x from 8,192 to 32,768; #266 review
-    r2, P3-2), so the test goes on to 32,768 after a linear pair. It stops at the first
-    pair past the bound, before a catastrophic scrub outruns the probe's timeout. CI's
-    virtual machines hide the counter, so CI skips this test: there only the counts
-    above run."""
-    measured = _scrubber_probe(f"token = {token!r}\n" + '''
+    hides under the scrub's linear work at the smaller sizes and shows as they grow: a
+    slice per identifier grows 4.3x, 5.4x and 8.4x over the steps from 2,048 to 131,072
+    since #239 put release's pipeline before the head's (4.6x and 6.1x over the first
+    two before; #266 review r2, P3-2, and round 4). So the test goes on to the next size
+    after each linear pair, and stops at the first pair past the bound, before a
+    catastrophic scrub outruns the probe's timeout; at 131,072 the four calls
+    `fewest_instructions` makes of the linear scrub take under 0.2 s. CI's virtual
+    machines hide the counter, so CI skips this test: there only the counts above run."""
+    measured = _scrubber_probe(f"token, suffix = {token!r}, {suffix!r}\n" + '''
 import json
 from tests.cpu_scaling import COUNT_GROWTH_MAX, fewest_instructions
 counts = {}
-for size in (2048, 8192, 32768):
-    counts[size] = fewest_instructions(lambda text="Bearer " + token * (size // len(token)): scrub_secrets(text))
+for size in (2048, 8192, 32768, 131072):
+    counts[size] = fewest_instructions(lambda text="Bearer " + token * (size // len(token)) + suffix: scrub_secrets(text))
     if size // 4 in counts and counts[size] >= counts[size // 4] * COUNT_GROWTH_MAX:
         break
 print(json.dumps(counts))
 ''')
     counts = list(measured.values())
-    assert len(counts) == 3, measured
-    assert all(large < small * COUNT_GROWTH_MAX for small, large in zip(counts, counts[1:])), measured
+    ratios = [large / small for small, large in zip(counts, counts[1:])]
+    assert all(ratio < COUNT_GROWTH_MAX for ratio in ratios), ([round(ratio, 2) for ratio in ratios], measured)
+    assert len(counts) == 4, measured
 
 
 @CI
@@ -607,6 +619,7 @@ def test_the_counted_scrub_is_the_scrub(text):
     over the key-order grammar and the seeded fuzz, the counted scrub gives the plain
     scrub's output, each call's matches `re`'s own, and the profile names no regex call
     made from Python past the count, nor any call to `re`'s API. The budget only bounds
-    the run: these short texts read up to about 100 a character."""
+    the run: through both pipelines these short texts read up to about 210 a character,
+    where each pass's fixed reads outweigh the text (#266 round 4)."""
     work = scrub_work(text, reads_per_char=4096)
     assert (work["over"], work["same"], work["uncounted"]) == (None, True, []), (text, work)

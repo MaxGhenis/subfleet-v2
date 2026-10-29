@@ -1,15 +1,18 @@
 """The work one `scrub_secrets` call does, counted rather than timed (D-SCRUB-LINEAR).
 
-`test_the_bearer_lookahead_keeps_scrubbing_linear` timed the scrub at 2,048 and 8,192
-characters and failed on shared CI runners at about 9x the CPU for 4x the input, on
-code its PRs never touched (#238's run 39682771461, #265's run 40326659520). The counts
-here are the same on every run of one interpreter:
+The Bearer rule's linearity test (`test_the_bearer_rule_keeps_scrubbing_linear`, named
+`test_the_bearer_lookahead_keeps_scrubbing_linear` before #239) timed the scrub at 2,048
+and 8,192 characters and failed on shared CI runners at about 9x the CPU for 4x the
+input, on code its PRs never touched (#238's run 39682771461, #265's run 40326659520).
+The counts here are the same on every run of one interpreter:
 - `reads`: what each regex call the scrub makes reads, counted by `tests.regex_reads`
   (each character test, at each position a scan tries, as #233's cut meter counts),
-  each call's matches checked against `re`'s own. Every compiled pattern `handoff`
-  holds is counted, the ones its rule tuples hold (`_TOKEN_RULES`, `_BLOCK_RULES`)
-  included: one counting stand-in for each pattern, wherever the module keeps it, so
-  `pattern is _HEADER_RE` and `pattern in (_PEM_RE, …)` still hold.
+  each call's matches checked against `re`'s own. Every compiled pattern the scrub's
+  modules hold is counted (`MODULES`: the head's `handoff`, and `scrub_release`,
+  release/217's frozen pipeline, which every mode runs first since #239), the ones
+  their rule tuples hold (`_TOKEN_RULES`, `_BLOCK_RULES`) included: one counting
+  stand-in for each pattern, wherever a module keeps it, so `pattern is _HEADER_RE`
+  and `pattern in (_PEM_RE, …)` still hold.
 - `lines`: the lines of `subfleet` Python runs during the call (`sys.settrace`), so a
   loop of the scrubber's own counts too.
 - `uncounted`: what `sys.setprofile` sees the reads miss. That is a regex call made
@@ -28,7 +31,7 @@ A scrub that reads more than its `budget` is stopped before `re` runs the call:
 `OverBudget`, the call's pattern in `over`. A catastrophic pattern is thus never run
 by `re`, which would hold the GIL for as long as it backtracks.
 
-Every exit restores `handoff`'s names and the interpreter's trace and profile. Run
+Every exit restores the modules' names and the interpreter's trace and profile. Run
 long texts in a child (`_scrubber_probe`): the emulator nests a generator for each
 repetition of a group, so the child raises the recursion limit. The differential's
 short texts run in-process at the default limit.
@@ -40,9 +43,12 @@ import re
 import sys
 from pathlib import Path
 
-from subfleet.sessions import handoff
+from subfleet.sessions import handoff, scrub_release
 from tests import regex_reads
 
+#: The modules whose patterns a scrub runs: the head's, and release/217's frozen
+#: pipeline, which runs first in every mode (#239 round 8).
+MODULES = (handoff, scrub_release)
 #: The package's folder as its code objects name it (`co_filename`, not resolved).
 SUBFLEET = str(Path(handoff.__file__).parents[1]) + os.sep
 #: The count's own files: a regex call made from them is the count's, not the scrub's.
@@ -139,11 +145,13 @@ def scrub_work(text: str, *, reads_per_char: int) -> dict:
     reads did not see (none of the C-level work above)."""
     work = Work(reads_per_char * max(1, len(text)))
     found: dict[int, tuple[str, re.Pattern]] = {}
-    for name, value in vars(handoff).items():
-        _patterns(value, name, found)
+    for module in MODULES:
+        for name, value in vars(module).items():
+            _patterns(value, f"{module.__name__.rpartition('.')[2]}.{name}", found)
     stand_ins = {key: _Counted(name, pattern, work) for key, (name, pattern) in found.items()}
-    saved = dict(vars(handoff))
-    replaced = {name: new for name, value in saved.items() if (new := _counted(value, stand_ins)) is not value}
+    saved = {module: dict(vars(module)) for module in MODULES}
+    replaced = {module: {name: new for name, value in names.items() if (new := _counted(value, stand_ins)) is not value}
+                for module, names in saved.items()}
 
     def lines(frame, event, arg):
         work.lines += event == "line"
@@ -164,8 +172,9 @@ def scrub_work(text: str, *, reads_per_char: int) -> dict:
             work.uncounted.add(pattern.pattern[:60])
 
     previous = sys.gettrace(), sys.getprofile()
-    for name, value in replaced.items():
-        setattr(handoff, name, value)
+    for module, names in replaced.items():
+        for name, value in names.items():
+            setattr(module, name, value)
     sys.settrace(calls)
     sys.setprofile(regex_calls)
     try:
@@ -175,8 +184,9 @@ def scrub_work(text: str, *, reads_per_char: int) -> dict:
     finally:
         sys.setprofile(previous[1])
         sys.settrace(previous[0])
-        for name in replaced:
-            setattr(handoff, name, saved[name])
+        for module, names in replaced.items():
+            for name in names:
+                setattr(module, name, saved[module][name])
     same = None if work.over else scrubbed == handoff.scrub_secrets(text)
     return {"chars": len(text), "reads": work.reads, "lines": work.lines, "over": work.over, "same": same,
             "uncounted": sorted(work.uncounted),
