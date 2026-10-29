@@ -1,0 +1,38 @@
+{
+  "name": "mutant-r2-c-escape-bell-wrong",
+  "start": "2026-10-29T06:35:09.343836+00:00",
+  "load": [
+    26.70263671875,
+    23.6650390625,
+    23.0498046875
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\a-\\x07]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\b-\\x08]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\f-\\x0c]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\n-\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\r-\\r]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\t-\\t]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\v-\\x0b]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\\-\\]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\"-\"]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\157-o]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\303\\251-\\xc3\\xa9]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[#inside-#inside]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\a-\\x07]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "r2-c-escape-bell-wrong",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

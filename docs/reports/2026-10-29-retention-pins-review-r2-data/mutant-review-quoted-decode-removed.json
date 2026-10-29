@@ -1,0 +1,28 @@
+{
+  "name": "mutant-review-quoted-decode-removed",
+  "start": "2026-10-29T06:26:27.457484+00:00",
+  "load": [
+    34.8486328125,
+    21.87060546875,
+    22.103515625
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "review-quoted-decode-removed",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

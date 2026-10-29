@@ -1,0 +1,44 @@
+{
+  "name": "detached-neutral",
+  "start": "2026-10-29T06:48:11.830614+00:00",
+  "load": [
+    15.23828125,
+    18.48779296875,
+    20.91162109375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions": {
+      "setup": {
+        "duration": 0.03180454199900851,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4211801660130732,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0004758750001201406,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

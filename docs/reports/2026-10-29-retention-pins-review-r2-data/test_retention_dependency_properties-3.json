@@ -1,0 +1,33 @@
+{
+  "name": "test_retention_dependency_properties-3",
+  "start": "2026-10-29T06:26:00.676197+00:00",
+  "load": [
+    19.8330078125,
+    18.58837890625,
+    21.01123046875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "valid": 100,
+      "invalid": 0,
+      "calls": 104,
+      "settings_max": 100
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

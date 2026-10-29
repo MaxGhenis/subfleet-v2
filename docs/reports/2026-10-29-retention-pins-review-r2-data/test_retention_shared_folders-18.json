@@ -1,0 +1,113 @@
+{
+  "name": "test_retention_shared_folders-18",
+  "start": "2026-10-29T06:38:45.205746+00:00",
+  "load": [
+    28.42724609375,
+    25.31640625,
+    23.8310546875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]": {
+      "setup": {
+        "duration": 1.6493788329971721,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 7.763386959006311,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.13819433299067896,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]": {
+      "setup": {
+        "duration": 0.356604459011578,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 4.844779375009239,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.10167770899715833,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]": {
+      "setup": {
+        "duration": 0.3386600840021856,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 3.8228273330023512,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.006717041993397288,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]": {
+      "setup": {
+        "duration": 0.5899628749903059,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 5.258527000012691,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.004177875001914799,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

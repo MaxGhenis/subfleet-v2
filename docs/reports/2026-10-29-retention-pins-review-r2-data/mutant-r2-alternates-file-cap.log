@@ -1,0 +1,48 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:35:11Z slot A load 
+ADMITTED 2026-10-29T06:35:11.810629+00:00 LOAD (26.70263671875, 23.6650390625, 23.0498046875)
+FOBSERVATION {"engines": [], "explicit": {}, "mutant": "r2-alternates-file-cap", "loaded": ["subfleet.dependencies"]}
+
+=================================== FAILURES ===================================
+__________ test_c8_4_many_short_valid_lines_use_bounded_input_memory ___________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-r2-alternates-file-cap/pytest-of-maxghenis/pytest-0/test_c8_4_many_short_valid_lin0')
+
+    def test_c8_4_many_short_valid_lines_use_bounded_input_memory(tmp_path):
+        base, target = tmp_path / "objects", tmp_path / "target"
+        (base / "info").mkdir(parents=True)
+        target.mkdir()
+        alternate = base / "info" / "alternates"
+        line = os.fsencode(target) + b"\n"
+        with alternate.open("wb") as stream:
+            for _ in range((2 * 1024 * 1024) // len(line) + 1):
+                stream.write(line)
+        errors = []
+        tracemalloc.start()
+        try:
+            found = dependencies._alternates(str(base), incomplete=errors)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert alternate.stat().st_size > 2 * 1024 * 1024
+>       assert found == [str(target)] and not errors
+E       AssertionError: assert ([] == ['/private/va..._lin0/target']
+E         
+E         Right contains one more item: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-r2-alternates-file-cap/pytest-of-maxghenis/pytest-0/test_c8_4_many_short_valid_lin0/target'
+E         Use -v to get more diff)
+
+tests/fake/test_retention_dependency_review_r2.py:202: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 2 warnings in 1.45s

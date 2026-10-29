@@ -1,0 +1,25 @@
+{
+  "name": "test_retention_archive-10",
+  "start": "2026-10-29T06:34:10.636826+00:00",
+  "load": [
+    22.47216796875,
+    21.822265625,
+    22.36474609375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_network_url_classification"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_network_url_classification": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

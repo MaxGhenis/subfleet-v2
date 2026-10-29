@@ -1,0 +1,25 @@
+{
+  "name": "test_retention_archive-22",
+  "start": "2026-10-29T06:37:00.629927+00:00",
+  "load": [
+    26.154296875,
+    24.00439453125,
+    23.23583984375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

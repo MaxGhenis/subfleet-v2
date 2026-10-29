@@ -1,0 +1,35 @@
+{
+  "name": "test_retention_shared_folders-11",
+  "start": "2026-10-29T06:30:57.185284+00:00",
+  "load": [
+    21.29736328125,
+    23.55859375,
+    23.0185546875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "valid": 150,
+      "invalid": 0,
+      "calls": 189,
+      "settings_max": 150
+    }
+  ],
+  "explicit": {
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence": 5
+  },
+  "mutant": null,
+  "loaded": []
+}

@@ -1,0 +1,67 @@
+{
+  "name": "test_detached_retention_fence-12",
+  "start": "2026-10-29T06:44:46.479415+00:00",
+  "load": [
+    15.37109375,
+    20.22412109375,
+    21.97314453125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[worktree]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[worktree]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[read-only]": {
+      "setup": {
+        "duration": 0.02195725000638049,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.42467441700864583,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00031804200261831284,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[worktree]": {
+      "setup": {
+        "duration": 0.0015679170028306544,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.3287887079932261,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00038154199137352407,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

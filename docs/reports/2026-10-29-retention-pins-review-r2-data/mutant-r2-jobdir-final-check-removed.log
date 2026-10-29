@@ -1,0 +1,69 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:35:24Z slot A load 
+ADMITTED 2026-10-29T06:35:24.480001+00:00 LOAD (26.65625, 23.796875, 23.10693359375)
+FOBSERVATION {"engines": [], "explicit": {}, "mutant": "r2-jobdir-final-check-removed", "loaded": ["subfleet.retention_archive"]}
+
+=================================== FAILURES ===================================
+____ test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-commit] ____
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-r2-jobdir-final-c...test-of-maxghenis/pytest-0/test_c8_4_nested_job_directory0/state'), store=<subfleet.store.Store object at 0x10a07dfd0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10958bce0>
+alias = 'case', stage = 'commit'
+
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    @pytest.mark.parametrize("alias", ["case", "nfc", "greek"])
+    def test_c8_4_nested_job_directory_aliases_pin_at_every_stage(world, monkeypatch, alias, stage):
+        owner = "Owner-é-ΐ"
+        world.job(owner, worktree=False)
+        directory = world.root / "jobs" / owner
+        (directory / "nested" / "deeper").mkdir(parents=True)
+        before = snapshot(directory)
+        named = str(directory)
+        if alias == "case":
+            named = named.replace("Owner", "oWNER")
+        elif alias == "nfc":
+            named = unicodedata.normalize("NFC", named)
+        else:
+            named = named.replace("ΐ", "Ϊ\u0301")
+        output = named + "/nested/deeper/result.md"
+    
+        def insert():
+            reader(world, {"out_path": output})
+    
+        begin, final = rarch.Retirement.begin, rarch.Retirement.final_check
+    
+        def beginning(self, *args, **kwargs):
+            if stage == "fence":
+                insert()
+            return begin(self, *args, **kwargs)
+    
+        def final_check(self):
+            final(self)
+            if stage == "commit":
+                insert()
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", beginning)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final_check)
+        if stage == "census":
+            insert()
+        result = maintain(world)
+>       assert owner not in result["pruned"], result
+E       AssertionError: {'pruned': ['Owner-é-ΐ'], 'errors': [], 'bytes_before': 21, 'bytes_after': 0, ...}
+E       assert 'Owner-é-ΐ' not in ['Owner-é-ΐ']
+
+tests/fake/test_retention_dependency_review_r2.py:260: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-commit]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 17 deselected, 2 warnings in 1.90s

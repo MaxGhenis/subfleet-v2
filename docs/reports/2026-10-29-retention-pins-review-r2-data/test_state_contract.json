@@ -1,0 +1,872 @@
+{
+  "name": "test_state_contract",
+  "start": "2026-10-29T06:48:22.723773+00:00",
+  "load": [
+    15.22021484375,
+    18.37353515625,
+    20.84228515625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+    "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+    "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+    "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+    "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+    "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+    "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+    "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+    "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+    "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry"
+  ],
+  "phases": {
+    "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts": {
+      "setup": {
+        "duration": 0.2128454170015175,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.054970917000900954,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00949945900356397,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job": {
+      "setup": {
+        "duration": 0.0218490830011433,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.03294824999466073,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0060752499994123355,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one": {
+      "setup": {
+        "duration": 0.023715458999504335,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.30050554100307636,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.005341291995136999,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock": {
+      "setup": {
+        "duration": 0.015735042004962452,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07499983299931046,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.007969625003170222,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches": {
+      "setup": {
+        "duration": 0.02389341600064654,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.06176258300547488,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.006574957995326258,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together": {
+      "setup": {
+        "duration": 0.027877333006472327,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.03019683300226461,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.004667625005822629,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only": {
+      "setup": {
+        "duration": 0.024776959005976096,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.024689707992365584,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.01019966600870248,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]": {
+      "setup": {
+        "duration": 0.022952541999984533,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0006960409955354407,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0038242080045165494,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]": {
+      "setup": {
+        "duration": 0.03573291699285619,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0018216669996036217,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.010438625002279878,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]": {
+      "setup": {
+        "duration": 0.022534000003361143,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0010513750021345913,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0039297920011449605,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]": {
+      "setup": {
+        "duration": 0.017657417003647424,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0010702500003390014,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0035943749971920624,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]": {
+      "setup": {
+        "duration": 0.02251333399908617,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.02526929099985864,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00636800000211224,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition": {
+      "setup": {
+        "duration": 0.048463665996678174,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.008283165996544994,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0006287919968599454,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line": {
+      "setup": {
+        "duration": 0.014966333008487709,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.005234416006715037,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0023729999957140535,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot": {
+      "setup": {
+        "duration": 0.013401415999396704,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07709758399869315,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0057052079937420785,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries": {
+      "setup": {
+        "duration": 0.0344204169959994,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.05085649999091402,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0037690419994760305,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]": {
+      "setup": {
+        "duration": 0.01827837500604801,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.04446716699749231,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.005680957998265512,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]": {
+      "setup": {
+        "duration": 0.050372500001685694,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.05241187500359956,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00432925000495743,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace": {
+      "setup": {
+        "duration": 0.019521291003911756,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 18.151210292009637,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.005304999998770654,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success": {
+      "setup": {
+        "duration": 0.02404483300051652,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.04509683299693279,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.004992749993107282,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]": {
+      "setup": {
+        "duration": 0.020756291996804066,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.046675916004460305,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.006579416003660299,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]": {
+      "setup": {
+        "duration": 0.044027667012414895,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.034663457990973257,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0034757090033963323,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction": {
+      "setup": {
+        "duration": 0.020842082987655886,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07839362500817515,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.003843916012556292,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay": {
+      "setup": {
+        "duration": 0.019858625004417263,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07689337499323301,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0035269579966552556,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]": {
+      "setup": {
+        "duration": 0.012859374997788109,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.012444541993318126,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.003564624988939613,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]": {
+      "setup": {
+        "duration": 0.09884437501023058,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.05585345800500363,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.013050207999185659,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]": {
+      "setup": {
+        "duration": 0.0640337500080932,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.04767983300553169,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0040250000020023435,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]": {
+      "setup": {
+        "duration": 0.06153741601156071,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07426258400664665,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.007325250000576489,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit": {
+      "setup": {
+        "duration": 0.04138266699737869,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.05059199999959674,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.005075541994301602,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors": {
+      "setup": {
+        "duration": 0.028633125009946525,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2609757919999538,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.009678249989519827,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited": {
+      "setup": {
+        "duration": 0.014888582998537458,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.03229437499248888,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.007811125004081987,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename": {
+      "setup": {
+        "duration": 0.1106824169983156,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07865462500194553,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.004167833001702093,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once": {
+      "setup": {
+        "duration": 0.01274845800071489,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.19441766600357369,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.006327458002488129,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner": {
+      "setup": {
+        "duration": 0.02298704200075008,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.10204750001139473,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0043172910081921145,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock": {
+      "setup": {
+        "duration": 0.012915541999973357,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.09676029099500738,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.016934667000896297,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another": {
+      "setup": {
+        "duration": 0.06432466700789519,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07811483299883548,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.010909749995335005,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry": {
+      "setup": {
+        "duration": 0.05564583399973344,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.06700141599867493,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0030961250013206154,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

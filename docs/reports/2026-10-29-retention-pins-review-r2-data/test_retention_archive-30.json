@@ -1,0 +1,182 @@
+{
+  "name": "test_retention_archive-30",
+  "start": "2026-10-29T06:38:03.240893+00:00",
+  "load": [
+    27.02099609375,
+    24.7392578125,
+    23.56640625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[begin]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[begin]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[begin]": {
+      "setup": {
+        "duration": 0.7481200420006644,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 3.2157589999987977,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0124153750075493,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]": {
+      "setup": {
+        "duration": 1.5210629579960369,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 4.947161207994213,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.004609084004187025,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]": {
+      "setup": {
+        "duration": 1.4888248749921331,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 5.20922479199362,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.034118999989004806,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]": {
+      "setup": {
+        "duration": 1.8515471249993425,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 4.966588665993186,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.01882024999940768,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]": {
+      "setup": {
+        "duration": 0.6473875000083353,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 3.738568958011456,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.004308250005124137,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]": {
+      "setup": {
+        "duration": 0.5339173339889385,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 2.8749861669930397,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.003871791996061802,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]": {
+      "setup": {
+        "duration": 1.035470290997182,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 3.349708791996818,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.009399332993780263,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

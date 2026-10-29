@@ -1,0 +1,246 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:30:08Z slot B load 
+ADMITTED 2026-10-29T06:30:08.803984+00:00 LOAD (23.4033203125, 24.123046875, 23.16650390625)
+FFFFF                                                                    [100%]OBSERVATION {"engines": [], "explicit": {}, "mutant": null, "loaded": []}
+
+=================================== FAILURES ===================================
+__ test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace] __
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-review-r2-red/pytest-of-...test-of-maxghenis/pytest-0/test_c8_4_changed_alternates_d0/state'), store=<subfleet.store.Store object at 0x108155d30>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107843bb0>
+change = 'replace'
+
+    @pytest.mark.xfail(strict=True, reason="R2-F1: alternates replacement during discovery is not detected")
+    @pytest.mark.parametrize("change", ["replace", "rewrite"])
+    def test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads(world, monkeypatch, change):
+        tree = world.job("owner")
+        source = repo(tree / "object-source")
+        commit = git(source, "rev-parse", "HEAD")
+        borrower = world.base / "outside"
+        git(world.base, "init", "--quiet", str(borrower))
+        alternate = borrower / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        real = dependencies.open_regular
+        changed = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            new = os.fsencode(source / ".git" / "objects") + b"\n"
+                            if change == "replace":
+                                replacement = alternate.with_name("replacement")
+                                replacement.write_bytes(new)
+                                replacement.replace(alternate)
+                            else:
+                                alternate.write_bytes(new)
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(borrower))
+        assert changed
+        assert git(borrower, "cat-file", "-t", commit) == "commit"
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-review-r2-red/pytest-of-maxghenis/p...anged_alternates_d0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48058, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r2.py:83: AssertionError
+__ test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite] __
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-review-r2-red/pytest-of-...test-of-maxghenis/pytest-0/test_c8_4_changed_alternates_d1/state'), store=<subfleet.store.Store object at 0x107e15f90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107875490>
+change = 'rewrite'
+
+    @pytest.mark.xfail(strict=True, reason="R2-F1: alternates replacement during discovery is not detected")
+    @pytest.mark.parametrize("change", ["replace", "rewrite"])
+    def test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads(world, monkeypatch, change):
+        tree = world.job("owner")
+        source = repo(tree / "object-source")
+        commit = git(source, "rev-parse", "HEAD")
+        borrower = world.base / "outside"
+        git(world.base, "init", "--quiet", str(borrower))
+        alternate = borrower / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        real = dependencies.open_regular
+        changed = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            new = os.fsencode(source / ".git" / "objects") + b"\n"
+                            if change == "replace":
+                                replacement = alternate.with_name("replacement")
+                                replacement.write_bytes(new)
+                                replacement.replace(alternate)
+                            else:
+                                alternate.write_bytes(new)
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(borrower))
+        assert changed
+        assert git(borrower, "cat-file", "-t", commit) == "commit"
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-review-r2-red/pytest-of-maxghenis/p...owner/object-source/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48058, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r2.py:83: AssertionError
+_______________ test_c8_4_unlinked_open_alternates_is_incomplete _______________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-review-r2-red/pytest-of-maxghenis/pytest-0/test_c8_4_unlinked_open_altern0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1078a2140>
+
+    @pytest.mark.xfail(strict=True, reason="R2-F1: actual unlink during an open alternates read is not detected")
+    def test_c8_4_unlinked_open_alternates_is_incomplete(tmp_path, monkeypatch):
+        alternate = tmp_path / ".git" / "objects" / "info" / "alternates"
+        alternate.parent.mkdir(parents=True)
+        alternate.write_bytes(b"# first\n# second\n")
+        real = dependencies.open_regular
+        removed = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) == str(alternate):
+                    alternate.unlink()
+                    removed.append(True)
+                yield stream
+    
+        monkeypatch.setattr(dependencies, "open_regular", opening)
+        recorded = dependencies.record(str(tmp_path))
+        assert removed and not alternate.exists()
+>       assert recorded["incomplete"][0]["file"] == str(alternate)
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'incomplete'
+
+tests/fake/test_retention_dependency_review_r2.py:110: KeyError
+____ test_c8_4_legacy_incomplete_census_survives_terminal_export[database] _____
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-review-r2-red/pytest-of-...test-of-maxghenis/pytest-0/test_c8_4_legacy_incomplete_ce0/state'), store=<subfleet.store.Store object at 0x107e17890>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107e22a50>
+stage = 'database'
+
+    @pytest.mark.xfail(strict=True, reason="R2-F2: legacy incomplete evidence is lost on transition to pending export")
+    @pytest.mark.parametrize("stage", ["database", "full-pass"])
+    def test_c8_4_legacy_incomplete_census_survives_terminal_export(world, monkeypatch, stage):
+        tree = world.job("owner")
+        borrower = world.base / "outside"
+        alternate = borrower / ".git" / "objects" / "info" / "alternates"
+        alternate.parent.mkdir(parents=True)
+        alternate.write_bytes(b'"bad\\z"\n')
+        world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                            kind="dispatch", state="running", sandbox="read-only",
+                            workdir=str(borrower), prompt_path="/p", out_path="/outside/result")
+        world.store.add_event("job.submitted", job_id="borrower", data={})
+        original = dependencies.legacy
+    
+        def finish_after_discovery(read):
+            legacy = original(read)
+            assert legacy.incomplete["borrower"][0]["file"] == str(alternate)
+            world.store.acquire_lease("out:/outside/result", "borrower")
+            world.store.update_job("borrower", state="succeeded")
+            return legacy
+    
+        if stage == "full-pass":
+            monkeypatch.setattr(dependencies, "legacy", finish_after_discovery)
+            result = maintain(world)
+            assert "owner" not in result["pruned"], result
+            assert "dependency-incomplete" in result["pin_reasons"]["owner"]
+            assert str(alternate) in result["pin_reasons"]["owner"]
+            return
+    
+        legacy = finish_after_discovery(world.store.query)
+        with world.store.transaction():
+            places = dependencies.live(world.store.query, legacy)
+>           assert "borrower" in places.incomplete
+E           AssertionError: assert 'borrower' in {}
+E            +  where {} = {'borrower': {'/outside/result'}}.incomplete
+
+tests/fake/test_retention_dependency_review_r2.py:145: AssertionError
+____ test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass] ____
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-review-r2-red/pytest-of-...test-of-maxghenis/pytest-0/test_c8_4_legacy_incomplete_ce1/state'), store=<subfleet.store.Store object at 0x107da02b0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107e23250>
+stage = 'full-pass'
+
+    @pytest.mark.xfail(strict=True, reason="R2-F2: legacy incomplete evidence is lost on transition to pending export")
+    @pytest.mark.parametrize("stage", ["database", "full-pass"])
+    def test_c8_4_legacy_incomplete_census_survives_terminal_export(world, monkeypatch, stage):
+        tree = world.job("owner")
+        borrower = world.base / "outside"
+        alternate = borrower / ".git" / "objects" / "info" / "alternates"
+        alternate.parent.mkdir(parents=True)
+        alternate.write_bytes(b'"bad\\z"\n')
+        world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                            kind="dispatch", state="running", sandbox="read-only",
+                            workdir=str(borrower), prompt_path="/p", out_path="/outside/result")
+        world.store.add_event("job.submitted", job_id="borrower", data={})
+        original = dependencies.legacy
+    
+        def finish_after_discovery(read):
+            legacy = original(read)
+            assert legacy.incomplete["borrower"][0]["file"] == str(alternate)
+            world.store.acquire_lease("out:/outside/result", "borrower")
+            world.store.update_job("borrower", state="succeeded")
+            return legacy
+    
+        if stage == "full-pass":
+            monkeypatch.setattr(dependencies, "legacy", finish_after_discovery)
+            result = maintain(world)
+>           assert "owner" not in result["pruned"], result
+E           AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 20099, 'bytes_after': 0, ...}
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r2.py:137: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]
+5 failed, 14 deselected, 2 warnings in 13.80s

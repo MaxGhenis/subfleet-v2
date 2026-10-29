@@ -1,0 +1,67 @@
+{
+  "name": "test_retention_shared_folders-26",
+  "start": "2026-10-29T06:39:40.973121+00:00",
+  "load": [
+    23.0478515625,
+    24.20556640625,
+    23.50146484375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]": {
+      "setup": {
+        "duration": 0.7385663339955499,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.34643370799312834,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002617792008095421,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]": {
+      "setup": {
+        "duration": 0.38486270800058264,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2772164159978274,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002811290993122384,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

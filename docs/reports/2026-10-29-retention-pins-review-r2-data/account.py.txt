@@ -1,0 +1,229 @@
+from pathlib import Path
+import collections, hashlib, json, re
+
+s = Path(__file__).parent
+d = Path.cwd() / "docs/reports/2026-10-29-retention-pins-review-r2-data"
+report = Path.cwd() / "docs/reports/2026-10-29-retention-pins-review-r2.md"
+plan = json.loads((s / "ordinary-plan.json").read_text())
+missing = [name for name, _ in plan if not (s / (name + ".json")).exists()]
+assert not missing, missing
+names = {name for name, _ in plan}
+names.update(["quotes-r2", "review-r2-closeout", "job-directory-original", "memory-observed", "detached-neutral"])
+names.discard("test_detached_retention_fence-5")
+observations = []
+for path in s.glob("*.json"):
+    data = json.loads(path.read_text())
+    if isinstance(data, dict) and "phases" in data:
+        observations.append(data)
+        (d / path.name).write_bytes(path.read_bytes())
+        log = s / (path.stem + ".log")
+        if log.exists():
+            (d / log.name).write_bytes(log.read_bytes())
+observations.sort(key=lambda v: (v["start"], v["name"]))
+for filename in ["driver.py", "observe.py", "pytest_entry.py", "git_probe.py", "measure.py", "account.py"]:
+    (d / (filename + ".txt")).write_bytes((s / filename).read_bytes())
+for path in s.glob("*plan*.json"):
+    (d / path.name).write_bytes(path.read_bytes())
+for path in s.glob("driver-*.jsonl"):
+    (d / path.name).write_bytes(path.read_bytes())
+(d / "mutant-definitions.json").write_bytes((s / "mutant-definitions.json").read_bytes())
+(d / "staging-error.txt").write_bytes((s / "stage-error.txt").read_bytes())
+
+def count(obs):
+    counts = collections.Counter()
+    for node in obs["collected"]:
+        phase = obs["phases"].get(node, {})
+        if "failed" in phase.values():
+            counts["F"] += 1
+        elif phase.get("call") == "skipped" and "test_retention_dependency_review_r2.py" in node:
+            counts["X"] += 1
+        elif "skipped" in phase.values():
+            counts["S"] += 1
+        elif phase.get("call") == "passed" and phase.get("teardown") == "passed":
+            counts["P"] += 1
+        else:
+            counts["U"] += 1
+    return counts
+
+def tally(c):
+    return "/".join(str(c.get(k, 0)) for k in ("P", "F", "S", "X", "U"))
+
+ordinary = [v for v in observations if v["name"] in names]
+assert all(v["exitstatus"] == 0 for v in ordinary)
+assert all(count(v)["U"] == 0 and count(v)["F"] == 0 for v in ordinary)
+latest = {}
+first = {}
+for obs in ordinary:
+    for node in obs["collected"]:
+        # The full final new-file run supersedes the unparameterized cycle's older run.
+        latest[node] = obs
+        first.setdefault(node.split("::")[0], obs)
+files = collections.defaultdict(list)
+for node, obs in latest.items():
+    files[node.split("::")[0]].append((node, obs))
+
+file_counts = {}
+file_lines = ["| File | P/F/S/X/U | First observed start UTC | Load (1/5/15 min) |",
+              "|---|---|---|---|"]
+for file, items in sorted(files.items()):
+    counts = collections.Counter()
+    for node, obs in items:
+        slim = dict(obs, collected=[node])
+        counts.update(count(slim))
+    file_counts[file] = dict(counts)
+    initial = first[file]
+    file_lines.append(f"| §{file}§ | {tally(counts)} | {initial['start'][11:23]} | "
+                      + " / ".join(f"{n:.2f}" for n in initial["load"]) + " |")
+total = collections.Counter()
+for c in file_counts.values():
+    total.update(c)
+assert sum(1 for node in latest if node.startswith("tests/") and
+           "review_r2" not in node) == 543
+
+holds = []
+longest = (0.0, "")
+for obs in observations:
+    log = (s / (obs["name"] + ".log")).read_text()
+    durations = re.findall(r" in ([0-9.]+)s(?: |$)", log, re.MULTILINE)
+    elapsed = float(durations[-1]) if durations else None
+    if elapsed is not None:
+        longest = max(longest, (elapsed, obs["name"]))
+        assert elapsed < 600, (obs["name"], elapsed)
+    slot = re.search(r"hold \S+ slot ([AB])", log)
+    counts = count(obs)
+    holds.append(dict(name=obs["name"], start=obs["start"], load=obs["load"],
+                      counts=dict(counts), selected=len(obs["collected"]),
+                      slot=slot.group(1) if slot else None, pytest_seconds=elapsed,
+                      exitstatus=obs["exitstatus"], mutant=obs.get("mutant")))
+
+mutants = [v for v in observations if v["name"].startswith("mutant-")]
+assert len(mutants) == 18
+mutant_lines = ["| Named mutant | Result / observed killing node | P/F/S/X/U | Start UTC | Load (1 min) |",
+                "|---|---|---|---|---|"]
+for obs in mutants:
+    assert obs["exitstatus"] == 1 and len(obs["loaded"]) == 1
+    failed = [n for n, phases in obs["phases"].items() if "failed" in phases.values()]
+    assert failed, obs["name"]
+    mutant_lines.append(f"| §{obs['mutant']}§ | KILLED: §{failed[0]}§ | {tally(count(obs))} | "
+                        + obs["start"][11:23] + f" | {obs['load'][0]:.2f} |")
+
+hold_lines = ["| Hold | Start UTC | Load (1/5/15 min) | P/F/S/X/U | Slot | Pytest seconds |",
+              "|---|---|---|---|---|---|"]
+for h in holds:
+    hold_lines.append(f"| §{h['name']}§ | {h['start'][11:23]} | "
+                      + " / ".join(f"{n:.2f}" for n in h["load"])
+                      + f" | {tally(h['counts'])} | {h['slot'] or '-'} | {h['pytest_seconds']} |")
+
+properties = []
+for obs in ordinary:
+    for engine in obs["engines"]:
+        properties.append(dict(hold=obs["name"], **engine,
+                               explicit=obs["explicit"].get(engine["nodeid"], 0)))
+property_lines = ["| Property node | Generated valid | Explicit | Settings maximum |",
+                  "|---|---:|---:|---:|"]
+for prop in properties:
+    property_lines.append(f"| §{prop['nodeid']}§ | {prop['valid']} | {prop['explicit']} | {prop['settings_max']} |")
+summary = dict(reviewed_head="dd0e4ea8def74285c4aaa581be93a46ca87ca3ba",
+               per_file=file_counts, total=dict(total), prescribed_holds=len(plan),
+               all_observed_holds=len(holds), named_mutants=len(mutants), longest_pytest=longest,
+               unrun_prescribed=[], properties=properties)
+(d / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+(d / "holds.json").write_text(json.dumps(holds, indent=2) + "\n")
+(d / "observations.json").write_text(json.dumps(observations, indent=2) + "\n")
+
+tail = f"""
+## Final test accounting
+
+All {len(plan)} prescribed holds completed. Counts are distinct nodes using final
+ordinary source runs; red diagnostic holds, mutants and trial repairs are
+excluded. The new fake file's final full run has 15 passes and six strict
+expected failures; the new unit file has 15 passes. The scratch copy of the
+original job-directory probe adds one passing node outside the repository.
+The 543 prescribed nodes all pass. Total including added tests and the original
+scratch probe: **{total['P']} passed, {total['X']} strict expected failures**;
+no unexpected final failure, ordinary skip or unfinished prescribed node.
+
+P/F/S/X/U below means passed/failed/skipped/expected-failure/unrun. First starts
+are observed after lock admission, all on 2026-10-29 UTC. Every split and all
+three load averages are retained in the complete hold table.
+
+""" + "\n".join(file_lines) + """
+
+## Properties at normal settings
+
+The four required properties retain their normal phases, maxima and strategies:
+Unicode attribution 100 generated + 1 explicit, independent reference 100,
+monotonicity 100, fence differential 400 generated + 12 explicit.
+The Git-quoted path property completes 100 generated + 3 explicit.
+The observer records inner engine counts without changing ordinary settings.
+Named mutants use explicit/generate phases and stop at the first failure,
+as in fix round r1; repairs select only deterministic new regression cases.
+
+""" + "\n".join(property_lines) + """
+
+## Named mutant table
+
+Fourteen prescribed definitions were replayed against their named killers,
+plus four explicitly named probes for the new escape, line-streaming, join-key
+and final-directory-check coverage. Every replacement matched once, compiled,
+and was observed loading its intended module. All eighteen are killed.
+The two proof repairs are separate successful experiments, not surviving
+mutants: R2-F1 3 passed, R2-F2 3 passed with expected-failure marks disabled.
+The separate original-source diagnostic hold has 6 failed / 14 deselected.
+
+""" + "\n".join(mutant_lines) + f"""
+
+## Complete hold ledger
+
+One pytest per hold, no xdist, serial within each hold, at most four of our
+pytest processes active or queued and at most two admitted by the shared lock.
+All requested runs used the lock; no 30-minute fallback was needed. Whole-pytest
+alarms were 570 seconds. Longest completed pytest: {longest[1]},
+{longest[0]:.2f} seconds. No timeout or local harness-start retry was needed.
+One test initially failed because its broad "retention not in text" assertion
+matched that word in our hold directory, which was rendered as part of the
+correct lease path. It passed unchanged in the single neutral-directory rerun
+(detached-neutral), at the load in the ledger. This is a fixture-path assertion
+artifact, not an incorrect admission hold. Both observations are retained;
+final file counts use the neutral-directory result.
+The shared wrapper's sysctl probes are denied by this sandbox; reported loads
+come from os.getloadavg() inside the admitted Python process. Observer preimports
+produce two assertion-rewrite warnings; test assertions and settings are unchanged.
+
+""" + "\n".join(hold_lines) + """
+
+## What did not run and delivery
+
+No requested local file or named mutant remains unrun. The full suite,
+Python 3.12 and tests/frontend/test_core_live.py were not run on this lane.
+The live frontend's person-only daemon check prevents a lane run; CI owns it.
+GitNexus tools are unavailable, so this review used local Git and source traces.
+No macOS CI completion is inferred from a pending snapshot. A byte-ff filename
+could not be created; its decoding and failing Git lookup were executed.
+
+No live store, real provider or real subfleet CLI was used. All retirement
+fixtures use scratch homes. The prescribed archive test invokes cli.main only
+with SUBFLEET_HOME set to its scratch World. Git transport in fixtures targets
+only local bare repositories; no assigned-repository fetch, merge or push ran.
+Network was used only for the required locked environment sync and the two
+explicitly allowed GitHub reads. No sub-agents or external messages were used.
+
+Staging the two named test files failed because the sandbox cannot create the
+shared worktree index.lock. Per the task's fallback, files remain in this
+workspace; no commit was created and HEAD stays at the reviewed commit.
+Deliverables are:
+
+- tests/fake/test_retention_dependency_review_r2.py
+- tests/unit/test_retention_alternates_review_r2.py
+- docs/reports/2026-10-29-retention-pins-review-r2.md
+- docs/reports/2026-10-29-retention-pins-review-r2-data/
+
+The data directory includes original-source diagnostics, trial-repair definitions,
+Git comparisons, CI reads, the measurement, all completed hold observations and
+logs, source hashes and cleanup evidence.
+"""
+text = report.read_text()
+marker = "\n## Final test accounting\n"
+text = text.split(marker)[0].removesuffix("CI, ordinary-hold accounting, mutants and closeout follow below.\n")
+report.write_text((text + tail).replace("§", chr(96)))
+print(json.dumps(summary, indent=2))

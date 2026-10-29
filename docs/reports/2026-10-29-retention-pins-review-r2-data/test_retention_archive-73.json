@@ -1,0 +1,44 @@
+{
+  "name": "test_retention_archive-73",
+  "start": "2026-10-29T06:43:37.361041+00:00",
+  "load": [
+    17.95703125,
+    21.302734375,
+    22.44482421875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went": {
+      "setup": {
+        "duration": 1.0055371670023305,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.43602820800151676,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.005964999989373609,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

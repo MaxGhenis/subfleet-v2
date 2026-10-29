@@ -1,0 +1,113 @@
+{
+  "name": "test_detached_retention_fence-16",
+  "start": "2026-10-29T06:44:56.494187+00:00",
+  "load": [
+    14.39111328125,
+    19.85400390625,
+    21.8212890625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-as-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-other-case]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-as-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-other-case]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-as-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-other-case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-as-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-other-case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-as-recorded]": {
+      "setup": {
+        "duration": 0.022054166009183973,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.6507726249983534,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00038404100632760674,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-other-case]": {
+      "setup": {
+        "duration": 0.0021091670059831813,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.3122602080111392,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00046224999823607504,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-as-recorded]": {
+      "setup": {
+        "duration": 0.002499791997252032,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4271012079989305,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0003569999971659854,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-other-case]": {
+      "setup": {
+        "duration": 0.002272500001708977,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4507205830013845,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0005472090124385431,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

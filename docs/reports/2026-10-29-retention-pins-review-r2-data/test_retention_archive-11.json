@@ -1,0 +1,67 @@
+{
+  "name": "test_retention_archive-11",
+  "start": "2026-10-29T06:40:13.625646+00:00",
+  "load": [
+    19.23583984375,
+    23.16552734375,
+    23.1484375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]": {
+      "setup": {
+        "duration": 1.3640379590069642,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.723362583987182,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002617582998936996,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]": {
+      "setup": {
+        "duration": 0.42920845799380913,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 4.697239249988343,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002901624990045093,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

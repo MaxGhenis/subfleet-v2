@@ -1,0 +1,35 @@
+{
+  "name": "test_retention_shared_folders-12",
+  "start": "2026-10-29T06:29:58.383715+00:00",
+  "load": [
+    26.48583984375,
+    24.72412109375,
+    23.3642578125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "valid": 400,
+      "invalid": 0,
+      "calls": 490,
+      "settings_max": 400
+    }
+  ],
+  "explicit": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": 12
+  },
+  "mutant": null,
+  "loaded": []
+}

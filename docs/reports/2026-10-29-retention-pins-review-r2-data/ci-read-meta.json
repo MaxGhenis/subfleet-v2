@@ -1,0 +1,12 @@
+{
+  "snapshot_utc": "2026-10-29T06:24:22Z",
+  "pr_view_rc": 0,
+  "pr_checks_rc": 8,
+  "buckets": {
+    "pending": 10,
+    "fail": 0,
+    "skipping": 0,
+    "cancel": 0,
+    "pass": 0
+  }
+}

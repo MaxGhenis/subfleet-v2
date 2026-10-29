@@ -1,0 +1,54 @@
+{
+  "name": "test_detached_retention_fence-19",
+  "start": "2026-10-29T06:47:54.822946+00:00",
+  "load": [
+    14.49365234375,
+    18.54248046875,
+    20.97509765625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases": {
+      "setup": {
+        "duration": 0.0211957080027787,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 6.527921040993533,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0005087500030640513,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases",
+      "valid": 80,
+      "invalid": 0,
+      "calls": 120,
+      "settings_max": 80
+    }
+  ],
+  "explicit": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases": 6
+  },
+  "mutant": null,
+  "loaded": []
+}

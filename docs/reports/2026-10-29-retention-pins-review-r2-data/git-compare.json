@@ -1,0 +1,246 @@
+[
+  {
+    "name": "bell",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\a\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "backspace",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\b\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "formfeed",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\f\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "newline",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\n\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "return",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\r\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "tab",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\t\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "vertical",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\v\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "backslash",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\\\\\\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "quote",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\\"\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "octal",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\157\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "invalid-utf8",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\\\377\"\\n'",
+    "git_rc": 128,
+    "git_stdout": "b''",
+    "git_stderr": "error: object directory /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\udcff does not exist; check .git/objects/info/alternates\nfatal: Not a valid object name 04c2072151bc00d769dbb42c56930f4eecf955a7\n",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\udcff"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": "[Errno 1] Operation not permitted: b'/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects' -> b'/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/alt-\\xff'"
+  },
+  {
+    "name": "trailing-backslash",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\\\\\\n'",
+    "git_rc": 128,
+    "git_stdout": "b''",
+    "git_stderr": "error: unable to normalize alternate object path: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/borrower/.git/objects/\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\\\nfatal: Not a valid object name 04c2072151bc00d769dbb42c56930f4eecf955a7\n",
+    "paths": [],
+    "incomplete": [
+      {
+        "file": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/borrower/.git/objects/info/alternates",
+        "reason": "unterminated Git C quote"
+      }
+    ],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "unterminated",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\\n'",
+    "git_rc": 128,
+    "git_stdout": "b''",
+    "git_stderr": "error: unable to normalize alternate object path: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/borrower/.git/objects/\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\nfatal: Not a valid object name 04c2072151bc00d769dbb42c56930f4eecf955a7\n",
+    "paths": [],
+    "incomplete": [
+      {
+        "file": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/borrower/.git/objects/info/alternates",
+        "reason": "unterminated Git C quote"
+      }
+    ],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "after-close",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\"xtrailing\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "error: object directory /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/borrower/.git/objects/trailing does not exist; check .git/objects/info/alternates\n",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/borrower/.git/objects/trailing"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "hash",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\" # ignored\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "quoted-crlf",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\"\\r\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "raw-crlf",
+    "line": "b'/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\\r\\n'",
+    "git_rc": 128,
+    "git_stdout": "b''",
+    "git_stderr": "error: object directory /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects? does not exist; check .git/objects/info/alternates\nfatal: Not a valid object name 04c2072151bc00d769dbb42c56930f4eecf955a7\n",
+    "paths": [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\r"
+    ],
+    "incomplete": [],
+    "exception": null,
+    "unsupported": null
+  },
+  {
+    "name": "nul",
+    "line": "b'\"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/source/.git/objects\\\\000junk\"\\n'",
+    "git_rc": 0,
+    "git_stdout": "b'borrowed'",
+    "git_stderr": "",
+    "paths": [],
+    "incomplete": [
+      {
+        "file": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/tmp/tmp3q9u1ipk/borrower/.git/objects/info/alternates",
+        "reason": "lstat: embedded null character in path"
+      }
+    ],
+    "exception": null,
+    "unsupported": null
+  }
+]
