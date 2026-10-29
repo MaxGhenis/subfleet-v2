@@ -281,7 +281,7 @@ files outside the lock, as the lane rules direct. Code is the same at `f046750fd
 
 ## Fix round r4
 
-Base `3769a17e5` (fix round r3's head). Built 2026-10-29, 00:20Z to 01:45Z, scratch
+Base `3769a17e5` (fix round r3's head). Built 2026-10-29, 00:20Z to 01:36Z, scratch
 `$(getconf DARWIN_USER_TEMP_DIR)sf-r271f4`, with one scratch venv per Python synced from the tree's lock (3.14.7
 and 3.12.14). No fetch, push, GitHub call, real `subfleet` CLI, provider or live store. The hub's rulings on round
 3 stand: decision 2's deviation and decision 3 as built; the two gaps round 3 described (`_report` failing, and
