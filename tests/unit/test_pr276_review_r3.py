@@ -25,26 +25,34 @@ r2's tests did not execute, on constructed censuses and the simulated host
    every recorded identity seeds the walk, so an untainted walk member decides most of them.
    Two examples put review r1's and review r2's P2-1 on the daemon's census, and dropping the
    marked or the owned term fails the property there.
+5. Outside this PR, documented: release/217's parent-chain rule compares a recorded ancestor's
+   or a held parent's start with the table's, and a table that shows no start drops it with no
+   error. The census then verifies without it: `kill` answers `already finished` with a
+   recorded ancestor alive, and `--confirm-dead` releases a quarantine its held parent still
+   holds.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import json
+import signal
 
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
-from subfleet import procs
+from subfleet import procs, protocol
 from subfleet.daemon import Daemon
 from tests.unit.test_census_round1_mutations import replace_function
 from tests.unit.test_daemon_settle import ATTEMPT, JOB, STARTED, attempt, daemon  # noqa: F401
-from tests.unit.test_kill4_boot_scope import (BOOT_A, BOOT_B, SECONDS, evidence, finished, kept,  # noqa: F401
-                                              kill_force_release_kill_kill, kinds, store, stranger_group, world)
+from tests.unit.test_kill4_boot_scope import (BOOT_A, BOOT_B, SECONDS, evidence, finished, inline, kept,  # noqa: F401
+                                              kill_force_release_kill_kill, kinds, quarantined, store,
+                                              stranger_group, world)
 from tests.unit.test_kill4_terminal_containment import owned_worktree
 from tests.unit.test_pr276_review_r2 import MUTANTS as R2_MUTANTS
 
 PARENT, MEMBER, STRANGER, GONE = 5800, 5801, 5600, 5650
+TERM = int(signal.SIGTERM)
 EARLIER = "Fri Sep  4 08:00:00 2026"
 MUTANTS = {
     # The owned filter asking for the attempt's boot exactly (review r2's wording, not C-5.4's).
@@ -295,3 +303,73 @@ def test_a_dropped_unread_term_fails_the_property_on_the_daemons_census(daemon, 
     replace_function(monkeypatch, owner, name, replacements)
     test_a_census_that_could_not_read_some_starts_runs_the_protocol_whenever_the_whole_read_targets(
         daemon, world, monkeypatch)
+
+
+# 5. Outside this PR (release/217's `procs._parent_chain`): a recorded ancestor or held parent
+#    whose start the census's process table does not show.
+
+ANCESTOR, HELD = 5900, 5950
+
+
+def no_start_for(world, monkeypatch, pid: int) -> None:
+    """Every process table shows `pid` with no start (an `lstart` `ps` did not give)."""
+    whole = world.snapshot
+
+    def snapshot():
+        table = whole()
+        if pid not in table.rows:
+            return table
+        return procs.ProcessTable({**table.rows, pid: (*table.rows[pid][:3], "")}, table.boot_id)
+    monkeypatch.setattr(procs, "snapshot", snapshot)
+
+
+@pytest.mark.documented_limitation
+@pytest.mark.parametrize("stranger", [False, True], ids=["alone", "beside-a-stranger-group"])
+@pytest.mark.parametrize("start", ["shown", "missing"])
+def test_a_recorded_chain_ancestor_with_no_start_in_the_table_drops_out_of_the_census(daemon, world, monkeypatch,
+                                                                                      start, stranger):
+    """`_parent_chain` keeps a recorded ancestor (`chain_identities`) by `ProcessTable.is_process`,
+    which reads a start the table did not show as another process's, and records no error; a
+    walk seed's (`is_recycled`) is unknown and an error (C-5.3). So a census whose table shows
+    the ancestor with no start is verifiable without it: `kill` answers `already finished`
+    (beside a stranger's leaderless group, naming only the stranger) and the ancestor runs on.
+    With its start shown, `kill` TERMs it. A follow-up keeps it as a member with no identity, so
+    the census is unverifiable and `_may_signal`'s chain term runs the protocol."""
+    tree = owned_worktree(daemon, monkeypatch, world)
+    ancestor = world.add(ANCESTOR, 1, ANCESTOR, cwd=str(tree))
+    if stranger:
+        stranger_group(world)
+    store(daemon, chain_identities={str(ANCESTOR): kept(world.identity(ANCESTOR))},
+          chain_reasons={str(ANCESTOR): f"pid {ANCESTOR}: ancestor of marked pid 5901, cwd in worktree"})
+    finished(daemon)
+    daemon.term_grace_s, daemon.kill_settle_s = 0.2, 0.1
+    if start == "missing":
+        no_start_for(world, monkeypatch, ANCESTOR)
+    census = daemon._contain(attempt(daemon))
+    assert (ANCESTOR in census.chain_pids) is (start == "shown") and not census.unverifiable, census.to_dict()
+    inline(daemon, monkeypatch)
+    answer = daemon.kill(protocol.KillArgs(job_id=JOB))
+    if start == "shown":
+        assert answer["status"] == "containment requested", answer
+        assert not ancestor.alive and ancestor.ended_by == TERM, world.tried
+    else:
+        assert answer["status"] == "already finished" and f"pid {ANCESTOR}" not in answer.get("detail", ""), answer
+        assert ancestor.alive and not world.tried, world.tried
+
+
+@pytest.mark.documented_limitation
+@pytest.mark.parametrize("start", ["shown", "missing"])
+def test_a_held_parent_with_no_start_in_the_table_no_longer_holds_a_quarantine(daemon, world, monkeypatch, start):
+    """The same comparison for a held parent (`held_marked`): a table that shows it with no start
+    releases it silently, so `--confirm-dead` finds the census verified empty and releases the
+    quarantine while the held parent lives. With its start shown, the quarantine stays."""
+    held = world.add(HELD, 1, HELD)                          # outside the worktree: held, never signalled
+    record = kept(world.identity(HELD))
+    store(daemon, held_parents={str(HELD): record}, held_marked={str(HELD): record})
+    quarantined(daemon, procs.Containment(held_pids=frozenset({HELD}), held_identities={HELD: world.identity(HELD)}))
+    if start == "missing":
+        no_start_for(world, monkeypatch, HELD)
+    inline(daemon, monkeypatch)
+    assert daemon.kill(protocol.KillArgs(job_id=JOB, confirm_dead=True))["status"] == "resolution requested"
+    assert attempt(daemon)["state"] == ("quarantined" if start == "shown" else "lost"), attempt(daemon)
+    assert held.alive and not world.tried, world.tried
