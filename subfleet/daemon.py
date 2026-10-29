@@ -4656,13 +4656,14 @@ class Daemon:
 
         Review r1 of #276, P2-1: so is a member whose source attributes it in any census (a
         marked or parent-chain member, a group member under a verified leader, or an owned
-        one, its `owned_identities` record not of another boot than the attempt's) but
-        whose identity this census could not read: `_signal_reasons` skips it only for want
-        of that identity, and a read that captures it signals it. An owned member needs its
-        own term (review r2 of #276): the walk term drops it when a tainted census parent
-        taints it by its link, while `_signal_reasons` reads the owned record before any
-        taint. Only those sources count here: a member only a leaderless group names, with
-        no identity, is still attributed by no read."""
+        one, its `owned_identities` record not of another boot than the attempt's, at a pid
+        this census has not proven recycled) but whose identity this census could not read:
+        `_signal_reasons` skips it only for want of that identity, and a read that captures
+        it signals it (an owned one when it captures the recorded identity). An owned member
+        needs its own term (review r2 of #276): the walk term drops it when a tainted census
+        parent taints it by its link, while `_signal_reasons` reads the owned record before
+        any taint. Only those sources count here: a member only a leaderless group names,
+        with no identity, is still attributed by no read."""
         if Daemon._signal_reasons(self, a, census):
             return True
         if not census.unverifiable:
