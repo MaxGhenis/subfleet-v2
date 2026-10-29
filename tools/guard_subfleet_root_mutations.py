@@ -151,6 +151,21 @@ MUTATIONS = {
     "r7-known-form-unlisted": (DOC, None, None, "test_r7_known_differences_name_the_open_forms"),
     "r7-loopvar-unscoped": (HOOK, None, None, "test_r7_a_loop_variable_reassigned_after_its_loop_is_read_as_assigned"),
     "r7-loopvar-anywhere": (HOOK, None, None, "test_r7_a_loop_variable_reassigned_after_its_loop_is_read_as_assigned"),
+    # review r7's probe mutant: the loop variable's reset no longer stops inside a backtick (killed at c83be9c89)
+    "rv7-bto-dropped": (HOOK, None, None, "test_review_r7_pins_r7s_unpinned_readings"),
+    # r8 (the hub's decisions on review r7): one per bullet of decision 1, the round's deviation in it (a value that is
+    # not a plain word joins the loop's words), zsh's repeat, and one per decision 2-4; decisions 5 and 6 are doc pins
+    "r8-continuation-dropped": (HOOK, None, None, "test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it"),
+    "r8-time-keyword-dropped": (HOOK, None, None, "test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it"),
+    "r8-function-prescan-dropped": (HOOK, None, None, "test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it"),
+    "r8-plain-word-dropped": (HOOK, None, None, "test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it"),
+    "r8-value-joins-dropped": (HOOK, None, None, "test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it"),
+    "r8-repeat-uncounted": (HOOK, None, None, "test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it"),
+    "r8-cap-quotes-dropped": (HOOK, None, None, "test_r8_quotes_and_backticks_count_against_the_cap"),
+    "r8-dollar-arith-dropped": (HOOK, None, None,
+                                "test_r8_a_dollar_double_paren_span_ending_in_two_closes_is_arithmetic"),
+    "r8-passon-roots-dropped": (HOOK, None, None, "test_r8_a_piped_while_read_takes_the_roots_a_filter_passes_on"),
+    "r8-known-form-unlisted": (DOC, None, None, "test_r8_known_differences_name_the_stricter_and_open_forms"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -354,18 +369,51 @@ EDITS = {
     "r7-scan-uncounted": [("""            if (++pst > 20000) { cplx = 1; return 0 }
             if (!(i in LE))""", """            if (!(i in LE))"""),
                           ("""{ if (++pst > 20000) { cplx = 1; return 0 }; line = LN[m];""", """{ line = LN[m];""")],
-    "r7-passon-dropped": [("""      else if (!oe && ow) { if (sep == "|" || sep == "|&") nextin = nextin (nextin == "" ? "" : "\\n") oc; oc = ""; ow = 0 }
+    # retargeted in r8: decision 4 spread the pass-on over lines; the edit still drops the whole else-if
+    "r7-passon-dropped": [("""      else if (!oe && ow) {
+        if (sep == "|" || sep == "|&") {
+          nextin = nextin (nextin == "" ? "" : "\\n") oc
+          x = oc; gsub(/[[:space:]]+/, " ", x); sub(/^ /, "", x); sub(/ $/, "", x)
+          if (x != "") nextroots = nextroots (nextroots == "" ? "" : " ") x
+        }
+        oc = ""; ow = 0
+      }
 """, "")],
     "rv6-psub-passon-dropped": [("""        st["lp"] = (st["ps"] != "")
 """, ""), ("""        if (st["ps"] != "") { prod = prod (prod == "" ? "" : "\\n") st["ps"]; st["lp"] = 1 }
 """, "")],
     "r7-known-form-unlisted": [("""  - zsh's `=(…)`, `source =(echo 'rg --files ~/.subfleet')` and `zsh =(…)`: zsh writes""",
                                 """  - zsh's process substitution to a file: zsh writes""")],
-    "r7-loopvar-unscoped": [("""        if ((w in LVAR) && op != "" && op !~ /[$`]/) LVAR[w] = op
+    # retargeted in r8: decision 1 rewrote the assignment line; the edit still drops it
+    "r7-loopvar-unscoped": [("""        if ((w in LVAR) && op != "") LVAR[w] = (op ~ /[$`\\047"\\\\[:space:]]/) ? LVAR[w] " " op : op
 """, "")],
     "r7-loopvar-anywhere": [("""      vtop = (!depth && !pd && !pn && !bto && (pv == "" || pv == ";" || pv == "\\n" || pv == "&") && (sep == ";" || sep == "\\n" || sep == "&&" || sep == "||"))
 """, """      vtop = !depth
 """)],
+    "rv7-bto-dropped": [("""      vtop = (!depth && !pd && !pn && !bto && (pv == "" || pv == ";" || pv == "\\n" || pv == "&") && (sep == ";" || sep == "\\n" || sep == "&&" || sep == "||"))
+""", """      vtop = (!depth && !pd && !pn && (pv == "" || pv == ";" || pv == "\\n" || pv == "&") && (sep == ";" || sep == "\\n" || sep == "&&" || sep == "||"))
+"""), ("""    vtop = (!depth && !pd && !pn && !bto && (pv == "" || pv == ";" || pv == "\\n" || pv == "&"))
+""", """    vtop = (!depth && !pd && !pn && (pv == "" || pv == ";" || pv == "\\n" || pv == "&"))
+""")],
+    "r8-continuation-dropped": [("""      if (sep == "\\n" && (pv == "&&" || pv == "||" || pv == "|" || pv == "|&") && seg !~ /[^[:space:]]/) {
+""", """      if (0) {
+""")],
+    "r8-time-keyword-dropped": [("""      if (!qd[t] && val[t] == "time") {
+""", """      if (0) {
+""")],
+    "r8-function-prescan-dropped": [("""&& !st["ka"] && !ld && st["vt"] && !FN) {""", """&& !st["ka"] && !ld && st["vt"]) {""")],
+    "r8-plain-word-dropped": [("""LVAR[w] = (op ~ /[$`\\047"\\\\[:space:]]/) ? LVAR[w] " " op : op""",
+                               """LVAR[w] = (op ~ /[$`]/) ? LVAR[w] " " op : op""")],
+    "r8-value-joins-dropped": [("""LVAR[w] = (op ~ /[$`\\047"\\\\[:space:]]/) ? LVAR[w] " " op : op""",
+                                """LVAR[w] = (op ~ /[$`\\047"\\\\[:space:]]/) ? LVAR[w] : op""")],
+    "r8-repeat-uncounted": [("""val[t] ~ /^(for|select|case|repeat|foreach)$/) ld++""", """val[t] ~ /^(for|select|case)$/) ld++""")],
+    "r8-cap-quotes-dropped": [("""c > 4096 || d > 4096 || e > 4096) ? 1 : 0""", """c > 4096) ? 1 : 0""")],
+    "r8-dollar-arith-dropped": [("""return (j && (PAI == j - 1 || (substr(t, i - 1, 1) == "$" && substr(t, j - 1, 1) == ")"))) ? j : 0""",
+                                 """return (j && PAI == j - 1) ? j : 0""")],
+    "r8-passon-roots-dropped": [("""          if (x != "") nextroots = nextroots (nextroots == "" ? "" : " ") x
+""", "")],
+    "r8-known-form-unlisted": [("""    'rg --files ') <(echo ~/.subfleet) | bash`, `paste -d' ' <(echo 'rg --files') <(echo ~/.subfleet) |""",
+                                """    'rg --files ') <(echo ~/.subfleet) | bash`, `paste <(…) <(…) |""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
@@ -457,7 +505,8 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = ([name for name in MUTATIONS if name.startswith(("r7-", "rv6-"))]
+    newest = ([name for name in MUTATIONS if name.startswith(("r8-", "rv7-"))]
+              + [name for name in MUTATIONS if name.startswith(("r7-", "rv6-"))]
               + [name for name in MUTATIONS if name.startswith(("r6-", "rv5-"))]
               + [name for name in MUTATIONS if name.startswith(("r5-", "rv4-"))]
               + [name for name in edited if name.startswith("r4-")] + [name for name in edited if name in REVIEW_R3])
