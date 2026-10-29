@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:12:46Z slot A load 
+START census-failure 2026-10-29T20:12:48.974046+00:00 load=(18.41943359375, 18.748046875, 14.7900390625)
+..                                                                       [100%]
+2 passed in 4.49s

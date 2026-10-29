@@ -1,12 +1,24 @@
 # Retention dependency pins: review handoff, 2026-10-29
 
-**Review r2's R2-F1 and R2-F2 fixed in fix round r2; approving review and CI remain external gates.** Review r2 at `dd0e4ea8d` confirmed review r1's original findings and the separate job-directory boundary, then exposed two incomplete-discovery gaps. Fix round r2 checks alternates stability during discovery and preserves legacy incomplete evidence for terminal exporters. [Fix round r2 evidence](2026-10-29-retention-pins-fix-r2.md) gives current local results; earlier counts, CI snapshots and measurements remain dated evidence. Retention remains dormant.
+**Review r3's R3-F1 and R3-F2 are fixed in fix round r3; approving review and completed CI remain external gates.** Original repository aliases are revalidated after storage traversal, and the legacy census precedes recovery. The branch's turn-property regression is repaired in the journal lifecycle. [Fix round r3 evidence](2026-10-29-retention-pins-fix-r3.md) records the current runs; earlier counts, CI snapshots and measurements remain dated evidence. Retention remains dormant.
+
+## Review r3 and fix round r3
+
+[Review r3](2026-10-29-retention-pins-review-r3.md) found R3-F1 (a repository alias retargeted while its old alternates file remains unchanged) and R3-F2 (a recovery quarantine before discovering legacy incomplete evidence). The original `783123230` head gives **2 passed / 4 failed** with `--runxfail`; the repaired six-case file gives **6 passed** with only its strict expected-failure marks removed. Recorded-incomplete controls keep passing.
+
+Discovery retains each original checkout/`.git` spelling, `gitdir:` target, `commondir` pointer/target and alternates entry path beside its resolved target. After traversal it resolves them again and rereads pointer text, outside transactions. Changed or vanished aliases trigger incomplete discovery and the existing global allocated-worktree pin. Descriptor metadata before/after reading and final resolved-path identity remain checked. An alias swapped and swapped back within one traversal, a metadata-preserving write inside one timestamp tick and dependencies introduced after discovery remain observation bounds; no atomic filesystem snapshot is claimed.
+
+The off-transaction census includes live legacy jobs and terminal `out:` holders before `_recover()` can move anything. Recovery and the ordinary pass share that same census with the archive context. If census construction raises, recovery never starts. Database rechecks preserve its incomplete evidence while the job is live or exporting.
+
+Commit `6f54e9ee6f` introduced the CI turn-property regression by saving `job_folder` inside `_fence_job_folder`, assuming the retirement directory already existed. Canonical spelling is now captured in `begin`'s normal initial journal; older journals acquire it in memory and quarantine's existing save persists it before any rename. The original test is unchanged: it first fails all five explicit examples, then passes those examples and 40 generated cases after repair. Census reordering reaches the same recovery quarantine guard but does not cause or fix this independent journal write problem.
+
+The round-r3 report records per-file counts, starts/loads, seven named mutants, operational adjustments and PR-body lines. Original r3 review text remains the dated record of its reviewed head.
 
 ## Review r2 and fix round r2
 
 [Review r2](2026-10-29-retention-pins-review-r2.md) requested changes for R2-F1 (real alternates unlink, replacement or rewrite during discovery) and R2-F2 (legacy incomplete evidence lost for terminal pending exporters). At `ad4d612ee93a`, both review files with `--runxfail` give **30 passed / 6 failed**. With the two fixes and only the three strict expected-failure decorators removed, they give **36 passed**. The unit review file and all other review r2 files remain unchanged.
 
-Alternates discovery compares the open descriptor's device/inode, size, mtime and ctime before and after reading and compares the final pathname identity. Disappearance, replacement or a detected write records incomplete discovery. A write leaving size, mtime and ctime unchanged within one timestamp tick can escape detection; this is a check during discovery, not a promise about arbitrary later dependencies.
+Round r2 compares the open descriptor's device/inode, size, mtime and ctime before and after reading and the final identity of the resolved pathname it opened. Round r3 additionally revalidates original repository aliases after traversal and moves the legacy census ahead of recovery, as described above. Disappearance, replacement or a detected write records incomplete discovery. A write leaving size, mtime and ctime unchanged within one timestamp tick can escape detection; this is a check during discovery, not a promise about arbitrary later dependencies.
 
 The off-transaction legacy census now includes every job holding an `out:` lease, terminal jobs included. The database-only exporter recheck preserves its incomplete evidence, including when a job ends between census and recheck, just as it preserves recorded `depends.incomplete`. Both kinds of evidence keep allocated worktrees and name the affected job and file while the job is live or exporting. Submission and admission continue to accept it.
 

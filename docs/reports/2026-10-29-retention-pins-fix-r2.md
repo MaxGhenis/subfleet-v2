@@ -2,6 +2,23 @@
 
 Base: `ad4d612ee93a` (fix round r1 plus the hub's review r2 evidence and release/217 merge). First recorded clock: 10:46:55 UTC; first correctness hold: 10:47:51 UTC. The four-hour new-hold cutoff is 14:46 UTC; the six-hour wall is 16:46 UTC. Only the assigned worktree is edited. The sandbox denied the requested Darwin scratch directory, so the equivalent private fixture scratch is `/private/tmp/sf-fix272r2`. Shared Git metadata also refused writes; ordered commits use private metadata and are delivered in a verified bundle. These are operational departures; no product decision changed.
 
+## Current behavior after review r3 and fix round r3
+
+Review r3 showed that round r2's descriptor metadata and resolved-path checks
+did not revalidate an original repository alias, and that recovery preceded
+the legacy census. [Fix round r3](2026-10-29-retention-pins-fix-r3.md) repairs both:
+discovery retains original `.git` spellings and all followed pointers/targets,
+then revalidates them after traversal outside transactions. Changed or vanished
+aliases record incomplete evidence. The live/exporting legacy census now precedes
+recovery and is shared with the archive context; if it raises, recovery makes
+no move. Recorded-evidence controls still prevent quarantine.
+
+An alias swapped and swapped back within one traversal remains invisible to
+these final comparisons. Metadata-preserving writes within one timestamp tick
+and dependencies introduced after discovery are additional observation bounds.
+The decisions, six-case red/green result and 452-node ledger below are dated
+round-r2 evidence, not coverage claims for the new r3 inputs.
+
 ## Decisions built
 
 1. **R2-F1:** compare the open descriptor's device/inode, size, nanosecond mtime and nanosecond ctime before and after reading; then compare the final pathname's device/inode with that descriptor. Disappearance, replacement or a detected write records incomplete discovery, including when reading the open descriptor itself succeeds. All filesystem checks stay inside the existing off-transaction discovery. Fix commit: `3d744c816`.
@@ -9,7 +26,7 @@ Base: `ad4d612ee93a` (fix round r1 plus the hub's review r2 evidence and release
 3. **Tests and mutants:** remove only the three strict expected-failure decorators covering the six repaired cases. No other byte of either review r2 regression file changes; review r2's report and data remain unchanged. Add exactly two named mutants, each run against its named deterministic killing test. Definitions, loaded-source hashes and outcomes accompany this report.
 4. **Text:** apply review r2's corrections to the dated r1 claims, then describe the repaired behavior in C-8.3/C-8.4, the changelog, desktop dependency description and I16 evidence, the main report's “Review r2 and fix round r2” section, the fix r1 report and the c4a resolution. Earlier counts, timings and CI snapshots remain dated evidence. The review r2 report remains the immutable record of its reviewed head.
 
-The stability check cannot see a write that leaves size, mtime and ctime unchanged inside one timestamp tick. It checks changes during discovery; it does not cover arbitrary dependencies introduced after discovery. There is no claim of an atomic filesystem snapshot. The line buffer remains bounded at 1 MiB plus its overflow byte; results/frontier remain proportional to distinct paths. Admission still accepts incomplete discovery. While the affected job is live or exporting, its incomplete evidence prevents retirement of any allocated worktree and names the job and file.
+At round r2 the stability check validated only the opened descriptor and resolved pathname, leaving the original-alias and pre-census recovery gaps described above; round r3 repairs them. The descriptor stability check cannot see a write that leaves size, mtime and ctime unchanged inside one timestamp tick. At the current head, post-traversal alias revalidation additionally checks original spellings, but cannot see an alias swapped away and back within that traversal. These checks do not cover arbitrary dependencies introduced after discovery. There is no claim of an atomic filesystem snapshot. The line buffer remains bounded at 1 MiB plus its overflow byte; results/frontier remain proportional to distinct paths. Admission still accepts incomplete discovery. While the affected job is live or exporting, its incomplete evidence prevents retirement of any allocated worktree and names the job and file.
 
 ## Red and green
 

@@ -1,0 +1,71 @@
+{
+  "label": "retention_sweep_race-2",
+  "start": "2026-10-29T20:37:09.989118+00:00",
+  "loads": [
+    19.46337890625,
+    29.63037109375,
+    28.818359375
+  ],
+  "seconds": 13.301263165999899,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_found_registered_then_moved_away_before_the_lock_keeps_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.255750750000061
+    },
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_a_gone_trees_registration_repaired_to_another_place_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.674995625000065
+    },
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_a_tree_replaced_by_a_copy_before_quarantine_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5939389170002869
+    },
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_a_tree_put_back_by_hand_after_the_final_check_keeps_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9318600830001742
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_found_registered_then_moved_away_before_the_lock_keeps_its_registration",
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_trees_registration_repaired_to_another_place_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_replaced_by_a_copy_before_quarantine_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_put_back_by_hand_after_the_final_check_keeps_its_registration"
+  ],
+  "phases": {
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_found_registered_then_moved_away_before_the_lock_keeps_its_registration": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_trees_registration_repaired_to_another_place_keeps_its_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_replaced_by_a_copy_before_quarantine_keeps_its_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_put_back_by_hand_after_the_final_check_keeps_its_registration": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 116408320
+}

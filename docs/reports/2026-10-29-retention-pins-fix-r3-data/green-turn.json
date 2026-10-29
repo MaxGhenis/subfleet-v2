@@ -1,0 +1,21 @@
+{
+  "label": "green-turn",
+  "start": "2026-10-29T20:11:55.702234+00:00",
+  "loads": [
+    18.8935546875,
+    18.63671875,
+    14.501953125
+  ],
+  "seconds": 41.690018750000036,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 34.589594583000235
+    }
+  ],
+  "rss": 129941504
+}

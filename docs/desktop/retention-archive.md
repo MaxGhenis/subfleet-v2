@@ -629,17 +629,27 @@ filesystem decoding and resolving relative alternates against the objects
 directory, five levels deep). Alternates files are streamed to their end with
 no whole-file cap and a 1 MiB per-line bound (256 times a 4096-byte PATH_MAX).
 Read errors, overlong lines, invalid quotes and detected changes during discovery
-record incomplete discovery. For each open file, discovery compares descriptor
-identity (device/inode), size, mtime and ctime before and after reading, then
-checks the pathname's identity. Disappearance, replacement or a detected write
-fails closed. A write that leaves size, mtime and ctime unchanged within one
-timestamp tick can escape this observation; dependencies introduced after
-discovery are outside this check. Submission and admission still accept the
+record incomplete discovery. For each opened alternates descriptor, discovery
+compares device/inode, size, mtime and ctime before and after reading, then
+checks the final identity of the resolved pathname it opened. It also retains
+each original checkout and `.git` spelling (directory, symlink or `gitdir:` file),
+the `gitdir:` and `commondir` pointers and their targets, and each alternates
+entry's own pathname beside its resolved target. After traversal it resolves
+these aliases again and rereads pointer text, outside transactions. A changed
+or vanished alias, replacement or detected write fails closed. An alias swapped
+and swapped back within one traversal can escape this check. A write that
+leaves size, mtime and ctime unchanged within one timestamp tick can escape the
+descriptor check; dependencies introduced after discovery are also outside
+these observations. Submission and admission still accept the
 job. Recorded failures and legacy failures keep every allocated worktree while
 the job is live or exporting, with a `dependency-incomplete` reason naming the
 job and file. The off-transaction legacy census includes every job holding an
 `out:` lease, terminal jobs included; database rechecks preserve that census's
-incomplete evidence even when the job ends between census and recheck. A checkout outside
+incomplete evidence even when the job ends between census and recheck. The pass
+builds that census before `_recover()` can quarantine anything and shares the
+same object with the archive context. If the census cannot be built, the pass
+never enters recovery and moves nothing. Recovery's dependency checks therefore
+see legacy evidence as well as recorded evidence before the first move. A checkout outside
 the tree can keep its
 repository in it (`git -C <tree>/vendor/lib worktree add <outside>`); every git
 command in the checkout then works in the tree, and a worktree writer submitted
@@ -886,8 +896,11 @@ Each is tested (section 16).
   file-change detection and terminal legacy incomplete-evidence gaps at
   `dd0e4ea8d`; [fix round r2 evidence](../reports/2026-10-29-retention-pins-fix-r2.md)
   records their six red/green inputs and the two named mutants. Detection uses
-  descriptor metadata and final pathname identity, with the observation bounds
-  described above.
+  descriptor metadata and resolved pathname identity. Review r3 exposed a lost
+  original repository alias and recovery preceding the census; [fix round r3](../reports/2026-10-29-retention-pins-fix-r3.md)
+  revalidates original aliases after traversal and builds the census before
+  recovery. The observation bounds above include an alias swapped and swapped
+  back during one traversal.
 
 ## 15. Residual risks
 

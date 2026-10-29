@@ -46,6 +46,10 @@ results = []
 nodes = []
 phases = {}
 class Observer:
+    def pytest_sessionfinish(self, session, exitstatus):
+        from subfleet.home_paths import PYTEST_SENTINEL
+        base = session.config._subfleet_safe_home_base
+        assert (base / PYTEST_SENTINEL).is_file(), "scratch home marker removed by the observer's basetemp"
     def pytest_collection_finish(self, session):
         nodes.extend(item.nodeid for item in session.items)
     def pytest_runtest_logreport(self, report):
@@ -59,7 +63,7 @@ print(f'START {label} {started} load={loads}', flush=True)
 code = 99
 t0 = time.monotonic()
 try:
-    code = pytest.main(['-q', '-p', 'no:cacheprovider', '--basetemp', str(fixture / ('cases-' + str(os.getpid()))), *args], plugins=[Observer()])
+    code = pytest.main(['-q', '-p', 'no:cacheprovider', '--basetemp', str(case_root / 'pytest'), *args], plugins=[Observer()])
 finally:
     signal.alarm(0)
     data = dict(label=label, start=started, loads=loads, seconds=time.monotonic()-t0,
