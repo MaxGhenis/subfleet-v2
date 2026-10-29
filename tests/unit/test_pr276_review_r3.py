@@ -16,8 +16,8 @@ r2's tests did not execute, on constructed censuses and the simulated host
    `[unreadable-current-boot]`): the census proves the stranger is not the recorded process (its
    start differs, `recycled`), yet cannot read its identity, so the owned term counts it, and
    each `kill` runs a protocol that signals nothing, the loop P3-1 removed. Fix round r1's rule
-   answered `already finished`. A strict expected failure until the owned term leaves out the
-   census's proven-recycled pids.
+   answered `already finished`. Fix round r3 of #276 leaves the census's proven-recycled pids
+   out of the owned term, so every `kill` answers `already finished` again.
 4. The unread rule's soundness on the daemon's own census (`_contain`, unchanged), not a
    constructed one: one simulated host read twice, once with some starts missing from the
    process table and once whole. Whenever the whole read gives `_signal_reasons` a target,
@@ -167,8 +167,6 @@ def test_the_census_proves_the_stranger_is_not_the_owned_process_but_cannot_read
     assert not Daemon._signal_reasons(daemon, attempt(daemon), read)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="review r3 of #276, P3-1: the owned term counts a pid the census proved recycled")
 def test_a_stranger_at_an_owned_pid_runs_no_protocol_with_the_boot_unreadable(daemon, world, monkeypatch):
     """Every census of this world is unverifiable (the absent leader's boot cannot be read),
     and its one member is a stranger the census proved is not the owned process. Each `kill`

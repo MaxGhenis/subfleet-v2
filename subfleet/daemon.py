@@ -4672,9 +4672,10 @@ class Daemon:
         never = Daemon._never_signalled(self, a)
         evidence = json.loads(a.get("evidence_json") or "{}")
         boot = Daemon._attempt_boot(self, a)
-        # As `_signal_reasons` reads it: an owned identity of another boot attributes nothing.
+        # As `_signal_reasons` reads it: an owned identity of another boot attributes nothing; nor does
+        # one at a pid this census proved recycled, which holds another process than each record of it.
         owned = {int(pid) for pid, value in (evidence.get("owned_identities") or {}).items()
-                 if not procs.boot_identity.differ(value.get("boot_id"), boot)}
+                 if not procs.boot_identity.differ(value.get("boot_id"), boot)} - set(census.recycled)
         unread = (census.marker_pids | census.chain_pids | (census.live_pids & owned)
                   | (census.group_pids if census.leader_verified else frozenset())) - set(census.identities)
         if unread - census.held_pids - never:
