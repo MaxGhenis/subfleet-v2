@@ -201,7 +201,7 @@ class _Aliases:
                 reason = "repository alias changed or vanished during discovery"
             except (OSError, ValueError) as exc:
                 reason = str(exc)
-            if incomplete is not None:
+            if incomplete is not None and path not in self.errors:
                 incomplete.append({"file": path, "reason": reason})
         for path, before in self.pointers.items():
             if _text(path) != before and incomplete is not None:
