@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:36:57Z slot A load 
+{"start": "2026-10-29T14:36:58.494662+00:00", "load": [37.83056640625, 35.64404296875, 36.74853515625], "name": "test_detached_retention_fence-3"}
+..                                                                       [100%]
+2 passed in 4.70s

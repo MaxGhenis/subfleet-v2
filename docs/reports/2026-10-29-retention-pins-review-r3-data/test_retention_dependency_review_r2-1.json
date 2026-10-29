@@ -1,0 +1,83 @@
+{
+  "name": "test_retention_dependency_review_r2-1",
+  "start": "2026-10-29T13:39:44.410888+00:00",
+  "load": [
+    18.8525390625,
+    22.26953125,
+    24.0419921875
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[cycle-within-bound]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[full-five-alternates]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[False]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[True]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[cycle-within-bound]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[full-five-alternates]"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 26.09753141600231,
+  "rss": 115949568
+}

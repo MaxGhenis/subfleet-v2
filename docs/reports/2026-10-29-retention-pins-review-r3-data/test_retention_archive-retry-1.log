@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:28:03Z slot B load 
+{"start": "2026-10-29T14:28:03.617907+00:00", "load": [32.29541015625, 47.033203125, 39.7490234375], "name": "test_retention_archive-retry-1"}
+..                                                                       [100%]
+2 passed in 18.07s

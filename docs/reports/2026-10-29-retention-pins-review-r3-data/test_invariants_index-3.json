@@ -1,0 +1,53 @@
+{
+  "name": "test_invariants_index-3",
+  "start": "2026-10-29T14:43:14.772680+00:00",
+  "load": [
+    15.47607421875,
+    26.0673828125,
+    32.146484375
+  ],
+  "phases": {
+    "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+    "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+    "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+    "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+    "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 3.7800152499985415,
+  "rss": 114180096
+}

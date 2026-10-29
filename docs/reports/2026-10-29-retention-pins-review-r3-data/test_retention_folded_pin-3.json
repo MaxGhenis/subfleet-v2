@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_folded_pin-3",
+  "start": "2026-10-29T13:54:15.236859+00:00",
+  "load": [
+    15.25341796875,
+    20.251953125,
+    21.97607421875
+  ],
+  "phases": {
+    "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 136.40780258300947,
+  "rss": 131317760
+}

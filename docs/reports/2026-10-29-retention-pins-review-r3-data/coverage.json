@@ -1,0 +1,333 @@
+{
+  "expected": 568,
+  "passed": 567,
+  "unrun": [
+    "tests/unit/test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree"
+  ],
+  "files": [
+    {
+      "file": "tests/fake/test_retention_dependency_review_r2.py",
+      "passed": 21,
+      "unrun": 0,
+      "start": "2026-10-29T13:39:44.410888+00:00",
+      "load": [
+        18.8525390625,
+        22.26953125,
+        24.0419921875
+      ],
+      "holds": [
+        "test_retention_dependency_review_r2-1",
+        "test_retention_dependency_review_r2-2"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_alternates_review_r2.py",
+      "passed": 15,
+      "unrun": 0,
+      "start": "2026-10-29T13:40:33.312882+00:00",
+      "load": [
+        23.68505859375,
+        22.72607421875,
+        24.08740234375
+      ],
+      "holds": [
+        "test_retention_alternates_review_r2-1"
+      ]
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r1.py",
+      "passed": 18,
+      "unrun": 0,
+      "start": "2026-10-29T13:40:52.027760+00:00",
+      "load": [
+        23.29345703125,
+        22.72119140625,
+        24.05419921875
+      ],
+      "holds": [
+        "test_retention_dependency_review_r1-1"
+      ]
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_incomplete.py",
+      "passed": 19,
+      "unrun": 0,
+      "start": "2026-10-29T13:41:14.214485+00:00",
+      "load": [
+        20.6513671875,
+        22.1552734375,
+        23.8203125
+      ],
+      "holds": [
+        "test_retention_dependency_incomplete-1"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_alternates.py",
+      "passed": 23,
+      "unrun": 0,
+      "start": "2026-10-29T13:42:13.533048+00:00",
+      "load": [
+        17.416015625,
+        21.09765625,
+        23.31884765625
+      ],
+      "holds": [
+        "test_retention_alternates-1",
+        "test_retention_alternates-2",
+        "test_retention_alternates-3"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_job_dependencies.py",
+      "passed": 12,
+      "unrun": 0,
+      "start": "2026-10-29T13:47:59.256826+00:00",
+      "load": [
+        21.26513671875,
+        21.09033203125,
+        22.4951171875
+      ],
+      "holds": [
+        "test_retention_job_dependencies-1"
+      ]
+    },
+    {
+      "file": "tests/fake/test_retention_dependencies.py",
+      "passed": 30,
+      "unrun": 0,
+      "start": "2026-10-29T13:48:18.763375+00:00",
+      "load": [
+        22.8896484375,
+        21.419921875,
+        22.57763671875
+      ],
+      "holds": [
+        "test_retention_dependencies-1",
+        "test_retention_dependencies-2"
+      ]
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_spelling.py",
+      "passed": 16,
+      "unrun": 0,
+      "start": "2026-10-29T13:51:25.226404+00:00",
+      "load": [
+        25.93798828125,
+        23.4873046875,
+        23.2197265625
+      ],
+      "holds": [
+        "test_retention_dependency_spelling-1"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_dependency_units.py",
+      "passed": 19,
+      "unrun": 0,
+      "start": "2026-10-29T13:51:58.586522+00:00",
+      "load": [
+        24.91796875,
+        23.58349609375,
+        23.26953125
+      ],
+      "holds": [
+        "test_retention_dependency_units-1",
+        "test_retention_dependency_units-2",
+        "test_retention_dependency_units-3",
+        "test_retention_dependency_units-4",
+        "test_retention_dependency_units-5",
+        "test_retention_dependency_units-6",
+        "test_retention_dependency_units-7"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_folded_pin.py",
+      "passed": 38,
+      "unrun": 0,
+      "start": "2026-10-29T13:53:32.487567+00:00",
+      "load": [
+        16.48876953125,
+        21.1376953125,
+        22.35693359375
+      ],
+      "holds": [
+        "test_retention_folded_pin-1",
+        "test_retention_folded_pin-2",
+        "test_retention_folded_pin-3",
+        "test_retention_folded_pin-4",
+        "test_retention_folded_pin-5"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_dependency_properties.py",
+      "passed": 4,
+      "unrun": 0,
+      "start": "2026-10-29T13:57:26.380787+00:00",
+      "load": [
+        17.419921875,
+        19.90478515625,
+        21.50341796875
+      ],
+      "holds": [
+        "test_retention_dependency_properties-1",
+        "test_retention_dependency_properties-2",
+        "test_retention_dependency_properties-3",
+        "test_retention_dependency_properties-4"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_shared_folders.py",
+      "passed": 62,
+      "unrun": 0,
+      "start": "2026-10-29T14:08:03.170982+00:00",
+      "load": [
+        25.07275390625,
+        23.40966796875,
+        22.30419921875
+      ],
+      "holds": [
+        "test_retention_shared_folders-1",
+        "test_retention_shared_folders-2",
+        "test_retention_shared_folders-3",
+        "test_retention_shared_folders-4",
+        "test_retention_shared_folders-5",
+        "test_retention_shared_folders-6",
+        "test_retention_shared_folders-7",
+        "test_retention_shared_folders-8",
+        "test_retention_shared_folders-9"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_archive.py",
+      "passed": 108,
+      "unrun": 1,
+      "start": "2026-10-29T14:25:04.225689+00:00",
+      "load": [
+        60.0947265625,
+        52.2724609375,
+        39.056640625
+      ],
+      "holds": [
+        "test_retention_archive-1",
+        "test_retention_archive-2",
+        "test_retention_archive-3",
+        "test_retention_archive-4",
+        "test_retention_archive-retry-1",
+        "test_retention_archive-5",
+        "test_retention_archive-retry-2",
+        "test_retention_archive-6",
+        "test_retention_archive-7",
+        "test_retention_archive-8",
+        "test_retention_archive-9",
+        "test_retention_archive-10",
+        "test_retention_archive-11",
+        "test_retention_archive-12",
+        "test_retention_archive-13",
+        "test_retention_archive-14"
+      ]
+    },
+    {
+      "file": "tests/unit/test_retention_turns.py",
+      "passed": 7,
+      "unrun": 0,
+      "start": "2026-10-29T14:35:32.550004+00:00",
+      "load": [
+        32.49365234375,
+        35.89990234375,
+        37.02294921875
+      ],
+      "holds": [
+        "test_retention_turns-1"
+      ]
+    },
+    {
+      "file": "tests/fake/test_detached_retention_fence.py",
+      "passed": 89,
+      "unrun": 0,
+      "start": "2026-10-29T14:35:45.074493+00:00",
+      "load": [
+        33.0068359375,
+        35.927734375,
+        37.02099609375
+      ],
+      "holds": [
+        "test_detached_retention_fence-1",
+        "test_detached_retention_fence-2",
+        "test_detached_retention_fence-3",
+        "test_detached_retention_fence-4",
+        "test_detached_retention_fence-5",
+        "test_detached_retention_fence-6",
+        "test_detached_retention_fence-7",
+        "test_detached_retention_fence-8",
+        "test_detached_retention_fence-9"
+      ]
+    },
+    {
+      "file": "tests/fake/test_writer_retention_fence.py",
+      "passed": 23,
+      "unrun": 0,
+      "start": "2026-10-29T14:40:48.791459+00:00",
+      "load": [
+        32.05859375,
+        32.8427734375,
+        35.2421875
+      ],
+      "holds": [
+        "test_writer_retention_fence-1",
+        "test_writer_retention_fence-2",
+        "test_writer_retention_fence-3"
+      ]
+    },
+    {
+      "file": "tests/fake/test_state_contract.py",
+      "passed": 37,
+      "unrun": 0,
+      "start": "2026-10-29T14:41:56.138784+00:00",
+      "load": [
+        23.72021484375,
+        30.25927734375,
+        34.09423828125
+      ],
+      "holds": [
+        "test_state_contract-1",
+        "test_state_contract-2",
+        "test_state_contract-3",
+        "test_state_contract-4",
+        "test_state_contract-5"
+      ]
+    },
+    {
+      "file": "tests/unit/test_test_module_names.py",
+      "passed": 1,
+      "unrun": 0,
+      "start": "2026-10-29T14:42:57.795592+00:00",
+      "load": [
+        15.40625,
+        26.60302734375,
+        32.4404296875
+      ],
+      "holds": [
+        "test_test_module_names-1"
+      ]
+    },
+    {
+      "file": "tests/unit/test_invariants_index.py",
+      "passed": 25,
+      "unrun": 0,
+      "start": "2026-10-29T14:43:03.917873+00:00",
+      "load": [
+        15.45361328125,
+        26.4267578125,
+        32.34375
+      ],
+      "holds": [
+        "test_invariants_index-1",
+        "test_invariants_index-2",
+        "test_invariants_index-3",
+        "test_invariants_index-4",
+        "test_invariants_index-5"
+      ]
+    }
+  ]
+}

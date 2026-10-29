@@ -1,0 +1,44 @@
+import datetime
+import json
+import os
+from pathlib import Path
+import time
+from subfleet import dependencies, retention
+from subfleet.store import Store
+
+def test_terminal_exporters_3000_100(tmp_path):
+    root=tmp_path/'state';root.mkdir()
+    good=tmp_path/'good';bad=tmp_path/'bad'
+    for base,line in [(good,b'# valid\n'),(bad,b'"bad\\z"\n')]:
+        info=base/'.git'/'objects'/'info';info.mkdir(parents=True)
+        (info/'alternates').write_bytes(line)
+    store=Store(root/'state.sqlite3')
+    report={'jobs':3000,'live':100,'terminal_exporters':2900,'legacy_exporters':2900,'incomplete_exporters':1,'start':datetime.datetime.now(datetime.timezone.utc).isoformat(),'load':os.getloadavg()}
+    try:
+        now='2026-10-29T00:00:00Z'
+        rows=[];events=[];leases=[]
+        for n in range(3000):
+            job=f'job-{n:04d}';terminal=n<2900
+            workdir=str(bad if n==0 else good)
+            rows.append((job,job,'d','dispatch','succeeded' if terminal else 'running',workdir,str(root/'worktrees'/job) if terminal else None,'/p','workspace-write' if terminal else 'read-only',0,now))
+            events.append((now,'job.submitted',job,'{}'))
+            events.extend((now,'job.waiting',job,'{}') for _ in range(5000 if n>=2900 and n<2905 else 40))
+            if terminal:leases.append(('out:/export/'+job,job,now))
+        with store.transaction():
+            store.connection.executemany('INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,worktree,prompt_path,sandbox,in_place,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',rows)
+            store.connection.executemany('INSERT INTO events(ts,kind,job_id,data_json) VALUES (?,?,?,?)',events)
+            store.connection.executemany('INSERT INTO leases(lease_key,holder,acquired_at) VALUES (?,?,?)',leases)
+        store.connection.execute('ANALYZE')
+        report['events']=len(events)
+        report['plans']={name:[r['detail'] for r in store.query('EXPLAIN QUERY PLAN '+sql)] for name,sql in [('discovering',dependencies._DISCOVERING),('exporting',dependencies._EXPORTING)]}
+        start=time.perf_counter();census=dependencies.legacy(store.query);report['legacy_ms']=(time.perf_counter()-start)*1000
+        assert len(census)==3000 and set(census.incomplete)=={'job-0000'}
+        with store.transaction():
+            start=time.perf_counter();live=dependencies.live(store.query,census);report['recheck_ms']=(time.perf_counter()-start)*1000
+            assert len(live)==3000 and live.incomplete==census.incomplete
+            start=time.perf_counter();pins=retention._pin_reasons(store,set(),None,root=root,legacy=census);report['pins_ms']=(time.perf_counter()-start)*1000
+            assert all('dependency-incomplete' in pins[f'job-{n:04d}'] for n in range(2900))
+        report['pin_count']=len(pins)
+    finally:
+        store.close()
+        Path('/private/tmp/sf-r272r3/measurement.json').write_text(json.dumps(report,indent=2)+'\n')

@@ -1,0 +1,53 @@
+{
+  "name": "test_retention_archive-11",
+  "start": "2026-10-29T14:33:07.295205+00:00",
+  "load": [
+    33.1953125,
+    38.97314453125,
+    38.1591796875
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_byte_copies_count_as_added": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back",
+    "tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing",
+    "tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration",
+    "tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json",
+    "tests/unit/test_retention_archive.py::test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are",
+    "tests/unit/test_retention_archive.py::test_byte_copies_count_as_added"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 36.22771966599976,
+  "rss": 126189568
+}

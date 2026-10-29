@@ -1,0 +1,41 @@
+{
+  "name": "test_retention_archive-14",
+  "start": "2026-10-29T14:35:01.886484+00:00",
+  "load": [
+    26.28466796875,
+    35.29443359375,
+    36.86181640625
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name",
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does",
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 28.64463183398766,
+  "rss": 122257408
+}

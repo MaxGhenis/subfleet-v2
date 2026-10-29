@@ -1,0 +1,101 @@
+{
+  "name": "test_writer_retention_fence-1",
+  "start": "2026-10-29T14:40:48.791459+00:00",
+  "load": [
+    32.05859375,
+    32.8427734375,
+    35.2421875
+  ],
+  "phases": {
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 28.333794584003044,
+  "rss": 125059072
+}

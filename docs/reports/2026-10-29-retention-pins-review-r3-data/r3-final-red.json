@@ -1,0 +1,53 @@
+{
+  "name": "r3-final-red",
+  "start": "2026-10-29T14:42:29.468168+00:00",
+  "load": [
+    19.14599609375,
+    28.39501953125,
+    33.25927734375
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]"
+  ],
+  "loaded": [],
+  "rc": 1,
+  "seconds": 16.920988249999937,
+  "rss": 114589696
+}

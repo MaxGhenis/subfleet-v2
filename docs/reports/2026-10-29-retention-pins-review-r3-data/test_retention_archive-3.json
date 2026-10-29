@@ -1,0 +1,53 @@
+{
+  "name": "test_retention_archive-3",
+  "start": "2026-10-29T14:26:26.673226+00:00",
+  "load": [
+    51.78662109375,
+    53.0673828125,
+    40.716796875
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+    "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 35.00704504198802,
+  "rss": 122781696
+}

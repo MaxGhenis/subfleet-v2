@@ -1,0 +1,61 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:46:58Z slot B load 
+{"start": "2026-10-29T13:46:58.212516+00:00", "load": [19.8662109375, 20.71826171875, 22.47021484375], "name": "mutant-git-storage-alternates-one-level"}
+Ftmp_path = PosixPath('/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0')
+
+    def test_d1_alternates_are_followed(tmp_path):
+        """A clone that borrows objects (`--shared`, or an `alternates` line relative to
+        the objects directory, followed again from there) needs the object directories
+        it borrows from."""
+        source = repo(tmp_path / "tree" / "source")
+        clone = tmp_path / "clone"
+        git(tmp_path, "clone", "--quiet", "--shared", str(source), str(clone))
+        found = dependencies.git_storage(str(clone))
+        assert folders.canonical(source / ".git" / "objects") in found
+        middle = repo(tmp_path / "middle")
+        alternates = middle / ".git" / "objects" / "info" / "alternates"
+        alternates.parent.mkdir(parents=True, exist_ok=True)
+        alternates.write_text(f"# borrowed\n{os.path.relpath(clone / '.git' / 'objects', middle / '.git' / 'objects')}\n")
+        found = dependencies.git_storage(str(middle))
+        assert folders.canonical(clone / ".git" / "objects") in found
+>       assert folders.canonical(source / ".git" / "objects") in found          # followed again
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert '/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/tree/source/.git/objects' in ['/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/middle/.git', '/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/clone/.git/objects']
+E        +  where '/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/tree/source/.git/objects' = <function canonical at 0x10837b740>(((PosixPath('/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/tree/source') / '.git') / 'objects'))
+E        +    where <function canonical at 0x10837b740> = folders.canonical
+
+tests/unit/test_retention_dependency_units.py:149: AssertionError
+
+=================================== FAILURES ===================================
+_______________________ test_d1_alternates_are_followed ________________________
+
+tmp_path = PosixPath('/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0')
+
+    def test_d1_alternates_are_followed(tmp_path):
+        """A clone that borrows objects (`--shared`, or an `alternates` line relative to
+        the objects directory, followed again from there) needs the object directories
+        it borrows from."""
+        source = repo(tmp_path / "tree" / "source")
+        clone = tmp_path / "clone"
+        git(tmp_path, "clone", "--quiet", "--shared", str(source), str(clone))
+        found = dependencies.git_storage(str(clone))
+        assert folders.canonical(source / ".git" / "objects") in found
+        middle = repo(tmp_path / "middle")
+        alternates = middle / ".git" / "objects" / "info" / "alternates"
+        alternates.parent.mkdir(parents=True, exist_ok=True)
+        alternates.write_text(f"# borrowed\n{os.path.relpath(clone / '.git' / 'objects', middle / '.git' / 'objects')}\n")
+        found = dependencies.git_storage(str(middle))
+        assert folders.canonical(clone / ".git" / "objects") in found
+>       assert folders.canonical(source / ".git" / "objects") in found          # followed again
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert '/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/tree/source/.git/objects' in ['/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/middle/.git', '/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/clone/.git/objects']
+E        +  where '/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/tree/source/.git/objects' = <function canonical at 0x10837b740>(((PosixPath('/private/tmp/sf-r272r3/cases-49274/pytest/test_d1_alternates_are_followe0/tree/source') / '.git') / 'objects'))
+E        +    where <function canonical at 0x10837b740> = folders.canonical
+
+tests/unit/test_retention_dependency_units.py:149: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 0.89s

@@ -1,0 +1,110 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:25:58Z slot A load 
+{"start": "2026-10-29T14:25:58.952931+00:00", "load": [64.703125, 55.36474609375, 41.05859375], "name": "test_retention_archive-2"}
+Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-16327/pytest/test_local_path_remote_is_not_0'), trusted=True, remot...-r272r3/cases-16327/pytest/test_local_path_remote_is_not_0/state'), store=<subfleet.store.Store object at 0x1085b2660>)
+
+    def test_local_path_remote_is_not_a_remote(world):
+        """A remote whose URL is a local path is another repository retention does
+        not control: nothing is omitted on its account."""
+        w = world
+        git(w.repo, "remote", "set-url", "origin", str(w.remote))
+        w.job("job-localremote")
+        assert run(w)["pruned"] == ["job-localremote"]
+        manifest = json.loads((w.root / "archive" / "job-localremote" / "manifest.json").read_text())
+>       assert manifest["git"]["scratch"] == "no network remote"
+E       AssertionError: assert 'scratch path' == 'no network remote'
+E         
+E         - no network remote
+E         + scratch path
+
+tests/unit/test_retention_archive.py:245: AssertionError
+Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-16327/pytest/test_borrowed_or_shallow_objec0'), trusted=True, remot...-r272r3/cases-16327/pytest/test_borrowed_or_shallow_objec0/state'), store=<subfleet.store.Store object at 0x1086ba350>)
+marker = 'alternates'
+
+    @pytest.mark.parametrize("marker", ["alternates", "shallow"])
+    def test_borrowed_or_shallow_object_store_is_scratch(world, marker):
+        w = world
+        if marker == "alternates":
+            (w.repo / ".git" / "objects" / "info" / "alternates").write_text(str(w.remote / "objects") + "\n")
+        else:
+            (w.repo / ".git" / "shallow").write_text(w.head() + "\n")
+        reason = rgit.scratch_reason(w.repo / ".git", w.root, rgit.network_remotes(w.repo / ".git"))
+>       assert reason in ("borrows objects (alternates)", "shallow clone")
+E       AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+
+tests/unit/test_retention_archive.py:257: AssertionError
+Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-16327/pytest/test_borrowed_or_shallow_objec1'), trusted=True, remot...-r272r3/cases-16327/pytest/test_borrowed_or_shallow_objec1/state'), store=<subfleet.store.Store object at 0x1086bb390>)
+marker = 'shallow'
+
+    @pytest.mark.parametrize("marker", ["alternates", "shallow"])
+    def test_borrowed_or_shallow_object_store_is_scratch(world, marker):
+        w = world
+        if marker == "alternates":
+            (w.repo / ".git" / "objects" / "info" / "alternates").write_text(str(w.remote / "objects") + "\n")
+        else:
+            (w.repo / ".git" / "shallow").write_text(w.head() + "\n")
+        reason = rgit.scratch_reason(w.repo / ".git", w.root, rgit.network_remotes(w.repo / ".git"))
+>       assert reason in ("borrows objects (alternates)", "shallow clone")
+E       AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+
+tests/unit/test_retention_archive.py:257: AssertionError
+.....                                                                 [100%]
+=================================== FAILURES ===================================
+____________________ test_local_path_remote_is_not_a_remote ____________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-16327/pytest/test_local_path_remote_is_not_0'), trusted=True, remot...-r272r3/cases-16327/pytest/test_local_path_remote_is_not_0/state'), store=<subfleet.store.Store object at 0x1085b2660>)
+
+    def test_local_path_remote_is_not_a_remote(world):
+        """A remote whose URL is a local path is another repository retention does
+        not control: nothing is omitted on its account."""
+        w = world
+        git(w.repo, "remote", "set-url", "origin", str(w.remote))
+        w.job("job-localremote")
+        assert run(w)["pruned"] == ["job-localremote"]
+        manifest = json.loads((w.root / "archive" / "job-localremote" / "manifest.json").read_text())
+>       assert manifest["git"]["scratch"] == "no network remote"
+E       AssertionError: assert 'scratch path' == 'no network remote'
+E         
+E         - no network remote
+E         + scratch path
+
+tests/unit/test_retention_archive.py:245: AssertionError
+_________ test_borrowed_or_shallow_object_store_is_scratch[alternates] _________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-16327/pytest/test_borrowed_or_shallow_objec0'), trusted=True, remot...-r272r3/cases-16327/pytest/test_borrowed_or_shallow_objec0/state'), store=<subfleet.store.Store object at 0x1086ba350>)
+marker = 'alternates'
+
+    @pytest.mark.parametrize("marker", ["alternates", "shallow"])
+    def test_borrowed_or_shallow_object_store_is_scratch(world, marker):
+        w = world
+        if marker == "alternates":
+            (w.repo / ".git" / "objects" / "info" / "alternates").write_text(str(w.remote / "objects") + "\n")
+        else:
+            (w.repo / ".git" / "shallow").write_text(w.head() + "\n")
+        reason = rgit.scratch_reason(w.repo / ".git", w.root, rgit.network_remotes(w.repo / ".git"))
+>       assert reason in ("borrows objects (alternates)", "shallow clone")
+E       AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+
+tests/unit/test_retention_archive.py:257: AssertionError
+__________ test_borrowed_or_shallow_object_store_is_scratch[shallow] ___________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-16327/pytest/test_borrowed_or_shallow_objec1'), trusted=True, remot...-r272r3/cases-16327/pytest/test_borrowed_or_shallow_objec1/state'), store=<subfleet.store.Store object at 0x1086bb390>)
+marker = 'shallow'
+
+    @pytest.mark.parametrize("marker", ["alternates", "shallow"])
+    def test_borrowed_or_shallow_object_store_is_scratch(world, marker):
+        w = world
+        if marker == "alternates":
+            (w.repo / ".git" / "objects" / "info" / "alternates").write_text(str(w.remote / "objects") + "\n")
+        else:
+            (w.repo / ".git" / "shallow").write_text(w.head() + "\n")
+        reason = rgit.scratch_reason(w.repo / ".git", w.root, rgit.network_remotes(w.repo / ".git"))
+>       assert reason in ("borrows objects (alternates)", "shallow clone")
+E       AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+
+tests/unit/test_retention_archive.py:257: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote
+FAILED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]
+FAILED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]
+3 failed, 5 passed in 16.81s

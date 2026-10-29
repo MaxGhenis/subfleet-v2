@@ -1,0 +1,10 @@
+{
+  "completed": "2026-10-29T14:46:04.367414+00:00",
+  "roots_removed": [
+    "/private/tmp/sf-r272r3",
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-084118-pr272-review-r3-a1-04vmk40r/sf-r272r3"
+  ],
+  "all_owned_run_sessions_completed": true,
+  "readonly_fixture_directory_made_owner_writable_before_guarded_cleanup": true,
+  "head": "e4b20c9e54a8261613ee5a78a72a5f58b489f4c3"
+}

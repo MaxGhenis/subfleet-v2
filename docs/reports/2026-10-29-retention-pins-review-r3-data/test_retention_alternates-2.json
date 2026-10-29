@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_alternates-2",
+  "start": "2026-10-29T13:46:51.354988+00:00",
+  "load": [
+    20.8994140625,
+    20.93310546875,
+    22.5556640625
+  ],
+  "phases": {
+    "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 47.35458470899903,
+  "rss": 116457472
+}

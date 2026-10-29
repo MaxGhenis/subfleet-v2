@@ -1,0 +1,59 @@
+{
+  "name": "test_retention_turns-1",
+  "start": "2026-10-29T14:35:32.550004+00:00",
+  "load": [
+    32.49365234375,
+    35.89990234375,
+    37.02294921875
+  ],
+  "phases": {
+    "tests/unit/test_retention_turns.py::test_each_pool_prunes_only_against_its_own_budget": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_byte_budgets_are_separate_too": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_a_turn_job_is_kept_for_days_after_it_ends": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_the_conversation_services_pins_are_asked_again_inside_the_delete": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_pins_keep_what_a_conversation_still_needs": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[None]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_turns.py::test_each_pool_prunes_only_against_its_own_budget",
+    "tests/unit/test_retention_turns.py::test_byte_budgets_are_separate_too",
+    "tests/unit/test_retention_turns.py::test_a_turn_job_is_kept_for_days_after_it_ends",
+    "tests/unit/test_retention_turns.py::test_the_conversation_services_pins_are_asked_again_inside_the_delete",
+    "tests/unit/test_retention_turns.py::test_pins_keep_what_a_conversation_still_needs",
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[None]",
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[]"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 11.427696750004543,
+  "rss": 113295360
+}

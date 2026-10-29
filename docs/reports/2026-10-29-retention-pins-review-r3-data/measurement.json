@@ -1,0 +1,33 @@
+{
+  "jobs": 3000,
+  "live": 100,
+  "terminal_exporters": 2900,
+  "legacy_exporters": 2900,
+  "incomplete_exporters": 1,
+  "start": "2026-10-29T13:37:07.392109+00:00",
+  "load": [
+    24.9443359375,
+    22.8271484375,
+    24.45458984375
+  ],
+  "events": 147800,
+  "plans": {
+    "discovering": [
+      "SCAN jobs",
+      "LIST SUBQUERY 2",
+      "SCAN leases",
+      "CREATE BLOOM FILTER",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH e USING INDEX events_job (job_id=?)"
+    ],
+    "exporting": [
+      "SCAN leases",
+      "SEARCH jobs USING INDEX sqlite_autoindex_jobs_1 (job_id=?) LEFT-JOIN",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH e USING INDEX events_job (job_id=?)"
+    ]
+  },
+  "legacy_ms": 2536.670667002909,
+  "recheck_ms": 211.0283329966478,
+  "pins_ms": 255.7833749888232
+}

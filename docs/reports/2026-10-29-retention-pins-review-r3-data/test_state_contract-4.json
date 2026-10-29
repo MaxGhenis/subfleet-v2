@@ -1,0 +1,71 @@
+{
+  "name": "test_state_contract-4",
+  "start": "2026-10-29T14:42:44.534548+00:00",
+  "load": [
+    17.18115234375,
+    27.5087890625,
+    32.85791015625
+  ],
+  "phases": {
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 5.798598458000924,
+  "rss": 119406592
+}

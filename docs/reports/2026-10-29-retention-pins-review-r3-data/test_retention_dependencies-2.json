@@ -1,0 +1,77 @@
+{
+  "name": "test_retention_dependencies-2",
+  "start": "2026-10-29T13:50:31.798834+00:00",
+  "load": [
+    25.44384765625,
+    23.0927734375,
+    23.08056640625
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 22.82339841600333,
+  "rss": 127549440
+}

@@ -1,0 +1,23 @@
+{
+  "name": "test_detached_retention_fence-6",
+  "start": "2026-10-29T14:38:03.419659+00:00",
+  "load": [
+    34.4716796875,
+    35.22802734375,
+    36.51318359375
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 34.52566125000885,
+  "rss": 124026880
+}

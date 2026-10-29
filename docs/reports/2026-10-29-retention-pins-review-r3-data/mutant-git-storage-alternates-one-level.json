@@ -1,0 +1,29 @@
+{
+  "name": "mutant-git-storage-alternates-one-level",
+  "start": "2026-10-29T13:46:58.212516+00:00",
+  "load": [
+    19.8662109375,
+    20.71826171875,
+    22.47021484375
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "85c0ff91aca4aed9253a25c537ce6f4749d7583037514930c10fec32b79177a1"
+    }
+  ],
+  "rc": 1,
+  "seconds": 2.1421572500112234,
+  "rss": 114327552
+}

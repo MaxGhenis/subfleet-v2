@@ -1,0 +1,249 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:45:15Z slot A load 
+{"start": "2026-10-29T13:45:15.230900+00:00", "load": [21.79345703125, 21.21875, 22.8662109375], "name": "r3-red"}
+Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s0'), trusted=True, remot...-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s0/state'), store=<subfleet.store.Store object at 0x107a71e80>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107773820>
+state = 'running'
+
+    @pytest.mark.xfail(strict=True, reason="R3-F1: resolved alternates checks miss a retargeted .git ancestor")
+    @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
+    def test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree(world, monkeypatch, state):
+        tree = world.job("owner")
+        source = repo(tree / "source")
+        commit = git(source, "rev-parse", "HEAD")
+        old = repo(world.base / "old")
+        outside = world.base / "outside"
+        outside.mkdir()
+        link = outside / ".git"
+        link.symlink_to(old / ".git")
+        alternate = old / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        before = alternate.stat()
+        real = dependencies.open_regular
+        swapped = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not swapped:
+                            swapped.append(True)
+                            link.unlink()
+                            link.symlink_to(source / ".git")
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(outside))
+        assert swapped
+        after = alternate.stat()
+        for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns"):
+            assert getattr(before, field) == getattr(after, field)
+        assert git(outside, "cat-file", "-t", commit) == "commit"
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s0/old/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47944, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r3.py:62: AssertionError
+Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s1'), trusted=True, remot...-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s1/state'), store=<subfleet.store.Store object at 0x107bea850>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107ba5c70>
+state = 'succeeded'
+
+    @pytest.mark.xfail(strict=True, reason="R3-F1: resolved alternates checks miss a retargeted .git ancestor")
+    @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
+    def test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree(world, monkeypatch, state):
+        tree = world.job("owner")
+        source = repo(tree / "source")
+        commit = git(source, "rev-parse", "HEAD")
+        old = repo(world.base / "old")
+        outside = world.base / "outside"
+        outside.mkdir()
+        link = outside / ".git"
+        link.symlink_to(old / ".git")
+        alternate = old / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        before = alternate.stat()
+        real = dependencies.open_regular
+        swapped = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not swapped:
+                            swapped.append(True)
+                            link.unlink()
+                            link.symlink_to(source / ".git")
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(outside))
+        assert swapped
+        after = alternate.stat()
+        for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns"):
+            assert getattr(before, field) == getattr(after, field)
+        assert git(outside, "cat-file", "-t", commit) == "commit"
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s1/old/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47944, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r3.py:62: AssertionError
+                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s0'), trusted=True, remot...-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s0/state'), store=<subfleet.store.Store object at 0x107a71e80>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107773820>
+state = 'running'
+
+    @pytest.mark.xfail(strict=True, reason="R3-F1: resolved alternates checks miss a retargeted .git ancestor")
+    @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
+    def test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree(world, monkeypatch, state):
+        tree = world.job("owner")
+        source = repo(tree / "source")
+        commit = git(source, "rev-parse", "HEAD")
+        old = repo(world.base / "old")
+        outside = world.base / "outside"
+        outside.mkdir()
+        link = outside / ".git"
+        link.symlink_to(old / ".git")
+        alternate = old / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        before = alternate.stat()
+        real = dependencies.open_regular
+        swapped = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not swapped:
+                            swapped.append(True)
+                            link.unlink()
+                            link.symlink_to(source / ".git")
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(outside))
+        assert swapped
+        after = alternate.stat()
+        for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns"):
+            assert getattr(before, field) == getattr(after, field)
+        assert git(outside, "cat-file", "-t", commit) == "commit"
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s0/old/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47944, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r3.py:62: AssertionError
+_ test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s1'), trusted=True, remot...-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s1/state'), store=<subfleet.store.Store object at 0x107bea850>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107ba5c70>
+state = 'succeeded'
+
+    @pytest.mark.xfail(strict=True, reason="R3-F1: resolved alternates checks miss a retargeted .git ancestor")
+    @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
+    def test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree(world, monkeypatch, state):
+        tree = world.job("owner")
+        source = repo(tree / "source")
+        commit = git(source, "rev-parse", "HEAD")
+        old = repo(world.base / "old")
+        outside = world.base / "outside"
+        outside.mkdir()
+        link = outside / ".git"
+        link.symlink_to(old / ".git")
+        alternate = old / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        before = alternate.stat()
+        real = dependencies.open_regular
+        swapped = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not swapped:
+                            swapped.append(True)
+                            link.unlink()
+                            link.symlink_to(source / ".git")
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(outside))
+        assert swapped
+        after = alternate.stat()
+        for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns"):
+            assert getattr(before, field) == getattr(after, field)
+        assert git(outside, "cat-file", "-t", commit) == "commit"
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r3/cases-35064/pytest/test_c8_4_git_parent_symlink_s1/old/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47944, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r3.py:62: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]
+FAILED tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]
+2 failed in 11.52s

@@ -1,0 +1,12 @@
+{
+  "fix_r2_red": {
+    "failed": 6,
+    "passed": 30
+  },
+  "fix_r2_ordinary_unique": 452,
+  "fix_r2_ordinary_outcomes": {
+    "passed": 452
+  },
+  "fix_r1_saved_file_count_total": 545,
+  "fix_r1_saved_files": 21
+}

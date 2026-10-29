@@ -1,0 +1,29 @@
+{
+  "name": "mutant-git-storage-no-commondir",
+  "start": "2026-10-29T13:46:41.565767+00:00",
+  "load": [
+    22.32763671875,
+    21.203125,
+    22.66943359375
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "8b3ce0c5e68ce313ba826d4058c5439c4db5247a01c339ec85b6217889a6248c"
+    }
+  ],
+  "rc": 1,
+  "seconds": 12.174426124998718,
+  "rss": 115474432
+}
