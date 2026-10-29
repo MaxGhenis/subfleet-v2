@@ -55,7 +55,7 @@ No remaining mutant is labelled equivalent. No product defect has been observed.
 
 ## Step 2: the three previously capped properties
 
-Each property runs alone in its own hold at its existing normal settings, with a 2,700-second execution cap. Completed Hypothesis engine evaluations are counted observationally without changing generation. Explicit examples are counted at successful `execute_once` returns. Terminal Hypothesis statistics are checked on normal completion; caps receive only the observed completed prefix.
+Each property runs alone in its own hold at its existing normal settings, with a 2,700-second execution cap. Completed Hypothesis engine evaluations are counted observationally without changing generation. Explicit examples are counted at successful `execute_once` returns. Terminal Hypothesis statistics confirm the first two properties. The fence property wraps a nested given function, so its counts come from the observational engine and explicit-example counters; its outer pytest call emits no nested terminal statistics. Caps would receive only the observed completed prefix.
 
 | Property | Observed examples | Outcome | Start UTC | Load | P/F/U |
 |---|---|---|---|---:|---|
@@ -65,20 +65,20 @@ Each property runs alone in its own hold at its existing normal settings, with a
 
 ## Step 3: measurement
 
-The existing pending tool is copied unchanged to scratch. Final revalidation checks both old SQL statements byte-for-byte against release `c9430763f`, compares the final owner loop by AST after normalizing the supplied root and empty legacy inputs, and compares a small untimed synthetic store against both queries and the final `_pin_reasons`. Measurement runs use only synthetic scratch-owned stores under the test lock. Each requested scale gets exactly one timed read per side; there are no other timing runs or tuning changes.
+The existing pending tool was copied unchanged to scratch. Final revalidation passed in its own hold: it checks both old SQL statements byte-for-byte against release `c9430763f`, compares the final owner loop by AST after normalizing the supplied root and empty legacy inputs, and compares a small untimed synthetic store against both queries and the final `_pin_reasons`. Measurement runs use only synthetic scratch-owned stores under the test lock. Each requested scale gets exactly one timed read per side; there are no other timing runs or tuning changes.
 
 | Scale | Old query ms | New query ms | New/old | Run start UTC | Old load (1/5/15) | New load (1/5/15) | Pins / events |
 |---|---:|---:|---:|---|---|---|---|
-| 3,000 jobs / 100 live | unrun | unrun | — | — | — | — | — |
-| 6,000 jobs / 600 live | unrun | unrun | — | — | — | — | — |
+| 3,000 jobs / 100 live | 164.445 | 10.267 | 0.062× | 01:06:23 | 12.7 / 13.8 / 24.0 | 12.7 / 13.8 / 24.0 | 22 / 147,801 |
+| 6,000 jobs / 600 live | 1565.193 | 32.488 | 0.021× | 01:08:04 | 12.4 / 13.4 / 22.7 | 12.4 / 13.4 / 22.7 | 117 / 345,201 |
 
-The 3,000-job fixture has 2,900 owners, 100 live jobs, 40 waiting events per ordinary job, five long waiters with 5,000 events each, 10 pending exports and no legacy jobs. The 6,000-job fixture has 5,400 owners, 600 live jobs, 20 long waiters and 50 pending exports. Seed is 7. Both pin sets must agree. These are pin-query comparisons, not end-to-end retention timings.
+The 3,000-job fixture has 2,900 owners, 100 live jobs, 40 waiting events per ordinary job, five long waiters with 5,000 events each, 10 pending exports and no legacy jobs. The 6,000-job fixture has 5,400 owners, 600 live jobs, 20 long waiters and 50 pending exports. Seed is 7. Both pin sets must agree. These are pin-query comparisons, not end-to-end retention timings. Python is 3.14.7 and SQLite is 3.53.4. Both new queries are below the 2×-old threshold; no conditional query-plan dump or tuning is needed.
 
 ## Holds
 
 Environment sync ran once through `uv_sync_hold.sh`: locked Python 3.14.7 / pytest 9.1.1 / Hypothesis 6.168.1. Every test uses `uv run --no-sync`, private TMPDIR and Hypothesis storage, with bytecode disabled. The wrapper’s sandbox-denied `sysctl` output supplies no load evidence; the tables use Python’s actual host readings.
 
-An early optional wrapper RSS check using `ps` was denied. It was removed in favor of `resource.getrusage(RUSAGE_SELF)`. Four affected pytest sessions completed setup, call and teardown and exited normally before wrapper failure: `commondir-red`, `git-storage-gitfile-relative-to-cwd`, `git-storage-nearest-ignores-gitfiles`, and `record-raw-spelling`. Their JSON phase records and lock-admission log lines establish the results; wrapper exit status is not presented as pytest status. The sequencer resumed only unstarted mutants.
+An early optional wrapper RSS check using `ps` was denied. It was removed in favor of `resource.getrusage(RUSAGE_SELF)`. Four affected pytest sessions recorded completed setup, call and teardown and the expected pytest session-finish status 1 before wrapper failure: `commondir-red`, `git-storage-gitfile-relative-to-cwd`, `git-storage-nearest-ignores-gitfiles`, and `record-raw-spelling`. Their JSON phase records and lock-admission log lines establish the results; wrapper exit status is not presented as pytest status. The sequencer resumed only unstarted mutants.
 
 | Hold | Start UTC | Load | P/F/U | Lock | Result |
 |---|---|---:|---|---|---|
@@ -106,10 +106,17 @@ An early optional wrapper RSS check using `ps` was denied. It was removed in fav
 | `property-reference` | 00:55:11 | 19.5 | 1/0/0 | locked | exit 0 |
 | `property-monotone` | 00:56:15 | 19.6 | 1/0/0 | locked | exit 0 |
 | `property-fences` | 01:02:19 | 10.2 | 1/0/0 | locked | exit 0 |
+| `measurement-preflight` | 01:04:54 | 14.1 | 1/0/0 | locked | exit 0 |
+| `timing-3000` | 01:06:22 | 12.9 | 1/0/0 | locked | exit 0 |
+| `timing-6000` | 01:08:03 | 12.3 | 1/0/0 | locked | exit 0 |
 
 ## Closeout and open work
 
-This report is updated and committed after each ordered step. Remaining work and cleanup verification are recorded below when the runs finish.
+All 4b work is complete: sixteen killed mutants, all three normal-setting properties, final tool revalidation, and both one-shot comparisons. All **27 holds were locked**; no outside-lock fallback or cap was used. Head pytest executions are **117 passed / 0 failed / 0 unfinished**. Across all holds, including the expected mutation failures and initial survivor, counts are **119 passed / 16 failed / 22 unfinished selected nodes**. The 22 unfinished mutant selections are later parameters skipped by `-x` after their mutant was killed; they are not open head checks.
+
+All test processes ended by 01:08:09 UTC. All **50 recorded owned PIDs** were absent at closeout. The largest observed Python maximum RSS was **140.03 MiB**; scratch was **75.92 MiB** at the closeout sample, below the 2 GB disk allowance. No host-load generator ran. No bytecode, pytest cache or Hypothesis storage was left in the worktree. The bundle is verified before the supplied guarded scratch cleanup, which is the final delivery action.
+
+No 4b check remains unrun. Continuation 4a's contract audit/integration and CI remain separate work; this continuation does not certify PR readiness. The full suite and Python 3.12 were not run locally. `tests/frontend/test_core_live.py` remains CI-only: the lane's person-only daemon check prevents the probe at step 5, as the supplied rules specify.
 
 Source SHA-256:
 
