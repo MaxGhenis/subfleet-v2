@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from subfleet import relay as relay_module
 from subfleet.conversations import runner as runner_module
 from subfleet.conversations.reconcile import Evidence, settle
 from subfleet.conversations.store import ConversationError
@@ -140,9 +141,12 @@ def test_a_real_exited_fake_is_not_a_relay_failure_while_the_guardian_wait_holds
 
     POSIX Popen.wait holds _waitpid_lock across waitpid. While it is held, poll
     returns None without looking in the kernel, even for an already exited child.
-    WNOWAIT lets this test prove that exit without reaping or updating Popen.
+    The relay's exit helper peeks at the kernel with WNOWAIT (fix r4), so this test
+    proves that exit through it, on both CI Pythons (3.12 has no os.waitid), without
+    reaping or updating Popen.
     """
     r = recovery
+    exited_by, peek = relay_module.child_exited, relay_module._exit_peek
     fake = Path(__file__).resolve().parents[2] / "tests" / "bin" / "claude"
     fake_home = r.adir / "fake-home"
     fake_home.mkdir()
@@ -176,9 +180,8 @@ def test_a_real_exited_fake_is_not_a_relay_failure_while_the_guardian_wait_holds
                 if frame.get("tag") == "user-message":
                     assert answer["ok"]
                     while True:
-                        exited = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
-                        if exited is not None:
-                            observed.append(exited)
+                        if exited_by(child):
+                            observed.append(peek(child.pid))
                             break
                         assert time.monotonic() < deadline, "SECRET7 fake did not exit after its ack"
                         pause.wait(0.01)
