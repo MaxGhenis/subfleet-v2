@@ -1,6 +1,6 @@
-# Retention dependency pins: continuation 4 handoff, 2026-10-29
+# Retention dependency pins: review handoff, 2026-10-29
 
-**Not ready for review: one code finding (D1) is open.** Continuations 4a and 4b (2026-10-29) closed continuation 3's open work: all 33 mutants are now killed but one intended equivalent, the three capped properties pass at normal settings, both one-shot measurements ran, and the contract and decision audit is done. The audit found D1: a late fence on a Unicode alias names the wrong `folder` and `needs` in the hold, though admission stays blocked. Continuation 3's section below keeps its own counts as of 2026-10-28.
+**D1 fixed; review evidence complete, CI pending.** Continuations 4a and 4b closed continuation 3's outstanding audit, mutation, property and measurement work: **32 mutants killed plus 1 intended equivalent**, three properties at normal settings and both one-shot measurements. Continuation 5 fixes the audit's Unicode hold-description defect with a shared dependency key, a red/green regression, generated aliases and three targeted mutant runs. The legacy detached-folder fold is unchanged. [Continuation 5 evidence and PR-body text](2026-10-29-retention-pins-c5-build.md) give current results; older sections retain their historical counts.
 
 ## Continuations 4a and 4b, 2026-10-29
 
@@ -13,14 +13,14 @@ Two lane jobs ran in parallel on `2f1c81ab9` and touched disjoint files; each de
 | Audit target | Verdict |
 |---|---|
 | C-6.5 | reader-row description corrected |
-| C-6.11 | true, but code finding D1 breaks its `folder`/`needs` promise for one input |
+| C-6.11 | true after D1 fix `42bdf10798ba`; early and late holds name `folder`/`needs` |
 | C-8.3 | true |
-| C-8.4 | folded-fence claims corrected; D1 remains |
+| C-8.4 | folded-fence claims corrected; hold-description D1 fixed in `42bdf10798ba` |
 | C-13.4, C-24.5, C-26.3 | true |
 | Turn-folder case-alias decision | SQL and firmlink claims corrected |
 | Desktop retention archive | merged-implementation and fence claims corrected |
 
-**D1:** the blocking query (`dependencies.fences`) folds a path as NFD(casefold(NFD(path))), but the reserving hold's attribution folds it as NFC(path).casefold(). The two differ for a component such as Greek `\u0390`. So a late fence on such an alias leaves `folder` and `needs` out of the hold. The job still waits; only the hold's description is wrong. The audit's fake replay shows it (1 passed, 1 failed); product code is unchanged. Guards: 63 passed before and after the edits.
+**D1 fixed in `42bdf10798ba43551adb98fdf9cf81a1ed0eed98`:** the blocking query and the reserving hold's dependency attribution both use `dependencies.key`: normalized NFD(casefold(NFD(path))). The `ΐ` / `Ϊ́` regression fails on the late fence at `ce9e154eb` (1 passed, 1 failed), then passes both cases with the fix. `folders.retiring_folded` retains its legacy NFC plus casefold behavior. The audit's original replay and 63 passing pre/post-edit guards remain historical evidence; continuation 5 adds the current generated property and mutant checks.
 
 ### 4b: mutants, capped properties and measurement
 
@@ -37,9 +37,12 @@ Two lane jobs ran in parallel on `2f1c81ab9` and touched disjoint files; each de
 
 - **Head:** 117 passed across 27 locked holds, none failed or unfinished.
 
+### 5: Unicode dependency hold attribution
+
+[Continuation 5](2026-10-29-retention-pins-c5-build.md) preserves the audit's exact alias as a regression and changes only dependency attribution to the same shared key used for blocking. A generated property checks the independent canonical caseless oracle, the blocking query and the actual early/late hold across all dependency roles. The new attribution mutant and 4b's `collate-nocase-restored` / `record-raw-spelling` are killed by their named tests: **33 distinct killed mutants plus 1 intended equivalent** across the PR, counting the two replays once. All **169 distinct requested nodes passed**, including the three prior properties at normal settings (100, 100 and 400 generated examples plus 12 explicit), the new Unicode property (100 generated plus 1 explicit), and the 63 guards. C-6.11 and C-8.4 describe the fixed behavior; the audit marks D1 resolved with its commit. No hub decision required a deviation.
+
 ### Still open
 
-- D1's fix and its regression test.
 - CI, the full suite and Python 3.12 (not run on the lanes).
 
 ## Continuation 3, 2026-10-28

@@ -1,0 +1,1708 @@
+{
+  "base": "ce9e154ebf7e7e4ceab59a89e86885e5d3035b60",
+  "product_commit": "42bdf10798ba43551adb98fdf9cf81a1ed0eed98",
+  "property_mutant_commit": "09eb8ab36",
+  "seed": 217,
+  "normal_settings": true,
+  "final_requested_unique_passed": 169,
+  "pending": [],
+  "runs": [
+    {
+      "label": "red",
+      "start": "2026-10-29T01:59:54.489452+00:00",
+      "load": [
+        18.75341796875,
+        26.22119140625,
+        26.65185546875
+      ],
+      "pid": 78641,
+      "args": [
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place"
+      ],
+      "selected": [
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]"
+      ],
+      "counts": {
+        "passed": 1,
+        "failed": 1
+      },
+      "by_file": {
+        "tests/fake/test_retention_dependencies.py": {
+          "passed": 1,
+          "failed": 1
+        }
+      },
+      "seconds": 13.122262040997157,
+      "maxrss": 125403136,
+      "exitstatus": 1,
+      "phases": {
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]": {
+          "setup": "passed",
+          "call": "failed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true
+    },
+    {
+      "label": "green",
+      "start": "2026-10-29T02:01:30.869526+00:00",
+      "load": [
+        15.35791015625,
+        23.2548828125,
+        25.47021484375
+      ],
+      "pid": 97700,
+      "args": [
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place"
+      ],
+      "selected": [
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]"
+      ],
+      "counts": {
+        "passed": 2
+      },
+      "by_file": {
+        "tests/fake/test_retention_dependencies.py": {
+          "passed": 2
+        }
+      },
+      "seconds": 7.548122874999535,
+      "maxrss": 127975424,
+      "exitstatus": 0,
+      "phases": {
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true
+    },
+    {
+      "label": "fake",
+      "start": "2026-10-29T02:19:51.889672+00:00",
+      "load": [
+        39.576171875,
+        36.8173828125,
+        32.89990234375
+      ],
+      "pid": 65748,
+      "args": [
+        "tests/fake/test_retention_dependencies.py"
+      ],
+      "selected": [
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+        "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+        "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+        "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+        "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]"
+      ],
+      "counts": {
+        "passed": 30
+      },
+      "by_file": {
+        "tests/fake/test_retention_dependencies.py": {
+          "passed": 30
+        }
+      },
+      "seconds": 161.50888162500632,
+      "maxrss": 128335872,
+      "exitstatus": 0,
+      "phases": {
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true
+    },
+    {
+      "label": "units",
+      "start": "2026-10-29T02:23:44.914747+00:00",
+      "load": [
+        76.20361328125,
+        55.0634765625,
+        41.3291015625
+      ],
+      "pid": 24966,
+      "args": [
+        "tests/unit/test_retention_dependency_units.py"
+      ],
+      "selected": [
+        "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+        "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+        "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+        "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+        "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+        "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+        "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+        "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+        "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+        "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+        "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+        "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+        "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+        "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+        "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+        "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+        "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+        "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+        "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction"
+      ],
+      "counts": {
+        "passed": 19
+      },
+      "by_file": {
+        "tests/unit/test_retention_dependency_units.py": {
+          "passed": 19
+        }
+      },
+      "seconds": 121.35129845800111,
+      "maxrss": 124338176,
+      "exitstatus": 0,
+      "phases": {
+        "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [
+          {
+            "valid": 12,
+            "calls": 12,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 12
+              }
+            }
+          },
+          {
+            "valid": 150,
+            "calls": 173,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 150,
+                "overrun": 23
+              }
+            }
+          },
+          {
+            "valid": 60,
+            "calls": 64,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 60,
+                "overrun": 4
+              }
+            }
+          },
+          {
+            "valid": 200,
+            "calls": 220,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 200,
+                "overrun": 20
+              }
+            }
+          }
+        ],
+        "explicit_passed": 0
+      },
+      "locked": true
+    },
+    {
+      "label": "d1-property",
+      "start": "2026-10-29T02:22:51.996942+00:00",
+      "load": [
+        83.00244140625,
+        50.82080078125,
+        38.96435546875
+      ],
+      "pid": 13837,
+      "args": [
+        "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks"
+      ],
+      "selected": [
+        "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks"
+      ],
+      "counts": {
+        "failed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_folded_pin.py": {
+          "failed": 1
+        }
+      },
+      "seconds": 33.39145024999743,
+      "maxrss": 119799808,
+      "exitstatus": 1,
+      "phases": {
+        "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks": {
+          "setup": "passed",
+          "call": "failed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true
+    },
+    {
+      "label": "d1-property-green",
+      "start": "2026-10-29T02:25:43.175869+00:00",
+      "load": [
+        51.35009765625,
+        53.52001953125,
+        42.5166015625
+      ],
+      "pid": 64955,
+      "args": [
+        "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks"
+      ],
+      "selected": [
+        "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks"
+      ],
+      "counts": {
+        "passed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_folded_pin.py": {
+          "passed": 1
+        }
+      },
+      "seconds": 170.78497962499387,
+      "maxrss": 131366912,
+      "exitstatus": 0,
+      "phases": {
+        "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [
+          {
+            "valid": 100,
+            "calls": 146,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 100,
+                "overrun": 46
+              }
+            }
+          }
+        ],
+        "explicit_passed": 1
+      },
+      "locked": true
+    },
+    {
+      "label": "folded",
+      "start": "2026-10-29T02:28:48.351245+00:00",
+      "load": [
+        43.755859375,
+        47.72705078125,
+        42.046875
+      ],
+      "pid": 32136,
+      "args": [
+        "tests/unit/test_retention_folded_pin.py",
+        "-k",
+        "not dependency_hold_names_every_place_the_canonical_caseless_query_blocks"
+      ],
+      "selected": [
+        "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+        "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+        "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+        "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+        "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+        "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+        "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+        "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+        "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+        "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+        "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+        "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+        "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+        "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+        "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job"
+      ],
+      "counts": {
+        "passed": 37
+      },
+      "by_file": {
+        "tests/unit/test_retention_folded_pin.py": {
+          "passed": 37
+        }
+      },
+      "seconds": 122.65638495900203,
+      "maxrss": 137691136,
+      "exitstatus": 0,
+      "phases": {
+        "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [
+          {
+            "valid": 500,
+            "calls": 724,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "invalid": 11,
+                "valid": 500,
+                "overrun": 213
+              }
+            }
+          },
+          {
+            "valid": 150,
+            "calls": 174,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 150,
+                "overrun": 24
+              }
+            }
+          }
+        ],
+        "explicit_passed": 3
+      },
+      "locked": true
+    },
+    {
+      "label": "spelling",
+      "start": "2026-10-29T02:31:59.147655+00:00",
+      "load": [
+        14.21142578125,
+        31.26513671875,
+        36.150390625
+      ],
+      "pid": 16204,
+      "args": [
+        "tests/fake/test_retention_dependency_spelling.py"
+      ],
+      "selected": [
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]"
+      ],
+      "counts": {
+        "passed": 16
+      },
+      "by_file": {
+        "tests/fake/test_retention_dependency_spelling.py": {
+          "passed": 16
+        }
+      },
+      "seconds": 35.94734395900741,
+      "maxrss": 129646592,
+      "exitstatus": 0,
+      "phases": {
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true
+    },
+    {
+      "label": "mutant-attribution",
+      "start": "2026-10-29T02:31:36.069134+00:00",
+      "load": [
+        16.3740234375,
+        32.82568359375,
+        36.802734375
+      ],
+      "pid": 6868,
+      "args": [
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+        "-x"
+      ],
+      "selected": [
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]"
+      ],
+      "counts": {
+        "failed": 1
+      },
+      "by_file": {
+        "tests/fake/test_retention_dependencies.py": {
+          "failed": 1
+        }
+      },
+      "seconds": 14.95366162499704,
+      "maxrss": 129056768,
+      "exitstatus": 1,
+      "phases": {
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]": {
+          "setup": "passed",
+          "call": "failed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true,
+      "mutant": "attribution-back-on-folded",
+      "mutant_loaded": "attribution-back-on-folded"
+    },
+    {
+      "label": "mutant-collate",
+      "start": "2026-10-29T02:31:09.786127+00:00",
+      "load": [
+        20.10205078125,
+        34.890625,
+        37.626953125
+      ],
+      "pid": 94016,
+      "args": [
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+        "-x"
+      ],
+      "selected": [
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]"
+      ],
+      "counts": {
+        "failed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_folded_pin.py": {
+          "failed": 1
+        }
+      },
+      "seconds": 13.50908645799791,
+      "maxrss": 112836608,
+      "exitstatus": 1,
+      "phases": {
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]": {
+          "setup": "passed",
+          "call": "failed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true,
+      "mutant": "collate-nocase-restored",
+      "mutant_loaded": "collate-nocase-restored"
+    },
+    {
+      "label": "mutant-record",
+      "start": "2026-10-29T02:33:33.011786+00:00",
+      "load": [
+        34.9365234375,
+        33.87841796875,
+        36.6572265625
+      ],
+      "pid": 51461,
+      "args": [
+        "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+        "-x"
+      ],
+      "selected": [
+        "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+      ],
+      "counts": {
+        "failed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_dependency_units.py": {
+          "failed": 1
+        }
+      },
+      "seconds": 4.691019042002154,
+      "maxrss": 114196480,
+      "exitstatus": 1,
+      "phases": {
+        "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once": {
+          "setup": "passed",
+          "call": "failed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true,
+      "mutant": "record-raw-spelling",
+      "mutant_loaded": "record-raw-spelling"
+    },
+    {
+      "label": "property-reference",
+      "start": "2026-10-29T02:33:50.120238+00:00",
+      "load": [
+        33.9091796875,
+        33.7470703125,
+        36.54736328125
+      ],
+      "pid": 58576,
+      "args": [
+        "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+      ],
+      "selected": [
+        "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+      ],
+      "counts": {
+        "passed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_dependency_properties.py": {
+          "passed": 1
+        }
+      },
+      "seconds": 104.55017437499191,
+      "maxrss": 131989504,
+      "exitstatus": 0,
+      "phases": {
+        "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [
+          {
+            "valid": 100,
+            "calls": 100,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 100
+              }
+            }
+          }
+        ],
+        "explicit_passed": 0
+      },
+      "locked": true
+    },
+    {
+      "label": "property-monotone",
+      "start": "2026-10-29T02:35:39.229687+00:00",
+      "load": [
+        33.40625,
+        33.5810546875,
+        36.16015625
+      ],
+      "pid": 13643,
+      "args": [
+        "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+      ],
+      "selected": [
+        "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+      ],
+      "counts": {
+        "passed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_dependency_properties.py": {
+          "passed": 1
+        }
+      },
+      "seconds": 244.71130908299529,
+      "maxrss": 130236416,
+      "exitstatus": 0,
+      "phases": {
+        "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [
+          {
+            "valid": 100,
+            "calls": 104,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 100,
+                "overrun": 4
+              }
+            }
+          }
+        ],
+        "explicit_passed": 0
+      },
+      "locked": true
+    },
+    {
+      "label": "property-fences",
+      "start": "2026-10-29T02:37:10.251173+00:00",
+      "load": [
+        26.96923828125,
+        31.18896484375,
+        34.94482421875
+      ],
+      "pid": 69323,
+      "args": [
+        "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+      ],
+      "selected": [
+        "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+      ],
+      "counts": {
+        "passed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_shared_folders.py": {
+          "passed": 1
+        }
+      },
+      "seconds": 287.8951457910007,
+      "maxrss": 129056768,
+      "exitstatus": 0,
+      "phases": {
+        "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [
+          {
+            "valid": 400,
+            "calls": 490,
+            "phases": {
+              "reuse-phase": {},
+              "generate-phase": {
+                "valid": 400,
+                "overrun": 90
+              }
+            }
+          }
+        ],
+        "explicit_passed": 12
+      },
+      "locked": true
+    },
+    {
+      "label": "guards",
+      "start": "2026-10-29T02:36:10.529763+00:00",
+      "load": [
+        28.23046875,
+        32.19140625,
+        35.54443359375
+      ],
+      "pid": 35995,
+      "args": [
+        "tests/fake/test_state_contract.py",
+        "tests/unit/test_test_module_names.py",
+        "tests/unit/test_invariants_index.py"
+      ],
+      "selected": [
+        "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+        "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+        "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+        "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+        "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+        "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+        "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+        "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+        "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+        "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+        "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+        "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+        "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+        "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+        "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+        "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+        "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+        "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+        "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+        "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+        "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+        "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+        "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+        "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+        "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+        "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+        "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+        "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry",
+        "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+        "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects",
+        "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated",
+        "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete",
+        "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+        "tests/unit/test_invariants_index.py::test_every_row_has_every_field",
+        "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set",
+        "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary",
+        "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+        "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason",
+        "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause",
+        "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved",
+        "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists",
+        "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+        "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+        "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+        "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+        "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+        "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+        "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause",
+        "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+        "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test",
+        "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+        "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold",
+        "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree",
+        "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows"
+      ],
+      "counts": {
+        "passed": 63
+      },
+      "by_file": {
+        "tests/fake/test_state_contract.py": {
+          "passed": 37
+        },
+        "tests/unit/test_test_module_names.py": {
+          "passed": 1
+        },
+        "tests/unit/test_invariants_index.py": {
+          "passed": 25
+        }
+      },
+      "seconds": 51.91210066700296,
+      "maxrss": 124321792,
+      "exitstatus": 0,
+      "phases": {
+        "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_every_row_has_every_field": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_test_names_are_unique": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        },
+        "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows": {
+          "setup": "passed",
+          "call": "passed",
+          "teardown": "passed"
+        }
+      },
+      "hypothesis": {
+        "engines": [],
+        "explicit_passed": 0
+      },
+      "locked": true
+    }
+  ],
+  "test_sha256": {
+    "tests/fake/test_retention_dependencies.py": "c629b63a04117b2fa558e341e4d7192eebdaa9c04afdb43aea740c3af6114f46",
+    "tests/unit/test_retention_folded_pin.py": "7977c0841b5caa61c043baad1e811e0bd94a3e1ec2c605d697e3a4fa4b011ff2"
+  }
+}
