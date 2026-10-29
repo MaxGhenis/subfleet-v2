@@ -5435,3 +5435,210 @@ def test_review_r7_pins_r7s_unpinned_readings():
     """Each reading's own input: the denied forms are denied and the allowed ones allowed."""
     assert r5_denied([(c, S_) for c in REVIEW_R7_DENIED]) == []
     assert r5_allowed([(c, S_) for c in REVIEW_R7_ALLOWED]) == []
+
+
+# ---------------------------------------------------------------- r8: review r7's findings
+
+# Round r8 (2026-10-29) builds the hub's decisions on review r7 (REQUEST_CHANGES at 7447e9dce, all P3). Each pin is
+# review r7's input or the brief's, judged through the whole hook in the fixture:
+#   1. a loop variable keeps its root wherever the shells keep it: a newline right after &&, ||, | or |& continues
+#      the line (the operator stays pv, and a pipe carries on); time and time -p before a compound command are a
+#      keyword, and zsh's repeat and foreach open one; a name() or the word function anywhere in the command turns
+#      the reset off; only a plain word replaces the loop's words, and any other value joins them (P3-1);
+#   2. the 4,096 cap counts ' and backtick too (P3-2);
+#   3. in $((...)) a << is a shift whenever the span ends in )) (P3-3);
+#   4. a piped while read takes the roots of what a filter passes on from its <(...) (P3-4);
+#   5. tee writing into a <(...) piped to a shell stays denied, listed "stricter" (P3-5);
+#   6. the joined productions are listed open (P3-6).
+#: Decision 1: review r7's P3-1 inputs (R7V_L and R7V_R as review r7 wrote them): a newline after &&, || and |; time
+#: before if, while, for and case, and before a while inside an if; function bodies run out of textual order; zsh's
+#: f() whose body is the assignment and repeat; and bash's word splitting of a quoted value with a blank.
+R8_LOOPVAR_DENIED = [
+    R7V_L + "; false &&\nd=src\n" + R7V_R,
+    R7V_L + "; true ||\nd=src\n" + R7V_R,
+    R7V_L + "; echo x |\nd=src\n" + R7V_R,
+    R7V_L + "\ntime if false; then\nd=src\nfi\n" + R7V_R,
+    R7V_L + "\ntime while false; do\nd=src\ndone\n" + R7V_R,
+    R7V_L + "\ntime for x in; do\nd=src\ndone\n" + R7V_R,
+    R7V_L + "\ntime case x in\n(y)\nd=src\n;;\nesac\n" + R7V_R,
+    R7V_L + "\nif false; then time while false; do :; done; d=src; fi; " + R7V_R,
+    "f() { for d in ~/.subfleet/*; do :; done; }; d=src; f; " + R7V_R,
+    "f() {\nfor d in ~/.subfleet/*; do :; done\n}\nd=src\nf\n" + R7V_R,
+    R7V_L + "; d=src; f() { d=~/.subfleet; }; f; " + R7V_R,
+    R7V_L + "; f(); d=src; " + R7V_R,
+    R7V_L + "\nf()\nd=src\n" + R7V_R,
+    R7V_L + "\nrepeat 0 do\nd=src\ndone\n" + R7V_R,
+    R7V_L + "; d='src /'; rg foo $d",
+]
+#: ... a quoted, escaped or blank-holding value after a scoped loop is still read (r7 denies these, and the shells walk
+#: each root: a value that only left the loop's words in place would let them through), a time -p, and a pipe
+#: continued on the next line into a shell or a while read ...
+R8_LOOPVAR_MORE_DENIED = [
+    "for d in src; do :; done; d='/'; rg foo \"$d\"",
+    "for d in src; do :; done; d='/Users/tester/.subfleet'; rg foo \"$d\"",
+    "for d in src; do :; done; d=\\/; rg foo \"$d\"",
+    R7V_L + "\ntime -p while false; do\nd=src\ndone\n" + R7V_R,
+    "echo 'rg --files ~/.subfleet' |\nbash",
+    "find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done",
+    "cat <(echo 'rg --files ~/.subfleet') |\n\nbash",
+]
+#: ... while r7's five intended forms stay allowed, with a time before a plain command, a pipe continued on the next
+#: line into a searcher that reads it, and && continued on the next line.
+R8_LOOPVAR_ALLOWED = R7_LOOPVAR_ALLOWED + [
+    "time -p rg -n foo src",
+    "for d in ~/.subfleet/*; do :; done\ntime -p true\nd=src\nrg foo \"$d\"",
+    "git log --oneline |\nhead -5",
+    "find src -name '*.py' |\nxargs rg -l foo",
+    "git status --short &&\nrg -n foo src",
+    "echo x |\nrg foo",
+]
+#: Decision 2: review r7's five rows past the step budget's reach (the first is the pinned row; the 16,000 `:` row is
+#: rebuilt here beside a scoped search, as a row with no searcher is never prepped), each denied as too complex to
+#: judge, the pinned row in at most twice the installed hook's child CPU ...
+R8_CAP_PINNED = "cat <<A, 30,000 ''"
+R8_CAP_ROWS = {
+    R8_CAP_PINNED: "cat <<A " + "''" * 30000 + "\nA\nrg foo src",
+    "12,000 <<''": "rg foo src; cat " + "<<'' " * 12000 + "\nx",
+    "echo, 30,000 ''": "rg foo src; echo " + "''" * 30000,
+    "16,000 `:`": "rg foo src; echo " + "`:`" * 16000,
+    "13,000 `rg`": "`rg`" * 13000,
+}
+#: ... and the cap's edges: 4,097 or more of ' or of backtick beside a scoped search is too complex to judge, 4,096 is
+#: read; the listed trade-off, a file-writing heredoc past the cap that names a searcher, is denied.
+R8_CAP_DENIED = ["rg foo src " + "''" * 2049, "rg foo src; echo " + "`:`" * 2049,
+                 "cat > notes.md <<'EOF'\n" + "it's\n" * 4097 + "EOF\nrg foo src"]
+R8_CAP_ALLOWED = ["rg foo src " + "''" * 2048, "rg foo src; echo " + "`:`" * 2048,
+                  "cat > notes.md <<'EOF'\n" + "it's\n" * 4094 + "EOF\nrg foo src"]
+#: Decision 3: review r7's P3-3 input (bash reads $((1) + (...)) as arithmetic, its span ending in ))); r7's controls
+#: stay allowed (R7_ARITH_ALLOWED).
+R8_ARITH_DENIED = ["echo $((1) + (1<<X\n))\n" + R7_F + "\nX", "x=\"$((1) + (1<<X\n))\"\n" + R7_F + "\nX"]
+#: Decision 4: review r7's P3-4 inputs and the brief's control.
+R8_PSUB_LOOP_DENIED = ["cat <(find ~/.subfleet -maxdepth 1) | while read d; do rg foo \"$d\"; done",
+                       "cat <(echo ~/.subfleet) | while read d; do rg foo \"$d\"; done",
+                       "cat <(echo src) <(echo ~/.subfleet) | while read -r d; do grep -r x $d; done"]
+R8_PSUB_LOOP_ALLOWED = ["cat <(git ls-files) | while read f; do wc -l \"$f\"; done",
+                        "cat <(git ls-files) | while read f; do rg -n foo \"$f\"; done"]
+#: Decisions 5, 6 and decision 1's sixteenth input: forms "Known differences" names, each with the text it is named by.
+#: Stricter: denied though no shell walks (tee writes into the substitution, and nothing reaches bash) ...
+R8_STRICTER = {"tee <(echo 'rg --files ~/.subfleet') | bash": "tee <(echo 'rg --files ~/.subfleet') | bash"}
+#: ... and open: allowed here though a real shell walks a root (each line a pipe joins is judged on its own; a read
+#: from a here-string is a root held in a variable).
+R8_KNOWN_OPEN = {
+    "cat <(printf 'rg --files ') <(echo ~/.subfleet) | bash": "cat <(printf 'rg --files ') <(echo ~/.subfleet) | bash",
+    "paste -d' ' <(echo 'rg --files') <(echo ~/.subfleet) | bash":
+        "paste -d' ' <(echo 'rg --files') <(echo ~/.subfleet) | bash",
+    "{ printf 'rg --files '; echo ~/.subfleet; } | bash": "{ printf 'rg --files '; echo ~/.subfleet; } | bash",
+    R7V_L + "; d=src; read d <<< ~/.subfleet; " + R7V_R: "d=src; read d <<< ~/.subfleet",
+}
+
+
+def known_differences() -> str:
+    """The overlay doc's "Known differences" section, runs of blanks and line breaks read as one space."""
+    doc = (REPO / "docs/private-guard-overlay.md").read_text(encoding="utf-8")
+    start = doc.index("Known differences that remain")
+    return " ".join(doc[start:doc.index("| File | SHA-256 |", start)].split())
+
+
+def test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it():
+    """Decision 1: review r7's fifteen P3-1 inputs are denied, and so are a quoted, escaped or blank-holding root value
+    after a scoped loop, time -p before a compound command and a pipe continued on the next line; r7's five intended
+    forms, a time before a plain command and the continued forms that walk nothing stay allowed."""
+    assert r5_denied([(c, S_) for c in R8_LOOPVAR_DENIED + R8_LOOPVAR_MORE_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R8_LOOPVAR_ALLOWED]) == []
+
+
+def test_r8_quotes_and_backticks_count_against_the_cap(hooks):
+    """Decision 2: more than 4,096 of ' or of backtick beside a searcher is too complex to judge, 4,096 is read; review
+    r7's five rows are denied as too complex, the pinned row in at most twice the installed hook's child CPU (decision 6
+    of r7's measure; one run each, the installed hook's CPU and the load reported)."""
+    outs = judge_all(HOOK, [(c, S_) for c in R8_CAP_DENIED + R8_CAP_ALLOWED])
+    for c in R8_CAP_DENIED:
+        assert rule(outs[(c, S_)]) == "unscoped-search", c[:40]
+        assert "too complex to judge" in json.loads(outs[(c, S_)])["hookSpecificOutput"]["permissionDecisionReason"]
+    assert [c[:40] for c in R8_CAP_ALLOWED if rule(outs[(c, S_)]) is not None] == []
+    rows = {}
+    for name, command in R8_CAP_ROWS.items():
+        cpu, wall, out = hook_cpu(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        assert "too complex to judge" in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"], name
+        old_cpu, old_wall, _ = hook_cpu(hooks["old"], command)
+        rows[name] = {"cpu": [round(cpu, 2), round(old_cpu, 2)], "wall": [round(wall, 2), round(old_wall, 2)],
+                      "load": round(os.getloadavg()[0], 1)}
+    report("cap-r8", rows)
+    assert rows[R8_CAP_PINNED]["cpu"][0] <= 2 * rows[R8_CAP_PINNED]["cpu"][1], rows[R8_CAP_PINNED]
+
+
+def test_r8_a_dollar_double_paren_span_ending_in_two_closes_is_arithmetic():
+    """Decision 3: a << in $((...)) whose span ends in )) is a shift, so the lines after it are commands; r7's arithmetic
+    controls stay allowed."""
+    assert r5_denied([(c, S_) for c in R8_ARITH_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R7_ARITH_ALLOWED]) == []
+
+
+def test_r8_a_piped_while_read_takes_the_roots_a_filter_passes_on():
+    """Decision 4: what a cat passes on from its <(...) is the roots a piped while read reads; a scoped production
+    stays allowed."""
+    assert r5_denied([(c, S_) for c in R8_PSUB_LOOP_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R8_PSUB_LOOP_ALLOWED]) == []
+
+
+def test_r8_known_differences_name_the_stricter_and_open_forms(tmp_path):
+    """Decisions 5 and 6, and decision 1's sixteenth input: each stricter form is denied and no real shell walks a root
+    on it; each open form is allowed and a real shell walks one; the overlay doc's "Known differences" names each.
+    A change that closes an open form has to move its pin."""
+    known = known_differences()
+    outs = judged(HOOK, list(R8_STRICTER) + list(R8_KNOWN_OPEN), S_)
+    for command, named in R8_STRICTER.items():
+        assert rule(outs[command]) == "unscoped-search", command
+        assert not any(r6_shell_walks(sh, command, S_, tmp_path) for sh in ("zsh", "bash")), command
+        assert named in known, named
+    for command, named in R8_KNOWN_OPEN.items():
+        assert rule(outs[command]) is None, command
+        assert any(r6_shell_walks(sh, command, S_, tmp_path) for sh in ("zsh", "bash")), command
+        assert named in known, named
+
+
+def test_r8_scoped_searches_stay_allowed():
+    """The must-allow lists (r6's test's cases, review r4's allowed forms, the print-and-exit forms, the routine commit
+    and r6's 17 allowed lane commands), review r6's and review r7's allowed forms, r7's allowed forms, and each r8
+    decision's allowed forms."""
+    cases = ([(c, cwd) for cwd in R4_SCOPED_CWDS for c in R4_SCOPED] + [(c, LANE_W) for c in R4_PATTERN_ROOTS]
+             + R4_MUST_ALLOW + R4_ALLOWED + REVIEW_R4_ALLOWED + [("git commit -F - <<'EOF'\nIt's fixed\nEOF", LANE_W)]
+             + R5_HEREDOC_ALLOWED + R5_BOUND_ALLOWED + R5_BACKTICK_ALLOWED + R5_DOTDOT_ALLOWED + R5_BRACE_ALLOWED
+             + R5_FAMILY_ALLOWED + R5_FORMS_ALLOWED + [(c, cwd) for cwd in (H_, "/", S_) for c in R4_META]
+             + [(c, LANE_W) for c in R6_LANE_ALLOWED] + [(c, S_) for c in REVIEW_R6_ALLOWED + REVIEW_R7_ALLOWED]
+             + [(c, S_) for c in R7_ARITH_ALLOWED + R7_PSUB_ALLOWED + R7_LOOPVAR_ALLOWED]
+             + [(c, S_) for c in R8_LOOPVAR_ALLOWED + R8_CAP_ALLOWED + R8_PSUB_LOOP_ALLOWED])
+    assert r5_allowed(cases) == []
+
+
+#: Every r8 command pin and control a shell can run (the cap's rows and edges are left out: their verdicts are the
+#: cap's), from the scoped cwd: the stricter forms are denied though no shell walks, and the open forms allowed
+#: though one does.
+R8_SHELL_COMMANDS = [(c, S_) for c in (R8_LOOPVAR_DENIED + R8_LOOPVAR_MORE_DENIED + R8_LOOPVAR_ALLOWED + R8_ARITH_DENIED
+                                      + R7_ARITH_ALLOWED + R8_PSUB_LOOP_DENIED + R8_PSUB_LOOP_ALLOWED
+                                      + list(R8_STRICTER) + list(R8_KNOWN_OPEN))]
+R8_SHELL_EXCEPTIONS = {**{c: True for c in R8_STRICTER}, **{c: False for c in R8_KNOWN_OPEN}}
+
+
+def test_r8_command_pins_agree_with_real_shells(tmp_path):
+    """Each r8 command pin and control, run by /bin/zsh -f and /bin/bash over the fixture with r6's stubs and the
+    fixture's HOME: the hook denies it exactly when either shell's run would have walked a root, but for the listed
+    stricter forms (denied, no shell walks) and open forms (allowed, a shell walks)."""
+    outs = judge_all(HOOK, R8_SHELL_COMMANDS)
+    rows, differ = [], []
+    for command, cwd in R8_SHELL_COMMANDS:
+        denied = rule(outs[(command, cwd)]) == "unscoped-search"
+        shells = {sh: r6_shell_walks(sh, command, cwd, tmp_path) for sh in ("zsh", "bash")}
+        rows.append((command, cwd, denied, shells))
+        if command in R8_SHELL_EXCEPTIONS:
+            if denied != R8_SHELL_EXCEPTIONS[command] or any(shells.values()) == denied:
+                differ.append(("exception", command, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((command[:200], cwd, denied, shells))
+    report("shells-r8", {"cases": len(rows), "denied": sum(r[2] for r in rows),
+                         "zsh": sum(r[3]["zsh"] for r in rows), "bash": sum(r[3]["bash"] for r in rows),
+                         "both": sum(r[3]["zsh"] and r[3]["bash"] for r in rows),
+                         "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
+                         "rows": [(c[:120], d, s) for c, _, d, s in rows]})
+    assert differ == [], differ[:10]
