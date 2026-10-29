@@ -28,14 +28,26 @@
 (* differs from its file; with TRUE it may (the known limit in              *)
 (* docs/reports/2026-09-24-mirror-load-gap.md).                             *)
 (*                                                                          *)
+(* The publish also carries the session's date (lastActivityAt), which the  *)
+(* flag's decision never reads; MirrorActivity.tla specifies it. To this     *)
+(* module the date is only a wider batch. `also` is the set of copies whose  *)
+(* flag already holds the decided value and that the publish checks all the  *)
+(* same, because the pass decided to raise their date; PassCheck leaves out  *)
+(* of the writes any of them the app has raised itself since (`skip`). Both  *)
+(* are arbitrary subsets here, so the properties hold whatever the date      *)
+(* does. A copy in `also` whose flag moved holds the session like any other, *)
+(* and a write of one that finds it rewritten puts the batch back.           *)
+(*                                                                          *)
 (* Not modeled: an app rename landing between the code's last signature     *)
 (* check and its own rename, a window of one syscall.                       *)
 (*                                                                          *)
 (* tests/mirror_flags_model.py is the executable twin of this module; it is *)
 (* explored exhaustively by tests/unit/test_mirror_flags_model.py, and      *)
 (* tests/unit/test_mirror_flags_stateful.py holds the implementation to it. *)
-(* TLC has not been run on this module (Max, 2026-09-25: skip it for now;   *)
-(* it can join CI later).                                                   *)
+(* SANY and TLC 2.19 first checked this module on 2026-10-10, in the review  *)
+(* of PR #167; docs/reports/2026-10-10-mirror-stale-dates.md has the runs.  *)
+(* TLC is not part of CI (Max, 2026-09-25: skip it for now; it can join CI  *)
+(* later).                                                                  *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -57,6 +69,7 @@ VARIABLES
     phase,     \* "idle", "decided" or "publishing"
     snap,      \* snap[a]: what the pass read
     decided,   \* the value the pass decided
+    also,      \* the copies the publish checks for the date's sake
     pending,   \* the copies still to write (while "publishing")
     written,   \* the copies this publish has written (while "publishing")
     touched,   \* the copies the app or user rewrote since the pre-check
@@ -64,8 +77,8 @@ VARIABLES
     settled,   \* ghost: the value a clean publish converged to, or None
     intent     \* ghost: what the user set since the last converging publish
 
-vars == <<copy, base, loaded, mem, phase, snap, decided, pending, written, touched,
-          clean, settled, intent>>
+vars == <<copy, base, loaded, mem, phase, snap, decided, also, pending, written,
+          touched, clean, settled, intent>>
 
 TypeOK ==
     /\ copy \in [Accounts -> Values]
@@ -75,6 +88,7 @@ TypeOK ==
     /\ phase \in {"idle", "decided", "publishing"}
     /\ snap \in [Accounts -> Values]
     /\ decided \in Values
+    /\ also \subseteq Accounts
     /\ pending \subseteq Accounts
     /\ written \subseteq Accounts
     /\ touched \subseteq Accounts
@@ -97,6 +111,7 @@ Init ==
     /\ phase = "idle"
     /\ snap = copy
     /\ decided = FALSE
+    /\ also = {}
     /\ pending = {} /\ written = {} /\ touched = {}
     /\ clean = TRUE
     /\ settled = None
@@ -112,8 +127,8 @@ Load(a) ==
     /\ a # loaded
     /\ loaded' = a
     /\ mem' = [mem EXCEPT ![a] = copy[a]]
-    /\ UNCHANGED <<copy, base, phase, snap, decided, pending, written, touched, clean,
-                   settled, intent>>
+    /\ UNCHANGED <<copy, base, phase, snap, decided, also, pending, written, touched,
+                   clean, settled, intent>>
 
 \* The user changes the flag in the loaded account's sidebar.
 UserSet(v) ==
@@ -123,7 +138,7 @@ UserSet(v) ==
     /\ settled' = None
     /\ intent' = IF intent \in {None, v} THEN v ELSE Conflict
     /\ Touch(loaded)
-    /\ UNCHANGED <<base, loaded, phase, snap, decided, pending, written>>
+    /\ UNCHANGED <<base, loaded, phase, snap, decided, also, pending, written>>
 
 \* The app saves a record from memory. Only a stale memory changes the flag.
 AppSave(a) ==
@@ -132,8 +147,8 @@ AppSave(a) ==
     /\ mem[a] # copy[a]
     /\ copy' = [copy EXCEPT ![a] = mem[a]]
     /\ Touch(a)
-    /\ UNCHANGED <<base, loaded, mem, phase, snap, decided, pending, written, settled,
-                   intent>>
+    /\ UNCHANGED <<base, loaded, mem, phase, snap, decided, also, pending, written,
+                   settled, intent>>
 
 \* An app save that keeps the flag (a focus or activity update). It changes
 \* nothing the protocol reads, except that a publish must not write over it.
@@ -142,19 +157,22 @@ Focus(a) ==
     /\ a \notin touched
     /\ touched' = touched \cup {a}
     /\ clean' = FALSE
-    /\ UNCHANGED <<copy, base, loaded, mem, phase, snap, decided, pending, written,
-                   settled, intent>>
+    /\ UNCHANGED <<copy, base, loaded, mem, phase, snap, decided, also, pending,
+                   written, settled, intent>>
 
 PassDecide ==
     /\ phase = "idle"
     /\ phase' = "decided"
     /\ snap' = copy
     /\ decided' = Decide(copy, base)
+    /\ also' \in SUBSET Accounts
     /\ clean' = TRUE
     /\ UNCHANGED <<copy, base, loaded, mem, pending, written, touched, settled, intent>>
 
 Dirty == {a \in Accounts : snap[a] # decided}
-Held == \E a \in Dirty : copy[a] # snap[a]
+\* Every copy in the session's batch: the pre-check reads each of them.
+Checked == Dirty \cup also
+Held == \E a \in Checked : copy[a] # snap[a]
 
 \* A publish that went through: the base advances.
 Finish(c) ==
@@ -162,20 +180,26 @@ Finish(c) ==
     /\ base' = decided
     /\ settled' = IF \A a \in Accounts : c[a] = decided THEN decided ELSE None
     /\ intent' = IF \A a \in Accounts : c[a] = decided THEN None ELSE intent
+    /\ also' = {}
     /\ pending' = {} /\ written' = {} /\ touched' = {}
 
+\* `skip`: the copies in `also` that need no write after all (the app saved a
+\* later date there since the pass read them).
 PassCheck ==
     /\ phase = "decided"
     /\ IF Held
        THEN /\ phase' = "idle"
+            /\ also' = {}
             /\ UNCHANGED <<base, settled, intent, pending, written, touched>>
-       ELSE IF Dirty = {}
+       ELSE \E skip \in SUBSET also :
+            LET todo == Dirty \cup (also \ skip) IN
+            IF todo = {}
             THEN Finish(copy)
             ELSE /\ phase' = "publishing"
-                 /\ pending' = Dirty
+                 /\ pending' = todo
                  /\ written' = {}
                  /\ touched' = {}
-                 /\ UNCHANGED <<base, settled, intent>>
+                 /\ UNCHANGED <<base, settled, intent, also>>
     /\ UNCHANGED <<copy, loaded, mem, snap, decided, clean>>
 
 Target == CHOOSE a \in pending : \A b \in pending : a <= b
@@ -187,6 +211,7 @@ PassWrite ==
        THEN /\ copy' = [a \in Accounts |->
                            IF a \in written \ touched THEN snap[a] ELSE copy[a]]
             /\ phase' = "idle"
+            /\ also' = {}
             /\ pending' = {} /\ written' = {} /\ touched' = {}
             /\ UNCHANGED <<base, settled, intent>>
        ELSE LET c == [copy EXCEPT ![Target] = decided] IN
@@ -195,12 +220,13 @@ PassWrite ==
                THEN Finish(c)
                ELSE /\ pending' = pending \ {Target}
                     /\ written' = written \cup {Target}
-                    /\ UNCHANGED <<phase, base, settled, touched, intent>>
+                    /\ UNCHANGED <<phase, base, settled, touched, intent, also>>
     /\ UNCHANGED <<loaded, mem, snap, decided, clean>>
 
 Cancel ==
     /\ phase = "decided"
     /\ phase' = "idle"
+    /\ also' = {}
     /\ UNCHANGED <<copy, base, loaded, mem, snap, decided, pending, written, touched,
                    clean, settled, intent>>
 
@@ -249,10 +275,12 @@ AllOrNothing ==
 \* decided and every copy the pass read differently holds it, unless the app
 \* or the user rewrote it since.
 BaseAgreement ==
-    [][((PassCheck /\ ~Held /\ Dirty = {})
-        \/ (PassWrite /\ ~RollsBack /\ pending = {Target}))
-       => /\ base' = decided
-          /\ \A a \in Dirty \ touched : copy'[a] = decided]_vars
+    /\ [][((PassCheck /\ ~Held /\ phase' = "idle")
+           \/ (PassWrite /\ ~RollsBack /\ pending = {Target}))
+          => /\ base' = decided
+             /\ \A a \in Dirty \ touched : copy'[a] = decided]_vars
+    \* A publish writes every copy whose flag differs, whatever the date asks.
+    /\ [][PassCheck /\ ~Held /\ phase' = "publishing" => Dirty \subseteq pending']_vars
 
 \* Intent wins: with a base, if the user set only one value since the last
 \* publish that converged, a pass decides that value; a user who set both is

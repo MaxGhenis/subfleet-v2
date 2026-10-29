@@ -555,6 +555,34 @@ def _sidebar_lines(gap: dict[str, Any]) -> list[str]:
     return [f"sidebar {status}: {gap.get('detail')}"]
 
 
+#: What ends a split: archiving reaches every login through flag sync.
+SPLIT_FIX = ("open both rows, keep the one that holds the turns you want, and archive "
+             "the other; the archive reaches every login")
+
+
+def _split_lines(splits: dict[str, Any]) -> list[str]:
+    """`--status` lines for session ids that open two conversations that both show."""
+    live = int(splits.get("live") or 0)
+    if not live:
+        return []
+    lines = [f"sidebar split: {live} session id{'s' if live != 1 else ''} "
+             f"open{'' if live != 1 else 's'} a different conversation under different "
+             "logins, and both rows show"]
+    listed = [row for row in splits.get("sessions") or [] if row.get("live")]
+    for row in listed:
+        shown = [item for item in row.get("conversations") or [] if not item.get("archived")]
+        title = next((item.get("title") for item in shown if item.get("title")), "") or "-"
+        parts = "; ".join(
+            f"{str(item.get('id'))[:8]} in {item.get('folders')} folder"
+            f"{'s' if item.get('folders') != 1 else ''}, last active "
+            f"{item.get('last_activity') or 'unknown'}" for item in shown)
+        lines.append(f"  {row.get('name')}  {title}: {parts}")
+    if live > len(listed):
+        lines.append(f"  ... and {live - len(listed)} more")
+    lines.append(f"  fix: {SPLIT_FIX}")
+    return lines
+
+
 def cmd_mirror(args: argparse.Namespace) -> int:
     """One sidebar pass, or the sidecar's health. Never calls a provider."""
     cli = _cli()
@@ -565,11 +593,12 @@ def cmd_mirror(args: argparse.Namespace) -> int:
     if getattr(args, "status", False):
         health = engine.health()
         gap = engine.load_gap()
+        splits = engine.splits()
         if args.json:
-            emit({**health, "load_gap": gap})
+            emit({**health, "load_gap": gap, "splits": splits})
         else:
             out(f"mirror {health['status']}: {health['detail']}")
-            for line in _sidebar_lines(gap):
+            for line in _sidebar_lines(gap) + _split_lines(splits):
                 out(line)
         return int(Exit.OK if health["status"] in ("healthy", "running", "absent")
                    else Exit.OPERATIONAL)

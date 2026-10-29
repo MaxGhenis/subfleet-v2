@@ -24,6 +24,13 @@ the invariants the 2026-09-25 consistency brief asks for:
 With an app whose saves never change the flag, all of them hold in every
 state. With an app that can re-save a stale value (the known limit in the
 2026-09-24 report), exactly the last two fail.
+
+Since 2026-10-10 the publish also raises the session's date, so its batch can
+hold copies whose flag needs no write (`also`), and the pre-check can leave
+some of those out again (`skip`). The two full explorations take every subset
+for both, so each property holds whatever the date adds to a batch; the date's
+own properties are `test_mirror_activity_model.py`'s. The explorations that
+only study a trace's shape leave the date out (`dates=False`).
 """
 
 from __future__ import annotations
@@ -34,9 +41,13 @@ from tests import mirror_flags_model as model
 
 
 def test_every_invariant_holds_in_every_state_for_an_app_that_saves_what_it_shows():
-    """C-23.28: exhaustive over all reachable states of three account folders."""
+    """C-23.28: exhaustive over all reachable states of three account folders,
+    with every batch the date sync can add to a publish."""
     states, broken = model.explore(3, stale=False)
-    assert states > 1_000, "the exploration reached the whole space"
+    assert states > 100_000, "the exploration reached the whole space"
+    assert broken == {}
+    alone, broken = model.explore(3, stale=False, dates=False)
+    assert 1_000 < alone < states, "and the date's batches are part of it"
     assert broken == {}
 
 
@@ -61,7 +72,7 @@ def test_from_a_settled_state_a_parked_accounts_stale_save_undoes_the_users_chan
     pass spreads that to every account."""
     roots = [model.State(copy=(v,) * 3, base=v, loaded=0, mem=(v, None, None), settled=v)
              for v in (False, True)]
-    _states, broken = model.explore(3, stale=True, roots=roots)
+    _states, broken = model.explore(3, stale=True, roots=roots, dates=False)
     assert set(broken) == {"never-undo-settled", "intent-wins"}
     trace = broken["never-undo-settled"]
     acted = [step for step in trace if step.startswith("user_set")]
@@ -76,7 +87,7 @@ def test_honest_exploration_from_settled_states_finds_nothing():
     """C-23.28: the same roots with an honest app break nothing."""
     roots = [model.State(copy=(v,) * 3, base=v, loaded=0, mem=(v, None, None), settled=v)
              for v in (False, True)]
-    _states, broken = model.explore(3, stale=False, roots=roots)
+    _states, broken = model.explore(3, stale=False, roots=roots, dates=False)
     assert broken == {}
 
 
@@ -151,7 +162,7 @@ def test_intent_wins_is_exercised_for_an_honest_app():
     queue = list(seen)
     while queue:
         state = queue.pop()
-        for label, nxt in model.successors(state, stale=False):
+        for label, nxt in model.successors(state, stale=False, dates=False):
             if label == "pass_decide" and isinstance(state.base, bool) \
                     and isinstance(state.intent, bool):
                 fired += 1
@@ -176,3 +187,45 @@ def test_a_pass_that_skips_a_copy_would_undo_the_users_change():
     decided = model.pass_decide(after)
     assert decided.decided is False, "C's old value reads as a change"
     assert "intent-wins" in model.check_step(after, "pass_decide", decided)
+
+
+# --- the date's part of the batch ------------------------------------------------
+
+def settled(value: bool) -> model.State:
+    return model.State(copy=(value,) * 3, base=value, loaded=0, mem=(value, None, None),
+                       settled=value)
+
+
+def test_a_copy_checked_for_its_date_holds_the_session_when_its_flag_moved():
+    """C-23.28: all or nothing covers the whole batch. C's flag needs no write,
+    but the pass means to raise C's date, and C was archived since the read."""
+    decided = model.pass_decide(settled(False), also={2})
+    moved = model.user_set(model.load(decided, 2), True)       # C archives before publish
+    after = model.pass_check(moved)
+    assert after.phase == model.IDLE and after.copy == (False, False, True)
+    assert after.base is False, "held: the base is kept, and the next pass decides"
+    final = model.pass_publish(model.pass_decide(after))
+    assert final.copy == (True,) * 3 and final.base is True
+
+
+def test_a_date_write_that_finds_its_copy_rewritten_puts_back_the_flag_copies():
+    """C-23.28: one batch. A archives; B is written; C, written only for its
+    date, was saved by the app since the check: B is put back and the base kept."""
+    state = model.user_set(settled(False), True)
+    state = model.pass_check(model.pass_decide(state, also={2}))
+    assert state.pending == (1, 2)
+    state = model.pass_write(state)
+    assert state.copy == (True, True, False)
+    after = model.pass_write(model.focus(state, 2))
+    assert after.copy == (True, False, False) and after.base is False
+
+
+def test_a_copy_the_app_raised_itself_is_checked_and_not_written():
+    """C-23.28: `skip`. With no flag to write and the one date already there,
+    the publish is empty and the base still advances."""
+    decided = model.pass_decide(model.State(copy=(True,) * 3, base=None, loaded=0,
+                                            mem=(True, None, None)), also={1})
+    assert model.checked(decided) == (1,)
+    after = model.pass_check(decided, skip={1})
+    assert after.phase == model.IDLE and after.base is True
+    assert model.pass_check(decided).pending == (1,), "without the skip it is a write"
