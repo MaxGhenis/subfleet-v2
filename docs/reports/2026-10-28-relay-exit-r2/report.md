@@ -304,8 +304,10 @@ and 3.12.14). No fetch, push, GitHub call, real `subfleet` CLI, provider or live
   `test_wall_cancel_races.py` and the relay-exit fixtures) is not peeked.
 
 It replaces `poll()` at the three sites: `status` (`:542`), `_refusal`'s `child_exited` flag (`:549`) and signal
-delivery's still-running check (`:590`). `guardian.py`'s `child.wait()` (`:295`, `:306`) stays the only reaper.
-Nothing else in `relay.py` or `guardian.py` calls `poll()` or `wait()`.
+delivery's still-running check (`:590`). No peek reaps. The helper keeps Popen's `poll()`, which reaps while Popen's lock is free
+(before `guardian.py:295`'s `child.wait()` takes it) and stores the status, as the three sites' `poll()` did;
+`send_signal` polls the same way. `relay.py` calls `child.poll()` only in the helper, and `guardian.py` calls
+`wait()` only at `:295` and `:306`.
 
 **One visible change at the signal site.** A signal frame for a child that has exited but that the guardian has
 not yet reaped is now answered `no-child`. Before, with the wait lock held, `poll()` said "running" and the signal
@@ -407,7 +409,7 @@ No fix: this PR did not cause them.
 
 C-26.4: the relay's reply, a fresh `status` or the exit receipt proves an exit, and the relay learns of it without
 reaping the child (Popen's record, or `waitid` with `WNOWAIT` through either binding); ECHILD means the guardian's
-wait reaped it; any other failure proves nothing and is logged once; the guardian's wait stays the only reaper; a
+wait reaped it; any other failure proves nothing and is logged once; no peek reaps, and Popen stores the real status whoever reaps; a
 signal frame for an exited child is answered `no-child`. One change-log line.
 
 ### Runs
