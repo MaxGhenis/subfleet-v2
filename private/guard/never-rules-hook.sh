@@ -1944,26 +1944,34 @@ pw_prep_awk="$pw_lib_awk"'
     t = 1
     if (t <= nt && tk[t] ~ /^\003.\003$/) t++
     # (r7 decision 5: ld counts the compound commands open at the top of the command, st["ka"] a keyword before the
-    # command word)
+    # command word; r8 decision 1: time or time -p before a compound command is a keyword too, so the command it
+    # times is counted, while before a simple command it stays a wrapper)
     while (t <= nt) {
       if (rd[t]) { t++; continue }
       if (!qd[t] && val[t] ~ /^(if|then|else|elif|while|until|do|done|fi|esac|coproc|!|\{|\})$/) {
         if (mode == "prep" && !depth) { if (val[t] ~ /^(if|while|until|\{)$/) ld++; else if (val[t] ~ /^(fi|done|esac|\})$/ && ld > 0) ld-- }
         st["ka"] = 1; t++; continue
       }
+      if (!qd[t] && val[t] == "time") {
+        k = t + 1; if (k <= nt && val[k] == "-p") k++
+        if (k <= nt && !qd[k] && val[k] ~ /^(if|while|until|for|select|case|repeat|foreach|coproc|!|\{)$/) { st["ka"] = 1; t = k; continue }
+      }
       if (!qd[t] && val[t] == "function" && t < nt) { st["ka"] = 1; t += 2; continue }
       if (val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { t++; continue }
       break
     }
-    if (mode == "prep" && !depth && t <= nt && !qd[t] && val[t] ~ /^(for|select|case)$/) ld++
+    # (r8 decision 1: the repeat and foreach of zsh open one too; the end of a foreach is not counted, so it stays open)
+    if (mode == "prep" && !depth && t <= nt && !qd[t] && val[t] ~ /^(for|select|case|repeat|foreach)$/) ld++
     # r7 decision 5: a plain assignment where it lasts (st["vt"]), with no compound command open, ends the reading
-    # of a loop variable: from there the name stands for the word assigned, when that word is literal (no $ and
-    # no backtick); any other assignment leaves the reading of the loop in place
-    if (mode == "prep" && !depth && t > nt && !st["ka"] && !ld && st["vt"]) {
+    # of a loop variable. r8 decision 1: never in a command that defines a function (FN: a name() or the word
+    # function anywhere in it), whose body runs out of textual order; from there the name stands for the word
+    # assigned when that word is plain (no $, backtick, quote, backslash or blank), and any other value joins the
+    # words of the loop, so neither the roots of the loop nor those of the value are lost
+    if (mode == "prep" && !depth && t > nt && !st["ka"] && !ld && st["vt"] && !FN) {
       for (k = 1; k <= nt; k++) {
         if (rd[k] || !match(tk[k], /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
         w = substr(tk[k], 1, RLENGTH - 1); op = substr(tk[k], RLENGTH + 1)
-        if ((w in LVAR) && op != "" && op !~ /[$`]/) LVAR[w] = op
+        if ((w in LVAR) && op != "") LVAR[w] = (op ~ /[$`\047"\\[:space:]]/) ? LVAR[w] " " op : op
       }
     }
     # r5 decision 11: zsh reads =cmd in command position as cmd (its path), after a wrapper too
@@ -2316,6 +2324,13 @@ pw_prep_awk="$pw_lib_awk"'
       sep = c
       if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
       else if (c == "|" && substr(t, i + 1, 1) == "&") sep = "|&"
+      # r8 decision 1: a newline right after &&, ||, | or |& (blanks and a comment between) continues the line, as in
+      # the shells: the operator stays pv, and a pipe carries on to the command on the next line
+      if (sep == "\n" && (pv == "&&" || pv == "||" || pv == "|" || pv == "|&") && seg !~ /[^[:space:]]/) {
+        res = res seg sep; seg = ""; i++
+        if (he > i) { res = res substr(t, i, he - i); i = he }; hn = 0; he = 0
+        continue
+      }
       # r5 decision 11: a pipe carries what every earlier stage writes. r7 decision 5: vtop, a plain assignment
       # here would last: the top of the command (not in a subshell, a substitution or a backtick, and no case
       # pattern seen, pn), after ;, a newline, & or nothing, and before ;, a newline, && or ||
@@ -2359,7 +2374,8 @@ pw_prep_awk="$pw_lib_awk"'
     lv("grep", "--regexp --file --max-count --after-context --before-context --context --directories --devices --include --exclude --exclude-dir --exclude-from --include-dir --include-from --label --glob --iglob --file-extension --file-type --file-magic --neg-regexp --range --jobs --format --sort --tag --encoding --filter --depth --max-depth --maxdepth --exclude-fs --include-fs --group-separator")
     lv("find", "-name -iname -path -ipath -wholename -iwholename -lname -ilname -regex -iregex -regextype -type -xtype -user -group -uid -gid -perm -size -mtime -atime -ctime -Btime -mmin -amin -cmin -Bmin -samefile -inum -links -fstype -mindepth -maxdepth -used -context -fprint -fprint0 -fls -printf -xattrname -flags -limit -anewer -cnewer -Bnewer -D -S -f -files0-from")
   }
-  mode == "prep" { gsub(/\003/, "?"); printf "%s%s", (NR > 1 ? "\001" : ""), prep(subst($0), 0, 0, "z") }
+  # (r8 decision 1: FN, the command defines a function, read once over the whole command)
+  mode == "prep" { gsub(/\003/, "?"); FN = ($0 ~ /\([[:space:]]*\)/ || $0 ~ /(^|[^A-Za-z0-9_])function([^A-Za-z0-9_]|$)/); printf "%s%s", (NR > 1 ? "\001" : ""), prep(subst($0), 0, 0, "z") }
   mode == "nopath" { prep($0, 0, 1, "z") }
   END {
     if (mode == "nopath") print ((found || cplx) ? 1 : 0)
