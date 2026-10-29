@@ -160,6 +160,49 @@ def _storage(gitdir: str, *, named: bool) -> list[str]:
     return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, "objects"))]))
 
 
+def _unquote(line: bytes) -> tuple[bytes, int]:
+    """Git's C quoting: decode bytes, returning the offset after the closing quote."""
+    escapes = {ord(k): v for k, v in zip('abtnvfr"\\', (7, 8, 9, 10, 11, 12, 13, 34, 92))}
+    decoded = bytearray()
+    i = 1
+    while i < len(line):
+        char = line[i]
+        i += 1
+        if char == ord('"'):
+            return bytes(decoded), i
+        if char == ord('\\'):
+            if i >= len(line):
+                break
+            char = line[i]
+            i += 1
+            if char in escapes:
+                char = escapes[char]
+            elif ord('0') <= char <= ord('3') and len(line) >= i + 2 and all(
+                    ord('0') <= c <= ord('7') for c in line[i:i + 2]):
+                char = int(bytes([char]) + line[i:i + 2], 8)
+                i += 2
+            else:
+                raise ValueError("invalid Git C escape")
+        decoded.append(char)
+    raise ValueError("unterminated Git C quote")
+
+
+def _alternate_paths(line: bytes) -> Iterable[bytes]:
+    """Parse an alternates line without stripping path bytes.
+
+    Git ignores a comment only at the start of an entry. After a C-quoted
+    entry it skips one separator byte, then parses any remaining entry too.
+    """
+    while line and not line.startswith(b"#"):
+        if line.startswith(b'"'):
+            path, end = _unquote(line)
+            yield path
+            line = line[end + 1:]
+        else:
+            yield line
+            return
+
+
 def _alternates(objects: str) -> list[str]:
     """The object directories `objects` borrows from (`info/alternates`), followed
     `_ALTERNATES_DEPTH` levels deep; a line may be relative to `objects`."""
@@ -168,16 +211,19 @@ def _alternates(objects: str) -> list[str]:
     for _ in range(_ALTERNATES_DEPTH):
         following: list[str] = []
         for directory in level:
-            for line in (_text(os.path.join(directory, "info", "alternates")) or "").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
+            try:
+                data = read_regular(os.path.join(directory, "info", "alternates"), limit=_FILE_LIMIT)
+            except (OSError, ValueError):
+                continue
+            for line in data.split(b"\n"):
+                try:
+                    for path in _alternate_paths(line):
+                        each = os.path.realpath(os.path.join(directory, os.fsdecode(path)))
+                        if each not in found and each != objects:
+                            found.append(each)
+                            following.append(each)
+                except ValueError:
                     continue
-                if len(line) > 1 and line[0] == line[-1] == '"':
-                    line = line[1:-1]          # git's C-style quoting: a path with an odd character
-                each = os.path.realpath(os.path.join(directory, line))
-                if each not in found and each != objects:
-                    found.append(each)
-                    following.append(each)
         level = following
     return found
 
