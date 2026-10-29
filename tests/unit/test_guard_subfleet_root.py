@@ -5802,3 +5802,40 @@ def test_r9_double_quotes_count_against_the_cap():
         assert rule(outs[command]) == "unscoped-search", command[:40]
         assert "too complex to judge" in json.loads(outs[command])["hookSpecificOutput"]["permissionDecisionReason"]
     assert [c[:40] for c in R9_DQ_ALLOWED if rule(outs[c]) is not None] == []
+#: Decision 1's over-blocks, listed "stricter": after a scoped loop, a root assigned where the shells never run the
+#: assignment (after false &&, in an if false, after a group that succeeds and ||) joins the loop's words and is
+#: denied, though no shell walks a root. Each with the text "Known differences" names it by.
+R9_STRICTER = {
+    R9_LS + "; false && d=/; " + R7V_R: R9_LS + "; false && d=/; " + R7V_R,
+    R9_LS + "; if false; then d=~/.subfleet; fi; " + R7V_R: R9_LS + "; false && d=/; " + R7V_R,
+    R9_LS + "; { :; } || d=/; " + R7V_R: R9_LS + "; false && d=/; " + R7V_R,
+}
+#: Every r9 command pin and control a shell can run (the cap's rows and edges are left out: their verdicts are the
+#: cap's), from the scoped cwd: the stricter forms are denied though no shell walks.
+R9_SHELL_COMMANDS = [(c, S_) for c in (R9_LOOPVAR_DENIED + R9_LOOPVAR_MORE_DENIED + R9_BOUND_JOIN_DENIED
+                                       + R9_LOOPVAR_ALLOWED + list(R9_STRICTER))]
+
+
+def test_r9_command_pins_agree_with_real_shells(tmp_path):
+    """Each r9 command pin and control, run by /bin/zsh -f and /bin/bash over the fixture with r6's stubs and the
+    fixture's HOME: the hook denies it exactly when either shell's run would have walked a root, but for the listed
+    stricter forms (denied, no shell walks). Each of review r8's sixteen inputs walks a root in at least one shell."""
+    outs = judge_all(HOOK, R9_SHELL_COMMANDS)
+    rows, differ = [], []
+    for command, cwd in R9_SHELL_COMMANDS:
+        denied = rule(outs[(command, cwd)]) == "unscoped-search"
+        shells = {sh: r6_shell_walks(sh, command, cwd, tmp_path) for sh in ("zsh", "bash")}
+        rows.append((command, cwd, denied, shells))
+        if command in R9_STRICTER:
+            if not denied or any(shells.values()):
+                differ.append(("stricter", command, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((command[:200], cwd, denied, shells))
+    report("shells-r9", {"cases": len(rows), "denied": sum(r[2] for r in rows),
+                         "zsh": sum(r[3]["zsh"] for r in rows), "bash": sum(r[3]["bash"] for r in rows),
+                         "both": sum(r[3]["zsh"] and r[3]["bash"] for r in rows),
+                         "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
+                         "rows": [(c[:120], d, s) for c, _, d, s in rows]})
+    assert differ == [], differ[:10]
+    assert [c for c, _, _, s in rows if c in R9_LOOPVAR_DENIED + R9_LOOPVAR_MORE_DENIED[:6]
+            and not any(s.values())] == []
