@@ -770,3 +770,65 @@ Two earlier holds found two faults of this round, both fixed in `b4fe073dd`: cor
 - `tests/frontend/test_core_live.py`, which cannot run on a lane.
 
 CI runs them.
+
+### Fix round r1 (review r1 of #276)
+
+Review r1 asked for changes at `66274272e`: one P2 and six P3s. Its own commits (`6fa46225b`, `3208ee4dd`) closed the test gaps P3-1 to P3-3. This round builds the hub's decisions on `3208ee4dd`.
+
+1. **P2-1: `_may_signal` counts an attributable member whose identity the census could not read.**
+   - **The gap:** `_signal_reasons` skips a member with no captured identity, and P3-1's fallback counted only walk and responsibility members. A finished job whose escaped, marked runner had no start in the kill's first process table answered `already finished` and left the runner running. The rule before P3-1 ran the protocol, whose next census read the runner and TERMed it.
+   - **The fix, review r1's:** in an unverifiable census, the unread members are the marked ones, the parent-chain ones, and the group's when this census verified its leader, minus the identities the census captured. Any of them that is neither a held parent nor `_never_signalled` runs the protocol.
+   - **Not built:** the broader `live_pids` minus the identities. It counts a leaderless group's member with no identity; in review r1's run it sent both case 3 `[unreadable-current-boot]` tests back to `containment requested`, the loop P3-1 removed.
+   - **No new signal path:** `_may_signal` only decides whether `kill` schedules `_recontain` and how `--confirm-dead` words its answer (`daemon.py:4581`, `:4601`). It names no target, so the protocol keeps its targets: the group after its leader's identity check, or a member `_signal_reasons` names (review r1, check 1). Case 3's sequences (`[legacy-attempt-boot]`, `[unreadable-current-boot]`) and the tainted-walk test still answer `already finished` four times and signal nothing (`world.tried` is empty).
+   - **`--confirm-dead`:** on the runner's shape it now says "`subfleet kill <job>` contains them", and the `kill` that follows TERMs the runner.
+   - **Tests** (`tests/unit/test_pr276_review_r1.py`): review r1's two strict xfails are plain cases. Constructed censuses pin each term: a parent-chain member and a verified group's member with no identity run the protocol; a leaderless group's member with no identity, and a never-signalled marked member with none, do not. A test runs `--confirm-dead` and then `kill` on the runner's shape.
+2. **Review r1's observation on `_terminal_census`, left as it is:** it returns the attempt row it read before its census, so a member that same census first records as unverified is not yet tainted for `_may_signal`, and that one `kill` can run a protocol that signals nothing, a known gap that errs only toward running.
+3. **Text:**
+   - C-5.7's "a verifiable read could attribute" now also names a marked or parent-chain member, or a member of the recorded group under a verified leader, whose identity the census could not read.
+   - "Changes in version 3" has one entry for C-4.2, C-5.6 and C-5.7 (review r3 of #250's P3-1, P3-2 and check 5), with P2-1's correction (P3-4).
+   - In this follow-up's decisions above, the unreadable-identity bullet now says which members qualify, and the abandon's last read is past the bound, or at a cancel, a wall stop or a failed condition (P3-5).
+4. **Review r1's unrun mutant:** `_start_landed` without its once-only check, now a strict-xfail control. Both recorded-once landings detect it: the read after start grace's census and the next pass's first read record 20.0 s and 21.0 s, and the abandon's last read, run twice, records 61.0 s twice.
+
+#### Red and green
+
+- **Red** at `3208ee4dd` (an archive of it with this round's venv, which imports the archive's `subfleet`): `test_pr276_review_r1.py` 7 passed, 7 xfailed. Both P2-1 cases xfailed strictly: the marked-runner test's `[p3-1]` and the constructed `[unidentified-marker-member]`.
+- **Green** at `e92324032`, with the marks removed: 14 passed, 7 xfailed.
+  - Its first run, at `520ad91f1`, failed one case this round added: the `--confirm-dead` test read `world.tried`, which only the boot-scope world has, after its answer checks had passed. `e92324032` fixes it.
+  - At `6d5438f36`, with the once-only control: 14 passed, 9 xfailed.
+
+#### Holds
+
+All ran under the suite lock, one pytest per hold, with no xdist. Times are UTC; load is the 1-minute average at admission and at the end.
+
+| Hold | Admitted (load) → end (load) | Per file |
+|---|---|---|
+| Red | 23:58:44, slot A (33) → 23:58:57 (33) | `pr276_review_r1` 7 + 7 xfailed, at `3208ee4dd` |
+| Green | 00:03:16, slot B → 00:03:54 (44) | `pr276_review_r1` 14 + 7 xfailed |
+| C1 | 00:04:25, slot B (52) → 00:07:16 (44) | `boot_scope` 51, `terminal_containment` 17, `fix1` 21, `fix2b` 21, `properties` 1 |
+| C2 | 00:11:01, slot B (21) → 00:13:03 (26) | `review_r3` 12 + 1 xfailed, `quar_start1_census` 21 + 17 xfailed, `quar_start1_landed` 16; xfailed: `fix2b_mutations` 8, `p3_mutations` 7 |
+| F1 | 00:13:31, slot B (32) → 00:15:53 (30) | `kill4_terminal_daemon` 6 passed, 1 failed |
+| F2 | 00:16:58, slot B (37) → 00:18:44 (24) | F1's failure, rerun: passed; `fake_daemon_parent_watch` 5 |
+| G | 00:23:37, slot A (27) → 00:26:17 (57) | `state_contract` 37, `test_module_names` 1, `invariants_index` 25 |
+| Green 2 | 00:28:30, slot B (23) → 00:29:37 (42) | `pr276_review_r1` 14 + 9 xfailed, at `6d5438f36` |
+| M | 00:30:17, slot A (54) → 00:31:21 (55) | the 16 mutant controls of `pr276_review_r1` and `p3_mutations` run with `--runxfail`: each failed at its named assertion |
+
+- **F1's failure:** `test_a_counted_loop_driver_is_contained_with_its_children[exit-receipt]` failed its evidence assertion: the driver's pid was not in `counted_identities`. The kept root has it in `owned_identities`: an inspection recorded it while it was still in the guardian's group, and none counted it. The kill protocol still signalled it, and the one counted pid, with `contained: True`. It is the shape of the merge round's `[walled]` failure, on the other ending. The test runs no `kill`, so `_may_signal` is not on its path, and it passed on the rerun at load 37.
+- **`[stopped]` and `[stopped-short-delay]`** passed in F1 at load 32 to 30. Review r1 found `[stopped]` failing at release too, at load 20 to 26, on the 2 s setsid wait (`tests/fake/test_kill4_terminal_daemon.py:194`). That wait is not this PR's to change, and this round loosened no bound.
+
+#### Mutants
+
+| Mutant | Killing test | Result |
+|---|---|---|
+| p3-1-unverifiable-always (round 3) | case 3's sequence, `[legacy-attempt-boot]` | detected |
+| p3-1-taint-ignored (round 3) | the tainted-walk test | detected |
+| `_kill_attempt`'s handshake inlined, no landing record (review r1) | the last-read landing at the bound, `[guardian-only]`: no record | detected |
+| p3-1-responsibility-dropped (review r1) | `[responsibility-member]` | detected |
+| p3-1-never-ignored (review r1) | `[never-signalled-walk-member]` | detected |
+| `>` for `>=` against D4's property (review r1's P3-3) | D4's extension property, at the bound | detected |
+| p2-1-chain-dropped (new) | `[unidentified-chain-member]` | detected |
+| p2-1-group-unchecked (new) | `[unidentified-leaderless-group-member]` | detected |
+| start-landed-not-once (review r1's unrun one) | the landing `[after-the-census]` and the abandon's last read `[stranger-unread]` | detected by both |
+
+C2 or Green 2 detected each as a strict xfail, and M showed each failing at its named assertion.
+
+**Not run here:** `tests/frontend/test_core_live.py`, which cannot run on a lane; `tests/process`, which this round's brief did not list; and the rest of the suite, which CI runs.
