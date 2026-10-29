@@ -380,7 +380,10 @@ def _play(children, name, seen):
                         if x.spec["lock"] == "reaped-unpublished":
                             # The guardian's wait reaps, as Popen.wait does under its lock;
                             # the peeks below then meet ECHILD.
-                            x.reaped = os.waitpid(x.child.pid, 0)
+                            try:
+                                x.reaped = os.waitpid(x.child.pid, 0)
+                            except ChildProcessError:
+                                raise AssertionError(f"a peek reaped the child before the wait: {x.spec}") from None
                         for _ in range(2):               # once read, an exit stays read
                             x.readings.append((time.monotonic(), time.monotonic(), relay.child_exited(x.child)))
                 time.sleep(0.001)                        # interleaves with the opener without spinning a core
