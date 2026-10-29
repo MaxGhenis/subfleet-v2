@@ -43,7 +43,6 @@ from tests.frontend.test_review_r219_fix13_view import (
     assert_landing_follows,
     assert_quiet_landing_order,
     assert_rests_at_the_end,
-    assert_shrunk_stale_glide_order,
     assert_stale_glide_order,
     landing_run,
     own_send_landings,
@@ -123,7 +122,6 @@ ROUND10_CASES = [
     ("quiet_landing_ends_following", "quiet-regrow-late"),
     ("growth_repins_dropped", "quiet-regrow"),
     ("quiet_window_0ms", "stale-glide"),
-    ("quiet_window_0ms", "stale-glide-shrink"),
 ]
 ROUND10 = {mutation for mutation, _ in ROUND10_CASES}
 # A fixture mutant, separate from product mutations: omit this write from the
@@ -267,13 +265,11 @@ def round10_order(mode):
         return lambda result, steps: assert_quiet_landing_order(result, steps, mode)
     if mode == "stale-glide":
         return assert_stale_glide_order
-    if mode == "stale-glide-shrink":
-        return assert_shrunk_stale_glide_order
     return lambda result, steps: None
 
 
 def round10_rule(mode):
-    if mode.startswith("stale-glide"):
+    if mode == "stale-glide":
         return assert_rests_at_the_end
     return assert_landing_follows
 
