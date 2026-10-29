@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:08:13Z slot A load 
+ADMITTED 2026-10-29T06:08:14.009650+00:00 LOAD (20.18115234375, 24.27783203125, 26.34130859375)
+.....................................                                    [100%]OBSERVATION {"engines": [], "explicit": {}, "mutant": null, "loaded": []}
+
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+37 passed, 2 warnings in 29.34s

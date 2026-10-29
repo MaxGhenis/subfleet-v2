@@ -1,0 +1,213 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:20:19Z slot A load 
+ADMITTED 2026-10-29T05:20:19.772874+00:00 LOAD (34.82763671875, 28.0751953125, 26.18896484375)
+...........FFF..FF                                                       [100%]
+=================================== FAILURES ===================================
+______ test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute] ______
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-red-review/pytest-of-maxghenis/pytest-0/test_c8_4_git_c_quoted_alterna0')
+relative = False
+
+    @pytest.mark.parametrize("relative", [False, True], ids=["absolute", "relative"])
+    def test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads(tmp_path, relative):
+        """Git decodes octal escapes before resolving an alternate object directory."""
+        world = World(tmp_path)
+        try:
+            tree = world.job("owner")
+            source = repo(tree / "objects-source")
+            commit = git(source, "rev-parse", "HEAD")
+            borrower = tmp_path / "borrower"
+            git(tmp_path, "clone", "--quiet", "--shared", str(source), str(borrower))
+            objects = source / ".git" / "objects"
+            base = borrower / ".git" / "objects"
+            named = os.path.relpath(objects, base) if relative else str(objects)
+            quoted = named.replace("/owner/", "/\\157wner/")
+            assert quoted != named
+            (base / "info" / "alternates").write_text('"' + quoted + '"\n')
+            assert git(borrower, "cat-file", "-t", commit) == "commit"
+    
+            recorded = dependencies.record(str(borrower))
+            world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                                kind="dispatch", state="running", sandbox="read-only",
+                                workdir=str(borrower), prompt_path="/prompt")
+            world.store.add_event("job.submitted", job_id="borrower",
+                                  data={"folder": folders.canonical(borrower), "depends": recorded})
+            result = retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+                                           holders=lambda *args, **kwargs: {})
+>           assert "owner" not in result["pruned"], (recorded, result)
+E           AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-red-review/pytest-of-maxghenis/py...wner/objects-source/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48064, 'bytes_after': 0, ...})
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r1.py:109: AssertionError
+______ test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative] ______
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-red-review/pytest-of-maxghenis/pytest-0/test_c8_4_git_c_quoted_alterna1')
+relative = True
+
+    @pytest.mark.parametrize("relative", [False, True], ids=["absolute", "relative"])
+    def test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads(tmp_path, relative):
+        """Git decodes octal escapes before resolving an alternate object directory."""
+        world = World(tmp_path)
+        try:
+            tree = world.job("owner")
+            source = repo(tree / "objects-source")
+            commit = git(source, "rev-parse", "HEAD")
+            borrower = tmp_path / "borrower"
+            git(tmp_path, "clone", "--quiet", "--shared", str(source), str(borrower))
+            objects = source / ".git" / "objects"
+            base = borrower / ".git" / "objects"
+            named = os.path.relpath(objects, base) if relative else str(objects)
+            quoted = named.replace("/owner/", "/\\157wner/")
+            assert quoted != named
+            (base / "info" / "alternates").write_text('"' + quoted + '"\n')
+            assert git(borrower, "cat-file", "-t", commit) == "commit"
+    
+            recorded = dependencies.record(str(borrower))
+            world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                                kind="dispatch", state="running", sandbox="read-only",
+                                workdir=str(borrower), prompt_path="/prompt")
+            world.store.add_event("job.submitted", job_id="borrower",
+                                  data={"folder": folders.canonical(borrower), "depends": recorded})
+            result = retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+                                           holders=lambda *args, **kwargs: {})
+>           assert "owner" not in result["pruned"], (recorded, result)
+E           AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-red-review/pytest-of-maxghenis/py...wner/objects-source/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48065, 'bytes_after': 0, ...})
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r1.py:109: AssertionError
+________ test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads ________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-red-review/pytest-of-maxghenis/pytest-0/test_c8_4_large_valid_alternat0')
+
+    def test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads(tmp_path):
+        """A valid file past the discovery read cap must not silently lose dependencies."""
+        world = World(tmp_path)
+        try:
+            tree = world.job("owner")
+            source = repo(tree / "objects-source")
+            commit = git(source, "rev-parse", "HEAD")
+            borrower = tmp_path / "borrower"
+            git(tmp_path, "clone", "--quiet", "--shared", str(source), str(borrower))
+            line = str(source / ".git" / "objects") + "\n"
+            text = line * ((64 * 1024) // len(line.encode()) + 1)
+            assert len(text.encode()) > 64 * 1024
+            (borrower / ".git" / "objects" / "info" / "alternates").write_text(text)
+            assert git(borrower, "cat-file", "-t", commit) == "commit"
+    
+            recorded = dependencies.record(str(borrower))
+            world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                                kind="dispatch", state="running", sandbox="read-only",
+                                workdir=str(borrower), prompt_path="/prompt")
+            world.store.add_event("job.submitted", job_id="borrower", data={"depends": recorded})
+            result = retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+                                           holders=lambda *args, **kwargs: {})
+>           assert "owner" not in result["pruned"], (recorded, result)
+E           AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-red-review/pytest-of-maxghenis/py...ge_valid_alternat0/borrower/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48064, 'bytes_after': 0, ...})
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r1.py:138: AssertionError
+_ test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i] _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-red-review/pytest-of-maxghenis/pytest-0/test_c8_3_pending_export_keeps2')
+root_name = 'dotless-ı', legacy = True
+
+    @pytest.mark.parametrize("root_name", ["dotless-ı", "ignored-\u200b"],
+                             ids=["dotless-i", "default-ignorable"])
+    @pytest.mark.parametrize("legacy", [False, True], ids=["recorded", "legacy"])
+    def test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity(
+            tmp_path, root_name, legacy):
+        """An old terminal job still has jobs.out_path when its lease folds differently."""
+        with fleet_daemon(tmp_path / root_name / "state") as (daemon, harness, patch):
+            measured(daemon, harness)
+            tree, nested = retiring_tree(daemon, harness)
+            patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
+            out = Path(nested) / "result.md"
+            job = submit(daemon, harness, workdir=str(harness.workdir), out_path=str(out))
+            if dependencies.key(folders.identity(str(out))) == dependencies.key(str(out)):
+                pytest.skip("requires a volume with the conservative output-identity equivalences")
+            if legacy:
+                with daemon.store.transaction() as tx:
+                    event = tx.execute("SELECT event_id,data_json FROM events "
+                                       "WHERE job_id=? AND kind='job.submitted'", (job,)).fetchone()
+                    data = json.loads(event[1])
+                    del data["depends"]
+                    tx.execute("UPDATE events SET data_json=? WHERE event_id=?",
+                               (json.dumps(data), event[0]))
+            daemon._admit()
+            assert _live(daemon, job), daemon._holds.get(job)
+            attempt = daemon.store.list_attempts(job)[-1]["attempt_id"]
+            deliverable = daemon.root / "jobs" / job / "deliverable.md"
+            contents = b"pending accepted output\n"
+            deliverable.write_bytes(contents)
+            daemon.store.add_artifact(attempt, role="deliverable", path=str(deliverable),
+                                      sha256=hashlib.sha256(contents).hexdigest(), bytes=len(contents))
+            daemon.store.update_attempt(attempt, state="succeeded")
+            daemon.store.update_job(job, state="succeeded", accepted_attempt_id=attempt)
+            assert daemon.store.one("SELECT 1 FROM leases WHERE lease_key=? AND holder=?",
+                                    ("out:" + folders.identity(str(out)), job))
+    
+            result = retire(daemon)
+>           assert "retired" not in result["pruned"], result
+E           AssertionError: {'pruned': ['retired'], 'errors': [], 'bytes_before': 29780, 'bytes_after': 1638, ...}
+E           assert 'retired' not in ['retired']
+
+tests/fake/test_retention_dependency_review_r1.py:181: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4456741728:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4456741728:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+_ test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable] _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-red-review/pytest-of-maxghenis/pytest-0/test_c8_3_pending_export_keeps3')
+root_name = 'ignored-\u200b', legacy = True
+
+    @pytest.mark.parametrize("root_name", ["dotless-ı", "ignored-\u200b"],
+                             ids=["dotless-i", "default-ignorable"])
+    @pytest.mark.parametrize("legacy", [False, True], ids=["recorded", "legacy"])
+    def test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity(
+            tmp_path, root_name, legacy):
+        """An old terminal job still has jobs.out_path when its lease folds differently."""
+        with fleet_daemon(tmp_path / root_name / "state") as (daemon, harness, patch):
+            measured(daemon, harness)
+            tree, nested = retiring_tree(daemon, harness)
+            patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
+            out = Path(nested) / "result.md"
+            job = submit(daemon, harness, workdir=str(harness.workdir), out_path=str(out))
+            if dependencies.key(folders.identity(str(out))) == dependencies.key(str(out)):
+                pytest.skip("requires a volume with the conservative output-identity equivalences")
+            if legacy:
+                with daemon.store.transaction() as tx:
+                    event = tx.execute("SELECT event_id,data_json FROM events "
+                                       "WHERE job_id=? AND kind='job.submitted'", (job,)).fetchone()
+                    data = json.loads(event[1])
+                    del data["depends"]
+                    tx.execute("UPDATE events SET data_json=? WHERE event_id=?",
+                               (json.dumps(data), event[0]))
+            daemon._admit()
+            assert _live(daemon, job), daemon._holds.get(job)
+            attempt = daemon.store.list_attempts(job)[-1]["attempt_id"]
+            deliverable = daemon.root / "jobs" / job / "deliverable.md"
+            contents = b"pending accepted output\n"
+            deliverable.write_bytes(contents)
+            daemon.store.add_artifact(attempt, role="deliverable", path=str(deliverable),
+                                      sha256=hashlib.sha256(contents).hexdigest(), bytes=len(contents))
+            daemon.store.update_attempt(attempt, state="succeeded")
+            daemon.store.update_job(job, state="succeeded", accepted_attempt_id=attempt)
+            assert daemon.store.one("SELECT 1 FROM leases WHERE lease_key=? AND holder=?",
+                                    ("out:" + folders.identity(str(out)), job))
+    
+            result = retire(daemon)
+>           assert "retired" not in result["pruned"], result
+E           AssertionError: {'pruned': ['retired'], 'errors': [], 'bytes_before': 29784, 'bytes_after': 1641, ...}
+E           assert 'retired' not in ['retired']
+
+tests/fake/test_retention_dependency_review_r1.py:181: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4461220864:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4461220864:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]
+FAILED tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]
+FAILED tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads
+FAILED tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]
+FAILED tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable]
+5 failed, 13 passed in 66.46s (0:01:06)

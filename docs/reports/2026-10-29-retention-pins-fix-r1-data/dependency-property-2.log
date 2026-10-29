@@ -1,0 +1,42 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:40:38Z slot B load 
+ADMITTED 2026-10-29T05:40:38.370909+00:00 LOAD (19.27001953125, 21.16455078125, 24.48974609375)
+.                                                                        [100%]OBSERVATION {"engines": [{"nodeid": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference", "valid": 100, "invalid": 0, "calls": 100, "settings_max": 100}], "explicit": {}, "mutant": null, "loaded": []}
+
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference:
+
+  - during generate phase (80.34 seconds):
+    - Typical runtimes: ~ 445-1398 ms, of which ~ 2-29 ms in data generation
+    - 100 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=100
+
+
+1 passed, 2 warnings in 82.19s (0:01:22)

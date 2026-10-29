@@ -1,0 +1,31 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:38:39Z slot B load 
+ADMITTED 2026-10-29T05:38:39.834485+00:00 LOAD (18.1669921875, 22.15576171875, 25.314453125)
+.                                                                        [100%]OBSERVATION {"engines": [{"nodeid": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job", "valid": 500, "invalid": 11, "calls": 724, "settings_max": 500}], "explicit": {"tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job": 3}, "mutant": null, "loaded": []}
+
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job:
+
+  - during generate phase (11.04 seconds):
+    - Typical runtimes: ~ 1-51 ms, of which ~ 0-2 ms in data generation
+    - 500 passing, 0 failing, and 224 invalid test cases
+    - Events:
+      * 27.21%, Retried draw from text(characters(categories=(), include_characters=('f', 'i', 'k', 'l', 's', 't', '0', '-')), min_size=1, max_size=8).filter(lambda n: n not in ('.', '..')).filter(lambda other: folders.fold(other) != folders.fold(tree_id)) to satisfy filter
+      * 1.52%, gave up because: Aborted test because unable to satisfy text(characters(categories=(), include_characters=('f', 'i', 'k', 'l', 's', 't', '0', '-')), min_size=1, max_size=8).filter(lambda n: n not in ('.', '..')).filter(lambda other: folders.fold(other) != folders.fold(tree_id))
+
+  - Stopped because settings.max_examples=500
+
+
+1 passed, 2 warnings in 12.06s

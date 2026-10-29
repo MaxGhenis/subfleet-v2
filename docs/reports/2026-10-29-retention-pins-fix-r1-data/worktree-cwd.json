@@ -1,0 +1,61 @@
+{
+  "name": "worktree-cwd",
+  "start": "2026-10-29T06:03:03.306775+00:00",
+  "load": [
+    29.43505859375,
+    31.5439453125,
+    28.87158203125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[resolved]",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[tmp-alias]",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_does_not_hold_an_in_place_workdir_for_cwd",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[owned]",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[in-place]",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_never_verifies_containment",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_keeps_retention_before_rename"
+  ],
+  "phases": {
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[resolved]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[tmp-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_does_not_hold_an_in_place_workdir_for_cwd": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[owned]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[in-place]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_never_verifies_containment": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_keeps_retention_before_rename": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

@@ -624,20 +624,37 @@ recorded it (or, for a job queued before that, as admission spelled it,
 review root, the `-o` path, and the git storage its folder's checkout uses
 (for each `.git` at or above the folder, the directory it is or names, that
 directory's common directory and the alternates of its objects, read from the
-files without running git). A checkout outside the tree can keep its
+files without running git, decoding Git C-style escapes on raw bytes before
+filesystem decoding and resolving relative alternates against the objects
+directory, five levels deep). Alternates files are streamed to their end with
+no whole-file cap and a 1 MiB per-line bound (256 times a 4096-byte PATH_MAX).
+An unreadable or interrupted file, an overlong line, or an invalid quoted entry
+records incomplete discovery. Submission and admission still accept the job;
+while it is live or exporting, every allocated worktree is kept, with a
+`dependency-incomplete` reason naming the job and the file. A checkout outside
+the tree can keep its
 repository in it (`git -C <tree>/vendor/lib worktree add <outside>`); every git
 command in the checkout then works in the tree, and a worktree writer submitted
 from there registers its worktree there. A job holding `out:<path>` has an
 export pending (it is written after the job ends, C-8.3), and that path is a
-place too, whatever the job's state. A tree is kept while any such place is the
+place too, whatever the job's state. The holder's actual `jobs.out_path`
+(joined by the jobs key) and recorded `depends.out_path` count beside the lease
+identity; a terminal legacy exporter needs no recorded `depends` for its actual
+destination to count. A tree is kept while any such place is the
 tree or inside it, comparing places folded (`folders.fold`), so a row's
-workdir typed in another case names the tree. The pass reads this once, and
+workdir typed in another case names the tree. The pass builds this dependency
+census, and
 the selecting and commit transactions read it again for their job, also on
 the fence's spelling, with database reads alone: each job's first
 `job.submitted` by job id (`events_job`) and the `out:` leases by a range of
-their key. The self-join it replaces compared every finished job's tree with
-every job not yet ended by `LIKE`; new timing measurements remain pending; validation status is in
-`docs/reports/2026-10-27-retention-dependency-pins.md`. A job queued before
+their key, joined to the holder's job row. The same census protects `jobs/<id>`
+as `job-directory-in-use`, also for jobs without allocated worktrees. Its
+fence transaction rechecks dependencies before either rename, and its final
+commit rechecks the journal's job-directory path before deleting rows. This
+closes the job-directory boundary already present in release/217, separately
+from review r1's three defects in allocated-worktree pinning.
+
+The self-join compared finished owners with live jobs. Continuation 4b completed one old/new pin-query comparison at 3,000/100 and 6,000/600 jobs/live, with matching pin sets; timings and loads are in `docs/reports/2026-10-27-retention-dependency-pins.md`. A job queued before
 `depends` was recorded has those places read once a pass, before any
 transaction (`dependencies.legacy`). Admission reads retention's fences on each
 place in `depends` before workspace preparation and in its reserving
@@ -845,13 +862,19 @@ Each is tested (section 16).
   allocated for a job is retired with that job, recorded in `jobs.worktree` or
   not. A writable git job keeps the expected daemon path while it is absent,
   so its lease and journal still protect a moved or returning allocation.
-- **I16, a needed tree stays** (2026-10-06, C-8.4). A finished job's tree is
+- **I16, a needed tree stays** (2026-10-06; extended 2026-10-29, C-8.4). A finished job's tree
+  (allocated worktree or `jobs/<id>` directory) is
   kept, at the pass, the selection and the commit, while a job that has
   not ended needs a place in it (its folder, workdir, worktree, review root,
   `-o` path or git storage, compared folded) or an export to a path in it is
   pending; spelling a place in another case or Unicode form changes nothing,
   and a job that has not ended never releases a pin. Admission starts no job
-  while retention holds the fence above any such place.
+  while retention holds the fence above any such place. Incomplete alternates
+  discovery keeps all allocated worktrees while the affected job is live or
+  exporting, with the job id and file in the pass's reason. C-quoted paths are
+  decoded on bytes, and pending exports keep their actual destination beside
+  their lease identity. [Fix round r1 evidence](../reports/2026-10-29-retention-pins-fix-r1.md)
+  covers these cases and the job-directory boundary.
 
 ## 15. Residual risks
 

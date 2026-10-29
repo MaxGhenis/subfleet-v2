@@ -1,0 +1,33 @@
+{
+  "name": "units-property-4",
+  "start": "2026-10-29T05:38:29.479415+00:00",
+  "load": [
+    19.31103515625,
+    22.5029296875,
+    25.47216796875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "valid": 200,
+      "invalid": 0,
+      "calls": 220,
+      "settings_max": 200
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

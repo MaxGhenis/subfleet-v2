@@ -1,0 +1,37 @@
+{
+  "name": "cwd-rechecks",
+  "start": "2026-10-29T06:00:48.704497+00:00",
+  "load": [
+    30.51708984375,
+    32.1552734375,
+    28.58349609375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[after-move]",
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[resume-quarantined]",
+    "tests/unit/test_retention_cwd_rechecks.py::test_retention_holds_a_worktree_recorded_with_different_case"
+  ],
+  "phases": {
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[after-move]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[resume-quarantined]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_cwd_rechecks.py::test_retention_holds_a_worktree_recorded_with_different_case": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

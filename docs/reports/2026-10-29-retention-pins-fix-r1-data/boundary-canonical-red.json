@@ -1,0 +1,25 @@
+{
+  "name": "boundary-canonical-red",
+  "start": "2026-10-29T05:59:44.758968+00:00",
+  "load": [
+    44.07177734375,
+    34.56982421875,
+    29.111328125
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence"
+  ],
+  "phases": {
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}
