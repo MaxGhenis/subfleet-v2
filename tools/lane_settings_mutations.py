@@ -1,8 +1,10 @@
 """Reproduce D-WATCHDOG1's mutants (d1031), one pytest per mutant.
 
 Each mutant edits one site, runs its killing tests from tests/unit/test_lane_settings.py
-with -k, and puts the file back whatever happens. A mutant is killed only when every
-failure is an assertion and nothing errors at collection or setup.
+(one test function, over the cases a predicate picks from the grid, by node id: `-k`
+cannot spell a case id's `=`), and puts the file back whatever happens. A mutant is
+killed only when every failure is an assertion and nothing errors at collection or
+setup.
 
     TMPDIR=<scratch> python tools/lane_settings_mutations.py [--only NAME ...]
 
@@ -18,35 +20,40 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tests import lane_settings_cases as lsc  # noqa: E402
+
 ADAPTER = 'subfleet/adapters/claude.py'
 CARDS = 'subfleet/claude_cards.py'
 PUBLISH = 'subfleet/review_publish.py'
 TURN = 'subfleet/conversations/claude_turn.py'
 TESTS = 'tests/unit/test_lane_settings.py'
+I1 = 'test_i1_every_launch_gives_one_settings_with_the_watchdog_off'
+I2 = 'test_i2_every_other_setting_is_what_the_launch_had_before'
 
-# (name, file, before, after, -k expression)
+# (name, file, before, after, killing test, the cases it runs over)
 MUTANTS = (
     ('heal-without-override', CARDS,
      """'{"mcpServers":{}}', *lane_settings_args()]""", """'{"mcpServers":{}}']""",
-     'i1 and heal'),
+     I1, lambda c: c['path'] == 'heal'),
     ('read-only-fast-turn-second-settings', TURN,
      '    return command + lane_settings_args(settings)',
      '    if spec.permission == "read-only" and settings.pop("fastMode", False):\n'
      '        return command + lane_settings_args(settings) + ["--settings", \'{"fastMode":true}\']\n'
      '    return command + lane_settings_args(settings)',
-     'i1 and turn and fast=True and permission=read-only'),
+     I1, lambda c: c['path'] == 'turn' and c['permission'] == 'read-only' and c['fast']),
     ('value-one', ADAPTER,
      'MappingProxyType({"CLAUDE_CODE_RETRY_WATCHDOG": "0"})',
      'MappingProxyType({"CLAUDE_CODE_RETRY_WATCHDOG": "1"})',
-     'i1'),
+     I1, lambda c: True),
     ('override-drops-other-keys', ADAPTER,
      '    merged = dict(settings or {})\n', '    merged = {}\n',
-     'i2 and turn and permission=ask'),
+     I2, lambda c: c['path'] == 'turn' and c['permission'] != 'read-only'),
     ('read-only-jobs-skipped', PUBLISH,
      '        return ["--settings", json.dumps(settings, separators=(",", ":"))]',
      '        return [] if sandbox != Sandbox.WORKSPACE_WRITE.value else '
      '["--settings", json.dumps(settings, separators=(",", ":"))]',
-     'i1 and job and sandbox=read-only'),
+     I1, lambda c: lsc.read_only(c) and c['path'] in ('job', 'resume', 'probe', 'timer', 'gate')),
 )
 
 
@@ -55,9 +62,11 @@ def edit(source: str, before: str, after: str) -> str:
     return source.replace(before, after)
 
 
-def run(name: str, expression: str, logs: Path) -> bool:
+def run(name: str, test: str, picks, logs: Path) -> bool:
     report = logs / f'{name}.xml'
-    result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', TESTS, '-k', expression,
+    nodes = [f'{TESTS}::{test}[{lsc.case_id(case)}]' for case in lsc.cases() if picks(case)]
+    assert nodes, name
+    result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', *nodes,
                              f'--junitxml={report}'], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     (logs / f'{name}.log').write_text(result.stdout)
     failures, errors = [], 0
@@ -68,9 +77,9 @@ def run(name: str, expression: str, logs: Path) -> bool:
     killed = (result.returncode == 1 and errors == 0 and bool(failures)
               and all('assert' in message.lower() for message in failures))
     summary = [line for line in result.stdout.splitlines() if ' in ' in line and
-               any(word in line for word in ('passed', 'failed', 'error', 'deselected'))]
-    print(f'{name}: {"KILLED" if killed else "NOT KILLED"}; exit={result.returncode}; '
-          f'failures={len(failures)} errors={errors}; {summary[-1:]!r}', flush=True)
+               any(word in line for word in ('passed', 'failed', 'error'))]
+    print(f'{name}: {"KILLED" if killed else "NOT KILLED"}; {test} over {len(nodes)} cases; '
+          f'exit={result.returncode}; failures={len(failures)} errors={errors}; {summary[-1:]!r}', flush=True)
     return killed
 
 
@@ -81,7 +90,7 @@ def main() -> int:
     logs = Path(os.environ.get('TMPDIR') or tempfile.gettempdir()) / 'lane-settings-mutants'
     logs.mkdir(parents=True, exist_ok=True)
     survivors = []
-    for name, filename, before, after, expression in MUTANTS:
+    for name, filename, before, after, test, picks in MUTANTS:
         if args.only and name not in args.only:
             continue
         path = Path(filename)
@@ -90,7 +99,7 @@ def main() -> int:
             changed = edit(original.decode(), before, after)
             compile(changed, filename, 'exec')
             path.write_text(changed)
-            if not run(name, expression, logs):
+            if not run(name, test, picks, logs):
                 survivors.append(name)
         finally:
             path.write_bytes(original)
