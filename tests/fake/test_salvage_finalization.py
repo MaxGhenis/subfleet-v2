@@ -1127,8 +1127,9 @@ def test_c13_1_live_an_empty_repository_beside_a_committed_one_is_left_out(state
 
 def test_c13_1_live_a_worktree_whose_repository_was_deleted_is_recorded_at_once(state_daemon):
     """thesis-prepush-guard-r21/a1 and thesis-resolver-exit3-merge-review/a1 (live): the
-    repository the worktree was cut from was deleted, so every git call in it says `not a
-    git repository`. Recorded on the first try; the files are left alone."""
+    repository the worktree was cut from was deleted, so every git call in it fails: git 2.55
+    says `not a git repository`, and git 2.56 says `gitfile does not point to a valid
+    repository` (D-CI-GIT256). Recorded on the first try; the files are left alone."""
     daemon, harness = state_daemon
     workdir, job_id, attempt, adir = finalizing(daemon, harness)
     (workdir / ".git").rename(workdir.parent / "moved-away.git")
@@ -1140,7 +1141,9 @@ def test_c13_1_live_a_worktree_whose_repository_was_deleted_is_recorded_at_once(
         (workdir.parent / "moved-away.git").rename(workdir / ".git")
     error = json.loads((adir / "salvage.json").read_text())["error"]
     assert error == "salvage failed: git rev-parse failed (exit 128); daemon.log has its output"
-    assert "salvage failed: SalvageError: git rev-parse failed: fatal: not a git repository" in log_text(daemon)
+    logged = log_text(daemon)
+    assert any(f"salvage failed: SalvageError: git rev-parse failed: fatal: {said}" in logged
+               for said in ("not a git repository", "gitfile does not point to a valid repository"))
     assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
     assert (workdir / "tracked.txt").read_text() == "provider progress\n"
 
