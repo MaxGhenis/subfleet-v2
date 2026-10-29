@@ -412,8 +412,8 @@ EDITS = {
                                  """return (j && PAI == j - 1) ? j : 0""")],
     "r8-passon-roots-dropped": [("""          if (x != "") nextroots = nextroots (nextroots == "" ? "" : " ") x
 """, "")],
-    "r8-known-form-unlisted": [("""    'rg --files ') <(echo ~/.subfleet) | bash`, `paste -d' ' <(echo 'rg --files') <(echo ~/.subfleet) |""",
-                                """    'rg --files ') <(echo ~/.subfleet) | bash`, `paste <(…) <(…) |""")],
+    "r8-known-form-unlisted": [("""    <(echo ~/.subfleet) | bash` and `paste -d' ' <(echo 'rg --files') <(echo ~/.subfleet) | bash`: the""",
+                                """    <(echo ~/.subfleet) | bash` and `paste <(…) <(…) | bash`: the""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
