@@ -152,7 +152,7 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         # its effort: their tool set has no Workflow tool to orchestrate with.
         settings["ultracode"] = True
     # One `--settings` for every permission, with Claude Code's retry watchdog
-    # off (C-26.11, d1031): a turn at its plan's ceiling ends rather than waits.
+    # off (C-26.11, d1031), intended to end a turn at its plan's ceiling rather than wait.
     return command + lane_settings_args(settings)
 
 

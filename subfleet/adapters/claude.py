@@ -130,7 +130,7 @@ MCP_CONFIG_MAX_BYTES = 4 << 20
 #: pinned OAuth token, never the API meter (C-12.4).
 ENV_REMOVE: tuple[str, ...] = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
-#: d1031 (D-WATCHDOG1): the `env` every Claude process Subfleet starts gets in the
+#: d1031 (D-WATCHDOG1): the `env` every Claude launch that starts a model turn gets in the
 #: settings it is given on the command line. Under Claude Code's retry watchdog
 #: (`CLAUDE_CODE_RETRY_WATCHDOG=1`) 429 and 529 responses retry without end, so a lane
 #: that reaches its plan's ceiling would wait out the window instead of exiting, and
@@ -874,7 +874,7 @@ class ClaudeAdapter(Adapter):
             "--output-format", "stream-json",
             "--verbose",
             "--max-turns", "1",
-            *lane_settings_args(),            # D-WATCHDOG1: a probe at the ceiling exits too
+            *lane_settings_args(),            # D-WATCHDOG1: a probe's turn carries it too
         ]
 
     def _run_turn(self, env_add: dict[str, str], model_id: str,
@@ -2131,7 +2131,7 @@ def reconstruct_v1_argv(
     a writable launch adds `--strict-mcp-config --mcp-config <config>` after v1's
     bypass flag (C-12.9, d714), so it starts only the MCP servers its job named, and
     every launch ends with one `--settings` carrying `LANE_SETTINGS_ENV` (d1031,
-    D-WATCHDOG1), so a lane at its plan's ceiling exits. Read-only `PERM_ARGS` is
+    D-WATCHDOG1), intended to let a lane at its plan's ceiling exit. Read-only `PERM_ARGS` is
     reproduced verbatim, in v1's order. The parity test compares this against
     `ClaudeAdapter.build_launch`, so a drift in either fails loudly.
     """

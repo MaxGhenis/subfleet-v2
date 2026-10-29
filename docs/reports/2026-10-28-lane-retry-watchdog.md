@@ -6,11 +6,11 @@ The lanes must not inherit it. Under the watchdog, 429 and 529 responses retry w
 
 ## What was open
 
-No Claude lane has a home of its own, so each launch could read the user's `settings.json`. The launch environment's allowlist (`launch_env.py`) passes no `CLAUDE_CODE_*` name. The settings file was the only way in, and Claude Code applies its `env` after the launch (C-12.4, D-ENV3).
+No Claude lane has a home of its own, so each launch could read the user's `settings.json`. The default launch-environment allowlist does not pass `CLAUDE_CODE_RETRY_WATCHDOG`. A loaded user or lane-home settings file can supply it, and an explicit policy `env.pass` can also supply it in the process environment (review r1).
 
 ## Every Claude launch path
 
-`tests/unit/test_lane_settings.py::test_every_claude_p_builder_in_the_package_is_a_case_path` walks the package's AST. It finds six functions that spell a `claude -p` command line, and fails if a seventh appears before a case covers it. Each launch path below goes through one of them.
+`tests/unit/test_lane_settings.py::test_every_claude_p_builder_in_the_package_is_a_case_path` walks the package's AST. The syntax test checks the six known builders for list/tuple literals beginning with a `claude_bin` identifier and `-p`; split argv, `shlex` and differently named helper builders can escape it (review r1, P3-1). Existing paths were also independently audited. Each launch path below goes through one of them.
 
 | Launch path | Builder | `--settings` at 676906f85 | User settings loaded at 676906f85 | Now |
 | --- | --- | --- | --- | --- |
@@ -30,7 +30,7 @@ No Claude lane has a home of its own, so each launch could read the user's `sett
 
 `{"env":{…}}` is `{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}`.
 
-Two spawns of `claude` start no model turn, so the watchdog cannot hold them: `claude_cards.cli_version` (`claude --version`) and `tools/login_table.py` (`claude auth status --json`, an operator tool outside the package). Subfleet performs no provider login (C-23.52), so no login helper starts a turn beyond enrolment and the heal. The timers read a Claude lane's capacity through `probe_status` (the usage endpoint, no turn), and call `probe` only for an adapter without `probe_status`. No other code in the package calls `probe`, `probe_with_model` or `probe_outcome`; they carry the override anyway.
+Non-turn launches include the card and doctor version checks and the operator's `claude auth status --json`; the watchdog cannot hold a model turn in these helpers. Subfleet performs no provider login (C-23.52), so no login helper starts a turn beyond enrolment and the heal. The timers read a Claude lane's capacity through `probe_status` (the usage endpoint, no turn), and call `probe` only for an adapter without `probe_status`. No other code in the package calls `probe`, `probe_with_model` or `probe_outcome`; they carry the override anyway.
 
 ## What the help text says about `--settings`
 
@@ -147,5 +147,5 @@ No run went outside the lock.
 
 - **No live Claude run.** The job started no live process, as the brief requires. Whether real Claude Code lets command-line `env` override the user's file rests on the 10/22 probe. A live check for the hub, with the watchdog on in a scratch user's settings: start one lane job and one conversation turn, and confirm that `launch.json`'s argv has one `--settings` holding the variable. Then confirm, through the live probe, that the session ran with it off.
 - **The full suite.** Only the files listed above ran; CI runs the rest. `tests/e2e/test_conversations.py` ran 29 of its 44 tests, and the 15 lane-only skips run in CI.
-- **The operator's `env.pass`.** A policy `env.pass` naming `CLAUDE_CODE_RETRY_WATCHDOG` would put it in a launch's process environment. The settings `env` should win over it, but nothing here shows that for real Claude Code. No live policy names it.
+- **The operator's `env.pass`.** An explicit policy `env.pass` naming the variable puts it in the process environment. Neither the build nor review r1 established its precedence against command-line settings for real Claude, and neither inspected live policies.
 - **Snapshot maps.** `docs/desktop/maps/v2-claude-adapter.md` and `legacy-broker.md` describe the argv as it stood when written, and this change leaves them so.
