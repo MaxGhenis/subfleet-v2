@@ -62,6 +62,8 @@ MUTANTS = {
     "owned-not-live": (Daemon, "_may_signal", [(" | (census.live_pids & owned)", " | owned")]),
     # The unread set without marked members (fix round r1's first term).
     "marker-dropped": (Daemon, "_may_signal", [("(census.marker_pids | census.chain_pids", "(census.chain_pids")]),
+    # Fix round r3 (P3-1): the owned term keeping the pids the census proved recycled.
+    "owned-recycled-kept": (Daemon, "_may_signal", [(" - set(census.recycled)", "")]),
 }
 
 
@@ -165,6 +167,7 @@ def test_the_census_proves_the_stranger_is_not_the_owned_process_but_cannot_read
     read = dataclasses.replace(census, identities={STRANGER: procs.ProcessIdentity(STRANGER, BOOT_A, member.start)},
                                unverifiable=False, errors=())
     assert not Daemon._signal_reasons(daemon, attempt(daemon), read)
+    assert not Daemon._may_signal(daemon, attempt(daemon), census)
 
 
 def test_a_stranger_at_an_owned_pid_runs_no_protocol_with_the_boot_unreadable(daemon, world, monkeypatch):
@@ -176,6 +179,16 @@ def test_a_stranger_at_an_owned_pid_runs_no_protocol_with_the_boot_unreadable(da
     assert [answer["status"] for answer in answers] == ["already finished"] * 4, (answers, world.tried)
     assert not scheduled and not world.tried and "attempt.recontainment_started" not in kinds(daemon)
     assert member.alive
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the stranger's cases must detect this mutant")
+@pytest.mark.parametrize("case", ["census", "kills"])
+def test_an_owned_term_keeping_a_proven_recycled_pid_fails_the_strangers_cases(daemon, world, monkeypatch, case):
+    mutate(monkeypatch, "owned-recycled-kept")
+    if case == "census":
+        test_the_census_proves_the_stranger_is_not_the_owned_process_but_cannot_read_it(daemon, world)
+    else:
+        test_a_stranger_at_an_owned_pid_runs_no_protocol_with_the_boot_unreadable(daemon, world, monkeypatch)
 
 
 # 4. The unread rule's soundness on the daemon's own census.
