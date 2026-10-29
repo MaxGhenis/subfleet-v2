@@ -753,8 +753,13 @@ struct SearchRevealer: View {
                 // Gone, or another conversation shown: this reveal is done with.
                 if Task.isCancelled || palette.reveal != reveal { return }
                 // The tray scrolls its own container; it does not move the timeline.
-                if layout == nil { ConversationOpeningPin.revealRow(in: conversationID) }
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(reveal.itemID, anchor: .center) }
+                let request = layout == nil ? ConversationOpeningPin.revealRow(in: conversationID, target: reveal.itemID)
+                    : nil
+                withAnimation(.easeOut(duration: 0.2), completionCriteria: .removed) {
+                    proxy.scrollTo(reveal.itemID, anchor: .center)
+                } completion: {
+                    if let request { ConversationOpeningPin.didRevealRow(in: conversationID, request: request) }
+                }
             }
             if palette.reveal == reveal { palette.reveal = nil }
         }
