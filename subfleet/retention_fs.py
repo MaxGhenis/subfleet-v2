@@ -160,11 +160,14 @@ def join(parent: str, name: str) -> str:
 def open_dir(name: str | os.PathLike, *, dir_fd: int | None = None,
              expect: os.stat_result | None = None) -> int:
     fd = os.open(name, O_DIR, dir_fd=dir_fd)
-    if expect is not None:
-        st = os.fstat(fd)
-        if (st.st_dev, st.st_ino) != (expect.st_dev, expect.st_ino):
-            os.close(fd)
-            raise TreeError("swapped", f"{name} changed while it was opened")
+    try:
+        if expect is not None:
+            st = os.fstat(fd)
+            if (st.st_dev, st.st_ino) != (expect.st_dev, expect.st_ino):
+                raise TreeError("swapped", f"{name} changed while it was opened")
+    except BaseException:
+        os.close(fd)
+        raise
     return fd
 
 
@@ -211,7 +214,12 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
                     raise TreeError("changed", f"{path} vanished during the walk") from None
                 except NotADirectoryError:
                     raise TreeError("changed", f"{path} was replaced during the walk") from None
-                stack.append((child, path, iter(_list(child, path))))
+                try:
+                    child_names = iter(_list(child, path))
+                    stack.append((child, path, child_names))
+                except BaseException:
+                    os.close(child)
+                    raise
     finally:
         for fd, _, _ in stack:
             if fd != root_fd:
@@ -554,9 +562,9 @@ def regenerable(parent_fd: int, name: str, st: os.stat_result) -> Regenerable | 
 
 
 def _layout(parent_fd: int, name: str, st: os.stat_result, layout: _Layout) -> Regenerable | None:
-    fd = open_dir(name, dir_fd=parent_fd, expect=st)
     children: dict[str, tuple[int, str]] = {}
     extra: list[str] = []
+    fd = open_dir(name, dir_fd=parent_fd, expect=st)
     try:
         for child in _names(fd):
             cst = os.stat(child, dir_fd=fd, follow_symlinks=False)
@@ -1018,7 +1026,11 @@ class RegenerableWalk:
         try:
             for part in rel.split("/"):
                 fd = open_dir(part, dir_fd=fd)
-                opened.append(fd)
+                try:
+                    opened.append(fd)
+                except BaseException:
+                    os.close(fd)
+                    raise
                 if _exists(".git", fd):
                     return True
             return False
@@ -1039,12 +1051,17 @@ def _is_dir(dir_fd: int, name: str) -> bool:
 def _open_path(dir_fd: int, path: str) -> int:
     """Open a relative path one real directory at a time (no link followed)."""
     fd = dir_fd
-    for part in path.split("/"):
-        child = open_dir(part, dir_fd=fd)
+    try:
+        for part in path.split("/"):
+            child = open_dir(part, dir_fd=fd)
+            if fd != dir_fd:
+                os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
         if fd != dir_fd:
             os.close(fd)
-        fd = child
-    return fd
+        raise
 
 
 def _small(dir_fd: int, name: str, limit: int) -> bytes | None:
@@ -1302,19 +1319,19 @@ class Reclaim:
         """An open descriptor for conflicts/<label>/<rel_parent>, created as needed."""
         self.conflicts.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = open_dir(self.conflicts)
-        for part in [self.label, *[p for p in rel_parent.split("/") if p]]:
-            try:
-                os.mkdir(part, 0o700, dir_fd=fd)
-            except FileExistsError:
-                pass
-            try:
+        try:
+            for part in [self.label, *[p for p in rel_parent.split("/") if p]]:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
                 child = open_dir(part, dir_fd=fd)
-            except (NotADirectoryError, TreeError, OSError):
                 os.close(fd)
-                raise
+                fd = child
+            return fd
+        except BaseException:
             os.close(fd)
-            fd = child
-        return fd
+            raise
 
     def _set_aside_fd(self, fd: int, name: str, path: str, reason: str) -> None:
         parent = path.rpartition("/")[0]
