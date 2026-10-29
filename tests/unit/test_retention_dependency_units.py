@@ -84,6 +84,23 @@ def test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in(tmp_path)
     assert dependencies.git_storage(str(neutral)) == []
 
 
+def test_d1_commondir_outside_the_worktrees_layout_is_followed(tmp_path):
+    """A relocated linked admin directory needs its relative commondir pointer;
+    its parent name cannot supply the conventional worktrees fallback."""
+    nested = repo(tmp_path / "tree" / "lib")
+    outside = tmp_path / "outside"
+    git(nested, "worktree", "add", "--quiet", "--detach", str(outside), "HEAD")
+    admin = tmp_path / "metadata" / "slot"
+    admin.parent.mkdir()
+    (nested / ".git" / "worktrees" / "outside").rename(admin)
+    (outside / ".git").write_text(f"gitdir: {admin}\n")
+    (admin / "commondir").write_text(os.path.relpath(nested / ".git", admin) + "\n")
+
+    found = dependencies.git_storage(str(outside))
+    assert found[:2] == [folders.canonical(admin), folders.canonical(nested / ".git")]
+    assert set(git_says(outside)) <= set(found)
+
+
 def test_d1_storage_a_gitfile_names_counts_when_it_is_gone(tmp_path):
     """A `.git` file names its admin directory whether or not it is there: retention
     may have the tree that holds it in quarantine. With the admin directory gone (no
