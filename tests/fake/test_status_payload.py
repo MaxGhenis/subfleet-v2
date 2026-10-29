@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from subfleet import cli, protocol, render
 from subfleet.daemon import STATUS_ATTEMPTS, STATUS_JOBS, after
+from subfleet.store import job_flags
 from tools.measure_status_payload import seed_store
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
 
@@ -63,8 +64,11 @@ def test_bounded_operator_rows_preserve_both_status_renderers(routing_state):
     seed_store(service.store, finished=8, evidence_bytes=100, live=4)
     with service.store.snapshot():
         rows = service._capacity_rows()
+        # The full reading maps each job to its domain record as `_capacity_rows`
+        # does (`job_flags`: NULL `provider_qos` is `utility`, C-5.1).
         legacy = {**rows, "view": {**rows["view"], "attempts": service.store.list_attempts(),
-                                   "jobs": service.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")}}
+                                   "jobs": [job_flags(row) for row in
+                                            service.store.query("SELECT * FROM jobs ORDER BY created_at,rowid")]}}
     now = datetime.now(timezone.utc)
     before = service._capacity_view(rows=legacy, now=now, desktop_in_use=False)
     after_view = service._capacity_view(rows=rows, now=now, desktop_in_use=False)
