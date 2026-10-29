@@ -376,9 +376,12 @@ def test_writable_codex_review_without_the_publish_hook_is_refused(tmp_path):
     ('workspace-write', 'review', True), ('read-only', 'review', False), ('workspace-write', 'build', False)])
 def test_claude_publish_hook_rides_only_writable_review_launches(tmp_path, sandbox, task, expected):
     launch = protected(tmp_path, provider='claude', sandbox=sandbox, task=task)
-    assert ('--settings' in launch.argv) is expected
+    # Every Claude launch passes one `--settings` (d1031); the hook rides in it.
+    assert launch.argv.count('--settings') == 1
+    settings = json.loads(launch.argv[launch.argv.index('--settings') + 1])
+    assert settings['env'] == {'CLAUDE_CODE_RETRY_WATCHDOG': '0'}
+    assert ('hooks' in settings) is expected
     if expected:
-        settings = json.loads(launch.argv[launch.argv.index('--settings') + 1])
         [group] = settings['hooks']['PreToolUse']
         assert 'matcher' not in group          # every tool whose input carries a command
         [hook] = group['hooks']

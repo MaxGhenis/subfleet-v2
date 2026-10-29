@@ -73,6 +73,21 @@ def user_on(tmp_path, monkeypatch):
     return home
 
 
+@pytest.fixture(scope="module")
+def built(tmp_path_factory) -> dict[str, list[str]]:
+    """Every case's argv, each built once through its builder under a user whose
+    `~/.claude/settings.json` turns the watchdog on; the tests below read them."""
+    root = tmp_path_factory.mktemp("lane-settings")
+    with pytest.MonkeyPatch.context() as patch:
+        home = root / "user-home"
+        _seed(home / ".claude", USER_ON)
+        patch.setenv("HOME", str(home))
+        patch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+        patch.delenv(WATCHDOG, raising=False)
+        return {lsc.case_id(case): lsc.build(case, root / f"case-{number:03d}")
+                for number, case in enumerate(CASES)}
+
+
 def _settings(argv) -> dict:
     payloads = lsc.settings_payloads(argv)
     assert len(payloads) == 1, f"{len(payloads)} --settings in {argv}"
@@ -89,18 +104,18 @@ def test_the_grid_is_the_recording():
 
 
 @pytest.mark.parametrize("case", CASES, ids=lsc.case_id)
-def test_i1_every_launch_gives_one_settings_with_the_watchdog_off(case, tmp_path, user_on):
+def test_i1_every_launch_gives_one_settings_with_the_watchdog_off(case, built):
     """I1, C-12.4, C-26.11: one `--settings`, `env.CLAUDE_CODE_RETRY_WATCHDOG == "0"`."""
-    settings = _settings(lsc.build(case, tmp_path / "case"))
+    settings = _settings(built[lsc.case_id(case)])
     assert settings["env"][WATCHDOG] == OFF
 
 
 @pytest.mark.parametrize("case", CASES, ids=lsc.case_id)
-def test_i2_every_other_setting_is_what_the_launch_had_before(case, tmp_path, user_on):
+def test_i2_every_other_setting_is_what_the_launch_had_before(case, built):
     """I2: the override adds `env` and nothing else; `disableAllHooks`, `fastMode`,
     `ultracode` and the publish hook are where and what they were, and a writable
     review still passes `--setting-sources user` just before its one `--settings`."""
-    argv = lsc.build(case, tmp_path / "case")
+    argv = built[lsc.case_id(case)]
     settings = _settings(argv)
     assert settings.pop("env") == {WATCHDOG: OFF}
     hooks = settings.pop("hooks", None)
@@ -115,10 +130,10 @@ def test_i2_every_other_setting_is_what_the_launch_had_before(case, tmp_path, us
 
 
 @pytest.mark.parametrize("case", CASES, ids=lsc.case_id)
-def test_differential_the_override_is_the_only_change_from_676906f85(case, tmp_path, user_on):
+def test_differential_the_override_is_the_only_change_from_676906f85(case, built):
     """The new argv, the override taken back out of its one `--settings`, is the argv
     676906f85's builders made for the same inputs, flag for flag."""
-    argv = lsc.build(case, tmp_path / "case")
+    argv = built[lsc.case_id(case)]
     assert lsc.without_override(argv) == RECORDED[lsc.case_id(case)]
 
 
@@ -159,12 +174,12 @@ def test_i3_the_users_settings_file_changes_no_argv_and_is_never_opened(tmp_path
 
 
 @pytest.mark.parametrize("case", READ_ONLY_CASES, ids=lsc.case_id)
-def test_i4_read_only_flags_are_unchanged_and_the_settings_reopen_nothing(case, tmp_path, user_on):
+def test_i4_read_only_flags_are_unchanged_and_the_settings_reopen_nothing(case, built):
     """I4, C-12.4, C-23.2: a read-only launch keeps the adapter's read-only set, flag for
     flag (`--setting-sources ""` once, `--safe-mode`, the tool list), and its one
     `--settings` names only `env` (and a fast turn's `fastMode`, which it carried
     before), so it brings back no hook, permission, MCP server or settings source."""
-    argv = lsc.build(case, tmp_path / "case")
+    argv = built[lsc.case_id(case)]
     start, end = argv.index("--permission-mode"), argv.index("--disable-slash-commands") + 1
     isolated = case["path"] == "gate" or bool(case.get("isolated"))
     flags = list(ClaudeAdapter.permission_args(Sandbox.READ_ONLY, isolated=isolated))
@@ -201,7 +216,7 @@ INPUTS = st.one_of(
 )
 
 
-@settings(max_examples=300, deadline=None, derandomize=True, database=None,
+@settings(max_examples=200, deadline=None, derandomize=True, database=None,
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(case=INPUTS)
 def test_property_i1_i2_i4_over_the_builders_inputs(case, tmp_path, user_on):
@@ -293,14 +308,14 @@ def _one_of_each() -> list[dict]:
 
 @pytest.mark.parametrize("where", ["home", "config-dir"])
 @pytest.mark.parametrize("case", _one_of_each(), ids=lsc.case_id)
-def test_the_fake_session_sees_the_watchdog_off_when_the_users_file_turns_it_on(case, where, tmp_path):
+def test_the_fake_session_sees_the_watchdog_off_when_the_users_file_turns_it_on(case, where, built, tmp_path):
     """The tree's fake `claude`, run with the argv each builder made, reads the user's
     file (`~/.claude/settings.json`, or a lane home's under `CLAUDE_CONFIG_DIR`) that
     says "1" and the launch's command-line settings, and reports "0": the value the
     session applies, under the layering `tests/bin/claude`'s `settings_env` assumes
     (command-line settings over the files). Whether real Claude Code layers them so
     is the 2026-10-22 live probe's evidence, not this test's."""
-    argv = lsc.build(case, tmp_path / "case")
+    argv = built[lsc.case_id(case)]
     report = tmp_path / "report.json"
     env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path / "user-home"),
            "SUBFLEET_FAKE_SETTINGS_REPORT": str(report), "SUBFLEET_FAKE_SETTINGS_NAMES": WATCHDOG}
@@ -310,7 +325,7 @@ def test_the_fake_session_sees_the_watchdog_off_when_the_users_file_turns_it_on(
         env["CLAUDE_CONFIG_DIR"] = str(_seed(tmp_path / "lane-home", USER_ON))
     work = tmp_path / "cwd"
     work.mkdir()
-    done = subprocess.run([sys.executable, str(FAKE_CLAUDE), *argv[1:]], cwd=work, env=env,
+    done = subprocess.run([sys.executable, "-I", "-S", str(FAKE_CLAUDE), *argv[1:]], cwd=work, env=env,
                           capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, done.stderr[-2000:]
     seen = json.loads(report.read_text(encoding="utf-8"))

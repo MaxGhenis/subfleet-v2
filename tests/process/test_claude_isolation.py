@@ -235,9 +235,11 @@ def test_a_guard_override_is_accepted_and_never_reaches_the_argv(tmp_path):
         prompt_path, "hooks=/tmp/guard.json",
     )
     assert "hooks=/tmp/guard.json" not in launch.argv
-    # The one `--settings` a writable review launch carries is its publish hook (C-12.4).
+    # The one `--settings` a writable review launch carries holds its publish hook (C-12.4)
+    # and the lane settings (d1031), and nothing else.
+    from subfleet.adapters.claude import lane_settings_args
     from tests.unit.test_claude_adapter import without_publish_hook
-    assert "--settings" not in without_publish_hook(launch.argv, writable_review=True)
+    assert without_publish_hook(launch.argv, writable_review=True)[-2:] == tuple(lane_settings_args())
     assert "hooks=/tmp/guard.json" not in "".join(launch.argv)
 
 
