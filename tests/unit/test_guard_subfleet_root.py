@@ -5651,3 +5651,66 @@ def test_r8_command_pins_agree_with_real_shells(tmp_path):
                          "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
                          "rows": [(c[:120], d, s) for c, _, d, s in rows]})
     assert differ == [], differ[:10]
+
+
+# ---------------------------------------------------------------- review r8: r8's unpinned readings
+
+#: Review r8 (2026-10-29) pins readings r8's new code gets right that no list above holds, each found by a mutant that
+#: passes every r4-r8 list and S1: a continuation inside $(...) (a !depth on the continuation passes every list), time
+#: before a brace group inside an if (dropping { from time's keywords passes them), and the cap's edges at 4,096 and
+#: 4,097 of one character (the lists pin 4,098). With them, the rest of review r8's check 2: the continuation inside a
+#: backtick and a <(...), after a comment and with |&, a heredoc pending at the continued newline; ! time; time before a
+#: subshell; a piped while read behind two filters; a $(( span that is a command in both shells; a $ value after a
+#: scoped loop. Each denied form walks a root in a real shell, and no allowed one does.
+RV8_E = "echo 'rg --files ~/.subfleet'"
+REVIEW_R8_DENIED = [
+    'x="$(' + RV8_E + ' |\nbash)"',
+    "x=`" + RV8_E + " |\nbash`",
+    "cat <(" + RV8_E + " |\nbash)",
+    'x="$(find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo "$d"; done)"',
+    'x=`find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo "$d"; done`',
+    'cat <(find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo "$d"; done)',
+    R7V_L + "; false && # note\nd=src\n" + R7V_R,
+    RV8_E + " | # note\nbash",
+    RV8_E + " |\n# note\n\nbash",
+    RV8_E + " |&\nbash",
+    R7V_L + "; cat <<X ||\nbody\nX\nd=src\n" + R7V_R,
+    R7V_L + "\n! time while false; do\nd=src\ndone\n" + R7V_R,
+    R7V_L + "\nif false; then time { :; }; d=src; fi; " + R7V_R,
+    R7V_L + "\ntime { false && d=src; }\n" + R7V_R,
+    R7V_L + "\ntime ( d=src )\n" + R7V_R,
+    "cat <(find ~/.subfleet -maxdepth 1) | sort | while read d; do rg foo \"$d\"; done",
+    "sort <(echo ~/.subfleet) | uniq | while read d; do rg foo \"$d\"; done",
+    "cat <(echo ~/.subfleet) | head -1 | tail -1 | while read d; do rg foo \"$d\"; done",
+    "cat <(echo src) | cat - <(echo ~/.subfleet) | while read d; do rg foo \"$d\"; done",
+    "echo $((rg --files ~/.subfleet) | (cat))",
+    "for d in src; do :; done; d=$HOME; " + R7V_R,
+    "for d in src; do :; done; d=\"${HOME}\"; " + R7V_R,
+]
+REVIEW_R8_ALLOWED = [
+    ("echo x | # note\nrg foo", H_),
+    ("cat <<X |\nhi\nX\nrg foo", H_),
+    ("time -o f rg -n foo src", S_),
+    ("cat <(git ls-files) | sort | while read f; do rg -n foo \"$f\"; done", S_),
+    ("echo $((1) + (2))", S_),
+    (R7V_L + "\nif true; then time { :; }; fi; d=src; " + R7V_R, S_),
+    ("git commit -F - <<'EOF'\nAdd f() and a function\nEOF", LANE_W),
+]
+REVIEW_R8_CAP_DENIED = ["rg foo src; echo \"" + "'" * 4097 + "\"", "rg foo src; echo '" + "`" * 4097 + "'"]
+REVIEW_R8_CAP_ALLOWED = ["rg foo src; echo \"" + "'" * 4096 + "\"", "rg foo src; echo '" + "`" * 4096 + "'"]
+
+
+def test_review_r8_pins_r8s_unpinned_readings(tmp_path):
+    """Each reading's own input: the denied forms are denied and walk a root in /bin/zsh -f or /bin/bash over the
+    fixture (r6's stubs, the fixture's HOME); the allowed ones are allowed and walk none; 4,097 of ' or of backtick
+    beside a scoped search is too complex to judge, and 4,096 is read."""
+    assert r5_denied([(c, S_) for c in REVIEW_R8_DENIED]) == []
+    assert r5_allowed(REVIEW_R8_ALLOWED) == []
+    outs = judged(HOOK, REVIEW_R8_CAP_DENIED + REVIEW_R8_CAP_ALLOWED, S_)
+    for command in REVIEW_R8_CAP_DENIED:
+        assert rule(outs[command]) == "unscoped-search", command[:40]
+        assert "too complex to judge" in json.loads(outs[command])["hookSpecificOutput"]["permissionDecisionReason"]
+    assert [c[:40] for c in REVIEW_R8_CAP_ALLOWED if rule(outs[c]) is not None] == []
+    unwalked = [c for c in REVIEW_R8_DENIED if not any(r6_shell_walks(sh, c, S_, tmp_path) for sh in ("zsh", "bash"))]
+    walked = [c for c, cwd in REVIEW_R8_ALLOWED if any(r6_shell_walks(sh, c, cwd, tmp_path) for sh in ("zsh", "bash"))]
+    assert (unwalked, walked) == ([], [])
