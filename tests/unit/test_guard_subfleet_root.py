@@ -5483,7 +5483,11 @@ R8_LOOPVAR_MORE_DENIED = [
     "cat <(echo 'rg --files ~/.subfleet') |\n\nbash",
 ]
 #: ... while r7's five intended forms stay allowed, with a time before a plain command, a pipe continued on the next
-#: line into a searcher that reads it, and && continued on the next line.
+#: line into a searcher that reads it, and && continued on the next line. From the home, where rg with no path walks
+#: it, rg on the line after a | reads the pipe in both shells (r7 read its stdin as empty and denied it), and a
+#: search before the | still walks.
+R8_PIPE_HOME_ALLOWED = ["echo x |\nrg foo", "git log |\n\nrg foo"]
+R8_PIPE_HOME_DENIED = ["rg foo |\ncat"]
 R8_LOOPVAR_ALLOWED = R7_LOOPVAR_ALLOWED + [
     "time -p rg -n foo src",
     "for d in ~/.subfleet/*; do :; done\ntime -p true\nd=src\nrg foo \"$d\"",
@@ -5521,13 +5525,16 @@ R8_PSUB_LOOP_ALLOWED = ["cat <(git ls-files) | while read f; do wc -l \"$f\"; do
 #: Decisions 5, 6 and decision 1's sixteenth input: forms "Known differences" names, each with the text it is named by.
 #: Stricter: denied though no shell walks (tee writes into the substitution, and nothing reaches bash) ...
 R8_STRICTER = {"tee <(echo 'rg --files ~/.subfleet') | bash": "tee <(echo 'rg --files ~/.subfleet') | bash"}
-#: ... and open: allowed here though a real shell walks a root (each line a pipe joins is judged on its own; a read
-#: from a here-string is a root held in a variable).
+#: ... and open: allowed here though a real shell walks a root (each line a pipe joins is judged on its own, and a
+#: pipe after a brace group or a subshell carries nothing its commands write, which this round's probes found beside
+#: review r7's three; a read from a here-string is a root held in a variable).
 R8_KNOWN_OPEN = {
     "cat <(printf 'rg --files ') <(echo ~/.subfleet) | bash": "cat <(printf 'rg --files ') <(echo ~/.subfleet) | bash",
     "paste -d' ' <(echo 'rg --files') <(echo ~/.subfleet) | bash":
         "paste -d' ' <(echo 'rg --files') <(echo ~/.subfleet) | bash",
     "{ printf 'rg --files '; echo ~/.subfleet; } | bash": "{ printf 'rg --files '; echo ~/.subfleet; } | bash",
+    "{ echo 'rg --files ~/.subfleet'; } | bash": "{ echo 'rg --files ~/.subfleet'; } | bash",
+    "(echo 'rg --files ~/.subfleet') | bash": "(echo 'rg --files ~/.subfleet') | bash",
     R7V_L + "; d=src; read d <<< ~/.subfleet; " + R7V_R: "d=src; read d <<< ~/.subfleet",
 }
 
@@ -5543,8 +5550,9 @@ def test_r8_a_loop_variable_keeps_its_root_where_the_shells_keep_it():
     """Decision 1: review r7's fifteen P3-1 inputs are denied, and so are a quoted, escaped or blank-holding root value
     after a scoped loop, time -p before a compound command and a pipe continued on the next line; r7's five intended
     forms, a time before a plain command and the continued forms that walk nothing stay allowed."""
-    assert r5_denied([(c, S_) for c in R8_LOOPVAR_DENIED + R8_LOOPVAR_MORE_DENIED]) == []
-    assert r5_allowed([(c, S_) for c in R8_LOOPVAR_ALLOWED]) == []
+    assert r5_denied([(c, S_) for c in R8_LOOPVAR_DENIED + R8_LOOPVAR_MORE_DENIED]
+                     + [(c, H_) for c in R8_PIPE_HOME_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R8_LOOPVAR_ALLOWED] + [(c, H_) for c in R8_PIPE_HOME_ALLOWED]) == []
 
 
 def test_r8_quotes_and_backticks_count_against_the_cap(hooks):
@@ -5569,8 +5577,8 @@ def test_r8_quotes_and_backticks_count_against_the_cap(hooks):
 
 
 def test_r8_a_dollar_double_paren_span_ending_in_two_closes_is_arithmetic():
-    """Decision 3: a << in $((...)) whose span ends in )) is a shift, so the lines after it are commands; r7's arithmetic
-    controls stay allowed."""
+    """Decision 3: a << in $((...)) whose span ends in )) is a shift, so the lines after it are commands; r7's
+    arithmetic controls stay allowed."""
     assert r5_denied([(c, S_) for c in R8_ARITH_DENIED]) == []
     assert r5_allowed([(c, S_) for c in R7_ARITH_ALLOWED]) == []
 
@@ -5608,16 +5616,18 @@ def test_r8_scoped_searches_stay_allowed():
              + R5_FAMILY_ALLOWED + R5_FORMS_ALLOWED + [(c, cwd) for cwd in (H_, "/", S_) for c in R4_META]
              + [(c, LANE_W) for c in R6_LANE_ALLOWED] + [(c, S_) for c in REVIEW_R6_ALLOWED + REVIEW_R7_ALLOWED]
              + [(c, S_) for c in R7_ARITH_ALLOWED + R7_PSUB_ALLOWED + R7_LOOPVAR_ALLOWED]
-             + [(c, S_) for c in R8_LOOPVAR_ALLOWED + R8_CAP_ALLOWED + R8_PSUB_LOOP_ALLOWED])
+             + [(c, S_) for c in R8_LOOPVAR_ALLOWED + R8_CAP_ALLOWED + R8_PSUB_LOOP_ALLOWED]
+             + [(c, H_) for c in R8_PIPE_HOME_ALLOWED])
     assert r5_allowed(cases) == []
 
 
 #: Every r8 command pin and control a shell can run (the cap's rows and edges are left out: their verdicts are the
 #: cap's), from the scoped cwd: the stricter forms are denied though no shell walks, and the open forms allowed
 #: though one does.
-R8_SHELL_COMMANDS = [(c, S_) for c in (R8_LOOPVAR_DENIED + R8_LOOPVAR_MORE_DENIED + R8_LOOPVAR_ALLOWED + R8_ARITH_DENIED
-                                      + R7_ARITH_ALLOWED + R8_PSUB_LOOP_DENIED + R8_PSUB_LOOP_ALLOWED
-                                      + list(R8_STRICTER) + list(R8_KNOWN_OPEN))]
+R8_SHELL_COMMANDS = ([(c, S_) for c in (R8_LOOPVAR_DENIED + R8_LOOPVAR_MORE_DENIED + R8_LOOPVAR_ALLOWED
+                                       + R8_ARITH_DENIED + R7_ARITH_ALLOWED + R8_PSUB_LOOP_DENIED
+                                       + R8_PSUB_LOOP_ALLOWED + list(R8_STRICTER) + list(R8_KNOWN_OPEN))]
+                     + [(c, H_) for c in R8_PIPE_HOME_ALLOWED + R8_PIPE_HOME_DENIED])
 R8_SHELL_EXCEPTIONS = {**{c: True for c in R8_STRICTER}, **{c: False for c in R8_KNOWN_OPEN}}
 
 
