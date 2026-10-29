@@ -164,7 +164,7 @@ class _Aliases:
     def __init__(self):
         self.paths: dict[str, tuple] = {}
         self.pointers: dict[str, str | None] = {}
-        self.errors: list[dict[str, str]] = []
+        self.errors: dict[str, str] = {}
 
     @staticmethod
     def _target(path: str) -> tuple:
@@ -180,7 +180,7 @@ class _Aliases:
         try:
             target = self._target(path)
         except (OSError, ValueError) as exc:
-            self.errors.append({"file": path, "reason": str(exc)})
+            self.errors.setdefault(path, str(exc))
             target = (os.path.abspath(path), None)
         self.paths.setdefault(path, target)
         return target[0]
@@ -193,7 +193,7 @@ class _Aliases:
 
     def check(self, incomplete: list[dict[str, str]] | None) -> None:
         if incomplete is not None:
-            incomplete.extend(self.errors)
+            incomplete.extend({"file": path, "reason": reason} for path, reason in self.errors.items())
         for path, before in self.paths.items():
             try:
                 if self._target(path) == before:

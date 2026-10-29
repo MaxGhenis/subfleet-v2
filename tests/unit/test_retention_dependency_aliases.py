@@ -84,3 +84,23 @@ def test_repository_pointer_changes_are_incomplete(tmp_path, monkeypatch, alias)
     assert bool(recorded.get("incomplete")) == (alias != "stable"), recorded
     if alias != "stable":
         assert any(error["file"] == str(named) for error in recorded["incomplete"])
+
+
+def test_repeated_unresolvable_alias_keeps_one_incomplete_observation(tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    info = outside / ".git" / "objects" / "info"
+    info.mkdir(parents=True)
+    alias = str(tmp_path / "denied")
+    (info / "alternates").write_text((alias + "\n") * 1000)
+    real_stat = dependencies.os.stat
+
+    def denied(path, *args, **kwargs):
+        if str(path) == alias:
+            raise PermissionError("unreadable repository alias")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(dependencies.os, "stat", denied)
+    recorded = dependencies.record(str(outside))
+    errors = [error for error in recorded.get("incomplete", []) if error["file"] == alias]
+    assert len(errors) == 1, errors
+    assert "unreadable repository alias" in errors[0]["reason"]
