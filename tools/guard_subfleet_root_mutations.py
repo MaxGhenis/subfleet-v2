@@ -166,6 +166,11 @@ MUTATIONS = {
                                 "test_r8_a_dollar_double_paren_span_ending_in_two_closes_is_arithmetic"),
     "r8-passon-roots-dropped": (HOOK, None, None, "test_r8_a_piped_while_read_takes_the_roots_a_filter_passes_on"),
     "r8-known-form-unlisted": (DOC, None, None, "test_r8_known_differences_name_the_stricter_and_open_forms"),
+    # review r8's probe mutants: each passes every r4-r8 list and S1 (a continuation only at the top of the command,
+    # time's keywords without {, and the cap one past 4,096 for ' and backtick)
+    "rv8-continuation-top-only": (HOOK, None, None, "test_review_r8_pins_r8s_unpinned_readings"),
+    "rv8-time-brace-dropped": (HOOK, None, None, "test_review_r8_pins_r8s_unpinned_readings"),
+    "rv8-cap-edge-moved": (HOOK, None, None, "test_review_r8_pins_r8s_unpinned_readings"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -414,6 +419,12 @@ EDITS = {
 """, "")],
     "r8-known-form-unlisted": [("""    <(echo ~/.subfleet) | bash` and `paste -d' ' <(echo 'rg --files') <(echo ~/.subfleet) | bash`: the""",
                                 """    <(echo ~/.subfleet) | bash` and `paste <(…) <(…) | bash`: the""")],
+    "rv8-continuation-top-only": [("""      if (sep == "\\n" && (pv == "&&" || pv == "||" || pv == "|" || pv == "|&") && seg !~ /[^[:space:]]/) {
+""", """      if (sep == "\\n" && !depth && (pv == "&&" || pv == "||" || pv == "|" || pv == "|&") && seg !~ /[^[:space:]]/) {
+""")],
+    "rv8-time-brace-dropped": [("""repeat|foreach|coproc|!|\\{)$/) { st["ka"] = 1; t = k; continue }""",
+                                """repeat|foreach|coproc|!)$/) { st["ka"] = 1; t = k; continue }""")],
+    "rv8-cap-edge-moved": [("""c > 4096 || d > 4096 || e > 4096) ? 1 : 0""", """c > 4096 || d > 4097 || e > 4097) ? 1 : 0""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
