@@ -171,6 +171,9 @@ MUTATIONS = {
     "rv8-continuation-top-only": (HOOK, None, None, "test_review_r8_pins_r8s_unpinned_readings"),
     "rv8-time-brace-dropped": (HOOK, None, None, "test_review_r8_pins_r8s_unpinned_readings"),
     "rv8-cap-edge-moved": (HOOK, None, None, "test_review_r8_pins_r8s_unpinned_readings"),
+    # r9 (the hub's decisions on review r8): one per fix, the join where the reset is off and the count of "
+    "r9-join-dropped": (HOOK, None, None, "test_r9_a_later_value_joins_the_loop_words_where_the_reset_does_not_apply"),
+    "r9-cap-dquote-dropped": (HOOK, None, None, "test_r9_double_quotes_count_against_the_cap"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -389,8 +392,8 @@ EDITS = {
 """, "")],
     "r7-known-form-unlisted": [("""  - zsh's `=(…)`, `source =(echo 'rg --files ~/.subfleet')` and `zsh =(…)`: zsh writes""",
                                 """  - zsh's process substitution to a file: zsh writes""")],
-    # retargeted in r8: decision 1 rewrote the assignment line; the edit still drops it
-    "r7-loopvar-unscoped": [("""        if ((w in LVAR) && op != "") LVAR[w] = (op ~ /[$`\\047"\\\\[:space:]]/) ? LVAR[w] " " op : op
+    # retargeted in r8 and r9: each rewrote the assignment line; the edit still drops it
+    "r7-loopvar-unscoped": [("""        if ((w in LVAR) && op != "") LVAR[w] = (vrp && op !~ /[$`\\047"\\\\[:space:]]/) ? op : LVAR[w] " " op
 """, "")],
     "r7-loopvar-anywhere": [("""      vtop = (!depth && !pd && !pn && !bto && (pv == "" || pv == ";" || pv == "\\n" || pv == "&") && (sep == ";" || sep == "\\n" || sep == "&&" || sep == "||"))
 """, """      vtop = !depth
@@ -406,13 +409,17 @@ EDITS = {
     "r8-time-keyword-dropped": [("""      if (!qd[t] && val[t] == "time") {
 """, """      if (0) {
 """)],
-    "r8-function-prescan-dropped": [("""&& !st["ka"] && !ld && st["vt"] && !FN) {""", """&& !st["ka"] && !ld && st["vt"]) {""")],
-    "r8-plain-word-dropped": [("""LVAR[w] = (op ~ /[$`\\047"\\\\[:space:]]/) ? LVAR[w] " " op : op""",
-                               """LVAR[w] = (op ~ /[$`]/) ? LVAR[w] " " op : op""")],
-    "r8-value-joins-dropped": [("""LVAR[w] = (op ~ /[$`\\047"\\\\[:space:]]/) ? LVAR[w] " " op : op""",
-                                """LVAR[w] = (op ~ /[$`\\047"\\\\[:space:]]/) ? LVAR[w] : op""")],
+    # retargeted in r9: the reset's condition moved to vrp (FN dropped from it, so a plain value replaces again)
+    "r8-function-prescan-dropped": [("""vrp = (!st["ka"] && !ld && st["vt"] && !FN)""", """vrp = (!st["ka"] && !ld && st["vt"])""")],
+    # retargeted in r9 (decision 1 rewrote the line): a quote, a backslash or a blank counts as plain again
+    "r8-plain-word-dropped": [("""LVAR[w] = (vrp && op !~ /[$`\\047"\\\\[:space:]]/) ? op : LVAR[w] " " op""",
+                               """LVAR[w] = (vrp && op !~ /[$`]/) ? op : LVAR[w] " " op""")],
+    # retargeted in r9: where the reset applies, a value that is not a plain word leaves the loop's words alone again
+    "r8-value-joins-dropped": [("""LVAR[w] = (vrp && op !~ /[$`\\047"\\\\[:space:]]/) ? op : LVAR[w] " " op""",
+                                """LVAR[w] = (vrp && op !~ /[$`\\047"\\\\[:space:]]/) ? op : vrp ? LVAR[w] : LVAR[w] " " op""")],
     "r8-repeat-uncounted": [("""val[t] ~ /^(for|select|case|repeat|foreach)$/) ld++""", """val[t] ~ /^(for|select|case)$/) ld++""")],
-    "r8-cap-quotes-dropped": [("""c > 4096 || d > 4096 || e > 4096) ? 1 : 0""", """c > 4096) ? 1 : 0""")],
+    # retargeted in r9 (decision 2 added f, the count of "): ' and backtick dropped, " kept
+    "r8-cap-quotes-dropped": [("""c > 4096 || d > 4096 || e > 4096 || f > 4096) ? 1 : 0""", """c > 4096 || f > 4096) ? 1 : 0""")],
     "r8-dollar-arith-dropped": [("""return (j && (PAI == j - 1 || (substr(t, i - 1, 1) == "$" && substr(t, j - 1, 1) == ")"))) ? j : 0""",
                                  """return (j && PAI == j - 1) ? j : 0""")],
     "r8-passon-roots-dropped": [("""          if (x != "") nextroots = nextroots (nextroots == "" ? "" : " ") x
@@ -424,7 +431,14 @@ EDITS = {
 """)],
     "rv8-time-brace-dropped": [("""repeat|foreach|coproc|!|\\{)$/) { st["ka"] = 1; t = k; continue }""",
                                 """repeat|foreach|coproc|!)$/) { st["ka"] = 1; t = k; continue }""")],
-    "rv8-cap-edge-moved": [("""c > 4096 || d > 4096 || e > 4096) ? 1 : 0""", """c > 4096 || d > 4097 || e > 4097) ? 1 : 0""")],
+    # retargeted in r9 (decision 2 added f): the edges of ' and backtick moved, that of " kept
+    "rv8-cap-edge-moved": [("""c > 4096 || d > 4096 || e > 4096 || f > 4096) ? 1 : 0""",
+                            """c > 4096 || d > 4097 || e > 4097 || f > 4096) ? 1 : 0""")],
+    # r9 decision 1: where the reset is off, the value is dropped again (r8's reading: the loop's words are kept alone)
+    "r9-join-dropped": [("""LVAR[w] = (vrp && op !~ /[$`\\047"\\\\[:space:]]/) ? op : LVAR[w] " " op""",
+                         """LVAR[w] = (vrp && op !~ /[$`\\047"\\\\[:space:]]/) ? op : !vrp ? LVAR[w] : LVAR[w] " " op""")],
+    # r9 decision 2: " is counted but no longer against the cap
+    "r9-cap-dquote-dropped": [("""e > 4096 || f > 4096) ? 1 : 0""", """e > 4096) ? 1 : 0""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
@@ -516,7 +530,8 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = ([name for name in MUTATIONS if name.startswith(("r8-", "rv7-"))]
+    newest = ([name for name in MUTATIONS if name.startswith(("r9-", "rv8-"))]
+              + [name for name in MUTATIONS if name.startswith(("r8-", "rv7-"))]
               + [name for name in MUTATIONS if name.startswith(("r7-", "rv6-"))]
               + [name for name in MUTATIONS if name.startswith(("r6-", "rv5-"))]
               + [name for name in MUTATIONS if name.startswith(("r5-", "rv4-"))]
