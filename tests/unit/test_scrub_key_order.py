@@ -542,7 +542,8 @@ BEARER_RUNS = [pytest.param(token, "", id=token) for token in ("a_", "token", "s
     pytest.param("a_", "_token: SECRET7value", id="a_+word"),
     pytest.param("a_", "--api-key SECRET7value", id="a_+flag")]
 #: The instruction count where the CPU's counter is exposed to the kernel: not in a
-#: virtual machine that hides it, as CI's `macos-15` runners do (run 40399635625).
+#: virtual machine that hides it, as CI's `macos-15` runners do (runs 40399635625 and
+#: 40416019815 skipped the instruction test on both interpreters).
 INSTRUCTIONS = pytest.mark.skipif(not counts_instructions(), reason="no CPU instruction counter here")
 
 

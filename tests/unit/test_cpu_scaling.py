@@ -28,7 +28,8 @@ import pytest
 from tests.cpu_scaling import COUNT_GROWTH_MAX, GROWTH_RATIO_MAX, best_cpu_samples, counts_instructions
 
 #: The instruction count where the CPU's counter is exposed to the kernel: not in a
-#: virtual machine that hides it, as CI's `macos-15` runners do (run 40399635625).
+#: virtual machine that hides it, as CI's `macos-15` runners do (run 40416019815 skipped
+#: these three tests on both interpreters).
 INSTRUCTIONS = pytest.mark.skipif(not counts_instructions(), reason="no CPU instruction counter here")
 
 SIZES = (65536, 262144)                 # the scaling tests' sizes, four times apart
