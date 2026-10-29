@@ -7899,11 +7899,15 @@ class Daemon:
                                                      for key in retiring)),
                                              write_target)
                             role = None
-                            if retiring and not any(folders.fences(key, named or "", fold=True)
+                            if retiring and not any(folders.within(dependencies.key(named or ""),
+                                                                   dependencies.key(key[len(folders.EXCLUSIVE):]))
                                                     for key in retiring):
-                                # Else the first other place it needs that a fence is on or above.
+                                # Else the first dependency place a fence is on or above.
+                                # Use the blocking query's key, including canonical caseless
+                                # Unicode aliases; the legacy folder fold is different (D1).
                                 role, named = next(((each, path) for each, path in needs if any(
-                                    folders.fences(key, path, fold=True) for key in retiring)),
+                                    folders.within(dependencies.key(path),
+                                                   dependencies.key(key[len(folders.EXCLUSIVE):])) for key in retiring)),
                                     (None, named))
                             self._seen_held(kind, frozenset((key, str(holders[key])) for key in retiring))
                             hold = {"reason": "lease-held", "leases": contested + blocked,
