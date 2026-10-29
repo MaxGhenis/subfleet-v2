@@ -571,8 +571,9 @@ def test_resume_launch_uses_resume_not_session_id(adapter, tmp_path):
     assert launch is not None
     assert "--session-id" not in launch.argv
     assert launch.argv[:4] == (str(adapter.claude_bin), "-p", "--resume", "abc-123")
-    assert without_publish_hook(launch.argv, writable_review=True)[-4:] == (
-        "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}')
+    assert without_publish_hook(launch.argv, writable_review=True)[-6:] == (
+        "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+        *lane_settings_args())
     assert launch.argv[launch.argv.index("--model") + 1] == "claude-opus-5"
     assert launch.native_session_id == "abc-123"
     assert launch.notes["resumed_from"] == "abc-123"
