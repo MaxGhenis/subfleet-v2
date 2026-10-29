@@ -24,13 +24,23 @@ did not execute, on the simulated host (`tests/kill4_world.py`, as `BootWorld` i
    `kill` answers `already finished` too: the gap errs toward running only. `--confirm-dead`
    words its answer from the same row, so it says `kill` contains such a member, and the
    `kill` that follows runs no protocol.
+4. Fix round r2: the unread rule's soundness, as a property over constructed unverifiable
+   censuses. Whenever the verifiable read of the same members (every identity captured)
+   gives `_signal_reasons` a target, `_may_signal` runs the protocol: `kill` never skips it
+   only because this census could not read a member's identity. Dropping any of the chain,
+   verified-group or owned terms fails it. The converse is not a property: a walk member
+   with no identity counts though its read may show it tainted (its own record), which
+   errs toward running only.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import json
+import os
 import signal
 
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
 from subfleet import procs, protocol
@@ -39,6 +49,7 @@ from tests.unit.test_census_round1_mutations import replace_function
 from tests.unit.test_daemon_settle import ATTEMPT, JOB, attempt, daemon  # noqa: F401
 from tests.unit.test_kill4_boot_scope import (BOOT_A, BOOT_B, evidence, finished, inline, kept, kinds,  # noqa: F401
                                               store, world)
+from tests.unit.test_pr276_review_r1 import MUTANTS as R1_MUTANTS
 from tests.unit.test_pr276_review_r1 import (
     test_an_unverifiable_census_runs_the_protocol_exactly_when_a_verifiable_read_could_attribute_a_member
     as unread_case,
@@ -242,3 +253,95 @@ def test_confirm_dead_on_that_member_points_to_a_kill_that_runs_no_protocol(daem
     assert after["status"] == "already finished" and "no kill protocol ran" in after["detail"], after
     assert "attempt.recontainment_started" not in kinds(daemon)
     assert provider.alive and not world.tried, world.tried
+
+
+# 4. The unread rule's soundness (fix round r2).
+
+SOURCES = ("group", "walk", "marker", "responsibility", "chain")
+POOL = (5800, 5801, 5802, 5803)
+HELD = 5900
+#: A record of the process at the pid now (`now`), of an earlier one there (`earlier`), or,
+#: for an owned record only, of the process now but on another boot than the attempt's.
+RECORDS = ("none", "now", "earlier")
+
+
+def member(sources, parent=-1, read=True, owned="none", unverified="none") -> dict:
+    return {"sources": frozenset(sources), "parent": parent, "read": read, "owned": owned, "unverified": unverified}
+
+
+def specs():
+    members = st.lists(st.fixed_dictionaries({
+        "sources": st.frozensets(st.sampled_from(SOURCES), min_size=1),
+        "parent": st.integers(min_value=-1, max_value=len(POOL) - 1),
+        "read": st.booleans(),
+        "owned": st.sampled_from(RECORDS + ("now-other-boot",)),
+        "unverified": st.sampled_from(RECORDS),
+    }), min_size=1, max_size=len(POOL))
+    return st.fixed_dictionaries({"members": members, "leader_verified": st.booleans(), "held": st.booleans(),
+                                  "never_first": st.booleans()})
+
+
+def build(daemon, spec: dict) -> tuple[dict, procs.Containment, procs.Containment]:
+    """The attempt (on `BOOT_A`), an unverifiable census of `spec`'s members, and the
+    verifiable read of the same members, every identity captured. A member's parent is an
+    earlier member, else launchd; the first member may be the daemon's parent, which
+    nothing ever signals."""
+    pids = [os.getppid() if index == 0 and spec["never_first"] else POOL[index]
+            for index in range(len(spec["members"]))]
+    now = {pid: procs.ProcessIdentity(pid, BOOT_A, f"Sat Sep  5 11:00:0{index} 2026") for index, pid in enumerate(pids)}
+    record = {"now": lambda pid: kept(now[pid]),
+              "earlier": lambda pid: kept(dataclasses.replace(now[pid], proc_start="Fri Sep  4 08:00:00 2026")),
+              "now-other-boot": lambda pid: kept(dataclasses.replace(now[pid], boot_id=BOOT_B))}
+    shapes, sources = {}, {source: set() for source in SOURCES}
+    owned, unverified = {}, {}
+    for index, (pid, m) in enumerate(zip(pids, spec["members"])):
+        parent = m["parent"] if 0 <= m["parent"] < index else -1
+        shapes[pid] = {"ppid": pids[parent] if parent >= 0 else 1, "pgid": 4242, "stat": "S"}
+        for source in m["sources"]:
+            sources[source].add(pid)
+        if m["owned"] != "none":
+            owned[str(pid)] = record[m["owned"]](pid)
+        if m["unverified"] != "none":
+            unverified[str(pid)] = record[m["unverified"]](pid)
+    a = {**attempt(daemon), "boot_id": BOOT_A,
+         "evidence_json": json.dumps({"owned_identities": owned, "unverified_identities": unverified})}
+    census = procs.Containment(
+        group_pids=frozenset(sources["group"]), descendant_pids=frozenset(sources["walk"]),
+        marker_pids=frozenset(sources["marker"]), responsible_pids=frozenset(sources["responsibility"]),
+        chain_pids=frozenset(sources["chain"]), leader_verified=spec["leader_verified"],
+        held_pids=frozenset({HELD} if spec["held"] else ()), shapes=shapes, unverifiable=True,
+        identities={pid: now[pid] for pid, m in zip(pids, spec["members"]) if m["read"]},
+        errors=("identity inspection unavailable",))
+    return a, census, dataclasses.replace(census, identities=now, unverifiable=False, errors=())
+
+
+#: Review r2's P2-1: an owned member with no identity, below a parent an unverifiable census
+#: first recorded.
+OWNED_BELOW_A_TAINTED_PARENT = {"members": [member({"group", "walk"}, unverified="now"),
+                                            member({"group", "walk"}, parent=0, read=False, owned="now")],
+                                "leader_verified": False, "held": False, "never_first": False}
+UNREAD_CHAIN_MEMBER = {"members": [member({"chain"}, read=False)], "leader_verified": False, "held": False,
+                       "never_first": False}
+UNREAD_VERIFIED_GROUP_MEMBER = {"members": [member({"group"}, read=False)], "leader_verified": True,
+                                "held": False, "never_first": False}
+
+
+@example(spec=OWNED_BELOW_A_TAINTED_PARENT)
+@example(spec=UNREAD_CHAIN_MEMBER)
+@example(spec=UNREAD_VERIFIED_GROUP_MEMBER)
+@settings(max_examples=300, derandomize=True, deadline=None, database=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(spec=specs())
+def test_an_unverifiable_census_any_verifiable_read_would_target_runs_the_protocol(daemon, spec):
+    a, census, read = build(daemon, spec)
+    targets = Daemon._signal_reasons(daemon, a, read)
+    if targets:
+        assert Daemon._may_signal(daemon, a, census), (sorted(targets), census.to_dict(), a["evidence_json"])
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the soundness property must detect this mutant")
+@pytest.mark.parametrize("mutant", ["p2-1-chain-dropped", "p2-1-group-dropped", "p2-1-owned-dropped"])
+def test_a_dropped_unread_term_fails_the_soundness_property(daemon, monkeypatch, mutant):
+    owner, name, replacements = {**R1_MUTANTS, **MUTANTS}[mutant]
+    replace_function(monkeypatch, owner, name, replacements)
+    test_an_unverifiable_census_any_verifiable_read_would_target_runs_the_protocol(daemon)
