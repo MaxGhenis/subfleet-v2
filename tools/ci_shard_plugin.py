@@ -10,7 +10,7 @@ command line always runs.
 Where a file goes is a pure function of its path and the checked-in map
 (``.github/test-shards.json``): every shard job of a run computes the same
 answer from the same checkout, which is what makes the shards a partition.
-- Files under a ``groups`` prefix move together, so session fixtures such as
+- Files matching the first ``groups`` prefix move together, so session fixtures such as
   the frontend's compiled Swift probes are built once, not once per shard.
 - Every other measured file is its own unit. Units are placed longest first
   on the least-loaded shard (ties: the lower shard), from ``seconds``, the
@@ -54,12 +54,15 @@ def validate_map(data: object) -> tuple[dict[str, int], list[str]]:
             or not isinstance(data.get("groups"), list):
         raise ValueError("expected an object with 'seconds' (object) and 'groups' (list)")
     groups = data["groups"]
-    for group in groups:
-        if not isinstance(group, str) or not group.endswith("/") or group.startswith("/"):
-            raise ValueError(f"group {group!r} must be a relative directory prefix ending in '/'")
-    for group in groups:
-        if any(other != group and other.startswith(group) for other in groups) or groups.count(group) > 1:
-            raise ValueError(f"group {group!r} overlaps another group")
+    for index, group in enumerate(groups):
+        if (not isinstance(group, str) or not group or group.startswith("/")
+                or ".." in group.split("/") or "*" in group
+                or not (group.endswith("/") or group.rsplit("/", 1)[-1].startswith("test_"))):
+            raise ValueError(f"group {group!r} must be a relative directory or test-file prefix")
+        # First-prefix matching permits a narrow test family before its directory.
+        # A later prefix already swallowed by an earlier one can never be selected.
+        if any(group.startswith(earlier) for earlier in groups[:index]):
+            raise ValueError(f"group {group!r} is hidden by an earlier group")
     millis = {}
     for path, seconds in data["seconds"].items():
         if (not isinstance(seconds, (int, float)) or isinstance(seconds, bool)
