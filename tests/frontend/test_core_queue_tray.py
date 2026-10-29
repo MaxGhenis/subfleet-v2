@@ -37,7 +37,7 @@ import tempfile
 import uuid
 
 import pytest
-from hypothesis import HealthCheck, event, example, given, seed, settings, strategies as st
+from hypothesis import HealthCheck, Phase, event, example, given, seed, settings, strategies as st
 from functools import lru_cache
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
@@ -1337,6 +1337,78 @@ follow_keys = st.fixed_dictionaries({
     "tray": st.lists(st.sampled_from(["x", "y"]), max_size=2), "settling": st.booleans(),
     "has_history": st.booleans(), "local_send": st.sampled_from([None, "a", "b"]),
     "live": st.booleans(), "held": st.booleans()})
+
+
+@pytest.mark.parametrize("change", [{"last": "remote"}, {"followed": "tool"},
+                                  {"followed_length": 99}, {"tray": ["queued"]},
+                                  {"has_history": True}, {"live": True}, {"held": True}])
+def test_reveal_suspends_ordinary_follow_even_with_stale_end_marker(core_probe, change):
+    old = {**EMPTY_KEY, "settling": False}
+    pair = {"old": old, "new": {**old, **change}, "at_bottom": True, "suspended": True}
+    assert queue_words(core_probe, moves=[pair])["moves"] == ["stay"]
+
+
+@pytest.mark.parametrize("at_bottom", [False, True])
+def test_own_send_glides_while_reveal_suspends_follow(core_probe, at_bottom):
+    old = {**EMPTY_KEY, "settling": False, "last": "old", "local_send": "old"}
+    new = {**old, "last": "mine", "last_is_own_send": True, "local_send": "mine"}
+    assert queue_words(core_probe, moves=[{"old": old, "new": new, "at_bottom": at_bottom,
+                                          "suspended": True}])["moves"] == ["glide"]
+
+
+@st.composite
+def suspended_ordinary_pairs(draw):
+    old = {**draw(follow_keys), "settling": False}
+    # Exclude just the own-send exception, including its local-send identity
+    # check. A last row still tagged as an own send may be an old receipt.
+    new = draw(follow_keys.filter(lambda key: not (
+        key["last"] != old["last"] and key["last_is_own_send"]
+        and (key["local_send"] is None or key["local_send"] != old["local_send"]))))
+    return {"old": old, "new": {**new, "settling": False},
+            "at_bottom": draw(st.booleans()), "suspended": True}
+
+
+@settings(max_examples=30, deadline=None, derandomize=True)
+@given(pairs=st.lists(suspended_ordinary_pairs(), min_size=1, max_size=20))
+def test_property_suspended_ordinary_follow_always_stays(core_probe, pairs):
+    """Every non-settling pair outside the own-send exception stays while
+    suspended, even when lazy presentation still reports the end visible."""
+    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay"] * len(pairs)
+
+
+@pytest.mark.parametrize("at_bottom", [False, True])
+@pytest.mark.parametrize("settling", [(True, True), (True, False), (False, True)])
+def test_suspended_catchup_preserves_reveal_despite_marker_state(core_probe, at_bottom, settling):
+    pair = {"old": {**EMPTY_KEY, "settling": settling[0]},
+            "new": {**EMPTY_KEY, "settling": settling[1], "has_history": True},
+            "at_bottom": at_bottom, "suspended": True}
+    assert queue_words(core_probe, moves=[pair])["moves"] == ["stay"]
+
+
+@st.composite
+def suspended_settling_pairs(draw):
+    pair = draw(suspended_ordinary_pairs())
+    old_settling, new_settling = draw(st.sampled_from([(True, True), (True, False), (False, True)]))
+    pair["old"]["settling"] = old_settling
+    pair["new"]["settling"] = new_settling
+    return pair
+
+
+@settings(max_examples=30, deadline=None, derandomize=True, phases=(Phase.generate,))
+@given(pairs=st.lists(suspended_settling_pairs(), min_size=1, max_size=20))
+def test_property_suspended_settling_never_moves_a_reveal(core_probe, pairs):
+    """Any settling transition outside the own-send exception stays while a
+    reveal is suspended, regardless of stale marker visibility or history."""
+    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay"] * len(pairs)
+
+
+def test_confirmed_end_releases_catchup_on_next_key(core_probe):
+    old = {**EMPTY_KEY, "followed_length": 1}
+    new = {**old, "followed_length": 2}
+    pairs = [{"old": old, "new": new, "at_bottom": True, "suspended": True},
+             {"old": old, "new": old, "at_bottom": True, "suspended": False},
+             {"old": old, "new": new, "at_bottom": True, "suspended": False}]
+    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay", "stay", "jump"]
 
 
 @st.composite
