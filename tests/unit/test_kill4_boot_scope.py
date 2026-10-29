@@ -332,9 +332,8 @@ def test_an_unverifiable_census_whose_walk_members_are_tainted_runs_no_protocol(
     below it, so a verifiable read does not attribute it either, and the protocol would
     spend a TERM grace on every `kill` with nothing it may signal, as in case 3 (a legacy
     attempt boot: no census of it verifies). A walk or responsibility member whose identity
-    this census could not read still runs the protocol, unless a tainted census parent
-    taints it: `_tainted` matches a member's own record by its identity, but follows parent
-    links without one."""
+    this census could not read still runs the protocol, unless a tainted census parent taints it:
+    `_tainted` matches a member's own record by its identity, but follows parent links without one."""
     member = stranger_group(world)
     seed, child = walk_seed(daemon, world, tainted=True)
     daemon.store.update_attempt(ATTEMPT, boot_id="99")
