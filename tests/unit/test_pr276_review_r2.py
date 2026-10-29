@@ -18,7 +18,9 @@ did not execute, on the simulated host (`tests/kill4_world.py`, as `BootWorld` i
    observation, left as it is). A member that census first records as unverified is not yet
    tainted for `_may_signal`, so that one `kill` runs a protocol that signals no member, and
    the next `kill` answers `already finished`. With the row read after the census, the first
-   `kill` answers `already finished` too: the gap errs toward running only.
+   `kill` answers `already finished` too: the gap errs toward running only. `--confirm-dead`
+   words its answer from the same row, so it says `kill` contains such a member, and the
+   `kill` that follows runs no protocol.
 """
 
 from __future__ import annotations
@@ -184,3 +186,19 @@ def test_a_member_the_kills_own_census_first_records_as_unverified_costs_one_pro
     assert ("attempt.recontainment_started" in kinds(daemon)) is (row == "before-the-census")
     assert second["status"] == "already finished" and "held, never signalled" in second["detail"], second
     assert provider.alive and not [pid for kind, pid, _ in world.tried if kind == "pid"], world.tried
+
+
+@pytest.mark.documented_limitation
+def test_confirm_dead_on_that_member_points_to_a_kill_that_runs_no_protocol(daemon, world, monkeypatch):
+    """The same gap in `--confirm-dead`'s wording: its census first records the provider as
+    unverified, but `_may_signal` reads the row from before it, so the answer says `kill`
+    contains them; the `kill` that follows reads the taint and runs no protocol."""
+    provider = world.add(PROVIDER, 1, 4242)
+    finished(daemon)
+    inline(daemon, monkeypatch)
+    answer = daemon.kill(protocol.KillArgs(job_id=JOB, confirm_dead=True))
+    assert answer["status"] == "not quarantined" and f"`subfleet kill {JOB}` contains them" in answer["detail"], answer
+    after = daemon.kill(protocol.KillArgs(job_id=JOB))
+    assert after["status"] == "already finished" and "no kill protocol ran" in after["detail"], after
+    assert "attempt.recontainment_started" not in kinds(daemon)
+    assert provider.alive and not world.tried, world.tried
