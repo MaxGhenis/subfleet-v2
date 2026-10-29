@@ -320,7 +320,6 @@ def test_repository_cleanup_interruption_closes_remaining_children(monkeypatch):
             assert fired
 
 
-@pytest.mark.xfail(strict=True, reason="P2-1: descent leaks new child when closing previous fd raises")
 @pytest.mark.parametrize("site", ["path", "conflict", "set-aside"])
 @pytest.mark.parametrize("closed_first", [False, True])
 def test_descent_close_failure_owns_new_child(monkeypatch, site, closed_first):

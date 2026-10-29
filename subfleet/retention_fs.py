@@ -27,6 +27,7 @@ import socket
 import stat
 import struct
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -1054,13 +1055,20 @@ def _open_path(dir_fd: int, path: str) -> int:
     try:
         for part in path.split("/"):
             child = open_dir(part, dir_fd=fd)
-            if fd != dir_fd:
-                os.close(fd)
+            try:
+                if fd != dir_fd:
+                    os.close(fd)
+            except BaseException:
+                with suppress(BaseException):
+                    os.close(child)
+                raise
             fd = child
         return fd
     except BaseException:
-        if fd != dir_fd:
-            os.close(fd)
+        # A failed close may already have closed fd; preserve the first error.
+        with suppress(BaseException):
+            if fd != dir_fd:
+                os.close(fd)
         raise
 
 
@@ -1326,11 +1334,17 @@ class Reclaim:
                 except FileExistsError:
                     pass
                 child = open_dir(part, dir_fd=fd)
-                os.close(fd)
+                try:
+                    os.close(fd)
+                except BaseException:
+                    with suppress(BaseException):
+                        os.close(child)
+                    raise
                 fd = child
             return fd
         except BaseException:
-            os.close(fd)
+            with suppress(BaseException):
+                os.close(fd)
             raise
 
     def _set_aside_fd(self, fd: int, name: str, path: str, reason: str) -> None:
