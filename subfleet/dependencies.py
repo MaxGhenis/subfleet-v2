@@ -229,6 +229,7 @@ def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None)
             try:
                 with open_regular(filename) as stream:
                     opened = True
+                    before = os.fstat(stream.fileno())
                     while line := stream.readline(_ALTERNATE_LINE_LIMIT + 1):
                         if len(line) > _ALTERNATE_LINE_LIMIT:
                             raise ValueError(f"line exceeds {_ALTERNATE_LINE_LIMIT} bytes")
@@ -238,6 +239,12 @@ def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None)
                                 seen.add(each)
                                 found.append(each)
                                 following.append(each)
+                    after = os.fstat(stream.fileno())
+                    named = os.stat(filename)
+                    fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+                    if (any(getattr(before, field) != getattr(after, field) for field in fields)
+                            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):
+                        raise ValueError("alternates changed during discovery")
             except (OSError, ValueError) as exc:
                 # A missing file is normal, but a dangling link exists and is unreadable.
                 if isinstance(exc, FileNotFoundError) and not opened and not os.path.lexists(filename):

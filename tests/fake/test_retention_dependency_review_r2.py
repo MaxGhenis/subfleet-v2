@@ -34,7 +34,6 @@ def reader(world, depends, *, state="running", kind="dispatch"):
     world.store.add_event("job.submitted", job_id="borrower", data={"depends": depends})
 
 
-@pytest.mark.xfail(strict=True, reason="R2-F1: alternates replacement during discovery is not detected")
 @pytest.mark.parametrize("change", ["replace", "rewrite"])
 def test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads(world, monkeypatch, change):
     tree = world.job("owner")
@@ -88,7 +87,6 @@ def test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads(world, mon
     assert str(alternate) in result["pin_reasons"]["owner"]
 
 
-@pytest.mark.xfail(strict=True, reason="R2-F1: actual unlink during an open alternates read is not detected")
 def test_c8_4_unlinked_open_alternates_is_incomplete(tmp_path, monkeypatch):
     alternate = tmp_path / ".git" / "objects" / "info" / "alternates"
     alternate.parent.mkdir(parents=True)
