@@ -5382,8 +5382,9 @@ def test_r7_command_pins_agree_with_real_shells(tmp_path):
 #: double-quoted shift, a substitution's heredoc inside ((...)), an arithmetic << on the line of a real heredoc, <<= and
 #: a << ending a line inside $((...)); an unquoted let's << is a heredoc. Decision 3: the pass-on through tee's stdin,
 #: a later tee or head, xargs -0 sh -c, cat - with a here-string, and zsh's >/dev/null | (MULTIOS). Decision 5: an
-#: assignment after ||, in a subshell, in a function body never called, in a loop that never runs, or in a case arm,
-#: a literal root value (/, \/, /*), and two assignments in one command, the last a root, all leave the loop's reading.
+#: assignment after ||, in a subshell or a substitution, in a function body never called, in a loop that never runs
+#: or in a case arm, a literal root value (/, \/, /*), and two assignments in one command, the last a root, all leave
+#: the loop's reading.
 R7V_L = "for d in ~/.subfleet/*; do :; done"
 R7V_R = "rg foo \"$d\""
 REVIEW_R7_DENIED = [
@@ -5405,6 +5406,9 @@ REVIEW_R7_DENIED = [
     R7V_L + "; true || d=src; " + R7V_R,
     R7V_L + "; (d=src); " + R7V_R,
     R7V_L + "; ( :; d=src ); " + R7V_R,
+    R7V_L + "; ( :; d=src; : ); " + R7V_R,
+    R7V_L + "; echo \"$(d=src; :)\"; " + R7V_R,
+    R7V_L + "; x=`d=src; :`; " + R7V_R,
     R7V_L + "; f() { d=src; }; " + R7V_R,
     R7V_L + "; while false; do\nd=src\ndone; " + R7V_R,
     R7V_L + "\ncase x in\n(y)\nd=src\n;;\nesac\n" + R7V_R,
