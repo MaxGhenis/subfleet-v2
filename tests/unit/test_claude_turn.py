@@ -52,11 +52,11 @@ def test_argv_carries_resume_model_effort_and_the_permission_policy():
                             "--model", "opus", "--effort", "high", "--resume", SID,
                             "--permission-mode", "default", "--permission-prompt-tool", "stdio",
                             "--disallowedTools", "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger,EnterPlanMode,ExitPlanMode",
-                            "--settings", '{"disableAllHooks":false}']
+                            "--settings", '{"disableAllHooks":false,"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}']
     bypass = argv(spec(permission="bypass", native_session_id=None, new_session_id=SID, fast=True, effort=None))
     # C-26.11: every writable mode keeps the user's hooks on and routes interaction prompts to the person.
     assert "--session-id" in bypass and bypass[bypass.index("--permission-prompt-tool") + 1] == "stdio"
-    assert bypass[-2:] == ["--settings", '{"disableAllHooks":false,"fastMode":true}']
+    assert bypass[-2:] == ["--settings", '{"disableAllHooks":false,"fastMode":true,"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}']
     with pytest.raises(ValueError):
         argv(spec(permission="everything"))
 

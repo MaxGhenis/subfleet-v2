@@ -458,7 +458,8 @@ def test_writable_claude_review_loads_only_user_settings_and_the_publish_hook(tm
     for name, changes in (('ro', {'sandbox': 'read-only'}), ('build', {'task': 'build'})):
         (tmp_path / name).mkdir()
         other = list(protected(tmp_path / name, provider='claude', kind=kind, **changes).argv)
-        assert '--settings' not in other
+        assert other.count('--settings') == 1                       # the lane settings alone (d1031)
+        assert 'hooks' not in json.loads(other[other.index('--settings') + 1])
         assert other[other.index('--setting-sources') + 1] == '' if name == 'ro' else '--setting-sources' not in other
 
 
