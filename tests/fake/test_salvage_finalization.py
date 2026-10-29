@@ -568,8 +568,9 @@ def test_c13_1_a_checkout_that_changes_while_the_retry_waits_keeps_the_first_hel
 
 def test_c13_1_a_retry_with_no_commit_to_hold_a_failed_salvage_on_fails(state_daemon, monkeypatch):
     """Review of 43b8bf29, F3: a1's salvage failed, and by a2's admission the worktree's
-    repository is gone (the thesis-* jobs' shape: every git call says `not a git
-    repository`), so there is no HEAD and no start snapshot to hold a1's work in. a2 was
+    repository is gone (the thesis-* jobs' shape: every git call fails, `not a git
+    repository` in git 2.55 and `gitfile does not point to a valid repository` in 2.56),
+    so there is no HEAD and no start snapshot to hold a1's work in. a2 was
     reserved and ran there unheld; now the job fails with the cause, as any baseline that
     cannot be held does (C-6.8), and a1's files are left as they are."""
     daemon, harness = state_daemon
@@ -1143,7 +1144,7 @@ def test_c13_1_live_a_worktree_whose_repository_was_deleted_is_recorded_at_once(
     assert error == "salvage failed: git rev-parse failed (exit 128); daemon.log has its output"
     logged = log_text(daemon)
     assert any(f"salvage failed: SalvageError: git rev-parse failed: fatal: {said}" in logged
-               for said in ("not a git repository", "gitfile does not point to a valid repository"))
+               for said in ("not a git repository", "gitfile does not point to a valid repository")), logged
     assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
     assert (workdir / "tracked.txt").read_text() == "provider progress\n"
 
