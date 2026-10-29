@@ -9,7 +9,6 @@ from tests.unit.retention_world import git
 from tests.unit.test_retention_dependency_units import repo
 
 
-@pytest.mark.xfail(strict=True, reason="R3-F1: resolved alternates checks miss a retargeted .git ancestor")
 @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
 def test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree(world, monkeypatch, state):
     tree = world.job("owner")

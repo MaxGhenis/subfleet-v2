@@ -123,23 +123,26 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
     levels deep as git follows them. Empty outside a checkout. What this cannot
     read is left out: environment variables (`GIT_DIR`, `GIT_COMMON_DIR`) and
     `core.worktree`, which a job's folder does not set."""
+    aliases = _Aliases()
     try:
-        start = os.path.realpath(os.path.expanduser(path))
+        start = aliases.resolve(os.path.expanduser(path))
     except (OSError, ValueError):
         return []
     found: list[str] = []
     for folder in (start, *folders.above(start)):
         dotgit = os.path.join(folder, ".git")
         try:
+            resolved = aliases.resolve(dotgit)
             mode = os.stat(dotgit).st_mode
         except (OSError, ValueError):
             continue
         if stat.S_ISDIR(mode):
-            found.extend(_storage(os.path.realpath(dotgit), named=False, incomplete=incomplete))
+            found.extend(_storage(resolved, named=False, incomplete=incomplete, aliases=aliases))
         elif stat.S_ISREG(mode):
-            gitdir = _gitfile(dotgit, folder)
+            gitdir = _gitfile(dotgit, folder, aliases=aliases)
             if gitdir is not None:
-                found.extend(_storage(gitdir, named=True, incomplete=incomplete))
+                found.extend(_storage(gitdir, named=True, incomplete=incomplete, aliases=aliases))
+    aliases.check(incomplete)
     return list(dict.fromkeys(folders.canonical(each) for each in found))
 
 
@@ -151,24 +154,79 @@ def _text(path: str) -> str | None:
         return None
 
 
-def _gitfile(dotgit: str, folder: str) -> str | None:
+class _Aliases:
+    """Original path and pointer spellings beside the targets discovery used.
+
+    Revalidate only after traversal, outside store transactions. This observes
+    a changed final target, not an alias swapped away and back within the read.
+    """
+
+    def __init__(self):
+        self.paths: list[tuple[str, tuple]] = []
+        self.pointers: list[tuple[str, str | None]] = []
+        self.errors: list[dict[str, str]] = []
+
+    @staticmethod
+    def _target(path: str) -> tuple:
+        resolved = os.path.realpath(path)
+        try:
+            info = os.stat(path)
+            identity = (info.st_dev, info.st_ino)
+        except FileNotFoundError:
+            identity = None        # a gitdir target may already be absent
+        return resolved, identity
+
+    def resolve(self, path: str) -> str:
+        try:
+            target = self._target(path)
+        except (OSError, ValueError) as exc:
+            self.errors.append({"file": path, "reason": str(exc)})
+            target = (os.path.abspath(path), None)
+        self.paths.append((path, target))
+        return target[0]
+
+    def text(self, path: str) -> str | None:
+        self.resolve(path)
+        value = _text(path)
+        self.pointers.append((path, value))
+        return value
+
+    def check(self, incomplete: list[dict[str, str]] | None) -> None:
+        if incomplete is not None:
+            incomplete.extend(self.errors)
+        for path, before in self.paths:
+            try:
+                if self._target(path) == before:
+                    continue
+                reason = "repository alias changed or vanished during discovery"
+            except (OSError, ValueError) as exc:
+                reason = str(exc)
+            if incomplete is not None:
+                incomplete.append({"file": path, "reason": reason})
+        for path, before in self.pointers:
+            if _text(path) != before and incomplete is not None:
+                incomplete.append({"file": path, "reason": "repository pointer changed during discovery"})
+
+
+def _gitfile(dotgit: str, folder: str, *, aliases: _Aliases) -> str | None:
     """The directory a `.git` file names (`gitdir: <path>`), or None."""
-    text = (_text(dotgit) or "").strip()
+    text = (aliases.text(dotgit) or "").strip()
     if not text.startswith("gitdir:"):
         return None
     named = text[len("gitdir:"):].strip()
-    return os.path.realpath(os.path.join(folder, named)) if named else None
+    return aliases.resolve(os.path.join(folder, named)) if named else None
 
 
-def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | None = None) -> list[str]:
+def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | None = None,
+             aliases: _Aliases) -> list[str]:
     """`gitdir`, its common directory, and the alternates of that repository's objects."""
     common = gitdir
-    pointer = _text(os.path.join(gitdir, "commondir"))
+    pointer = aliases.text(os.path.join(gitdir, "commondir"))
     if pointer is not None and pointer.strip():
-        common = os.path.realpath(os.path.join(gitdir, pointer.strip()))
+        common = aliases.resolve(os.path.join(gitdir, pointer.strip()))
     elif named and os.path.basename(os.path.dirname(gitdir)) == "worktrees":
         common = os.path.dirname(os.path.dirname(gitdir))
-    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, "objects"), incomplete=incomplete)]))
+    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, "objects"), incomplete=incomplete, aliases=aliases)]))
 
 
 def _unquote(line: bytes) -> tuple[bytes, int]:
@@ -214,13 +272,16 @@ def _alternate_paths(line: bytes) -> Iterable[bytes]:
             return
 
 
-def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None) -> list[str]:
+def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None,
+                aliases: _Aliases | None = None) -> list[str]:
     """Stream complete alternates files, at most one bounded byte line at a time.
 
     The returned paths and traversal frontier grow with distinct dependencies;
     the input buffer is bounded independently of the size of the file.
     Failures are recorded separately, never interpreted as an empty file.
     """
+    own_aliases = aliases is None
+    aliases = aliases if aliases is not None else _Aliases()
     found: list[str] = []
     seen = {objects}
     level = [objects]
@@ -237,7 +298,7 @@ def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None)
                         if len(line) > _ALTERNATE_LINE_LIMIT:
                             raise ValueError(f"line exceeds {_ALTERNATE_LINE_LIMIT} bytes")
                         for path in _alternate_paths(line.removesuffix(b"\n")):
-                            each = os.path.realpath(os.path.join(directory, os.fsdecode(path)))
+                            each = aliases.resolve(os.path.join(directory, os.fsdecode(path)))
                             if each not in seen:
                                 seen.add(each)
                                 found.append(each)
@@ -255,6 +316,8 @@ def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None)
                 if incomplete is not None:
                     incomplete.append({"file": filename, "reason": str(exc)})
         level = following
+    if own_aliases:
+        aliases.check(incomplete)
     return found
 
 
