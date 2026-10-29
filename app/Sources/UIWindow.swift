@@ -314,6 +314,35 @@ extension View {
     }
 }
 
+#if SUBFLEET_VIEW_TEST
+// Stretch only the marker's presentation callback, without changing the follow
+// decision or scrolling. The probe can replay a slow lazy-stack disappearance.
+@MainActor enum ConversationFollowTest {
+    static var disappearanceDelay: Double = 0
+    static var record: ((String, [String: Any]) -> Void)?
+    /// Room above the rows that a probe shrinks and regrows: the document changes
+    /// height under a clip that does not move, as lazy row measurement does.
+    static let inset = Inset()
+    final class Inset: ObservableObject { @Published var top: CGFloat = 0 }
+}
+
+@MainActor struct ConversationFollowTestInset: ViewModifier {
+    @ObservedObject var inset = ConversationFollowTest.inset
+    func body(content: Content) -> some View { content.padding(.top, inset.top) }
+}
+#endif
+
+extension View {
+    /// Only view probes compile the inset; it is zero unless one sets it.
+    @ViewBuilder func conversationFollowTestInset() -> some View {
+        #if SUBFLEET_VIEW_TEST
+        modifier(ConversationFollowTestInset())
+        #else
+        self
+        #endif
+    }
+}
+
 struct ConversationView: View {
     @ObservedObject var model: UIModel
     let conversation: Conversation
@@ -322,6 +351,23 @@ struct ConversationView: View {
     /// only then, so reading further up is not interrupted.
     @State private var atBottom = true
     @State private var followSuspended = false
+    @State private var rowReveal: UUID?
+    /// The reveal's row has not yet been presented in the clip. Until it is, an
+    /// end that comes into view (the document can shrink under the clip) does not
+    /// release suspension; the person's own scroll or send still does, and a
+    /// target that leaves the model, or was never in it, abandons the reveal.
+    @State private var revealPending = false
+    @State private var revealTarget: String?
+    /// Until the measured end settles, the person scrolls or a reveal starts, follow
+    /// an own send as if the end were on screen: a glide stopped 208 pt short of a
+    /// document that then grew 224 pt, leaving the next reply 610 pt behind. The
+    /// opening pin re-pins document growth after an own send until the person scrolls
+    /// or a reveal starts, settled or not (review r8: 600 pt of growth after a quiet
+    /// landing left the reply 779 pt behind).
+    @State private var ownSendLanding = false
+    #if SUBFLEET_VIEW_TEST
+    @State private var markerDisappearance: Task<Void, Never>?
+    #endif
     @State private var renaming = false
     @State private var renamedTitle = ""
     /// The waiting cards already brought into view, so each is scrolled to once.
@@ -334,6 +380,7 @@ struct ConversationView: View {
         let pendingRows = timeline?.pendingApprovalItems ?? []
         let layout = model.state.layout(conversationID: conversation.conversation_id)
         let follow = layout?.followKey(length: streamedLength) ?? .empty
+        let rows = timeline.map { WorkPresentation.rows(in: $0, items: layout?.items) } ?? []
         VStack(spacing: 0) {
             header
             RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
@@ -350,35 +397,49 @@ struct ConversationView: View {
                                 Task { await model.loadHistory(conversation.conversation_id, follow: true) }
                             }.buttonStyle(.link)
                         }
-                        ForEach(timeline.map { WorkPresentation.rows(in: $0, items: layout?.items) } ?? []) { row in
+                        ForEach(rows) { row in
                             switch row {
                             case .item(let item):
-                                TimelineRow(model: model, conversation: conversation, item: item, review: review).id(item.id)
+                                TimelineRow(model: model, conversation: conversation, item: item, review: review)
+                                    .background(revealMark(row, revealTarget)).id(item.id)
                             case .work(let group):
                                 WorkGroupView(group: group, initiallyExpanded: initiallyExpandedWork,
                                     served: group.completed ? group.items.first?.messageID.flatMap {
                                         model.state.servedChip(conversationID: conversation.conversation_id, messageID: $0)
-                                    } : nil).id(group.id)
+                                    } : nil)
+                                    .background(revealMark(row, revealTarget))
+                                    .id(group.id)
                             }
                         }
                         Theme.clear.frame(height: 1).id("bottom")
-                            .onAppear { atBottom = true; followSuspended = false }
-                            .onDisappear { atBottom = false }
+                            .onAppear { endAppeared() }
+                            .onDisappear { endDisappeared() }
                     }
+                    .conversationFollowTestInset()
                     .padding(Theme.space.column)
-                    .background(ConversationOpeningPin(conversationID: conversation.conversation_id))
+                    .background(ConversationOpeningPin(conversationID: conversation.conversation_id,
+                                                       onRevealEndVisible: resumeFollow,
+                                                       onRevealLanded: revealLanded,
+                                                       onPersonScroll: personScrolledDuringReveal,
+                                                       onPersonInput: { ownSendLanding = false },
+                                                       ownSendLanding: ownSendLanding,
+                                                       onOwnSendLanded: {
+                                                           ownSendLanding = false
+                                                           atBottom = true
+                                                           traceFollow("own_send_landed")
+                                                       }))
                     .conversationColumn(conversation.conversation_id, proxy: proxy,
                                         revealIDs: Set(layout?.items.map(\.id) ?? []))
                     .frame(maxWidth: .infinity)
                 }
                 .initialConversationScrollAnchor()
                 .onChange(of: follow) { old, new in
-                    switch FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended) {
-                    case .stay: break
-                    case .jump: jumpToBottom(proxy)
-                    case .glide:
-                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
-                    }
+                    followChanged(from: old, to: new, proxy: proxy)
+                }
+                // A reset, a history change or a rebuild can take the target's row
+                // out of the model before it is presented; its mark can never land.
+                .onChange(of: revealTarget.map { target in rows.contains { Self.row($0, marks: target) } }) { _, held in
+                    if held == false { abandonReveal("target_removed") }
                 }
                 .onChange(of: approvalKey(timeline, pendingRows)) { _, _ in followApprovals(proxy) }
                 .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
@@ -452,6 +513,15 @@ struct ConversationView: View {
             guard note.object as? String == conversation.conversation_id else { return }
             // Only the end marker owns atBottom. A reveal may leave it visible.
             followSuspended = true
+            rowReveal = note.userInfo?["request"] as? UUID
+            revealTarget = note.userInfo?["target"] as? String
+            revealPending = true
+            ownSendLanding = false
+            traceFollow("reveal")
+            // A target the model does not hold is never presented, so nothing would end the reveal.
+            if let target = revealTarget, !timelineRows().contains(where: { Self.row($0, marks: target) }) {
+                abandonReveal("target_missing")
+            }
         }
         .onChange(of: timeline?.liveMessageID) { _, _ in
             // A turn started or ended: an open pane compares again.
@@ -459,6 +529,123 @@ struct ConversationView: View {
                 Task { await model.loadChanges(scope) }
             }
         }
+    }
+
+    private func endAppeared() {
+        #if SUBFLEET_VIEW_TEST
+        markerDisappearance?.cancel()
+        #endif
+        // An outstanding reveal's suspension is not released by an end that came
+        // into view before the reveal's row did; the opening pin releases it when
+        // the row is presented beside the end, or when the person scrolls.
+        atBottom = true; if !revealPending { followSuspended = false }
+        traceFollow("marker_appeared")
+    }
+
+    private func resumeFollow(_ request: UUID) {
+        // An older animation must not release a newer reveal's suspension.
+        guard rowReveal == request else { return }
+        followSuspended = false
+        traceFollow("reveal_end_visible")
+    }
+
+    private func revealLanded(_ request: UUID) {
+        guard rowReveal == request else { return }
+        revealPending = false
+        traceFollow("reveal_landed")
+    }
+
+    private func personScrolledDuringReveal() {
+        revealPending = false
+        traceFollow("person_scrolled")
+    }
+
+    /// Ends an outstanding reveal whose row can no longer be presented, or that the
+    /// person's own send ended: the pin stops waiting for this request, and the view
+    /// reconciles. With the end in view, suspension is released as the marker would
+    /// release it with no reveal outstanding; otherwise the marker's next appearance does.
+    private func abandonReveal(_ reason: String) {
+        guard revealPending, let request = rowReveal else { return }
+        revealPending = false
+        ConversationOpeningPin.abandonReveal(in: conversation.conversation_id, request: request)
+        rowReveal = nil
+        revealTarget = nil
+        if atBottom { followSuspended = false }
+        traceFollow("reveal_abandoned", extra: ["reason": reason])
+    }
+
+    /// The timeline's rows as the model holds them now, grouped as the body shows them.
+    private func timelineRows() -> [ProgressRow] {
+        let id = conversation.conversation_id
+        return model.state.timelines[id].map {
+            WorkPresentation.rows(in: $0, items: model.state.layout(conversationID: id)?.items)
+        } ?? []
+    }
+
+    /// Whether `row` carries the mark for `target`: the row itself, or the work group holding it.
+    private static func row(_ row: ProgressRow, marks target: String) -> Bool {
+        switch row {
+        case .item(let item): return item.id == target
+        case .work(let group): return group.id == target || group.items.contains { $0.id == target }
+        }
+    }
+
+    @ViewBuilder private func revealMark(_ row: ProgressRow, _ target: String?) -> some View {
+        if let target, Self.row(row, marks: target) {
+            RevealTargetMark(conversationID: conversation.conversation_id, itemID: target)
+        }
+    }
+
+    private func endDisappeared() {
+        #if SUBFLEET_VIEW_TEST
+        traceFollow("marker_disappearing")
+        if ConversationFollowTest.disappearanceDelay > 0 {
+            let delay = ConversationFollowTest.disappearanceDelay
+            markerDisappearance?.cancel()
+            markerDisappearance = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))
+                guard !Task.isCancelled else { return }
+                atBottom = false
+                traceFollow("marker_false")
+            }
+            return
+        }
+        #endif
+        atBottom = false
+        traceFollow("marker_false")
+    }
+
+    private func followChanged(from old: FollowKey, to new: FollowKey, proxy: ScrollViewProxy) {
+        // The person's own send ends any reveal and releases suspension before the
+        // move is chosen, catch-up included: catch-up's settling move then goes to
+        // the end, as any other move does.
+        let ownSend = FollowKey.ownSend(from: old, to: new)
+        if ownSend {
+            abandonReveal("own_send")
+            followSuspended = false
+            ownSendLanding = true
+        }
+        let landing = ownSendLanding || ownSend
+        let move = FollowKey.move(from: old, to: new, atBottom: atBottom || landing,
+                                  suspended: followSuspended && !ownSend)
+        #if SUBFLEET_VIEW_TEST
+        traceFollow("move", extra: ["move": String(describing: move), "landing": landing,
+                    "old_length": old.followedLength, "new_length": new.followedLength,
+                    "settling": old.settling || new.settling])
+        #endif
+        switch move {
+        case .stay: break
+        case .jump: jumpToBottom(proxy)
+        case .glide:
+            withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
+    }
+
+    private func traceFollow(_ event: String, extra: [String: Any] = [:]) {
+        #if SUBFLEET_VIEW_TEST
+        ConversationFollowTest.record?(conversation.conversation_id,
+            extra.merging(["event": event, "at_bottom": atBottom, "suspended": followSuspended]) { _, new in new })
+        #endif
     }
 
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
@@ -507,16 +694,26 @@ struct ConversationView: View {
         let target = approvals.target(in: timeline, reveal: &reveal)
         if !reveal { model.revealed(id) }
         guard let target else { return }
-        ConversationOpeningPin.revealRow(in: id)
+        let request = ConversationOpeningPin.revealRow(in: id, target: target)
         // After this update's own scrolling (to the end, for a row that just
         // arrived), so the view settles on the card.
         DispatchQueue.main.async {
             if opening {
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
-                withTransaction(transaction) { proxy.scrollTo(target, anchor: .center) }
+                withTransaction(transaction) {
+                    withAnimation(nil, completionCriteria: .removed) {
+                        proxy.scrollTo(target, anchor: .center)
+                    } completion: {
+                        ConversationOpeningPin.didRevealRow(in: id, request: request)
+                    }
+                }
             } else {
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
+                withAnimation(.easeOut(duration: 0.2), completionCriteria: .removed) {
+                    proxy.scrollTo(target, anchor: .center)
+                } completion: {
+                    ConversationOpeningPin.didRevealRow(in: id, request: request)
+                }
             }
         }
     }
