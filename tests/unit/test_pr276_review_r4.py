@@ -168,6 +168,31 @@ def test_with_the_attempts_boot_over_an_owned_pid_is_recycled_and_only_its_marke
     assert Daemon._may_signal(daemon, a, census) is keeping_recycled(daemon, a, census) is marked
 
 
+@pytest.mark.parametrize("now", ["uuid", "unreadable"])
+def test_an_absent_leader_of_another_boot_is_recycled_but_no_member(daemon, world, monkeypatch, now):
+    """The third route into `recycled`: the recorded group's absent leader, whose recorded boot is
+    provably not this one (`group of another boot`). With no attempt boot, the guardian's own
+    birth is not recorded, so the leader's record is an owned one of another boot than the
+    current one; the attempt-boot filter keeps it (no attempt UUID to differ from). The leader is
+    absent from the table, so it is no member, and the subtraction changes no answer. With the
+    boot unreadable the comparison is unknown, and the pgid is not recycled."""
+    member = world.add(MEMBER, 1, GUARDIAN)
+    store(daemon, owned_identities={str(GUARDIAN): kept(procs.ProcessIdentity(GUARDIAN, BOOT_B, STARTED)),
+                                    str(MEMBER): kept(procs.ProcessIdentity(MEMBER, BOOT_A, EARLIER))})
+    daemon.store.update_attempt(ATTEMPT, boot_id=None)
+    world.boot = CURRENT_BOOTS[now]
+    a = attempt(daemon)
+    census = daemon._contain(dict(a))
+    if now == "uuid":
+        assert census.recycled[GUARDIAN]["reason"] == "group of another boot", census.to_dict()
+        assert not census.group_pids and GUARDIAN not in census.live_pids, census.to_dict()
+    else:
+        assert GUARDIAN not in census.recycled and member.pid in census.group_pids, census.to_dict()
+        assert census.recycled[MEMBER]["reason"] == "different start identity", census.to_dict()
+    assert Daemon._may_signal(daemon, a, census) is keeping_recycled(daemon, a, census) or (
+        MEMBER in census.recycled and MEMBER in census.live_pids and MEMBER not in census.identities)
+
+
 # 3. Review r3's property on the daemon's census, every boot varied.
 
 POOL = (5800, 5801, 5802, 5803, 5804)
