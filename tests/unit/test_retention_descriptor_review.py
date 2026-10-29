@@ -5,7 +5,6 @@ import dis
 import errno
 import os
 from pathlib import Path
-import subprocess
 import sys
 import types
 
@@ -19,11 +18,9 @@ from tests.unit.test_retention_walk_descriptors import (
 def baseline():
     name = "subfleet.retention_fs_review_base"
     if name not in sys.modules:
-        repo = Path(__file__).resolve().parents[2]
-        source = subprocess.run(
-            ["git", "-c", "core.fsmonitor=false", "show", "bc108d3ad:subfleet/retention_fs.py"],
-            cwd=repo, capture_output=True, text=True, check=True,
-        ).stdout
+        # release/217's subfleet/retention_fs.py at bc108d3ad, byte for byte (blob c9c1a5d6f436), frozen as a
+        # fixture: CI checks out one commit, so `git show bc108d3ad:...` has no object to read there.
+        source = (Path(__file__).resolve().parents[1] / "fixtures" / "retention_fs_bc108d3ad.py").read_text()
         module = types.ModuleType(name)
         sys.modules[name] = module
         exec(compile(source, "<retention_fs at bc108d3ad>", "exec"), module.__dict__)
