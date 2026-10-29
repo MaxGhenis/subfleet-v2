@@ -278,3 +278,177 @@ files outside the lock, as the lane rules direct. Code is the same at `f046750fd
   load-timing failure, was deselected from hold I and not run.
 - e2e and frontend: lanes can't run them. CI runs everything, including the 3.12 job this round can't change:
   review r3's wait-lock regression fails there until decision 1 is settled.
+
+## Fix round r4
+
+Base `3769a17e5` (fix round r3's head). Built 2026-10-29, 00:20Z to 01:45Z, scratch
+`$(getconf DARWIN_USER_TEMP_DIR)sf-r271f4`, with one scratch venv per Python synced from the tree's lock (3.14.7
+and 3.12.14). No fetch, push, GitHub call, real `subfleet` CLI, provider or live store. The hub's rulings on round
+3 stand: decision 2's deviation and decision 3 as built; the two gaps round 3 described (`_report` failing, and
+`_replay_unsettled` retrying an unreported replay) are a follow-up, not built here.
+
+### Decision 1, the kernel exit peek: built with two bindings (`0982ab220`)
+
+`subfleet/relay.py:262` `child_exited(child)` says whether the guardian's child has exited:
+
+- Popen's own record first: `returncode` read with `getattr`, then `poll()`.
+- Otherwise a peek, `waitid(P_PID, pid, WEXITED | WNOHANG | WNOWAIT)` (`_PEEK_FLAGS`), that never reaps. It goes
+  through `os.waitid` where `os` has it (`_waitid_os`), and otherwise through libc's own `waitid` by ctypes with
+  Darwin's `siginfo_t` (`_waitid_libc`). This host's 3.12.14 has no `os.waitid`. `EXIT_PEEK` names the binding,
+  chosen once at import: `os.waitid` on 3.14, `libc waitid` on 3.12. The libc binding is bound on macOS on every
+  Python, so the tests reach it on 3.14 too.
+- `ChildProcessError` (ECHILD) reads as exited: the guardian's wait has reaped the child. Any other `OSError`
+  reads as "not shown to exit" and is written once per process, as one fixed line naming the errno, by the raw
+  descriptor-2 write the relay's cut line already uses (`PEEK_FAILURE_LOG_LINE`).
+- A child without an integer pid above 0 (the fakes in `test_wall_stop_deliveries.py`,
+  `test_wall_cancel_races.py` and the relay-exit fixtures) is not peeked.
+
+It replaces `poll()` at the three sites: `status` (`:542`), `_refusal`'s `child_exited` flag (`:549`) and signal
+delivery's still-running check (`:590`). `guardian.py`'s `child.wait()` (`:295`, `:306`) stays the only reaper.
+Nothing else in `relay.py` or `guardian.py` calls `poll()` or `wait()`.
+
+**One visible change at the signal site.** A signal frame for a child that has exited but that the guardian has
+not yet reaped is now answered `no-child`. Before, with the wait lock held, `poll()` said "running" and the signal
+went to a zombie (`ok: true`). With the lock free, `poll()` reaped it and the answer was already `no-child`, so
+the answer no longer depends on the lock. The runner already reads `no-child` on a signal as "the child already
+exited": it records the stop as not delivered and goes on (`runner.py:955-972`).
+
+Evidence for the binding: the ctypes binding reads `si_pid` and `si_status` (5 for `exit 5`, 9 for `kill -9`) on
+both Pythons, and a child it has read is still in the process table (`kill(pid, 0)` succeeds on a zombie and fails
+once it is reaped, checked on this host).
+
+### Tests (`cad35afa2`, `e9bb55001`, `87f73dc1a`, `85a437a66`)
+
+- **Review r3's wait-lock regression** now proves the fake's exit through `child_exited` (it records the binding's
+  `si_pid` and `si_status` for its unchanged assertions), not `os.waitid`, so it runs on 3.12. Assertions unchanged.
+- **`tests/fake/test_turn_relay_exit_peek.py`**, with real `/bin/sh` children, each started and reaped by its test.
+  It checks the binding chosen at import; each binding reading an exit without reaping it; live children (one with
+  stdin closed) never reading as exited, lock free or held; a peek never changing the status the guardian's wait
+  records; ECHILD reading as exited; another `OSError` proving nothing and logged once (EINVAL, EIO, EPERM);
+  pid-less fakes never peeked; the three sites reading an exit the held wait lock hides, and their live-child
+  controls (`running`, no `child_exited`, the signal delivered). The ctypes cases run on every Python; the
+  `os.waitid` cases skip on 3.12 with the reason.
+- **The property** (`test_a_peek_reads_exit_only_after_it_and_never_reaps`, per binding): 1 to 4 children per
+  example, all live at once and reaped at its end. Each ends with a random exit code (0 to 255) or signal (9, 15
+  or 2), and blocks on a gate until the test opens it, so until then it is provably alive. Its wait lock is free;
+  held; held while the test, as the guardian's wait, reaps it once its exit is read and before Popen stores the
+  status (the ECHILD window); or held by a real guardian thread in `child.wait()`. The gate opens before the peeks
+  or, from another thread after 0 to 20 ms, while they run. It checks that no read that ended before its gate
+  began to open says "exited", that once read an exit stays read, that a child under a held lock is still a
+  zombie after every peek, and that the guardian's wait (or the test's, then Popen's stored status) returns the
+  child's real status. The peek loop pauses 1 ms a pass; an earlier spinning version made 1.1 to 2.7 million reads
+  per binding and kept a core busy.
+
+Observed at the final holds (the draws are derandomized and the same on both Pythons; the read counts depend on
+timing). Per binding: 60 examples, 155 children (examples with 1/2/3/4 children: 18/3/25/14), lock free 28, held
+53, reaped-unpublished 42, guardian thread 32; gate before 63, during 92; exit codes 67, signals 88; 53 never-reap
+checks under a held lock (52 with a nonzero status).
+
+| Binding, Python | Peeks: exited / running / ECHILD | Reads (before the gate opened) | Call, load |
+|---|---|---|---|
+| libc, 3.14 | 243 / 1075 / 87 | 1245 (660) | 19.7 s, 33 to 41 |
+| `os.waitid`, 3.14 | 220 / 1052 / 89 | 1222 (649) | 20.4 s, 33 to 41 |
+| libc, 3.12 | 216 / 1001 / 90 | 1171 (596) | 20.7 s, 33 to 39 |
+
+At load 13 the same calls took 9.3 to 11.0 s.
+
+### Decision 1's mutants (`158127b48`)
+
+`decision1_candidate.py` is deleted. Its deletion was staged early and landed in `87f73dc1a`, whose message does
+not say so. `fix_r3_mutants.py` keeps decision 2's two mutants and gains decision 1's eight, each compiled from
+`relay.py`'s own source with one change (or, for the reaping peek, `_PEEK_FLAGS` without `WNOWAIT`), with the
+module's globals, so a test's patches reach it. Killers peek through the binding the interpreter uses, except the
+ctypes mutant's. It also reports whether the property kills the peek mutants.
+
+| Mutant | Killer | 3.14 | 3.12 |
+|---|---|---|---|
+| The helper without its peek (round 3) | review r3's wait-lock regression: the helper never shows the exit, so it fails at its 60 s wait | killed | killed |
+| A peek that reaps (round 3) | `test_a_peek_never_changes_the_status_the_guardian_records` | killed | killed |
+| `status` left on `poll()` | `test_every_relay_site_reads_an_exit_the_guardian_wait_hides` | killed | killed |
+| The refusal flag left on `poll()` | the same | killed | killed |
+| Signal delivery left on `poll()` | the same | killed | killed |
+| ECHILD read as "not exited" | `test_a_child_the_guardian_reaped_reads_as_exited` | killed | killed |
+| Another `OSError` read as "exited" | `test_another_peek_failure_proves_nothing_and_is_logged_once[EIO]` | killed | killed |
+| The ctypes binding without `WNOWAIT` | `test_a_binding_reads_an_exit_without_reaping_it[exit 5-libc-waitid]` | killed | killed |
+| Decision 2's two (round 3) | their named killers | killed | killed |
+| Round 2's five (`named_mutants.py`) | their named killers | killed | killed |
+
+Every control passes unmutated. The property also kills the helper without its peek, the reaping peek, ECHILD read
+as "not exited" and the ctypes binding without `WNOWAIT`, on both Pythons.
+
+### `test_daemon_log_sites.py`'s two failures in round 3's dev run
+
+| Tree | Start (UTC), slot | Load | Result |
+|---|---|---|---|
+| head (code of `0982ab220`) | 01:18:16, A | 12.6 | 83/0/0 |
+| `c3f06bd02`, export with the worktree's venv | 01:19:08, A | 11.3 | 78/0/5: the five real-daemon tests skip, since the interpreter's `subfleet` is not the export's |
+| `c3f06bd02`, export with a venv bound to it | 01:20:51, A | 10.6 | 83/0/0 |
+| `3a82d8770` (decision 2 alone, the committed state nearest round 3's dev run), bound venv | 01:21:37, A | 10.9 | 83/0/0 |
+
+Not reproduced, and no record names them: round 3 ran `-q`, stopped the run before pytest's summary, and removed
+its scratch. What the file and the code show:
+
+- **Most likely, the two `daemon start` tests:** `test_under_daemon_start_the_daemon_s_own_refusal_reaches_daemon_log_scrubbed`
+  and `test_under_daemon_start_an_uncaught_exception_reaches_daemon_log_scrubbed`. They are the file's only tests
+  with a wall-clock bound that load can reach: the started `subfleetd` must fail within `cmd_daemon_start`'s fixed
+  10 s (`cli.py:2869`), or the CLI reports "did not appear within 10s" without the exit status they assert. They
+  took 1.28 s and 0.34 s at load 11; round 3's dev run was outside the lock at load 100 to 135. The lane rules list a
+  similar wait (the fake harness's 5 s or 10 s daemon start) as a known load failure. This is inferred from the
+  bound, not observed.
+- **They don't reach this PR's code.** The daemon refuses or fails at its start, and importing `subfleet.daemon`
+  and `subfleet.cli` loads neither `subfleet.relay` nor `subfleet.conversations.runner` (checked on this host).
+  The PR changes only those two modules under `subfleet/`.
+- **The other way two could fail** is round 3's own uncommitted code at the time (the two runner tests drive `_run`'s
+  handler and `_failed`, and the lint test reads every daemon module's log lines). Every committed state passes.
+
+No fix: this PR did not cause them.
+
+### Text (`65b9d510e`, this section)
+
+C-26.4: the relay's reply, a fresh `status` or the exit receipt proves an exit, and the relay learns of it without
+reaping the child (Popen's record, or `waitid` with `WNOWAIT` through either binding); ECHILD means the guardian's
+wait reaped it; any other failure proves nothing and is logged once; the guardian's wait stays the only reaper; a
+signal frame for an exited child is answered `no-child`. One change-log line.
+
+### Runs
+
+One pytest per hold, all under the suite lock (none direct), `TMPDIR` and Hypothesis storage in scratch. A driver
+stopped its own waiter if it was not admitted in time, so no hold ran past the tool's 10-minute bound. Counts are
+passed/failed/skipped per file, from each hold's JUnit file; load is the 1-minute average at admission (and its
+range while running).
+
+| Hold | Python, code | Start (UTC), slot | Load | Per file |
+|---|---|---|---|---|
+| red | 3.14, `3769a17e5` + `e9bb55001`'s tests | 00:48:41, B | 32.7 (31) | wait-lock regression 0/1/0 (`AttributeError`: no `child_exited`); peek 0/27/0 |
+| red | 3.12, the same | 00:51:57, B | 15.0 (14) | wait-lock regression 0/1/0 (the same); peek 0/18/9 |
+| A: PR exit files | 3.14, `158127b48` | 01:05:09, B | 13.5 (13 to 15) | exit 10/0/0, peek 27/0/0, r3 24/0/0 (the regression green), recovery 13/0/0, review 12/0/0 |
+| A: PR exit files | 3.12, `158127b48` | 01:05:48, B | 13.6 (13) | exit 10/0/0, peek 18/0/9, r3 24/0/0 (the regression green), recovery 13/0/0, review 12/0/0 |
+| B: properties | 3.14 | 01:06:13, A | 12.9 | properties 4/0/0 (widened call 6.1 s) |
+| B: properties | 3.12 | 01:06:37, A | 12.3 | properties 4/0/0 (widened call 10.7 s) |
+| C: probe, replay | 3.14 | 01:06:52, A | 12.4 (12 to 13) | `test_probe_turn.py` 43/0/0, `test_turn_replay.py` 34/0/0 |
+| C: probe, replay | 3.12 | 01:08:01, B | 12.3 (12 to 13) | `test_probe_turn.py` 43/0/0, `test_turn_replay.py` 34/0/0 |
+| D: relay, guardian, runner | 3.14 | 01:08:51, B | 13.3 (13 to 14) | `test_relay.py` 30/0/0, `test_guardian.py` 13/0/0, `test_turn_runner.py` 83/0/0 |
+| D: relay, guardian, runner | 3.12 | 01:09:37, A | 13.8 (14) | `test_relay.py` 30/0/0, `test_guardian.py` 13/0/0, `test_turn_runner.py` 83/0/0 |
+| E: round 3's unrun list | 3.14 | 01:10:26, A | 13.9 (14) | `test_turn_retention_job_directory.py` 2/0/0, `test_turn_retention_quarantine.py` 10/0/0, `test_turn_trees.py` 18/0/0, `test_turn_wait_reasons.py` 7/0/0, `test_turn_overlap.py` 10/0/0, `test_turn_retention_cwd.py` `[case-alias]` node 1/0/0 |
+| M: mutants | 3.14, `85a437a66` | 01:13:56, A | 10.5 (10 to 11) | `fix_r3_mutants.py` 24/0/0, `named_mutants.py` 10/0/0 (its informational property report deselected) |
+| M: mutants | 3.12, `85a437a66` | 01:16:00, A | 11.2 (10 to 13) | `fix_r3_mutants.py` 24/0/0, `named_mutants.py` 10/0/0 |
+| guards | 3.14, `65b9d510e` | 01:24:49, A | 15.8 (16 to 27) | `test_state_contract.py` 37/0/0, `test_test_module_names.py` 1/0/0, `test_invariants_index.py` 25/0/0 |
+| final | 3.14, `65b9d510e` | 01:26:16, A | 32.6 (33 to 41) | peek 27/0/0, r3 24/0/0 |
+| final | 3.12, `65b9d510e` | 01:27:52, A | 38.5 (33 to 39) | peek 18/0/9, r3 24/0/0 |
+
+- The PR's files: `git diff --name-only 676906f85 HEAD -- tests` names the six `test_turn_relay_exit*.py` files,
+  `test_probe_turn.py` and `tests/unit/test_turn_replay.py`, all in holds A to C on both Pythons.
+- `test_relay.py`'s stop-bound tests, which failed at load 100 to 131 in round 3, all passed here at load 13 on
+  both Pythons. No bound was loosened.
+- The first mutant hold on 3.14 (01:11:16) had 2 failures, both in the informational property report: under a
+  reaping mutant, the property's own reap met ECHILD as a `ChildProcessError`, not an assertion. `85a437a66` makes
+  that an assertion; the kills and controls were the same in both holds.
+- Dev runs while building (the peek file and mutants on 3.14, 00:44 to 01:04) ran under the lock and are not
+  counted above.
+
+### Not run
+
+- e2e and frontend: lanes can't run them.
+- `test_wall_stop_deliveries.py` and `test_wall_cancel_races.py`, whose fakes give the relay a pid-less child: not
+  on the brief's list. The helper reads those fakes exactly as `poll()` did (`test_a_child_without_a_real_pid_is_never_peeked`).
+- A run at load 100 or more, to observe round 3's two log-sites failures: starting load is out of bounds for a lane.
