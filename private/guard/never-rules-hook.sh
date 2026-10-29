@@ -1903,7 +1903,7 @@ pw_prep_awk="$pw_lib_awk"'
   # substitution writes, st["pr"] the roots a pipe carries; r7: st["vt"] the vtop of the prep, st["ka"] a keyword
   # before the command word, st["lp"] whether this command passes on what its process substitution writes, kept as
   # lastps)
-  function simple(seg, depth, piped, noext, ctx, bt, hd,   ex, isfr, fw, xe, nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
+  function simple(seg, depth, piped, noext, ctx, bt, hd,   ex, isfr, fw, xe, nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg, vrp) {
     pin = pipein; st["pr"] = piperoots; st["ps"] = pipeps; st["vt"] = vtop; st["ka"] = 0
     nt = 0; i = 1; n = length(seg); sp[0] = ""
     while (i <= n) {
@@ -1969,12 +1969,16 @@ pw_prep_awk="$pw_lib_awk"'
     # of a loop variable. r8 decision 1: never in a command that defines a function (FN: a name() or the word
     # function anywhere in it), whose body runs out of textual order; from there the name stands for the word
     # assigned when that word is plain (no $, backtick, quote, backslash or blank), and any other value joins the
-    # words of the loop, so neither the roots of the loop nor those of the value are lost
-    if (mode == "prep" && !depth && t > nt && !st["ka"] && !ld && st["vt"] && !FN) {
+    # words of the loop, so neither the roots of the loop nor those of the value are lost. r9 decision 1: where
+    # that reset does not apply (vrp: a compound command open, a keyword before it, an assignment that may not
+    # last, or a command that defines a function), the value joins the words of the loop too, since the shell may
+    # hold it when the loop variable is read
+    if (mode == "prep" && !depth && t > nt) {
+      vrp = (!st["ka"] && !ld && st["vt"] && !FN)
       for (k = 1; k <= nt; k++) {
         if (rd[k] || !match(tk[k], /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
         w = substr(tk[k], 1, RLENGTH - 1); op = substr(tk[k], RLENGTH + 1)
-        if ((w in LVAR) && op != "") LVAR[w] = (op ~ /[$`\047"\\[:space:]]/) ? LVAR[w] " " op : op
+        if ((w in LVAR) && op != "") LVAR[w] = (vrp && op !~ /[$`\047"\\[:space:]]/) ? op : LVAR[w] " " op
       }
     }
     # r5 decision 11: zsh reads =cmd in command position as cmd (its path), after a wrapper too

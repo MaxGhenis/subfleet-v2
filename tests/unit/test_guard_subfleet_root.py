@@ -5714,3 +5714,64 @@ def test_review_r8_pins_r8s_unpinned_readings(tmp_path):
     unwalked = [c for c in REVIEW_R8_DENIED if not any(r6_shell_walks(sh, c, S_, tmp_path) for sh in ("zsh", "bash"))]
     walked = [c for c, cwd in REVIEW_R8_ALLOWED if any(r6_shell_walks(sh, c, cwd, tmp_path) for sh in ("zsh", "bash"))]
     assert (unwalked, walked) == ([], [])
+
+
+# ---------------------------------------------------------------- r9: review r8's findings
+
+# Round r9 (2026-10-29) builds the hub's decisions on review r8 (REQUEST_CHANGES at daf7f508c, all P3). Each pin is
+# review r8's input or this round's probe, judged through the whole hook in the fixture:
+#   1. where the reset of a loop variable does not apply (a compound command open, a keyword before the assignment,
+#      an assignment that may not last, or a command that defines a function), the value assigned joins the loop's
+#      words instead of being dropped (P3-1);
+#   2. the 4,096 cap counts " too (P3-2);
+#   3. the report's recount and the doc's lists say what r8 and r9 do (P3-3).
+R9_LS = "for d in src; do :; done"
+#: Decision 1: review r8's ten P3-1 inputs, which r7 denied and r8 allowed: after a scoped loop, a root assigned in a
+#: command holding a () or the word function (prose, a heredoc body, a commit message and $() included), a defined
+#: function, or zsh's repeat or foreach. Both shells walk the root in the first nine, zsh in the tenth.
+R9_LOOPVAR_DENIED = [
+    R9_LS + "; d=~/.subfleet; " + R7V_R + "; echo '()'",
+    R9_LS + "; d=/; " + R7V_R + " # function",
+    R9_LS + "; d='/'; " + R7V_R + "; python3 -c 'print()'",
+    "cat <<'EOF'\nfunction\nEOF\n" + R9_LS + "; d=~/.subfleet; " + R7V_R,
+    "git commit -m \"add f()\"; " + R9_LS + "; d=~/.subfleet; " + R7V_R,
+    "f() { :; }; " + R9_LS + "; d=~/.subfleet; f; " + R7V_R,
+    "x=$(); " + R9_LS + "; d=~/.subfleet; " + R7V_R,
+    R9_LS + "\nrepeat 1 { : }\nd=~/.subfleet\n" + R7V_R,
+    R9_LS + "; repeat 2 echo hi; d=/; " + R7V_R,
+    R9_LS + "\nforeach x (a b)\n:\nend\nd=~/.subfleet\n" + R7V_R,
+]
+#: ... review r8's six that r7 and r8 both let through (an if, a brace group, a timed group, an assignment after &&, a
+#: zsh foreach before it, a $ value in a command holding a ()), and a root assigned in the loop's own body, which this
+#: round's probes found (r8, r7 and the installed hook allow it; both shells walk /) ...
+R9_LOOPVAR_MORE_DENIED = [
+    R9_LS + "; if true; then d=~/.subfleet; fi; " + R7V_R,
+    R9_LS + "; { d=~/.subfleet; }; " + R7V_R,
+    R9_LS + "\ntime { d=~/.subfleet; }\n" + R7V_R,
+    R9_LS + "; true && d=~/.subfleet; " + R7V_R,
+    R9_LS + "; foreach x (a) { : }; d=~/.subfleet; " + R7V_R,
+    R9_LS + "; d=$HOME; " + R7V_R + "; echo '()'",
+    "for d in src; do d=/; done; " + R7V_R,
+]
+#: ... a depth bound that joins disarms nothing (review r8's probes: after if false and after false &&) ...
+R9_BOUND_JOIN_DENIED = [R7V_L + "; if false; then d=--max-depth=1; fi; " + R7V_R,
+                        R7V_L + "; false && d=--max-depth=1; " + R7V_R]
+#: ... while a scoped value that joins a scoped loop's words stays allowed in each of those places.
+R9_LOOPVAR_ALLOWED = [
+    R9_LS + "; if true; then d=lib; fi; " + R7V_R,
+    R9_LS + "; { d=lib; }; " + R7V_R,
+    R9_LS + "; true && d=lib; " + R7V_R,
+    "f() { :; }; " + R9_LS + "; d=lib; f; " + R7V_R,
+    R9_LS + "\nrepeat 1 { : }\nd=lib\n" + R7V_R,
+    R9_LS + "\nforeach x (a b)\n:\nend\nd=lib\n" + R7V_R,
+    R9_LS + "\ntime { d=lib; }\n" + R7V_R,
+    "git commit -m \"add f()\"; " + R9_LS + "; d=lib; " + R7V_R,
+    "for d in src; do d=lib; done; " + R7V_R,
+]
+
+
+def test_r9_a_later_value_joins_the_loop_words_where_the_reset_does_not_apply():
+    """Decision 1: review r8's sixteen P3-1 inputs and the loop-body form are denied, and so are a joined depth bound's
+    two forms; a scoped value that joins a scoped loop's words stays allowed."""
+    assert r5_denied([(c, S_) for c in R9_LOOPVAR_DENIED + R9_LOOPVAR_MORE_DENIED + R9_BOUND_JOIN_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R9_LOOPVAR_ALLOWED]) == []
