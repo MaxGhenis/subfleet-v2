@@ -141,9 +141,10 @@ def fewest_instructions(call: Callable[[], object], runs: int = 3) -> int:
     cannot. The kernel's work for the process counts too (page faults, system calls,
     interrupts): over ten runs at a host load of about 107, a scrub's count spread up
     to 1.5%, and the fewest of three came within 0.3% of the fewest of ten (#266
-    review r2). The count is the whole process's: measure where no other thread
-    works, as in the scrubber's single-threaded child probes. It reads 0 where the
-    CPU's counters are hidden, as on CI's virtual machines.
+    review r2). The count is the whole process's: measure in a fresh child where no
+    other thread works, as the scrubber's probes do. Inside pytest's own process two
+    such counts of one call once differed by 3.8% (#266 review r3). It reads 0 where
+    the CPU's counters are hidden, as on CI's virtual machines.
     """
     call()
     counts = []
