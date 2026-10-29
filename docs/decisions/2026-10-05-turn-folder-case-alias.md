@@ -141,7 +141,11 @@ volumes and require scanning every turn row in selection and commit transactions
 **Why `worktree-in-use` changes.** Its former SQL LIKE (a folder inside the
 tree) ignored ASCII case, but its `=` (the tree itself) did not. A queued turn
 whose folder was the tree in another case kept nothing, so the folded wait would end
-with the tree gone. A job id is `[0-9]{8}-[0-9]{6}-[a-z0-9-]+` (C-1.1). The
+with the tree gone. A job id is `[0-9]{8}-[0-9]{6}-[a-z0-9-]+` (C-1.1). NOCASE and
+LIKE match an alias of a tree's own name in other ASCII capitals. They do not
+match one spelled with letters outside ASCII that APFS folds to its letters
+(`ﬁ` for `fi`, `ſ` for `s`, the Kelvin sign for `k`), since SQLite folds only
+ASCII. The
 merged dependency pin uses Unicode canonical caseless comparison for both the tree itself and places
 inside it, including aliases SQLite did not match (`ﬁ` for `fi`, `ſ` for `s`,
 the Kelvin sign for `k`). The folded dependency fence holds such a job,
@@ -183,7 +187,9 @@ These are tested in `tests/unit/test_retention_case_alias.py` and
 
 - **Non-ASCII aliases.** `worktree-in-use` now matches these with
   `dependencies.key`, as dependency admission does; the former SQLite
-  ASCII-only gap is closed. On a case-sensitive volume these folded comparisons
+  ASCII-only gap is closed. SQLite folds
+  only ASCII. The turn still waits on the fence and takes no row. On a
+  case-sensitive volume these folded comparisons
   can conservatively pin or hold a distinct tree whose name differs only in
   case or canonical caseless form.
 - **Renamed trees.** A tree renamed to another case while a row names it
