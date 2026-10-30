@@ -1973,13 +1973,16 @@ pw_prep_awk="$pw_lib_awk"'
     # that reset does not apply (vrp: a compound command open, a keyword before it, an assignment that may not
     # last, or a command that defines a function), the value joins the words of the loop too, since the shell may
     # hold it when the loop variable is read. r10 decision 1: inside a substitution or a nested script too (depth),
-    # where st["vt"] is 0, so there the value always joins
+    # where st["vt"] is 0, so there the value always joins. r10 decision 2: in a command that defines a function, a
+    # value assigned where the reset does not apply, to a name no loop has read yet, is kept (FA) and joins the
+    # words of a later loop over that name, since a function body written before the loop may run after it
     if (mode == "prep" && t > nt) {
       vrp = (!st["ka"] && !ld && st["vt"] && !FN)
       for (k = 1; k <= nt; k++) {
         if (rd[k] || !match(tk[k], /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
         w = substr(tk[k], 1, RLENGTH - 1); op = substr(tk[k], RLENGTH + 1)
         if ((w in LVAR) && op != "") LVAR[w] = (vrp && op !~ /[$`\047"\\[:space:]]/) ? op : LVAR[w] " " op
+        else if (FN && op != "" && (st["ka"] || ld || !st["vt"])) FA[w] = FA[w] " " op
       }
     }
     # r5 decision 11: zsh reads =cmd in command position as cmd (its path), after a wrapper too
@@ -2006,7 +2009,7 @@ pw_prep_awk="$pw_lib_awk"'
     if (mode == "prep" && t <= nt) {
       if (val[t] == "for" && t + 2 <= nt && val[t + 2] == "in" && val[t + 1] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
         w = ""; for (k = t + 3; k <= nt; k++) if (!rd[k]) w = w (w == "" ? "" : " ") tk[k]
-        if (w != "") LVAR[val[t + 1]] = w
+        if (w != "") LVAR[val[t + 1]] = w ((FN && (val[t + 1] in FA)) ? FA[val[t + 1]] : "")
       } else if (val[t] == "read" && st["pr"] != "") {
         for (k = t + 1; k <= nt; k++) {
           if (rd[k]) continue

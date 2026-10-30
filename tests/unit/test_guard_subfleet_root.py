@@ -5967,3 +5967,28 @@ def test_r10_a_value_joins_inside_a_substitution_or_a_nested_script():
     script, stay allowed."""
     assert r5_denied([(c, S_) for c in R10_NESTED_DENIED + R10_EVAL_DENIED + R10_NESTED_BOUND_DENIED]) == []
     assert r5_allowed([(c, S_) for c in R10_NESTED_ALLOWED]) == []
+#: Decision 2: review r9's four P3-2 inputs: a function body written before a scoped loop and called after it assigns
+#: a root (by name(), by the word function, a ~/.subfleet value, an if in the body). r9, r8, r7 and the installed hook
+#: allow each, and both shells walk the root in each ...
+R10_FUNCTION_DENIED = [
+    "f() { d=/; }; " + R9_LS + "; f; " + R7V_R,
+    "function f { d=/; }; " + R9_LS + "; f; " + R7V_R,
+    "f() { d=~/.subfleet; }; " + R9_LS + "; f; " + R7V_R,
+    "f() { if true; then d=/; fi; }; " + R9_LS + "; f; " + R7V_R,
+]
+#: ... a depth bound a function body joins disarms nothing (the function is never called, so both shells walk the
+#: loop's root) ...
+R10_FUNCTION_BOUND_DENIED = ["f() { d=--max-depth=1; }; " + R7V_L + "; false && f; " + R7V_R]
+#: ... while the hub's two controls stay allowed: a root assigned at the top before the definition (the loop replaces
+#: it) and a scoped value in the body; neither shell walks a root.
+R10_FUNCTION_ALLOWED = [
+    "d=/; f() { :; }; " + R9_LS + "; " + R7V_R,
+    "f() { d=lib; }; " + R9_LS + "; f; " + R7V_R,
+]
+
+
+def test_r10_a_function_body_written_before_its_loop_joins():
+    """Decision 2: review r9's four P3-2 inputs and a joined depth bound are denied; the hub's two controls stay
+    allowed."""
+    assert r5_denied([(c, S_) for c in R10_FUNCTION_DENIED + R10_FUNCTION_BOUND_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R10_FUNCTION_ALLOWED]) == []
