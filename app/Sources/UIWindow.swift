@@ -323,16 +323,31 @@ extension View {
     /// Room above the rows that a probe shrinks and regrows: the document changes
     /// height under a clip that does not move, as lazy row measurement does.
     static let inset = Inset()
-    final class Inset: ObservableObject { @Published var top: CGFloat = 0 }
+    final class Inset: ObservableObject {
+        @Published var top: CGFloat = 0
+        @Published var markerGeneration = 0
+    }
 }
 
 @MainActor struct ConversationFollowTestInset: ViewModifier {
     @ObservedObject var inset = ConversationFollowTest.inset
     func body(content: Content) -> some View { content.padding(.top, inset.top) }
 }
+
+@MainActor struct ConversationFollowTestMarker: ViewModifier {
+    @ObservedObject var inset = ConversationFollowTest.inset
+    func body(content: Content) -> some View { content.id(inset.markerGeneration) }
+}
 #endif
 
 extension View {
+    @ViewBuilder func conversationFollowTestMarker() -> some View {
+        #if SUBFLEET_VIEW_TEST
+        modifier(ConversationFollowTestMarker())
+        #else
+        self
+        #endif
+    }
     /// Only view probes compile the inset; it is zero unless one sets it.
     @ViewBuilder func conversationFollowTestInset() -> some View {
         #if SUBFLEET_VIEW_TEST
@@ -414,12 +429,16 @@ struct ConversationView: View {
                         Theme.clear.frame(height: 1).id("bottom")
                             .onAppear { endAppeared() }
                             .onDisappear { endDisappeared() }
+                            .conversationFollowTestMarker()
                     }
                     .conversationFollowTestInset()
                     .padding(Theme.space.column)
                     .background(ConversationOpeningPin(conversationID: conversation.conversation_id,
                                                        onRevealEndVisible: resumeFollow,
                                                        onRevealLanded: revealLanded,
+                                                       onLandedEndVisible: { request in
+                                                           if !revealPending { resumeFollow(request) }
+                                                       },
                                                        onPersonScroll: personScrolledDuringReveal,
                                                        onPersonInput: { ownSendLanding = false },
                                                        ownSendLanding: ownSendLanding,

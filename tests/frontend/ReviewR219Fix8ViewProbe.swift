@@ -1331,6 +1331,7 @@ struct SettlingPageView: View {
     defer {
         ConversationFollowTest.record = nil
         ConversationFollowTest.inset.top = 0
+        ConversationFollowTest.inset.markerGeneration = 0
         ProbeWaits.failureFile = nil
         ProbeWaits.context = nil
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
@@ -1478,6 +1479,16 @@ struct SettlingPageView: View {
             if shrinks.count >= 16 { exhausted = true; return false }
             shrinkUnderClip()
             return false
+        }
+        // The marker mutant guards its real onAppear handler. Give that scene
+        // an explicit remount, then wait for its reported callback; other scenes
+        // allow either lazy lifecycle order and rely on presented geometry.
+        if ProcessInfo.processInfo.environment["R219_PROBE_REMOUNT_END"] == "1" {
+            let from = trace.count
+            ConversationFollowTest.inset.markerGeneration += 1
+            await waitReady("shrink.marker_remounted", view: scene.host, state: state) {
+                trace[from...].contains { $0["event"] as? String == "marker_appeared" }
+            }
         }
         step("shrunk", ["shrinks": shrinks])
         if mode == "replay" {
