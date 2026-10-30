@@ -46,7 +46,6 @@ def test_normal_read_close_failure_is_not_suppressed_by_handled_caller_exception
         assert len(attempted) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="P3-5 (review r3): an interrupt after stack.pop leaves its descriptor unowned")
 def test_interrupt_after_stack_pop_closes_popped_child():
     instructions = list(dis.get_instructions(rfs.walk))
     at = next(i for i, instruction in enumerate(instructions)

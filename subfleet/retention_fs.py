@@ -226,9 +226,18 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
             fd, rel, names = stack[-1]
             name = next(names, None)
             if name is None:
-                stack.pop()
-                if fd != root_fd:
-                    os.close(fd)
+                close_attempted = False
+                try:
+                    stack.pop()
+                    if fd != root_fd:
+                        # Transfer from the stack to one close attempt. Python
+                        # cannot make this marker and the call below atomic.
+                        close_attempted = True
+                        os.close(fd)
+                except BaseException as exc:
+                    if not close_attempted and fd != root_fd and (not stack or stack[-1][0] != fd):
+                        _close_all((fd,), exc)
+                    raise
                 continue
             if check is not None:
                 check()
