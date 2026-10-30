@@ -179,6 +179,24 @@ MUTATIONS = {
     "r10-depth-gate-restored": (HOOK, None, None, "test_r10_a_value_joins_inside_a_substitution_or_a_nested_script"),
     "r10-function-body-join-dropped": (HOOK, None, None, "test_r10_a_function_body_written_before_its_loop_joins"),
     "rv9-message-dquote-dropped": (HOOK, None, None, "test_review_r9_pins_r9s_unpinned_readings"),
+    # review r10's two probe mutants, which its committed test kills: the ld term of r10's FA gate dropped, and the
+    # reset applying inside a substitution or a nested script
+    "rv10-fa-ld-dropped": (HOOK, None, None, "test_review_r10_pins_r10s_unpinned_readings"),
+    "rv10-depth-reset": (HOOK, None, None, "test_review_r10_pins_r10s_unpinned_readings"),
+    # r11 (the hub's decisions on review r10): one per term. Decision 1: the word charge, the byte charge, each path
+    # word judged once, and the message naming loop variables; decision 2: the function body's join on read; decision
+    # 3: each of the join's four terms (a keyword, another compound command open, not where an assignment lasts, a
+    # command that defines a function) and read's join
+    "r11-word-charge-dropped": (HOOK, None, None, "test_r11_loop_variable_words_cost_steps_of_the_shared_budget"),
+    "r11-byte-charge-dropped": (HOOK, None, None, "test_r11_loop_variable_words_cost_steps_of_the_shared_budget"),
+    "r11-judged-at-each-place": (HOOK, None, None, "test_r11_each_path_word_is_judged_once"),
+    "r11-message-loop-unnamed": (HOOK, None, None, "test_r11_loop_variable_words_cost_steps_of_the_shared_budget"),
+    "r11-read-function-join-dropped": (HOOK, None, None, "test_r11_a_function_body_joins_a_piped_while_read_loop"),
+    "r11-join-ka-dropped": (HOOK, None, None, "test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words"),
+    "r11-join-ld-dropped": (HOOK, None, None, "test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words"),
+    "r11-join-vt-dropped": (HOOK, None, None, "test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words"),
+    "r11-join-fn-dropped": (HOOK, None, None, "test_r11_known_differences_name_the_over_blocks_and_what_is_let_through"),
+    "r11-read-join-dropped": (HOOK, None, None, "test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -370,7 +388,8 @@ EDITS = {
     "r6-psub-unread": [("""      if (c == "<" && substr(t, i + 1, 1) == "(" && mode == "prep" && !noext && (j = parend(t, i + 1))) {
 """, """      if (0) {
 """)],
-    "r6-loop-words-dropped": [("""          if (w in LVAR) { tk[k] = LVAR[w]; val[k] = value(tk[k]); qd[k] = (tk[k] ~ /["\\047\\\\]/) }
+    # retargeted in r11 (decision 1 put the budget charge before it): the substitution itself dropped
+    "r6-loop-words-dropped": [("""            tk[k] = LVAR[w]; val[k] = value(tk[k]); qd[k] = (tk[k] ~ /["\\047\\\\]/)
 """, "")],
     # retargeted in r7: the main loop of parend (decision 2 counts body lines with the same line, deeper)
     "r6-budget-dropped": [("""    while (i <= n) {
@@ -451,11 +470,30 @@ EDITS = {
 """, """    if (mode == "prep" && !depth && t > nt) {
 """)],
     # r10 decision 2: the value a function body assigns before its loop no longer joins the loop's words
-    "r10-function-body-join-dropped": [("""LVAR[val[t + 1]] = w ((FN && (val[t + 1] in FA)) ? FA[val[t + 1]] : "")""",
-                                        """LVAR[val[t + 1]] = w""")],
+    # retargeted in r11 (decision 3 put the join before it): where the loop replaces, FA no longer joins
+    "r10-function-body-join-dropped": [(""": w ((FN && (val[t + 1] in FA)) ? FA[val[t + 1]] : "")""", """: w""")],
     # review r9's probe mutant: the cap's deny message drops "
     "rv9-message-dquote-dropped": [(r"""of one of \$, #, \\, ', \" or \` and names""",
                                     r"""of one of \$, #, \\, ' or \` and names""")],
+    "rv10-fa-ld-dropped": [(r"""(st["ka"] || ld || !st["vt"])) FA[w]""", r"""(st["ka"] || !st["vt"])) FA[w]""")],
+    "rv10-depth-reset": [(r"""vrp = (!st["ka"] && !ld && st["vt"] && !FN)""",
+                          r"""vrp = (!st["ka"] && !ld && (st["vt"] || depth) && !FN)""")],
+    "r11-word-charge-dropped": [(r"""(pst += gsub(/[^[:space:]]+/, "&", LVAR[w]) + int(length(LVAR[w]) / 16))""",
+                                 r"""(pst += int(length(LVAR[w]) / 16))""")],
+    "r11-byte-charge-dropped": [(r"""(pst += gsub(/[^[:space:]]+/, "&", LVAR[w]) + int(length(LVAR[w]) / 16))""",
+                                 r"""(pst += gsub(/[^[:space:]]+/, "&", LVAR[w]))""")],
+    "r11-judged-at-each-place": [(r"""if (pass == 1) { if (FK[key] == k) printf""", r"""if (pass == 1) { printf"""),
+                                 (r"""else if (FK[key] in tok) {""", r"""else if (k in tok) {"""),
+                                 (r"""run = qc tok[FK[key]] qc""", r"""run = qc tok[k] qc""")],
+    "r11-message-loop-unnamed": [(r"""heredoc forms, or loop variables standing for more text, than the guard reads""",
+                                  r"""heredoc forms than the guard reads""")],
+    "r11-read-function-join-dropped": [(r""": st["pr"] ((FN && (val[k] in FA)) ? FA[val[k]] : "")""", r""": st["pr"]""")],
+    "r11-join-ka-dropped": [(r"""(st["ka"] || ld > 1 || !st["vt"] || FN)""", r"""(ld > 1 || !st["vt"] || FN)""")],
+    "r11-join-ld-dropped": [(r"""(st["ka"] || ld > 1 || !st["vt"] || FN)""", r"""(st["ka"] || !st["vt"] || FN)""")],
+    "r11-join-vt-dropped": [(r"""(st["ka"] || ld > 1 || !st["vt"] || FN)""", r"""(st["ka"] || ld > 1 || FN)""")],
+    "r11-join-fn-dropped": [(r"""(st["ka"] || ld > 1 || !st["vt"] || FN)""", r"""(st["ka"] || ld > 1 || !st["vt"])""")],
+    "r11-read-join-dropped": [(r"""LVAR[val[k]] = (val[k] in LVAR) ? LVAR[val[k]] " " st["pr"] : st["pr"]""",
+                               r"""LVAR[val[k]] = st["pr"]""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
@@ -547,7 +585,8 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = ([name for name in MUTATIONS if name.startswith(("r10-", "rv9-"))]
+    newest = ([name for name in MUTATIONS if name.startswith(("r11-", "rv10-"))]
+              + [name for name in MUTATIONS if name.startswith(("r10-", "rv9-"))]
               + [name for name in MUTATIONS if name.startswith(("r9-", "rv8-"))]
               + [name for name in MUTATIONS if name.startswith(("r8-", "rv7-"))]
               + [name for name in MUTATIONS if name.startswith(("r7-", "rv6-"))]
