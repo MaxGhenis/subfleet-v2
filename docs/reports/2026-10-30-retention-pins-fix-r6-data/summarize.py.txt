@@ -1,0 +1,54 @@
+"""Summarize admitted pytest evidence without counting trials or mutants as passes."""
+from collections import defaultdict
+import json
+from pathlib import Path
+
+root=Path('docs/reports/2026-10-30-retention-pins-fix-r6-data')
+runs=[]
+for path in root.glob('*.json'):
+    data=json.loads(path.read_text())
+    if isinstance(data,dict) and 'label' in data and 'start' in data and 'tests' in data and 'healthcheck' not in path.name:
+        runs.append(data)
+runs.sort(key=lambda d:d['start'])
+(root/'ledger.json').write_text(json.dumps(runs,indent=2)+'\n')
+files={}
+passed=set()
+executions=0
+mutants=[]
+collected=set()
+for run in runs:
+    if run['label'].startswith('mutant-'):
+        failures=[t for t in run['tests'] if t['phase']=='call' and t['outcome']=='failed']
+        assert run['exit']==1 and run['loaded'] and len(failures)==1, run['label']
+        assert run['phases'][failures[0]['nodeid']]==dict(setup='passed',call='failed',teardown='passed')
+        mutants.append(dict(name=run['label'].removeprefix('mutant-'),killer=failures[0]['nodeid'],result='Killed',start=run['start'],loads=run['loads']))
+        continue
+    if run['label']=='red-r6':
+        continue
+    if run['exit']!=0:
+        continue
+    collected.update(run['all_nodes'])
+    for test in run['tests']:
+        if test['phase']!='call' or test['outcome']!='passed':continue
+        node=test['nodeid'];filename=node.split('::')[0]
+        row=files.setdefault(filename,dict(file=filename,nodes=set(),start=run['start'],loads=run['loads'],runs=[]))
+        row['nodes'].add(node); passed.add(node); executions+=1
+        if run['label'] not in row['runs']:row['runs'].append(run['label'])
+rows=[]
+for row in files.values():
+    row['passed']=len(row.pop('nodes'));rows.append(row)
+missing=sorted(n for n in collected-passed if 'test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree' not in n)
+summary=dict(ordinary_unique_passes=len(passed),ordinary_pass_executions=executions,files=rows,mutants=mutants,missing_collected=missing,completed_holds=len(runs),peak_pytest_rss_mib=max(r['rss'] for r in runs)/1024**2,longest_pytest_seconds=max(r['seconds'] for r in runs),all_completed_locked=all(r['locked'] for r in runs))
+(root/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+lines=['| File | Passed | First start UTC | Load (1/5/15 min) |','|---|---:|---|---|']
+for row in rows:
+    name=row['file'].replace('tests/fake/','F/').replace('tests/unit/','U/').replace('/private/tmp/sf-fix272r6/','Scratch/')
+    lines.append('| '+name+' | '+str(row['passed'])+' | '+row['start'][11:19]+' | '+' / '.join(f'{n:.2f}' for n in row['loads'])+' |')
+(root/'file-results.md').write_text('\n'.join(lines)+'\n')
+lines=['| Mutant | Named killer | Result |','|---|---|---|']
+for row in mutants:
+    killer=row['killer'].replace('tests/fake/test_retention_dependency_review_','R').replace('tests/unit/test_retention_pointer_whitespace.py','W').replace('tests/fake/test_retention_pointer_failures.py','PF').replace('/private/tmp/sf-fix272r6/probes.py','P').replace('.py::','::')
+    lines.append('| '+row['name']+' | '+killer+' | Killed |')
+(root/'mutant-results.md').write_text('\n'.join(lines)+'\n')
+print(json.dumps({k:v for k,v in summary.items() if k not in ('files','mutants','missing_collected')},indent=2))
+print('mutants',len(mutants),'missing',len(missing))

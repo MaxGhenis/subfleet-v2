@@ -1,0 +1,45 @@
+{
+  "label": "mutant-r3-final-path-check-dropped",
+  "start": "2026-10-30T22:22:34.519873+00:00",
+  "loads": [
+    49.55859375,
+    29.927734375,
+    23.19140625
+  ],
+  "seconds": 14.268286875012564,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "probes.py::test_changes[symlink-info-running]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.7512951249955222,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "probes.py::test_changes[symlink-info-running]"
+  ],
+  "all_nodes": [
+    "probes.py::test_changes[symlink-info-running]"
+  ],
+  "phases": {
+    "probes.py::test_changes[symlink-info-running]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "baseline_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "mutated_sha256": "eeb1f619d46a421032a376e574ea09a6a90c06316d0ce78414a11976de80b7b0"
+    }
+  ],
+  "rss": 118046720
+}

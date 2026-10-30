@@ -1,0 +1,330 @@
+{
+  "ordinary_unique_passes": 190,
+  "ordinary_pass_executions": 190,
+  "files": [
+    {
+      "file": "tests/fake/test_retention_dependency_review_r6.py",
+      "start": "2026-10-30T22:12:30.408387+00:00",
+      "loads": [
+        17.7568359375,
+        14.96337890625,
+        17.33154296875
+      ],
+      "runs": [
+        "green-r6"
+      ],
+      "passed": 16
+    },
+    {
+      "file": "tests/fake/test_retention_pointer_failures.py",
+      "start": "2026-10-30T22:15:05.446063+00:00",
+      "loads": [
+        29.974609375,
+        19.310546875,
+        18.55419921875
+      ],
+      "runs": [
+        "pointer-failures"
+      ],
+      "passed": 7
+    },
+    {
+      "file": "tests/unit/test_retention_pointer_inputs.py",
+      "start": "2026-10-30T22:16:16.246733+00:00",
+      "loads": [
+        32.00732421875,
+        22.29443359375,
+        19.75634765625
+      ],
+      "runs": [
+        "pointer-inputs"
+      ],
+      "passed": 1
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r5.py",
+      "start": "2026-10-30T22:16:21.991088+00:00",
+      "loads": [
+        31.5859375,
+        22.529296875,
+        19.869140625
+      ],
+      "runs": [
+        "test_retention_dependency_review_r5"
+      ],
+      "passed": 60
+    },
+    {
+      "file": "tests/unit/test_retention_pointer_whitespace.py",
+      "start": "2026-10-30T22:22:16.303521+00:00",
+      "loads": [
+        43.63623046875,
+        27.4091796875,
+        22.16015625
+      ],
+      "runs": [
+        "test_retention_pointer_whitespace"
+      ],
+      "passed": 9
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r4.py",
+      "start": "2026-10-30T22:23:36.639023+00:00",
+      "loads": [
+        26.6650390625,
+        27.19140625,
+        22.6689453125
+      ],
+      "runs": [
+        "test_retention_dependency_review_r4"
+      ],
+      "passed": 53
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r3.py",
+      "start": "2026-10-30T22:26:39.502771+00:00",
+      "loads": [
+        14.26318359375,
+        20.86865234375,
+        20.85302734375
+      ],
+      "runs": [
+        "test_retention_dependency_review_r3"
+      ],
+      "passed": 6
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r2.py",
+      "start": "2026-10-30T22:26:56.520155+00:00",
+      "loads": [
+        13.7919921875,
+        20.43505859375,
+        20.69775390625
+      ],
+      "runs": [
+        "test_retention_dependency_review_r2"
+      ],
+      "passed": 21
+    },
+    {
+      "file": "probes.py",
+      "start": "2026-10-30T22:28:15.041737+00:00",
+      "loads": [
+        16.26318359375,
+        19.75830078125,
+        20.41650390625
+      ],
+      "runs": [
+        "probe-baselines"
+      ],
+      "passed": 2
+    },
+    {
+      "file": "tests/unit/test_retention_alternates_review_r2.py",
+      "start": "2026-10-30T22:28:27.279007+00:00",
+      "loads": [
+        20.23095703125,
+        20.52197265625,
+        20.6806640625
+      ],
+      "runs": [
+        "test_retention_alternates_review_r2"
+      ],
+      "passed": 15
+    }
+  ],
+  "mutants": [
+    {
+      "name": "r2-post-read-identity-check-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "result": "Killed",
+      "start": "2026-10-30T22:18:53.810385+00:00",
+      "loads": [
+        17.189453125,
+        19.470703125,
+        19.0234375
+      ]
+    },
+    {
+      "name": "r2-terminal-legacy-incomplete-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "result": "Killed",
+      "start": "2026-10-30T22:19:36.237579+00:00",
+      "loads": [
+        18.21826171875,
+        19.66455078125,
+        19.1279296875
+      ]
+    },
+    {
+      "name": "r3-post-traversal-alias-check-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "result": "Killed",
+      "start": "2026-10-30T22:20:07.501858+00:00",
+      "loads": [
+        20.8388671875,
+        19.9423828125,
+        19.23681640625
+      ]
+    },
+    {
+      "name": "r3-census-moved-after-recovery",
+      "killer": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "result": "Killed",
+      "start": "2026-10-30T22:20:57.227047+00:00",
+      "loads": [
+        17.4267578125,
+        19.0341796875,
+        18.93359375
+      ]
+    },
+    {
+      "name": "r3-write-metadata-check-dropped",
+      "killer": "probes.py::test_changes[same-size-running]",
+      "result": "Killed",
+      "start": "2026-10-30T22:21:48.936324+00:00",
+      "loads": [
+        40.58349609375,
+        25.53076171875,
+        21.36572265625
+      ]
+    },
+    {
+      "name": "r3-final-path-check-dropped",
+      "killer": "probes.py::test_changes[symlink-info-running]",
+      "result": "Killed",
+      "start": "2026-10-30T22:22:34.519873+00:00",
+      "loads": [
+        49.55859375,
+        29.927734375,
+        23.19140625
+      ]
+    },
+    {
+      "name": "r3-terminal-census-live-only",
+      "killer": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+      "result": "Killed",
+      "start": "2026-10-30T22:22:55.334196+00:00",
+      "loads": [
+        41.21923828125,
+        29.3505859375,
+        23.1435546875
+      ]
+    },
+    {
+      "name": "r4-initial-objects-revalidation-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "result": "Killed",
+      "start": "2026-10-30T22:23:35.142118+00:00",
+      "loads": [
+        27.94189453125,
+        27.4482421875,
+        22.73193359375
+      ]
+    },
+    {
+      "name": "r4-initial-objects-recording-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "result": "Killed",
+      "start": "2026-10-30T22:24:06.091378+00:00",
+      "loads": [
+        22.33740234375,
+        26.1435546875,
+        22.421875
+      ]
+    },
+    {
+      "name": "r5-commondir-whitespace-stripping-restored",
+      "killer": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "result": "Killed",
+      "start": "2026-10-30T22:24:35.639515+00:00",
+      "loads": [
+        18.18408203125,
+        24.77392578125,
+        22.05322265625
+      ]
+    },
+    {
+      "name": "r5-gitfile-whitespace-stripping-restored",
+      "killer": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "result": "Killed",
+      "start": "2026-10-30T22:25:08.630968+00:00",
+      "loads": [
+        15.654296875,
+        23.42041015625,
+        21.6689453125
+      ]
+    },
+    {
+      "name": "r5-gitfile-colon-without-space-accepted",
+      "killer": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "result": "Killed",
+      "start": "2026-10-30T22:25:35.148942+00:00",
+      "loads": [
+        14.291015625,
+        22.47119140625,
+        21.3759765625
+      ]
+    },
+    {
+      "name": "r6-empty-common-initial-objects-not-recorded",
+      "killer": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "result": "Killed",
+      "start": "2026-10-30T22:25:51.827117+00:00",
+      "loads": [
+        14.8671875,
+        22.05517578125,
+        21.2509765625
+      ]
+    },
+    {
+      "name": "r6-pointer-read-failure-evidence-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "result": "Killed",
+      "start": "2026-10-30T22:26:12.010657+00:00",
+      "loads": [
+        14.5634765625,
+        21.517578125,
+        21.07568359375
+      ]
+    },
+    {
+      "name": "r6-parent-common-fallback-restored",
+      "killer": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "result": "Killed",
+      "start": "2026-10-30T22:26:33.110444+00:00",
+      "loads": [
+        13.93798828125,
+        20.91748046875,
+        20.8701171875
+      ]
+    },
+    {
+      "name": "r6-dangling-pointer-treated-as-missing",
+      "killer": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "result": "Killed",
+      "start": "2026-10-30T22:26:55.541638+00:00",
+      "loads": [
+        13.7919921875,
+        20.43505859375,
+        20.69775390625
+      ]
+    },
+    {
+      "name": "r6-oversized-pointer-treated-as-missing",
+      "killer": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "result": "Killed",
+      "start": "2026-10-30T22:27:30.806011+00:00",
+      "loads": [
+        17.59765625,
+        20.47412109375,
+        20.6904296875
+      ]
+    }
+  ],
+  "missing_collected": [],
+  "completed_holds": 28,
+  "peak_pytest_rss_mib": 123.140625,
+  "longest_pytest_seconds": 340.6479977079871,
+  "all_completed_locked": true
+}
