@@ -6354,3 +6354,85 @@ def test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words():
     top of the command still replaces the words, and scoped forms stay allowed."""
     assert r5_denied([(c, S_) for c in R11_INNER_DENIED + R11_INNER_TERMS_DENIED]) == []
     assert r5_allowed([(c, S_) for c in R11_INNER_ALLOWED]) == []
+
+
+#: The over-blocks of decisions 1-3, listed "stricter": each is denied, and neither shell walks a root; each with the
+#: text "Known differences" names it by. Decision 1's: review r10's trade-off, a heredoc script into bash whose loop
+#: variable takes a scoped value and is searched on each line, is too complex to judge from 162 lines (161 are read,
+#: R11_BUDGET_READ). Decision 2's: a function body called inside the piped loop (bash runs the loop in a subshell, and
+#: zsh's read at the end of its input replaces the value). Decision 3's: a search in an inner scope that reuses a root
+#: loop's name (review r10 counted five; this round's probes found seven), and a loop the shells run in place where the
+#: prep reads it as joining (an if, a brace group, !, time, a nested loop, a command that defines a function).
+R11_HEREDOC_BATCH = "bash <<'EOF2'\n" + R9_LS + "\n{}\nEOF2"
+R11_BUDGET_READ = R11_HEREDOC_BATCH.format("\n".join(f'd=src/m{i}; rg -n foo "$d"' for i in range(161)))
+R11_LP = 'for d in ~/.subfleet/*; do echo "$d"; done'
+R11_STRICTER = {
+    R11_HEREDOC_BATCH.format("\n".join(f'd=src/m{i}; rg -n foo "$d"' for i in range(162))):
+        "162 lines of `d=src/mN; rg -n foo \"$d\"`",
+    "f() { d=/; }; echo src | while read d; do f; done; " + R7V_R:
+        "run it only in a subshell, a substitution or a nested script, or replace it later",
+    R11_LP + "; ls src | while read d; do " + R7V_R + "; done":
+        "ls src | while read d; do rg foo \"$d\"; done",
+    R11_LP + "; bash -c 'for d in src; do " + R7V_R + "; done'": "a search in an inner scope",
+    R11_LP + "; (for d in src; do " + R7V_R + "; done)": "a search in an inner scope",
+    R11_LP + "; x=$(for d in src; do " + R7V_R + "; done)": "a search in an inner scope",
+    R11_LP + '; echo "$(for d in src; do ' + R7V_R + '; done)"': "a search in an inner scope",
+    R11_LP + "; f() { for d in src; do " + R7V_R + "; done; }; f": "a search in an inner scope",
+    R11_LP + "; cat <(for d in src; do " + R7V_R + "; done)": "a search in an inner scope",
+    R7V_L + "; if true; then for d in src; do :; done; fi; " + R7V_R:
+        "if true; then for d in src; do :; done; fi; rg foo \"$d\"",
+    R7V_L + "; ! for d in src; do :; done; " + R7V_R: "a loop the shells run in place",
+    R7V_L + "; time for d in src; do :; done; " + R7V_R: "a loop the shells run in place",
+    R7V_L + "\n{\nfor d in src; do :; done\n}\n" + R7V_R: "a loop the shells run in place",
+    R7V_L + "; for e in x; do for d in src; do :; done; done; " + R7V_R: "a loop the shells run in place",
+    "f() { :; }; " + R7V_L + "; for d in src; do :; done; " + R7V_R: "a loop the shells run in place",
+}
+#: What stays let through, named under "let through": review r10's P3-5 (decision 4), a search in a function body
+#: written before its loop (the prep reads in textual order, so the search is read before the loop); this round's probe,
+#: a loop a pipe or & runs in a subshell over an earlier root loop's name (the reading replaces the words, as for a
+#: loop at the top); and review r10's P3-3 eval forms (a += or a substitution's value an eval assigns). Each is allowed,
+#: and both shells walk the root. A change that closes one has to move its pin.
+R11_KNOWN_OPEN = {
+    "f() { " + R7V_R + "; }; for d in ~/.subfleet/*; do f; done": "searched in a function body written before its loop",
+    "f() { " + R7V_R + "; }; " + R9_LS + "; d=/; f": "searched in a function body written before its loop",
+    R7V_L + "; for d in src; do :; done | cat; " + R7V_R: "loop a pipe or `&` runs in a subshell",
+    R7V_L + "; for d in src; do :; done & wait; " + R7V_R: "loop a pipe or `&` runs in a subshell",
+    R9_LS + "; eval 'd=$(echo /)'; " + R7V_R: "a `+=` or substitution value it assigns",
+    R9_LS + "; eval 'd=`echo /`'; " + R7V_R: "a `+=` or substitution value it assigns",
+    R9_LS + "; d=; eval 'd+=/'; " + R7V_R: "a `+=` or substitution value it assigns",
+}
+#: Every r11 command pin and control a shell can run (the cost rows, the edges and the rows under the budget are the
+#: budget's, not a walk's), from the scoped cwd.
+R11_SHELL_COMMANDS = [(c, S_) for c in (R11_READ_FUNCTION_DENIED + R11_READ_FUNCTION_ALLOWED + R11_INNER_DENIED
+                                        + R11_INNER_TERMS_DENIED + R11_INNER_ALLOWED + [R11_BUDGET_READ]
+                                        + list(R11_STRICTER) + list(R11_KNOWN_OPEN))]
+
+
+def test_r11_command_pins_agree_with_real_shells(tmp_path):
+    """Each r11 command pin and control, run by /bin/zsh -f and /bin/bash over the fixture with r6's stubs and the
+    fixture's HOME: the hook denies it exactly when either shell's run would have walked a root, but for the listed
+    stricter forms (denied, no shell walks) and open forms (allowed, a shell walks). Both shells walk the root in each
+    of decision 2's inputs and in the first six of decision 3's, and in each open form."""
+    outs = judge_all(HOOK, R11_SHELL_COMMANDS)
+    rows, differ = [], []
+    for command, cwd in R11_SHELL_COMMANDS:
+        denied = rule(outs[(command, cwd)]) == "unscoped-search"
+        shells = {sh: r6_shell_walks(sh, command, cwd, tmp_path) for sh in ("zsh", "bash")}
+        rows.append((command, cwd, denied, shells))
+        if command in R11_STRICTER:
+            if not denied or any(shells.values()):
+                differ.append(("stricter", command[:200], denied, shells))
+        elif command in R11_KNOWN_OPEN:
+            if denied or not all(shells.values()):
+                differ.append(("open", command, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((command[:200], cwd, denied, shells))
+    report("shells-r11", {"cases": len(rows), "denied": sum(r[2] for r in rows),
+                          "zsh": sum(r[3]["zsh"] for r in rows), "bash": sum(r[3]["bash"] for r in rows),
+                          "both": sum(r[3]["zsh"] and r[3]["bash"] for r in rows),
+                          "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
+                          "rows": [(c[:120], d, s) for c, _, d, s in rows]})
+    assert differ == [], differ[:10]
+    assert [c for c, _, _, s in rows if c in R11_READ_FUNCTION_DENIED + R11_INNER_DENIED[:6]
+            and not all(s.values())] == []
+
