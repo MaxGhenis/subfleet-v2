@@ -191,7 +191,7 @@ iterator owner. The named killers below all fail.
 | MPO | 15:26:10 | 27.12/28.14/27.39 | 1F | `tests/unit/test_retention_descriptor_review_r3.py::test_interrupt_after_stack_pop_closes_popped_child` |
 | MGF | 15:26:26 | 27.63/28.24/27.44 | 3F | `tests/unit/test_retention_descriptor_review_r3.py::test_record_complete_early_return_propagates_cleanup_cancellation[keyboard]` |
 
-## Coverage boundaries
+## Coverage boundaries (updated through review r4 and fix r4)
 
 The universal phrase “every cleanup” goes only as far as these tests. The ten
 review r3 cases, generated property and bounded instruction tests pass, but do
@@ -203,17 +203,21 @@ not establish behavior at every Python or native instruction boundary.
   window is `[340, 350, 370, 372, 374]`.
 - On Python 3.12, the corresponding tested offsets are
   `[278, 280, 282, 284, 288, 290, 292]` and `334`;
-  the untested window is `[294, 304, 324, 326]`.
+  the listed window is `[294, 304, 324, 326]`.
 - Pure Python cannot atomically mark an attempt and execute native `close`.
   An interrupt in that window can leave the popped child unclosed. Native
   `close` interruption also leaves syscall completion ambiguous; no close is retried.
-- Helper construction/entry after acquisition, unexercised open-return-to-binding
-  or registration instructions, normal `with`-exit setup,
-  failures while constructing cleanup arguments, repeated interrupts in a
-  cleanup handler and native syscall interruption are untested. Allocation
-  failure before the helper is entered can leave the acquired resource unowned.
-- `_Builder._walk` and `_sample_walk_once` already construct `RegenerableWalk`
-  before root ownership; failure there remains an uncovered acquisition boundary.
+- Review r4 reproduced owner construction/entry failure after acquisition
+  (P2-6) on both Pythons. Fix r4 enters preallocated-slot owners before all 35
+  descriptor acquisitions that used these contexts. All four r4 cases and the
+  140-case site matrix pass on both Pythons; the r4 file changes only its marks.
+- Normal context-exit setup, repeated interruption, and open-return-to-store
+  instructions have executed counterexamples in review r4 (L2, L4, L5).
+  Legacy raw-handle cleanup retains the L3 precedence difference. L1–L5
+  remain listed differences; no universal asynchronous guarantee is claimed.
+- `_Builder._walk` and `_sample_walk_once` now construct `RegenerableWalk`
+  inside the entered root owner. That separate construction boundary was read
+  but not independently injected.
 - Generated close hooks release their real descriptor before raising. These
   tests do not prove that an arbitrary failing native close released its number.
 
@@ -225,8 +229,9 @@ not establish behavior at every Python or native instruction boundary.
 - Cleanup receives the operation's explicit exit exception, including
   `AttemptTemp.size`'s root close. Handled caller exceptions do not suppress
   this operation's cleanup failure or cancellation.
-- All ten production `walk` consumers explicitly close their iterators on every
-  body exit, so walk cleanup cancellation propagates through early returns.
+- All ten production `walk` consumers explicitly close their iterators on body
+  exit after iterator-owner setup succeeds, so the exercised walk cleanup
+  cancellation propagates through early returns. L2 qualifies exit dispatch.
 
 **Parity line:** The named single-failure differentials retain release exception
 types and `TreeError` codes for their executed inputs. The broader cleanup rule
@@ -274,3 +279,31 @@ left to CI, broader regression files on Python 3.12, or CI status/job logs.
 Every requested non-live file/selection was exercised. Full arguments, sources,
 logs, exception details and file hashes are in the
 [r3 fix evidence JSON](2026-10-29-walk-descriptors-r3-fix-evidence.json).
+
+
+## Review r4 and fix round r4
+
+Review r4 reran all ten r3 cases successfully on both Pythons at `b698146d0`,
+then found P2-6: constructing or entering `_cleanup` after acquisition can leak
+one descriptor with no close attempt. At the r4 starting head `9b1a9d462`, all
+four cases fail with marks bypassed on Python 3.14.7 and 3.12.14. Fix r4 enters
+35 preallocated descriptor-slot owners before acquisition; the original four
+cases and the 140-case matrix across every converted site pass on both Pythons.
+Only the r4 expected-failure decorator was removed from the review file.
+
+The `_cleanup`/`_close_all` paths receive the operation's explicit exit exception,
+including `AttemptTemp.size`'s root close. In those paths, handled caller
+exceptions no longer suppress cleanup failures or cancellation. Once
+`_close_all` is entered and its iteration is not asynchronously interrupted,
+it attempts each remaining owned close once. The ten walk consumers close their
+iterators after owner setup succeeds, subject to the listed exit boundary.
+
+The [fix r4 report](2026-10-30-walk-descriptors-fix-r4.md) records the full site
+list, red/green runs, current mutant results and PR-body replacements. L1–L5
+remain listed differences with review r4's executed inputs: pop marker-to-call,
+normal exit dispatch, legacy raw-handle precedence, repeated interruption of
+the drain, and native open-return-to-store. None is fixed by this round. In
+particular, preallocation does not make native acquisition and slot storage
+atomic. The invariant is verified for entered owners and exercised inputs;
+claims extend only as far as these tests. Historical run and mutant counts
+above are unchanged.

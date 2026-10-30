@@ -195,11 +195,11 @@ followed by cleanup KeyboardInterrupt through `_set_aside_fd`. The nine
 inherited selections retain their prior scope (M1/M2 full W; MO/MP both cases;
 MC all four; MH six; MD both walk cases plus repository cleanup; ML/MI one each).
 
-## PR-body replacements for the hub
+## PR-body replacements (updated through fix r4)
 
-- `walk` lists each child before the stack owns it, closes it on any exception raised before the stack holds it, and re-raises. An interrupt immediately after append leaves cleanup to the stack.
-- Validation, allocation, registration, and failed descent are protected. In `_open_path` and `_conflict_dir`, the new child takes ownership before the previous descriptor is closed; each descriptor receives at most one close attempt, so a failed parent close cleans up the child without retrying a number another thread may have reused.
-- Cleanup attempts every remaining owned close once. `walk` preserves the borrowed `root_fd`; the exit behavior follows the invariant below.
+- The exercised listing and registration failures close a child once; post-registration cleanup leaves it to the stack. The documented open-return and asynchronous instruction boundaries remain outside this guarantee.
+- The exercised validation, container-allocation, registration and failed-descent cases are protected. Fix r4 enters all 35 descriptor owners before acquisition; the documented asynchronous and native boundaries remain qualified. In `_open_path` and `_conflict_dir`, the new child takes ownership before the previous descriptor is closed; each descriptor receives at most one close attempt, so a failed parent close cleans up the child without retrying a number another thread may have reused.
+- Once `_close_all` is entered and its iteration is not asynchronously interrupted, it attempts each remaining owned close once. `walk` preserves the borrowed root. The named single-failure differentials retain release exception types and `TreeError` codes for their executed inputs.
 
 **Invariant (achieved for fix r3's tested paths; gaps remained at the historical r2 head):** With nothing in flight, try every owned close once, then raise the first close error. An exception in flight propagates unchanged, except cleanup cancellation overrides an `Exception` or `GeneratorExit`, with that exception as its `__context__`. An in-flight cancellation always wins. Cancellation is a `BaseException` other than `Exception` or `GeneratorExit`, including `KeyboardInterrupt`, `SystemExit`, and custom subclasses.
 
@@ -246,3 +246,31 @@ for the tested scenarios; universal cleanup claims go only as far as those tests
 The [r3 report](2026-10-29-walk-descriptors-r3.md) names the marker-to-call
 instruction gap, reports current runs and all seventeen mutants, and supplies
 current PR-body replacements. Historical r2 counts above are unchanged.
+
+
+## Review r4 and fix round r4
+
+Review r4 reran all ten r3 cases successfully on both Pythons at `b698146d0`,
+then found P2-6: constructing or entering `_cleanup` after acquisition can leak
+one descriptor with no close attempt. At the r4 starting head `9b1a9d462`, all
+four cases fail with marks bypassed on Python 3.14.7 and 3.12.14. Fix r4 enters
+35 preallocated descriptor-slot owners before acquisition; the original four
+cases and the 140-case matrix across every converted site pass on both Pythons.
+Only the r4 expected-failure decorator was removed from the review file.
+
+The `_cleanup`/`_close_all` paths receive the operation's explicit exit exception,
+including `AttemptTemp.size`'s root close. In those paths, handled caller
+exceptions no longer suppress cleanup failures or cancellation. Once
+`_close_all` is entered and its iteration is not asynchronously interrupted,
+it attempts each remaining owned close once. The ten walk consumers close their
+iterators after owner setup succeeds, subject to the listed exit boundary.
+
+The [fix r4 report](2026-10-30-walk-descriptors-fix-r4.md) records the full site
+list, red/green runs, current mutant results and PR-body replacements. L1–L5
+remain listed differences with review r4's executed inputs: pop marker-to-call,
+normal exit dispatch, legacy raw-handle precedence, repeated interruption of
+the drain, and native open-return-to-store. None is fixed by this round. In
+particular, preallocation does not make native acquisition and slot storage
+atomic. The invariant is verified for entered owners and exercised inputs;
+claims extend only as far as these tests. Historical run and mutant counts
+above are unchanged.

@@ -190,3 +190,31 @@ and explicit ownership of all ten walk consumers. The main invariant is achieved
 again in the exercised scenarios. Coverage of every possible cleanup interruption
 extends only as far as the tests, including the reported marker-to-call boundary.
 All r1 run and mutant counts above remain historical evidence.
+
+
+## Review r4 and fix round r4
+
+Review r4 reran all ten r3 cases successfully on both Pythons at `b698146d0`,
+then found P2-6: constructing or entering `_cleanup` after acquisition can leak
+one descriptor with no close attempt. At the r4 starting head `9b1a9d462`, all
+four cases fail with marks bypassed on Python 3.14.7 and 3.12.14. Fix r4 enters
+35 preallocated descriptor-slot owners before acquisition; the original four
+cases and the 140-case matrix across every converted site pass on both Pythons.
+Only the r4 expected-failure decorator was removed from the review file.
+
+The `_cleanup`/`_close_all` paths receive the operation's explicit exit exception,
+including `AttemptTemp.size`'s root close. In those paths, handled caller
+exceptions no longer suppress cleanup failures or cancellation. Once
+`_close_all` is entered and its iteration is not asynchronously interrupted,
+it attempts each remaining owned close once. The ten walk consumers close their
+iterators after owner setup succeeds, subject to the listed exit boundary.
+
+The [fix r4 report](2026-10-30-walk-descriptors-fix-r4.md) records the full site
+list, red/green runs, current mutant results and PR-body replacements. L1–L5
+remain listed differences with review r4's executed inputs: pop marker-to-call,
+normal exit dispatch, legacy raw-handle precedence, repeated interruption of
+the drain, and native open-return-to-store. None is fixed by this round. In
+particular, preallocation does not make native acquisition and slot storage
+atomic. The invariant is verified for entered owners and exercised inputs;
+claims extend only as far as these tests. Historical run and mutant counts
+above are unchanged.

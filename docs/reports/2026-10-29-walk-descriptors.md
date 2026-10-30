@@ -27,9 +27,10 @@ so later examples and pytest retain their original descriptors.
 
 ## Invariant
 
-Achieved in the fix r3 test scenarios, with coverage scoped to those scenarios.
-The [r3 report](2026-10-29-walk-descriptors-r3.md) names the remaining
-pure-Python marker-to-close-call instruction window and other coverage boundaries.
+Achieved for the entered owners and exercised inputs. The
+[fix r4 report](2026-10-30-walk-descriptors-fix-r4.md) records the owner-setup
+repair and review r4's executed listed differences L1–L5. Claims extend only
+as far as the tests; native completion and asynchronous boundaries remain qualified.
 
 Each owned descriptor receives at most one close attempt; the borrowed root stays
 open. With no exception in flight, cleanup tries every owned close, then raises
@@ -42,23 +43,24 @@ in-flight cancellation wins over every close error. Cancellation means a
 
 ## Decisions and descriptor audit
 
-1. `walk` lists each child before the stack owns it, closes it on any exception
-   raised before the stack holds it, and re-raises. An exception immediately
-   after registration leaves cleanup to the stack, without a second close.
-   Existing exception translations and `TreeError.reason` values are preserved.
+1. The exercised listing and registration failures close a child once;
+   post-registration cleanup leaves it to the stack. The documented open-return
+   and asynchronous instruction boundaries remain outside this guarantee.
+   The named single-failure differentials retain release exception types and
+   `TreeError` codes for their executed inputs.
 2. All descriptor opens in `retention_fs.py` were read. Original line numbers:
 
 | Site | Ownership result |
 | --- | --- |
 | `open_dir`, 162 | Close on failed `fstat`/signature validation, including non-`Exception` failures; mismatch still raises `swapped`. |
 | `walk`, 207 | Close an unowned child if listing/stack handoff fails; after append, only the stack closes it. |
-| `_layout`, 557 | Allocate the empty containers before opening; enter an owning cleanup context immediately after the open. |
+| `_layout`, 557 | Allocate the empty containers and enter a preallocated-slot owner before opening. |
 | `RegenerableWalk._in_repository`, 1020 | Registration failure closes only an unowned descriptor; cleanup attempts every registered close once under the invariant above. |
 | `_open_path`, 1043 | Failed later opens close the current intermediate descriptor. The new child takes ownership before closing the previous descriptor, which receives one close attempt. Failed handoff cleanup closes only the child under the invariant above. The borrowed starting descriptor stays open. |
-| `_remove_children`, 1167 | Enters an owning cleanup context immediately; recursive work is protected and cleanup uses `_close_all` with its explicit exit exception. |
-| `Reclaim._one`, 1253 | Enters an owning cleanup context after the open's exception handler; mode changes and recursion are protected and cleanup uses `_close_all` with its explicit exit exception. |
+| `_remove_children`, 1167 | Enters a preallocated-slot owner before acquisition; recursive work is protected and cleanup uses `_close_all` with its explicit exit exception. |
+| `Reclaim._one`, 1253 | Enters a preallocated-slot owner before acquisition and its exception handler; mode changes and recursion are protected and cleanup uses `_close_all` with its explicit exit exception. |
 | `Reclaim._conflict_dir`, 1304/1311 | Mkdir, component preparation, and later-open failures are guarded. The new child takes ownership before the previous descriptor receives one close attempt. Cleanup closes only the child; cancellation from that close propagates through `_set_aside_fd`. |
-| Remaining opens: 123, 231, 305, 471, 482, 605, 640, 687, 709, 717, 917, 932, 1053, 1077, 1080, 1104, 1118, 1131, 1152, 1213, 1342 | `still_archived`, `tree_bytes`, `clone_or_copy`, `_package_or_scope` (both opens), `bytecode`, `installed_files`, `record_complete`, `_site_packages` (both opens), `_rule_for`, `_start`, `_small`, `_marker` (both opens), `sync_path`, `write_atomic`, `read_regular`, `remove_own_tree`, `Reclaim.run`, and `_set_aside` protect subsequent work with owning cleanup contexts; those closes use `_close_all` with the operation's explicit exit exception. The named walk consumers also explicitly own their iterators. |
+| Remaining opens: 123, 231, 305, 471, 482, 605, 640, 687, 709, 717, 917, 932, 1053, 1077, 1080, 1104, 1118, 1131, 1152, 1213, 1342 | `still_archived`, `tree_bytes`, `clone_or_copy`, `_package_or_scope` (both opens), `bytecode`, `installed_files`, `record_complete`, `_site_packages` (both opens), `_rule_for`, `_start`, `_small`, `_marker` (both opens), `sync_path`, `write_atomic`, `read_regular`, `remove_own_tree`, `Reclaim.run`, and `_set_aside` now enter preallocated-slot owners before acquisition (fix r4); those closes use `_close_all` with the operation's explicit exit exception. The named walk consumers also explicitly own their iterators. |
 
 3. The invariant includes ordinary exceptions and cancellation-like
    `BaseException` injection, root descriptor preservation, and deterministic
@@ -216,11 +218,41 @@ specified exception identity and context. The AST guard rejects ambient exceptio
 getters in both cleanup modules. Instruction tests cover pop return through the
 attempt marker and close return; the marker-executed-to-close-call window and
 interruptions inside native `close` remain outside the proven coverage.
-Helper construction/entry and normal context-exit setup instruction failures are
-also untested; an allocation failure before the owner is entered can leave the
-just-acquired resource unowned. The pre-existing `RegenerableWalk` construction
-before root ownership in `_Builder._walk` and `_sample_walk_once` remains outside
-this round's exercised failures.
+At the historical r3 head, helper construction/entry after acquisition was
+untested; review r4 subsequently reproduced P2-6 there. Fix r4 prepares all 35
+descriptor-owner slots before acquisition. Moving these owners also places
+`RegenerableWalk` construction inside root ownership in `_Builder._walk` and
+`_sample_walk_once`; that construction boundary was not separately injected.
+Normal exit setup, repeated interruption, native completion and open-return
+storage remain qualified by review r4's L1–L5 evidence.
 The [r3 report](2026-10-29-walk-descriptors-r3.md) records the final runs,
 mutants, consumer audit, delivery bundle and coverage limits. Historical tables
 above retain their original run counts.
+
+
+## Review r4 and fix round r4
+
+Review r4 reran all ten r3 cases successfully on both Pythons at `b698146d0`,
+then found P2-6: constructing or entering `_cleanup` after acquisition can leak
+one descriptor with no close attempt. At the r4 starting head `9b1a9d462`, all
+four cases fail with marks bypassed on Python 3.14.7 and 3.12.14. Fix r4 enters
+35 preallocated descriptor-slot owners before acquisition; the original four
+cases and the 140-case matrix across every converted site pass on both Pythons.
+Only the r4 expected-failure decorator was removed from the review file.
+
+The `_cleanup`/`_close_all` paths receive the operation's explicit exit exception,
+including `AttemptTemp.size`'s root close. In those paths, handled caller
+exceptions no longer suppress cleanup failures or cancellation. Once
+`_close_all` is entered and its iteration is not asynchronously interrupted,
+it attempts each remaining owned close once. The ten walk consumers close their
+iterators after owner setup succeeds, subject to the listed exit boundary.
+
+The [fix r4 report](2026-10-30-walk-descriptors-fix-r4.md) records the full site
+list, red/green runs, current mutant results and PR-body replacements. L1–L5
+remain listed differences with review r4's executed inputs: pop marker-to-call,
+normal exit dispatch, legacy raw-handle precedence, repeated interruption of
+the drain, and native open-return-to-store. None is fixed by this round. In
+particular, preallocation does not make native acquisition and slot storage
+atomic. The invariant is verified for entered owners and exercised inputs;
+claims extend only as far as these tests. Historical run and mutant counts
+above are unchanged.
