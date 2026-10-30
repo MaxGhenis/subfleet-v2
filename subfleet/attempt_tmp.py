@@ -289,12 +289,10 @@ class AttemptTemp:
             if where is None:
                 return 0
             fd = rfs.open_dir(where)
-            try:
+            with rfs._cleanup((fd,)):
                 if not self._is(record, os.fstat(fd)):
                     return 0
                 return sum(found.st_size for _, found, _, _ in rfs.walk(fd) if not stat.S_ISDIR(found.st_mode))
-            finally:
-                os.close(fd)
         except (OSError, rfs.TreeError, KeyError, TypeError):
             return None
 

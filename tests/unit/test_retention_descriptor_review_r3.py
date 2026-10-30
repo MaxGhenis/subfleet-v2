@@ -76,7 +76,6 @@ class Cancelled(BaseException):
     pass
 
 
-@pytest.mark.xfail(strict=True, reason="P2-5 (review r3): AttemptTemp.size's root close replaces a walk cancellation")
 @pytest.mark.parametrize("cleanup_kind", ["os", "keyboard"])
 def test_attempt_temp_size_root_close_preserves_walk_cancellation(tmp_path, monkeypatch, cleanup_kind):
     from pathlib import Path
