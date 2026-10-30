@@ -247,21 +247,35 @@ of a backtick is too complex to judge, as for `$`, `#` and `\` (decision 2). A `
 `while read` reads (decision 4: `cat <(find ~/.subfleet -maxdepth 1) | while read d; do rg foo "$d";
 done` is denied).
 
-Its r9 (2026-10-29) closes the findings of the hub's review r8. Wherever an assignment does not end a
-loop variable's reading (a compound command open, a keyword before it, an assignment that may not
-last, a command that defines a function, or after zsh's `repeat` or `foreach`), its value now joins the
-loop's words, as a value that is not a plain word already did (decision 1). r8 dropped the value
+Its r9 (2026-10-29) closes the findings of the hub's review r8. Wherever a plain `name=value` at the
+top of the command does not end a loop variable's reading (a compound command open, a keyword before
+it, an assignment that may not last, a command that defines a function, or after zsh's `repeat` or
+`foreach`), its value now joins the loop's words, as a value that is not a plain word already did
+(decision 1; r10 carries the join into substitutions and nested scripts, below). r8 dropped the value
 there, so after a scoped loop it let through a root assigned in a command holding `()` or the word
 `function`, after a `repeat` or a `foreach`, inside an `if` or a brace group, after `&&`, or in the
 loop's own body: `for d in src; do :; done; d=~/.subfleet; rg foo "$d"; echo '()'` and `for d in src;
 do d=/; done; rg foo "$d"` are now denied, and both shells walk the root. A command that names a
 searcher and holds more than 4,096 `"` is too complex to judge too (decision 2).
 
+Its r10 (2026-10-30) closes the findings of the hub's review r9. The value joins inside a substitution
+and a nested script too (decision 1): r9 read a loop there but dropped a later assignment, so after a
+scoped loop it let through a root assigned in a quoted `$(…)`, a `bash -c` or `eval` script or a
+heredoc script, and `eval d=/` itself: `echo "$(for d in src; do :; done; d=/; rg foo "$d")"` and
+`for d in src; do :; done; eval d=/; rg foo "$d"` are now denied, and both shells walk `/`. An
+assignment inside a quoted `$(…)` that names no searcher is still not read (`for d in src; do :;
+done; echo "$(d=/)"; rg foo "$d"` passes, and no shell walks a root). In a command that defines a
+function, a value assigned where the reset does not apply, to a name no loop has read yet, joins the
+words of a later loop over that name (decision 2), since a function body written before the loop may
+run after it: `f() { d=/; }; for d in src; do :; done; f; rg foo "$d"` is denied, and both shells walk
+`/`, while `f() { d=lib; }; …; f; rg foo "$d"` and `d=/; f() { :; }; …; rg foo "$d"` pass. The
+over-blocks of both are listed under "stricter" below.
+
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
 globs and computed list of folders a glob reads, and the command reading follows its keywords,
 wrapper table, shell options, `eval`, stdin scripts, stdin model and print-and-exit forms. Their
-shared limits are in the report's known limits. Known differences that remain after r9, read from
+shared limits are in the report's known limits. Known differences that remain after r10, read from
 the code as it stands, with review r5's check 8 forms marked (snapshot-5 read from its frozen
 `.ref`: `for` at `:2179-2187`, `read` at `:2192-2197`, shells at `:2227-2252`):
 
@@ -274,10 +288,18 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     `$HOME`, `$SUBFLEET_ROOT`, `$SUBFLEET_HOME` and a loop variable read as below (its loop's words,
     or a plain word assigned to it after its loop, r7 decision 5, any other value joining the loop's
     words, r8 decision 1, and any value assigned where that reset does not apply joining them too, r9
-    decision 1) (`d=~/.subfleet; rg --files $d`), and so a `read` after a plain assignment
-    (`for d in ~/.subfleet/*; do :; done; d=src; read d <<< ~/.subfleet; rg foo "$d"`: `d=src` ends the
-    loop's reading, and a `read` from a here-string assigns nothing the prep reads, though both shells
-    walk the root), and a parameter form other than `$NAME` and `${NAME}`
+    decision 1, inside a substitution or a nested script too, r10 decision 1, and from a function body
+    written before the loop, r10 decision 2) (`d=~/.subfleet; rg --files $d`), and so a `read` after a
+    plain assignment (`for d in ~/.subfleet/*; do :; done; d=src; read d <<< ~/.subfleet; rg foo "$d"`:
+    `d=src` ends the loop's reading, and a `read` from a here-string assigns nothing the prep reads,
+    though both shells walk the root), an assignment by `+=` or by a builtin (`export`, `declare`,
+    `typeset`, `readonly`, `local`, `eval`, `printf -v`, `read`), and a value a command substitution
+    writes (after `for d in src; do :; done`, each of `d=; d+=/`, `export d=/`, `printf -v d /`, `read d
+    <<< /`, `d=/ eval 'rg foo "$d"'` and `d=$(echo /)` before `rg foo "$d"` passes, and both shells walk
+    the root: the prep reads only a plain `name=value`, with its value as written; of `eval`, only a
+    prefix assignment or a builtin it runs passes, since r10 decision 1 reads `eval d=/` as a nested
+    script; modeling the builtins is a follow-up, `R10_KNOWN_OPEN`), and a parameter form other than
+    `$NAME` and `${NAME}`
     (`${SUBFLEET_ROOT:-~/.subfleet}`, `${HOME%/}/.subfleet`); snapshot-5 tracks assignments and
     expands these forms.
   - A `for` loop variable inside a word or after a `cd` (`for d in ~/.subfleet/*; do rg foo
@@ -309,6 +331,11 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     `function` anywhere in the command, after a zsh `repeat` or `foreach`, inside an `if`, a brace
     group or a timed group, after `&&`, or in the loop's own body (`for d in src; do d=/; done; rg foo
     "$d"`), all of which the shells walk. The value now joins the loop's words.
+  - *Fixed at this head:* a root assigned after a scoped loop inside a quoted `$(…)`, a `bash -c` or
+    `eval` script or a heredoc script, and one a function body assigns before its loop (review r9's
+    P3-1 and P3-2, r10 decisions 1 and 2). r9 dropped such a value, so it let through `bash -c 'for d
+    in src; do :; done; d=/; rg foo "$d"'` and `f() { d=/; }; for d in src; do :; done; f; rg foo
+    "$d"`, both of which the shells walk. The value now joins the loop's words.
 - **Forms both let through, or not checked against snapshot-5.**
   - Loop shapes other than a `for` list or a piped `while read` whose variable is a searcher's whole
     operand: `while read d; do …; done < list`, `until`, `select`, a loop variable in a nested
@@ -409,14 +436,26 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     (`R7_LOOPVAR_STRICTER`). Since r8 decision 1 no assignment ends the reading in a command that holds a
     `name()` (any empty `()`, `$()` included) or the word `function` anywhere, prose included, or after a
     zsh `repeat` without `do … done` or a `foreach`, which the prep counts as open to the end of the
-    command. Since r9 decision 1 the value of every such assignment joins the loop's words, so a root
-    assigned where the shells never run the assignment is denied too: `for d in src; do :; done; false
-    && d=/; rg foo "$d"` walks no root in either shell (`R9_STRICTER`).
+    command. Since r9 decision 1 the value of every such assignment joins the loop's words, inside a
+    substitution or a nested script too since r10 decision 1, so a root assigned where the shells never
+    run the assignment, run it only in a subshell, a substitution or a nested script, or replace it later
+    in the same command is denied too: `for d in src; do :; done; false && d=/; rg foo "$d"` walks no
+    root in either shell (`R9_STRICTER`), and neither do review r9's five (`REVIEW_R9_STRICTER`, with
+    `…` for `for d in src; do :; done`): `…; (d=/); rg foo "$d"`, `…; ( d=/ ) && rg foo "$d"`, `…; if
+    true; then d=/ d=src; fi; rg foo "$d"`, `f() { :; }; for d in src; do :; done; d=/; d=src; rg foo
+    "$d"` and `…; f() { d=/; }; rg foo "$d"`, nor r10 decision 1's `for d in src; do :; done; bash -c
+    'd=/'; rg foo "$d"` and `for d in src; do :; done; echo "$(d=/; rg foo src)"; rg foo "$d"`
+    (`R10_STRICTER`). Since r10 decision 2, in a command that defines a function, a value assigned where
+    the reset does not apply joins the words of a later loop over its name even when it comes before
+    that loop, so beside the never-run assignment a function body never called is denied, `f() { d=/; };
+    for d in src; do :; done; rg foo "$d"`, and so is a root the loop replaces, `f() { :; }; if true;
+    then d=/; fi; for d in src; do :; done; rg foo "$d"`; neither shell walks a root on either
+    (`R10_STRICTER`).
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `9eb0db0989f4cf153e52593fa6cf9fb7079227e5a4c883cea93ad8b7b4c1e7e2` |
-| `TRUST` | `339ca3f0824f94cf1150715d7881ed2f27cf686ae8eeff1b493ce2c014c2a2c4` |
+| `never-rules-hook.sh` | `c42f05ef3b4513ec4972192e5bceeaf298df7fc523db532c6057fb7819fd865f` |
+| `TRUST` | `54cdded824d93bc34b1d33f115ac43c2206eb10c3c3c7bb79ff2b98985d20432` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one

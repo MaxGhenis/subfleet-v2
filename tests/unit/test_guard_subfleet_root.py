@@ -175,8 +175,8 @@ R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7
 R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
 #: The overlay's hook after r3c (review r2's walk-arounds closed), which r4 replaces.
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
-#: The overlay's hook after r9 (review r8's findings closed; 740728e3... at r8's end): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "9eb0db0989f4cf153e52593fa6cf9fb7079227e5a4c883cea93ad8b7b4c1e7e2"
+#: The overlay's hook after r10 (review r9's findings closed; 9eb0db09... at r9's end): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "c42f05ef3b4513ec4972192e5bceeaf298df7fc523db532c6057fb7819fd865f"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -6063,6 +6063,24 @@ def test_r10_command_pins_agree_with_real_shells(tmp_path):
     assert differ == [], differ[:10]
     assert [c for c, _, _, s in rows if c in R10_NESTED_DENIED + R10_EVAL_DENIED + R10_FUNCTION_DENIED
             and not all(s.values())] == []
+
+
+def test_r10_known_differences_name_the_over_blocks_and_what_is_let_through(tmp_path):
+    """Decision 3: each stricter form (r10's and review r9's five) is denied and no real shell walks a root on it; each
+    open form is allowed and a real shell walks one; the overlay doc's "Known differences" names each, and says where
+    the value joins."""
+    known = known_differences()
+    stricter = {**R10_STRICTER, **R10_REVIEW_R9_STRICTER_NAMED}
+    outs = judged(HOOK, list(stricter) + list(R10_KNOWN_OPEN), S_)
+    for command, named in stricter.items():
+        assert rule(outs[command]) == "unscoped-search", command
+        assert not any(r6_shell_walks(sh, command, S_, tmp_path) for sh in ("zsh", "bash")), command
+        assert named in known, named
+    for command, named in R10_KNOWN_OPEN.items():
+        assert rule(outs[command]) is None, command
+        assert any(r6_shell_walks(sh, command, S_, tmp_path) for sh in ("zsh", "bash")), command
+        assert named in known, named
+    assert "run it only in a subshell, a substitution or a nested script, or replace it later" in known
 
 
 def test_r10_scoped_searches_stay_allowed():
