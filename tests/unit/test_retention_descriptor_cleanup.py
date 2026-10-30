@@ -166,3 +166,43 @@ def test_walk_close_preserves_generator_exit_over_close_oserror(monkeypatch):
             iterator.close()
         assert attempted == opened
         assert len(opened) == 2
+
+
+def test_attempt_temp_size_does_not_swallow_walk_cancellation(tmp_path, monkeypatch):
+    from pathlib import Path
+    from subfleet.attempt_tmp import AttemptTemp
+
+    allocation = AttemptTemp(tmp_path / "store")
+    record = allocation.create("dummy")
+    root = Path(record["path"])
+    (root / "a" / "b").mkdir(parents=True)
+    (root / "a" / "b" / "leaf").write_bytes(b"scratch")
+    injected = KeyboardInterrupt("size cancellation")
+    original_names, original_open, original_close = rfs._names, rfs.open_dir, os.close
+    opened, attempted = [], []
+    def open_dir(name, **kwargs):
+        fd = original_open(name, **kwargs)
+        if name == "a":
+            opened.append(fd)
+        return fd
+    calls = 0
+    def names(fd):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise injected
+        return original_names(fd)
+    def close(fd):
+        attempted.append(fd)
+        original_close(fd)
+        if fd in opened:
+            raise OSError(errno.EIO, "size drain close")
+    with unchanged_descriptors(), monkeypatch.context() as patch:
+        patch.setattr(rfs, "open_dir", open_dir)
+        patch.setattr(rfs, "_names", names)
+        patch.setattr(os, "close", close)
+        with pytest.raises(KeyboardInterrupt) as caught:
+            allocation.size(record)
+    assert caught.value is injected
+    assert len(opened) == 1
+    assert attempted.count(opened[0]) == 1
