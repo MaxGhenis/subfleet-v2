@@ -5863,3 +5863,62 @@ def test_r9_scoped_searches_stay_allowed():
              + [("git commit -F - <<'EOF'\nQuote \"the guard\" and \"the hook\"\nEOF", LANE_W),
                 ("cat > notes.md <<'EOF'\n" + 'He said "rg foo src" twice.\n' * 100 + "EOF\nrg -n foo src", S_)])
     assert r5_allowed(cases) == []
+
+
+# ---------------------------------------------------------------- review r9: r9's unpinned readings
+
+#: Review r9 (at b229383fc) pins r9 readings no r9 test holds. Decision 1's join, through the places it reaches beyond
+#: r9's pins: an assignment in a nested loop or a while-read body, in a subshell, in an unquoted $(...), a backtick
+#: span or a <(...) read at the top of the command, and in a function body after its loop. r8 allowed each, and both
+#: shells walk / in each (r6's stubs, the fixture's HOME).
+REVIEW_R9_DENIED = [
+    "for e in x; do for d in src; do :; done; d=/; done; " + R7V_R,
+    "for e in x; do for d in src; do d=/; done; done; " + R7V_R,
+    "for d in src; do for e in x; do d=/; done; done; " + R7V_R,
+    "for e in x; do " + R9_LS + "; done; if true; then d=/; fi; " + R7V_R,
+    "echo src | while read d; do d=/; " + R7V_R + "; done",
+    "echo src | while read d; do if true; then d=/; fi; " + R7V_R + "; done",
+    "(" + R9_LS + "; d=/; " + R7V_R + ")",
+    R9_LS + "; (d=/; " + R7V_R + ")",
+    "x=$(" + R9_LS + "; d=/; " + R7V_R + ")",
+    "echo `" + R9_LS + "; d=/; " + R7V_R + "`",
+    "cat <(" + R9_LS + "; d=/; " + R7V_R + ")",
+    "f() { " + R9_LS + "; d=/; " + R7V_R + "; }; f",
+    R9_LS + "; f() { d=/; }; f; " + R7V_R,
+]
+#: ... the same join's over-blocks of the listed "stricter" kind beyond r9's three: a root assigned in a subshell, one a
+#: later assignment replaces (in an if, or in a command that defines a function), and one in a function never called.
+#: Each is denied, and neither shell walks a root.
+REVIEW_R9_STRICTER = [
+    R9_LS + "; (d=/); " + R7V_R,
+    R9_LS + "; ( d=/ ) && " + R7V_R,
+    R9_LS + "; if true; then d=/ d=src; fi; " + R7V_R,
+    "f() { :; }; " + R9_LS + "; d=/; d=src; " + R7V_R,
+    R9_LS + "; f() { d=/; }; " + R7V_R,
+]
+#: ... and controls that stay allowed, none walked: a scoped value through the same places, a prefix assignment (it
+#: lasts for its own command only) and an assignment inside a quoted $(...) that names no searcher.
+REVIEW_R9_ALLOWED = [
+    "for d in src; do for e in x; do d=lib; done; done; " + R7V_R,
+    "echo src | while read d; do d=lib; " + R7V_R + "; done",
+    "(" + R9_LS + "; d=lib; " + R7V_R + ")",
+    R9_LS + "; d=/ :; " + R7V_R,
+    R9_LS + "; d=/ true; " + R7V_R,
+    R9_LS + "; echo \"$(d=/)\"; " + R7V_R,
+]
+#: Decision 2's deny message names " beside the other capped characters.
+REVIEW_R9_CAP_MESSAGE = "of one of $, #, \\, ', \" or `"
+
+
+def test_review_r9_pins_r9s_unpinned_readings(tmp_path):
+    """Each reading's own input: the denied forms are denied and walk a root in /bin/zsh -f or /bin/bash over the
+    fixture (r6's stubs, the fixture's HOME); the stricter forms are denied and walk none; the controls are allowed and
+    walk none; and the cap's message for 4,097 " names "."""
+    assert r5_denied([(c, S_) for c in REVIEW_R9_DENIED + REVIEW_R9_STRICTER]) == []
+    assert r5_allowed([(c, S_) for c in REVIEW_R9_ALLOWED]) == []
+    walks = {c: any(r6_shell_walks(sh, c, S_, tmp_path) for sh in ("zsh", "bash"))
+             for c in REVIEW_R9_DENIED + REVIEW_R9_STRICTER + REVIEW_R9_ALLOWED}
+    assert ([c for c in REVIEW_R9_DENIED if not walks[c]],
+            [c for c in REVIEW_R9_STRICTER + REVIEW_R9_ALLOWED if walks[c]]) == ([], [])
+    out = judged(HOOK, [R9_DQ_DENIED[0]], S_)[R9_DQ_DENIED[0]]
+    assert REVIEW_R9_CAP_MESSAGE in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
