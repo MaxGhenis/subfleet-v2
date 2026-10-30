@@ -313,8 +313,10 @@ def test_descent_close_failure_owns_new_child(monkeypatch, site, closed_first):
             opened.append(fd)
             return fd
         fired = False
+        attempted = []
         def fail_close(fd):
             nonlocal fired
+            attempted.append(fd)
             if not fired and len(opened) == 2 and fd == opened[0]:
                 fired = True
                 if closed_first:
@@ -334,6 +336,18 @@ def test_descent_close_failure_owns_new_child(monkeypatch, site, closed_first):
                     reclaim._set_aside_fd(root_fd, "a", "a", "new")
             assert fired
             assert caught.value is injected
+
+            if not closed_first:
+                try:
+                    assert attempted.count(opened[0]) == 1
+                    with pytest.raises(OSError) as closed_child:
+                        os.fstat(opened[1])
+                    assert closed_child.value.errno == errno.EBADF
+                finally:
+                    # A synthetic close that raises before releasing strands the parent.
+                    # Production must not retry: its number may already belong to a stranger.
+                    with contextlib.suppress(OSError):
+                        close(opened[0])
 
 
 @pytest.mark.parametrize("site", ["remove", "reclaim"])

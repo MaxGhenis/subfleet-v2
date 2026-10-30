@@ -1064,18 +1064,12 @@ def _open_path(dir_fd: int, path: str) -> int:
     fd = dir_fd
     try:
         for part in path.split("/"):
-            child = open_dir(part, dir_fd=fd)
-            try:
-                if fd != dir_fd:
-                    os.close(fd)
-            except BaseException:
-                with suppress(BaseException):
-                    os.close(child)
-                raise
-            fd = child
+            parent, fd = fd, open_dir(part, dir_fd=fd)
+            if parent != dir_fd:
+                os.close(parent)
         return fd
     except BaseException:
-        # A failed close may already have closed fd; preserve the first error.
+        # Only fd is still owned; never retry the previous descriptor's close.
         with suppress(BaseException):
             if fd != dir_fd:
                 os.close(fd)
@@ -1343,14 +1337,8 @@ class Reclaim:
                     os.mkdir(part, 0o700, dir_fd=fd)
                 except FileExistsError:
                     pass
-                child = open_dir(part, dir_fd=fd)
-                try:
-                    os.close(fd)
-                except BaseException:
-                    with suppress(BaseException):
-                        os.close(child)
-                    raise
-                fd = child
+                parent, fd = fd, open_dir(part, dir_fd=fd)
+                os.close(parent)
             return fd
         except BaseException:
             with suppress(BaseException):

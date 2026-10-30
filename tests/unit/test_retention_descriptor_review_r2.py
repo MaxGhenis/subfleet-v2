@@ -27,8 +27,6 @@ def is_open(fd: int) -> bool:
     return True
 
 
-@pytest.mark.xfail(strict=True, reason="P2-3 (review r2): a failed handoff close is retried, "
-                                       "closing whatever descriptor reused the number")
 @pytest.mark.parametrize("site", ["path", "conflict", "set-aside"])
 @pytest.mark.parametrize("error", ["keyboard", "os"])
 def test_failed_handoff_close_never_closes_a_reused_number(monkeypatch, site, error):
