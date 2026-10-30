@@ -1,0 +1,23 @@
+from pathlib import Path
+import json, os, subprocess, tempfile
+base = Path(tempfile.mkdtemp(prefix="empty-common-", dir=os.environ["TMPDIR"]))
+os.environ["HOME"] = str(base / "home")
+for key in list(os.environ):
+    if key.startswith("GIT_"):
+        os.environ.pop(key)
+from subfleet import dependencies
+checkout = base / "checkout"
+def git(*args, data=None):
+    return subprocess.run(["git", *map(str, args)], input=data, capture_output=True, timeout=30)
+assert git("init", "-q", checkout).returncode == 0
+oid = git("-C", checkout, "hash-object", "-w", "--stdin", data=b"local objects\n").stdout.strip()
+rows = []
+for value in [b"", b"\n", b"\r\n"]:
+    (checkout / ".git" / "commondir").write_bytes(value)
+    result = git("-C", checkout, "cat-file", "-p", os.fsdecode(oid))
+    rows.append(dict(pointer_hex=value.hex(), git_exit=result.returncode,
+                     stdout=result.stdout.decode(), stderr=result.stderr.decode(),
+                     discovery=dependencies.record(str(checkout))))
+data = dict(case="empty-commondir-with-own-object-store", cases=rows)
+Path("docs/reports/2026-10-30-retention-pins-fix-r5-data/git-empty-common-valid-admin.json").write_text(json.dumps(data, indent=2) + "\n")
+print(json.dumps(data, indent=2))

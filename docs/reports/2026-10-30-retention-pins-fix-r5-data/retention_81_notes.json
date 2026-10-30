@@ -1,0 +1,554 @@
+{
+  "label": "retention_81_notes",
+  "start": "2026-10-30T17:53:07.687920+00:00",
+  "loads": [
+    24.83544921875,
+    51.2998046875,
+    70.2265625
+  ],
+  "seconds": 177.95877316599945,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.1323787919973256
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.0116732909955317
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.211857082991628
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.537726333001046
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9946740419982234
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.5065054580045398
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.5372365840012208
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.5079405840078834
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6074570000055246
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 14.84154729200236
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.3730527500010794
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9433313329936936
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6809953750052955
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.039185458997963
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.34243695900659077
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.1198568749969127
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.24978229100815952
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.207733292001649
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.6461035419924883
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.0647397080028895
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.7608968330023345
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0566520419961307
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.226125834000413
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.494474833001732
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5170197090046713
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1631582920090295
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[both]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.2436206249985844
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.75316604199179
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.525856499996735
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.4918866670050193
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.830341042004875
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.845196833004593
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.8148702080070507
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.876479709011619
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.040210874998593
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.7567132499971194
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.550075209001079
+    },
+    {
+      "nodeid": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.027593582999543
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept",
+    "tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job",
+    "tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it",
+    "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs",
+    "tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own",
+    "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]",
+    "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[both]",
+    "tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in",
+    "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-True]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-False]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True]",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job",
+    "tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept",
+    "tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job",
+    "tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it",
+    "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs",
+    "tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own",
+    "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]",
+    "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[both]",
+    "tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in",
+    "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-True]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-False]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True]",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job",
+    "tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job"
+  ],
+  "phases": {
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[both]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 121487360
+}

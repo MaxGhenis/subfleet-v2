@@ -1,0 +1,116 @@
+[
+  [
+    "subfleet/dependencies.py",
+    "_text; _Aliases.text",
+    "No trimming; fsdecode preserves bytes via surrogateescape; aliases retain the raw text for revalidation.",
+    "Discovery; unchanged"
+  ],
+  [
+    "subfleet/dependencies.py",
+    "_gitfile",
+    "Literal gitdir: prefix including its following space; rstrip CR/LF only; preserves all target bytes.",
+    "Discovery; repaired"
+  ],
+  [
+    "subfleet/dependencies.py",
+    "_storage",
+    "commondir removes trailing CR/LF only; a target of spaces remains a pathname.",
+    "Discovery; repaired"
+  ],
+  [
+    "subfleet/dependencies.py",
+    "_alternates; _alternate_paths; _unquote",
+    "Only removes one trailing LF record separator; C unquoting on raw bytes; no pathname strip.",
+    "Discovery; unchanged; executed alternates file/property rerun"
+  ],
+  [
+    "subfleet/retention_git.py",
+    "gitfile_admin",
+    "Strips whole gitfile text and target.",
+    "Archive registration/repository lookup; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_git.py",
+    "registration",
+    "Strips gitdir backlink and commondir.",
+    "Archive registration validation; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_git.py",
+    "backlink",
+    "Strips gitdir backlink.",
+    "Archive registration recovery; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_git.py",
+    "registration_in",
+    "Strips gitdir backlink.",
+    "Archive registration search; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_git.py",
+    "moved_tree",
+    "Strips gitdir backlink.",
+    "Archive moved-checkout detection; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_git.py",
+    "discard_registration",
+    "Strips gitdir backlink.",
+    "Registration cleanup; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_git.py",
+    "verify_bundle",
+    "Strips commondir.",
+    "Bundle verification alternate writer; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_survey.py",
+    "_into_admin",
+    "Strips whole gitfile text and target.",
+    "Survey preflight; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_archive.py",
+    "_Builder._nested_gitfile",
+    "Strips whole gitfile text and target.",
+    "Archive nested-checkout refusal; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/retention_archive.py",
+    "gitfile_digest",
+    "Hashes the complete bounded raw gitfile bytes; does not parse or trim a pathname.",
+    "Archive identity check; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/adapters/claude_mcp.py",
+    "_small_text; canonical_git_root",
+    "Strips gitfile, its target, commondir and gitdir backlink.",
+    "Claude local settings root; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/host_push.py",
+    "_git_directories",
+    "Strips gitfile text and commondir; takes gitfile target after the literal prefix.",
+    "Host-push validation; outside discovery; unchanged"
+  ],
+  [
+    "subfleet/host_push.py",
+    "check_object_store",
+    "Alternates lines are stripped for nonempty/comment classification; no target is resolved.",
+    "Host-push refusal check; outside discovery; unchanged"
+  ],
+  [
+    "Git-output pathname readers",
+    "retention_git.common_dir/discard_registration; retention_survey._source_common; retention_archive._git_dir; salvage._git",
+    "Strip Git command output rather than directly parsing the four pointer-file kinds.",
+    "Outside dependency discovery; unchanged"
+  ],
+  [
+    "Existence-only checks",
+    "retention_git.scratch_reason",
+    "Checks alternates existence; reads no alternates line.",
+    "Outside discovery; unchanged"
+  ]
+]

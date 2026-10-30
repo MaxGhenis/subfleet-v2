@@ -2,5 +2,9 @@
   "trial_departures": [],
   "only_three_r5_case_marks_removed": true,
   "source_sha256": "3f6bcf87c8d78f26047f70f2e1d836796b3613d84917fe8f0ea3b88d026b9b0e",
-  "fix_commit": "9082caeece4d4b420710c583f9b07ccf439762c3"
+  "fix_commit": "9082caeece4d4b420710c583f9b07ccf439762c3",
+  "C8_3_and_C8_4_normative_clauses_unchanged": true,
+  "r5_mark_check_uses_bytes": true,
+  "property_ast_unchanged_by_text_clarification": true,
+  "T2_unchanged_from_release": true
 }

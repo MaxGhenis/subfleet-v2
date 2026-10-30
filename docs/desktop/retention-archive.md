@@ -627,7 +627,10 @@ directory's common directory, its resolved initial objects directory and the
 alternates of its objects, read from the
 files without running git, decoding Git C-style escapes on raw bytes before
 filesystem decoding and resolving relative alternates against the objects
-directory, five levels deep). Alternates files are streamed to their end with
+directory, five levels deep). Gitfiles require the literal `gitdir: ` prefix;
+their targets and `commondir` targets lose only trailing CR and LF, preserving
+all other pathname bytes, including leading/trailing spaces and tabs.
+Alternates files are streamed to their end with
 no whole-file cap and a 1 MiB per-line bound (256 times a 4096-byte PATH_MAX).
 Read errors, overlong lines, invalid quotes and detected changes during discovery
 record incomplete discovery. For each opened alternates descriptor, discovery

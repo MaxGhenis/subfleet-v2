@@ -1,6 +1,16 @@
-# Retention dependency pins: review handoff, 2026-10-29
+# Retention dependency pins: review handoff, 2026-10-30
 
-**Review r4's R4-F1 is fixed and R4-F2's journal wording is corrected in fix round r4.** Initial object-directory targets are recorded and their original spellings revalidated after traversal, outside transactions. The original r3 alias/census fixes and turn-property repair remain covered. Retention remains dormant; approving review and completed CI remain external gates. [Fix round r4 evidence](2026-10-30-retention-pins-fix-r4.md) records this round; earlier counts and CI snapshots remain dated evidence.
+**Review r5's R5-F1 is fixed in fix round r5.** Gitfile and `commondir` targets preserve pathname whitespace, removing only trailing CR/LF; gitfiles require the literal `gitdir: ` prefix. Initial object-directory targets remain recorded and their original spellings revalidated after traversal, outside transactions. The original r3 alias/census fixes, r4 initial-object repair and turn-property repair remain covered. Retention remains dormant; approving review and completed CI remain external gates. [Fix round r5 evidence](2026-10-30-retention-pins-fix-r5.md) records this round; earlier counts and CI snapshots remain dated evidence.
+
+## Review r5 and fix round r5
+
+Review r5 at `c1dfadceb` found R5-F1: stripping significant pathname whitespace in gitfile and `commondir` targets could record a nonexistent target without incomplete evidence, allowing retirement of a live borrower's storage. The imported review at `7eec7fa80` gives **57 passed / 3 failed** with `--runxfail`. Applying its `r5-trial.diff` without departures and removing only the mark covering those three cases gives **60 passed**. Assertions and every other byte of the review file are unchanged.
+
+Discovery now consumes the literal `gitdir: ` prefix and removes only trailing CR/LF from both pointer types. Installed Git 2.55.0 successfully reads owner-only objects through leading/trailing-space targets, a `commondir` containing only spaces, and CRLF records; discovery records that same canonical storage. Git rejects the colon-only gitfile prefix and empty gitfile targets. A zero-byte `commondir` is also rejected, whereas LF-only or CRLF-only content uses the gitdir itself when its own object store is valid; discovery records that storage. The probe with an empty common target and no own object store is rejected by Git, and discovery conservatively keeps its admin/objects paths. No rejected input hides storage Git can use through that pointer.
+
+The invariant is: **for every pointer Git follows, discovery records the target Git reads, or reports incomplete.** A new property compares pathname whitespace with real Git for both pointer types, relative/absolute targets and LF/CRLF endings. The [round report](2026-10-30-retention-pins-fix-r5.md) records the reader audit, all required file/start/load results, twelve named mutant kills and PR-body replacements. Other pointer readers do not feed dependency discovery and remain unchanged.
+
+The existing swap-back, timestamp and later-dependency observation bounds below remain in force. No transaction gains filesystem work; C-8.3 and C-8.4's normative fail-closed guarantee are unchanged. The qualifications in review r5's `text-corrections.json` describe the pre-fix `c1dfadceb` head, so they are historical evidence rather than descriptions of this repaired head.
 
 ## Review r4 and fix round r4
 

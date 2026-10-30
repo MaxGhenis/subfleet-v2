@@ -71,8 +71,8 @@ def test_pointer_syntax_and_whitespace_match_real_git(tmp_path, layout, name, en
         # target from the colon-only spelling. This also kills a lax prefix.
         assert not recorded.get("git"), recorded
     else:
-        # Git rejects an empty commondir. Keeping its admin and objects paths
-        # is conservative; no readable repository storage is omitted.
+        # This admin has no own objects, so Git rejects its empty commondir
+        # target. Keeping admin/objects paths omits no readable storage.
         assert folders.canonical(checkout / ".git") in recorded["git"]
         assert folders.canonical(owner / "objects") not in recorded["git"]
 
