@@ -200,15 +200,15 @@ def test_reveal_invariant_for_resize_schedules(fix8_view_binary, tmp_path_factor
     assert_resize_reveal_invariant(result)
 
 
-def shrink_replay(binary, root, mode, layout="default", *, remount_marker=False):
+def shrink_replay(binary, root, mode, layout="default", *, replay_marker=False):
     """Round 7's schedule (`shrinkReplay` in the probe), with its own steps and trace, its shrink
     measured since round 8's continuation. A failed wait's whole report (steps, traces, layout)
     is printed, so CI's log keeps it."""
     load = os.getloadavg()[0]
     try:
         environment = dict(LAYOUTS[layout])
-        if remount_marker:
-            environment["R219_PROBE_REMOUNT_END"] = "1"
+        if replay_marker:
+            environment["R219_PROBE_REPLAY_END_APPEARANCE"] = "1"
         result = run_probe(binary, root, f"fix10-shrink-{mode}", env=environment, timeout=240)
     except AssertionError:
         failure = root / "probe-failure.json"

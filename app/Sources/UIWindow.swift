@@ -320,13 +320,12 @@ extension View {
 @MainActor enum ConversationFollowTest {
     static var disappearanceDelay: Double = 0
     static var record: ((String, [String: Any]) -> Void)?
+    /// A probe can deliver the marker's presentation callback on its own schedule.
+    static let endAppearance = Notification.Name("SubfleetTestEndAppearance")
     /// Room above the rows that a probe shrinks and regrows: the document changes
     /// height under a clip that does not move, as lazy row measurement does.
     static let inset = Inset()
-    final class Inset: ObservableObject {
-        @Published var top: CGFloat = 0
-        @Published var markerGeneration = 0
-    }
+    final class Inset: ObservableObject { @Published var top: CGFloat = 0 }
 }
 
 @MainActor struct ConversationFollowTestInset: ViewModifier {
@@ -334,16 +333,14 @@ extension View {
     func body(content: Content) -> some View { content.padding(.top, inset.top) }
 }
 
-@MainActor struct ConversationFollowTestMarker: ViewModifier {
-    @ObservedObject var inset = ConversationFollowTest.inset
-    func body(content: Content) -> some View { content.id(inset.markerGeneration) }
-}
 #endif
 
 extension View {
-    @ViewBuilder func conversationFollowTestMarker() -> some View {
+    @ViewBuilder func conversationFollowTestEndAppearance(_ id: String, perform: @escaping () -> Void) -> some View {
         #if SUBFLEET_VIEW_TEST
-        modifier(ConversationFollowTestMarker())
+        onReceive(NotificationCenter.default.publisher(for: ConversationFollowTest.endAppearance)) { notice in
+            if notice.object as? String == id { perform() }
+        }
         #else
         self
         #endif
@@ -429,7 +426,6 @@ struct ConversationView: View {
                         Theme.clear.frame(height: 1).id("bottom")
                             .onAppear { endAppeared() }
                             .onDisappear { endDisappeared() }
-                            .conversationFollowTestMarker()
                     }
                     .conversationFollowTestInset()
                     .padding(Theme.space.column)
@@ -466,6 +462,7 @@ struct ConversationView: View {
                     if #unavailable(macOS 15.0) { jumpToBottom(proxy) }
                     followApprovals(proxy)
                 }
+                .conversationFollowTestEndAppearance(conversation.conversation_id, perform: endAppeared)
             }
             Divider()
             if let timeline, let turn = timeline.pinnedTurn {

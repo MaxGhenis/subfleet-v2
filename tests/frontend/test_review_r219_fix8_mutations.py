@@ -230,8 +230,13 @@ def test_round7_mutation_fails_its_named_regression(mutation, tmp_path):
     binary, _ = compile_mutation(mutation, tmp_path)
     mode, order, rule = ROUND7[mutation]
     result, steps, _ = shrink_replay(binary, tmp_path, mode,
-                                    remount_marker=mutation == "marker_releases_pending_reveal")
+                                    replay_marker=mutation == "marker_releases_pending_reveal")
     order(result, steps)
+    if mutation == "marker_releases_pending_reveal":
+        callback = steps["marker_callback"]
+        assert callback["reveal"]["outstanding"] and callback["position"]["from_end"] <= END, result
+        assert any(e["event"] == "marker_appeared" and e["at"] >= callback["at"]
+                   for e in result["trace"]), result
     with pytest.raises(AssertionError) as rejected:
         rule(result, steps)
     print(f"{mutation} killed by {rule.__name__}: {str(rejected.value)[:300]}")
