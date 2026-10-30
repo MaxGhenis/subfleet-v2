@@ -88,8 +88,6 @@ def after_append(func) -> int:
     return instructions[call + 1].offset
 
 
-@pytest.mark.xfail(strict=True, reason="P3-1 (review r2): an interrupt after registration closes the child "
-                                       "twice and surfaces as OSError(EBADF)")
 @pytest.mark.parametrize("site", ["walk", "repository"])
 def test_interrupt_after_registration_closes_child_once(monkeypatch, site):
     func = rfs.walk if site == "walk" else rfs.RegenerableWalk._in_repository

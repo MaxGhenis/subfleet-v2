@@ -232,7 +232,8 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
                     child_names = iter(_list(child, path))
                     stack.append((child, path, child_names))
                 except BaseException:
-                    os.close(child)
+                    if not stack or stack[-1][0] != child:
+                        os.close(child)
                     raise
     finally:
         _close_all(fd for fd, _, _ in stack if fd != root_fd)
@@ -1041,7 +1042,8 @@ class RegenerableWalk:
                 try:
                     opened.append(fd)
                 except BaseException:
-                    os.close(fd)
+                    if not opened or opened[-1] != fd:
+                        os.close(fd)
                     raise
                 if _exists(".git", fd):
                     return True
