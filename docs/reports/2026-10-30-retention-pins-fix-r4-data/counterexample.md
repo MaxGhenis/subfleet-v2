@@ -1,0 +1,5 @@
+# Exact dependency-list counterexample
+
+At fix `e8d3b6091`, `tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once` fails on the case-insensitive fixture volume. Given ordinary repositories `work` and `Review`, the old assertion expects `[work/.git, Review/.git]`; the hub's unconditional initial-object-directory recording returns `[work/.git, work/.git/objects, Review/.git, Review/.git/objects]`, all canonically spelled. The full file records 18 passed / 1 failed at 05:12:17 UTC.
+
+This is an outdated exact-list oracle, not a retention-safety counterexample. The smallest change preserving the explicit hub decision is to add the two newly required dependencies to that assertion. No product behavior or review-r4 assertion changes; its five marks remain the only modifications to that review file. The entire unit file is rerun after the expectation update. The review trial's conditional `extra` would avoid the old assertion but omit ordinary initial targets from the recorded list; this build keeps unconditional recording.

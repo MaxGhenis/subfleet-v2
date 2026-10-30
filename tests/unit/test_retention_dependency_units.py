@@ -485,7 +485,8 @@ def test_record_spells_each_place_once(tmp_path):
     found = dependencies.record(str(work), review_root=str(typed), out_path=str(typed / "Out.md"))
     assert found["review_root"] == folders.canonical(review)
     assert found["out_path"] == folders.canonical(review) + "/Out.md"
-    assert found["git"] == [folders.canonical(work / ".git"), folders.canonical(review / ".git")]
+    assert found["git"] == [folders.canonical(work / ".git"), folders.canonical(work / ".git" / "objects"),
+                            folders.canonical(review / ".git"), folders.canonical(review / ".git" / "objects")]
     assert json.loads(json.dumps(found)) == found
     assert dependencies.needed({"depends": found}) == [
         ("review-root", found["review_root"]), ("output", found["out_path"]),

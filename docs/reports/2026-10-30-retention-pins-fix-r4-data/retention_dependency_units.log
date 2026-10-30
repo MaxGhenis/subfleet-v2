@@ -1,0 +1,34 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:12:16Z slot B load 
+START retention_dependency_units 2026-10-30T05:12:17.587771+00:00 load=(18.482421875, 20.48828125, 21.3203125)
+...............F...                                                      [100%]
+=================================== FAILURES ===================================
+______________________ test_record_spells_each_place_once ______________________
+
+tmp_path = PosixPath('/private/tmp/sf-fix272r4/cases-59675/pytest/test_record_spells_each_place_0')
+
+    def test_record_spells_each_place_once(tmp_path):
+        """Submit's record: the review root and `-o` path in the one spelling the volume
+        stores (`folders.canonical`), whatever case they were given in, and the git
+        storage of the workdir and of the review root."""
+        review = repo(tmp_path / "Review")
+        work = repo(tmp_path / "work")
+        typed = tmp_path / "REVIEW"
+        if not typed.exists():
+            pytest.skip("this volume tells case apart")
+        found = dependencies.record(str(work), review_root=str(typed), out_path=str(typed / "Out.md"))
+        assert found["review_root"] == folders.canonical(review)
+        assert found["out_path"] == folders.canonical(review) + "/Out.md"
+>       assert found["git"] == [folders.canonical(work / ".git"), folders.canonical(review / ".git")]
+E       AssertionError: assert ['/private/tm....git/objects'] == ['/private/tm.../Review/.git']
+E         
+E         At index 1 diff: '/private/tmp/sf-fix272r4/cases-59675/pytest/test_record_spells_each_place_0/work/.git/objects' != '/private/tmp/sf-fix272r4/cases-59675/pytest/test_record_spells_each_place_0/Review/.git'
+E         Left contains 2 more items, first extra item: '/private/tmp/sf-fix272r4/cases-59675/pytest/test_record_spells_each_place_0/Review/.git'
+E         Use -v to get more diff
+
+tests/unit/test_retention_dependency_units.py:488: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once
+1 failed, 18 passed in 20.93s
