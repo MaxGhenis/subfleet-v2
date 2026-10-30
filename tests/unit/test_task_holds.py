@@ -21,6 +21,8 @@ from hypothesis import given, settings, strategies as st
 
 from subfleet import cli, protocol, refusals, render, task_holds
 from subfleet.contracts import Exit
+from tests.disk_floor_model import stamp
+from tests.task_hold_support import fresh_daemon, hold
 
 NOW = "2026-10-24T12:00:00Z"
 #: What no note may hold anywhere (review r1, P3-2): every C0 and C1 control and DEL (Unicode's
@@ -289,6 +291,15 @@ def test_status_text_lists_the_holds_with_their_waiting_jobs():
                                         "uk-data", "batch"]
     assert "task holds" not in cli.format_status({**data, "task_holds": []})
     assert "task holds" not in cli.format_status({k: v for k, v in data.items() if k != "task_holds"})
+
+
+def test_readings_status_lists_the_task_hold_in_force():
+    """Review r6, R6-3: readings must keep the task hold's task, end and note."""
+    with fresh_daemon() as (service, _, _, _):
+        until = stamp(3600)
+        note = "uk-data batch release"
+        hold(service, "build", until, note=note)
+        assert f"Task holds: build until {until}: {note}" in service.dispatch("readings", {})["status"]
 
 
 def test_status_text_counts_a_holds_jobs_from_its_own_total_not_the_rows_listed():
