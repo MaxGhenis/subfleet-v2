@@ -136,6 +136,45 @@ def test_completion_before_scroll_cannot_release_a_distant_opening_reveal(fix8_v
 LAYOUTS = {"default": {}, "larger_text": {"R219_PROBE_TEXT_SCALE": "1.728"}}
 
 
+def resize_schedule(binary, root, kind, deltas):
+    write_json(root / "schedule.json", {"kind": kind, "deltas": deltas})
+    result = run_probe(binary, root, "fix10-resize-schedule", timeout=60)
+    write_json(root / "resize-result.json", result)
+    print("resize schedule: " + json.dumps(result, sort_keys=True))
+    return result
+
+
+def assert_resize_order(result):
+    assert result["visible_windows"] == 0, result
+    prepared = result["prepared"]
+    if result["kind"] == "growth":
+        assert prepared["own_landed"] == 1 and prepared["position"]["from_end"] == 0, result
+    else:
+        assert prepared["landed"] == int(result["kind"] == "landed"), result
+        assert prepared["visible"] == 0 and prepared["position"]["from_end"] > DISTANT, result
+    for resize in result["resizes"]:
+        assert resize["revisions"] == 1, result
+        assert resize["applied"]["content"] == max(800, resize["before"]["content"] + resize["delta"]), result
+
+
+def assert_resize_reveal_invariant(result):
+    """Every resize preserves an outstanding reveal; after landing, a clamped end
+    is confirmed independently of whether the lazy marker remounts."""
+    for resize in result["resizes"]:
+        assert resize["landed"] == int(result["kind"] == "landed"), result
+        if result["kind"] == "pending":
+            assert resize["visible"] == 0, result
+        elif resize["after"]["from_end"] <= END:
+            assert resize["confirmations"] > 0, result
+
+
+@pytest.mark.parametrize("kind", ["pending", "landed"])
+def test_scripted_document_resizes_without_a_marker_remount(fix8_view_binary, tmp_path, kind):
+    result = resize_schedule(fix8_view_binary, tmp_path, kind, [-11000, 2000, -2500, 1000])
+    assert_resize_order(result)
+    assert_resize_reveal_invariant(result)
+
+
 def shrink_replay(binary, root, mode, layout="default"):
     """Round 7's schedule (`shrinkReplay` in the probe), with its own steps and trace, its shrink
     measured since round 8's continuation. A failed wait's whole report (steps, traces, layout)

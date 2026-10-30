@@ -27,6 +27,8 @@ from tests.frontend.test_review_r219_fix10_view import (
     assert_replayed_shrink_order,
     assert_shrink_releases_nothing,
     shrink_replay,
+    resize_schedule,
+    assert_resize_order,
 )
 from tests.frontend.test_review_r219_fix12_view import (
     assert_mark_probes_order,
@@ -272,6 +274,18 @@ def round10_rule(mode):
     if mode == "stale-glide":
         return assert_rests_at_the_end
     return assert_landing_follows
+
+
+def test_scripted_regrow_then_shrink_reaches_the_growth_mutant_check(tmp_path):
+    binary, _ = compile_mutation("growth_repins_dropped", tmp_path)
+    result = resize_schedule(binary, tmp_path, "growth", [600, -900])
+    assert_resize_order(result)
+    assert result["resizes"][0]["applied"]["from_end"] == 600, result
+    steps = {step["step"]: step for step in result["steps"]}
+    # The old reply-only rule accepts this mutant: shrink clamps the clip before
+    # the reply sample. Only a check of the growth's own response can reject it.
+    with pytest.raises(AssertionError):
+        round10_rule("quiet-regrow")(result, steps)
 
 
 @pytest.mark.parametrize("mutation,mode", ROUND10_CASES)
