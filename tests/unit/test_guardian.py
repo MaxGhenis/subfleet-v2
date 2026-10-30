@@ -158,7 +158,7 @@ def test_d_cen1_provider_exceptions_always_linger(tmp_path, monkeypatch, guardia
 
     events = []
     child = SimpleNamespace(pid=77, wait=lambda: 0)
-    monkeypatch.setattr(guardian, "provider_qos", lambda: None)
+    monkeypatch.setattr(guardian, "provider_qos", lambda *_requested: None)
     monkeypatch.setattr(guardian.subprocess, "Popen", lambda *args, **kwargs: child)
     monkeypatch.setattr(guardian, "linger", lambda: events.append("linger"))
     original = guardian._receipt

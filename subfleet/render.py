@@ -557,6 +557,14 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         lines = [f"Job: {standing.get('job_id')} is {state}{reason}"]
     if standing.get("class") == "priority":
         lines.append("class priority (admission.priority_callers)")
+    qos = standing.get("qos") or {}
+    if qos.get("requested") == "default" and qos.get("reason"):
+        # D-QOS-BOOKED1: a `run --qos default` says whether a launch now honours it, and
+        # why; the clamp every other job runs under (C-5.1) has nothing to explain.
+        lines.append(qos["reason"])
+        started = qos.get("started")
+        if started:
+            lines.append(f"a{started['seq']}'s provider started at {started['provider_qos']} (start.json)")
     hold, recheck = standing.get("hold"), standing.get("recheck")
     if state not in ("queued", "waiting"):
         return lines

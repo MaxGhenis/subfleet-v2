@@ -26,7 +26,7 @@ from . import task_holds
 from .quota_projection import weekly_projections
 from .status_json import closure_row, decision_rows
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, shell_flags, weekly_history_params
+from .store import WEEKLY_HISTORY_SQL, cancel_info, job_flags, notice_rows, shell_flags, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -318,7 +318,8 @@ class Offline:
     def _job_dict(row: sqlite3.Row) -> dict[str, Any]:
         # The daemon's boolean launch fields (C-12.4), for `show` and `list` alike
         # (#221 review r1b, P3-4): offline JSON gave 1 where the daemon gave true.
-        job = shell_flags({key: row[key] for key in row.keys()})
+        # D-QOS-BOOKED1: and a job's requested provider QoS, `utility` from a store before the column.
+        job = job_flags({key: row[key] for key in row.keys()})
         job["duration_s"] = _duration_s(job.get("started_at"), job.get("finished_at"))
         job["model"] = job.get("model_served") or job.get("model_requested")
         job["family"] = job.get("provider")
