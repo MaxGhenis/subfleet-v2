@@ -32,9 +32,10 @@ def baseline():
 def raise_at(code, offset, injected):
     """Raise `injected` when `code` reaches the instruction at `offset`, through sys.monitoring.
 
-    sys.settrace with f_trace_opcodes set in the call event misses the first instructions of a
-    frame on Python 3.12 (CI's 3.12 shard: _layout's BUILD_MAP at offset 2 never fired), while
-    sys.monitoring's INSTRUCTION event (PEP 669) reaches every instruction on 3.12 and 3.14.
+    sys.settrace with f_trace_opcodes set in the call event delivers no opcode events to the first
+    frame in a process that enables it on Python 3.12 (CI's 3.12 shard: test_layout_allocation_before_open
+    ran first, so _layout's BUILD_MAP never fired), while sys.monitoring's INSTRUCTION event (PEP 669)
+    reaches every instruction on 3.12 and 3.14.
     """
     monitoring = sys.monitoring
     tool = monitoring.DEBUGGER_ID

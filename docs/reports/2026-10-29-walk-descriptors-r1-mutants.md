@@ -1,6 +1,6 @@
 # D-WALK-FD1 review r1: named mutants
 
-Fixed production/test head: `63e3158d7`. Every mutation ran in memory through
+Historical fix r1 production/test head: `63e3158d7`. Every mutation ran in memory through
 `tools/retention_descriptor_mutants.py`; production files were unchanged.
 All nine mutants were killed by assertion failures in their named tests.
 The seven inherited mutants reproduce the build/review results.
@@ -29,3 +29,12 @@ repository cleanup. ML and MI each ran their named review test.
 The plugin is opt-in: select a mutant with
 `-p tools.retention_descriptor_mutants --retention-descriptor-mutant=<name>`
 and pass only the named test file or node IDs under the suite hold.
+
+## Current-head rerun
+
+Fix r2 adapts M1 and MI to the ownership guards and shared cleanup calls while
+preserving their removed behavior. The other inherited mutations retain their
+meaning. All nine were rerun against their named tests; the [r2 report](2026-10-29-walk-descriptors-r2.md)
+records current-head counts, starts and loads, plus four additional mutants:
+MR (retry a released parent close), MA (ignore registration ownership), ME
+(replace an active exception), and MX (drop cancellation from cleanup).

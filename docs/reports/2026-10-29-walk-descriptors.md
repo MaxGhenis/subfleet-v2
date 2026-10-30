@@ -15,32 +15,45 @@ state was accessed by our reproduction.
 
 Tests cover normal completion, injected listing/stat/check failures, the named
 refusals, and early generator closure, while leaving the borrowed `root_fd`
-open. Review r1's interrupted cleanup cases now close the remaining owned
-descriptors before propagating the first closing exception. Hypothesis varies
+open. Review r1's interrupted cleanup cases close the remaining owned
+descriptors; review r2 extends exception precedence to all cleanup paths
+under the invariant below. Hypothesis varies
 small directory/file/symlink trees and the k-th listing
 or stat, verifies exact descriptor-set equality and injected exception identity,
 and varies early close positions. It runs 100 failure examples and 60 close
 examples, plus explicit examples. Tests close detected leaks even when red,
 so later examples and pytest retain their original descriptors.
 
+## Invariant
+
+Each owned descriptor receives at most one close attempt; the borrowed root stays
+open. With no exception in flight, cleanup tries every owned close, then raises
+the first close error. An exception in flight propagates unchanged and close
+errors do not replace it, except that cleanup cancellation overrides an in-flight
+`Exception` or `GeneratorExit`, with that exception as its `__context__`. An
+in-flight cancellation wins over every close error. Cancellation means a
+`BaseException` that is neither an `Exception` nor `GeneratorExit`, including
+`KeyboardInterrupt`, `SystemExit`, and custom `BaseException` subclasses.
+
 ## Decisions and descriptor audit
 
-1. `walk` lists before transferring ownership to the stack. Any `BaseException`
-   during listing or stack insertion closes the unowned child and is re-raised.
+1. `walk` lists each child before the stack owns it, closes it on any exception
+   raised before the stack holds it, and re-raises. An exception immediately
+   after registration leaves cleanup to the stack, without a second close.
    Existing exception translations and `TreeError.reason` values are preserved.
 2. All descriptor opens in `retention_fs.py` were read. Original line numbers:
 
 | Site | Ownership result |
 | --- | --- |
 | `open_dir`, 162 | Close on failed `fstat`/signature validation, including non-`Exception` failures; mismatch still raises `swapped`. |
-| `walk`, 207 | Close if listing/stack handoff fails. |
+| `walk`, 207 | Close an unowned child if listing/stack handoff fails; after append, only the stack closes it. |
 | `_layout`, 557 | Allocate the empty containers before opening; enter `try/finally` immediately after the open. |
-| `RegenerableWalk._in_repository`, 1020 | Registration failure closes the new descriptor; cleanup drains every registered descriptor despite an earlier closing exception, then propagates the first exception. |
-| `_open_path`, 1043 | Failed later opens close the current intermediate descriptor. The new child is protected before closing the previous descriptor; cleanup failures preserve the original exception. The borrowed starting descriptor stays open. |
-| `_remove_children`, 1167 | Already enters `try/finally` immediately; recursive work is protected. No change needed. |
-| `Reclaim._one`, 1253 | Already enters `try/finally` after the open's exception handler; mode changes and recursion are protected. No change needed. |
-| `Reclaim._conflict_dir`, 1304/1311 | Mkdir, component preparation, and later-open failures are guarded. The new child is protected while closing the previous descriptor; both cleanup scopes preserve the original exception, including cancellation through `_set_aside_fd`. |
-| Remaining opens: 123, 231, 305, 471, 482, 605, 640, 687, 709, 717, 917, 932, 1053, 1077, 1080, 1104, 1118, 1131, 1152, 1213, 1342 | `still_archived`, `tree_bytes`, `clone_or_copy`, `_package_or_scope` (both opens), `bytecode`, `installed_files`, `record_complete`, `_site_packages` (both opens), `_rule_for`, `_start`, `_small`, `_marker` (both opens), `sync_path`, `write_atomic`, `read_regular`, `remove_own_tree`, `Reclaim.run`, and `_set_aside` already protect all subsequent calls with `finally`. |
+| `RegenerableWalk._in_repository`, 1020 | Registration failure closes only an unowned descriptor; cleanup attempts every registered close once under the invariant above. |
+| `_open_path`, 1043 | Failed later opens close the current intermediate descriptor. The new child takes ownership before closing the previous descriptor, which receives one close attempt. Failed handoff cleanup closes only the child under the invariant above. The borrowed starting descriptor stays open. |
+| `_remove_children`, 1167 | Enters `try/finally` immediately; recursive work is protected and cleanup uses `_close_all`. |
+| `Reclaim._one`, 1253 | Enters `try/finally` after the open's exception handler; mode changes and recursion are protected and cleanup uses `_close_all`. |
+| `Reclaim._conflict_dir`, 1304/1311 | Mkdir, component preparation, and later-open failures are guarded. The new child takes ownership before the previous descriptor receives one close attempt. Cleanup closes only the child; cancellation from that close propagates through `_set_aside_fd`. |
+| Remaining opens: 123, 231, 305, 471, 482, 605, 640, 687, 709, 717, 917, 932, 1053, 1077, 1080, 1104, 1118, 1131, 1152, 1213, 1342 | `still_archived`, `tree_bytes`, `clone_or_copy`, `_package_or_scope` (both opens), `bytecode`, `installed_files`, `record_complete`, `_site_packages` (both opens), `_rule_for`, `_start`, `_small`, `_marker` (both opens), `sync_path`, `write_atomic`, `read_regular`, `remove_own_tree`, `Reclaim.run`, and `_set_aside` protect all subsequent calls with `finally`; those cleanup closes now use `_close_all`. |
 
 3. The invariant includes ordinary exceptions and cancellation-like
    `BaseException` injection, root descriptor preservation, and deterministic
@@ -48,8 +61,8 @@ so later examples and pytest retain their original descriptors.
 4. Added `tests/unit/test_retention_walk_descriptors.py`. The invariant index
    guards pin exactly 220 legacy ledger rows and do not require registration
    of this new regression, so that ledger is unchanged.
-5. Both requested mutants were executed against the new test file only; no
-   mutant sweep was run. The fixed source was restored afterward.
+5. In the original build, both requested mutants ran against the new test
+   file only; no mutant sweep was run. The fixed source was restored afterward.
 
 ## Execution evidence
 
@@ -163,14 +176,18 @@ bundle verification. No test or setup process is kept running.
 The execution tables above describe the original build. Review r1 found two
 additional gaps at `d3a48269a`: descent handoff leaked a new child when closing
 the previous descriptor raised, and interrupted cleanup left later descriptors
-open. Both are fixed. The handoff preserves the original `BaseException` even
-when a cleanup close fails; `_set_aside_fd` propagates the interrupt instead of
-returning normally after a replacement `EBADF`. One `_close_all` helper drains
-the `walk` stack and `_in_repository` tracking list before raising the first
-closing exception.
+open. Fix r1 addressed both, but its handoff retried the previous descriptor's
+number after a raising close, and its drain replaced active exceptions.
 
-The [follow-up execution report](2026-10-29-walk-descriptors-r1.md) records the
-nine red review cases, their green run with only expected-failure marks removed,
-five descriptor-file repetitions, the narrower regression set, guards, and
-corrected PR-body lines. All seven inherited mutants and both new mutants are
-recorded in the [r1 mutant table](2026-10-29-walk-descriptors-r1-mutants.md).
+The [r1 execution report](2026-10-29-walk-descriptors-r1.md) and
+[r1 mutant table](2026-10-29-walk-descriptors-r1-mutants.md) retain that round's
+historical runs. Review r2 (Claude Opus 5.5, lane job
+`20261029-155526-pr279-review-r2`) requested changes at `a98ee557a`: P2-3 and
+P3-1–P3-4. Its regression file was committed as `9629969c4`.
+
+Fix round r2 removes handoff retries, respects registration ownership after
+append, and routes every descriptor cleanup in this module through `_close_all`.
+The `raise_at` docstring now describes Python 3.12's first traced frame correctly;
+`sys.monitoring` reaches every instruction on both target Pythons. The
+[r2 execution report](2026-10-29-walk-descriptors-r2.md) records the red/green
+runs, precedence examples, release differentials and all thirteen named mutants.

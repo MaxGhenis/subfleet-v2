@@ -4,12 +4,13 @@ Base: `b1996dcf6bed875d7f781c6527c81f2abcc87fab` (the build plus
 the hub's byte-for-byte review tests). Work began 2026-10-29 at 14:43 UTC;
 the first hold was admitted at 14:45:18 UTC.
 
-## Decisions built
+## Decisions built in fix r1 (historical)
 
 - P2-1, commit `63dcfc10b`: each new child in `_open_path` and
   `_conflict_dir` enters its error cleanup scope before closing the previous
-  descriptor. The child and previous descriptor receive cleanup on a failed
-  handoff. Secondary cleanup errors are suppressed while the original
+  descriptor. At that commit the child receives cleanup on a failed handoff,
+  and the previous descriptor's close is attempted a second time (review r2
+  P2-3, now fixed in fix r2). Secondary cleanup errors were suppressed while the original
   `BaseException` propagates unchanged. `_set_aside_fd` now propagates the
   original interrupt in the case that previously returned after catching
   replacement `EBADF`.
@@ -19,10 +20,13 @@ the first hold was admitted at 14:45:18 UTC.
   continuing after any `BaseException`, then raises the first close error.
   The borrowed root is excluded from cleanup.
 
-- The review test file differs from the base only by removing its three
-  strict expected-failure decorators (six P2-1 cases, three P2-2 cases).
-  All other bytes match. The new opt-in mutant plugin and its evidence
-  are committed separately in `c00804112`.
+- At `7e267a13e` the review test file differed from `b1996dcf6` only by its
+  three removed decorators (six P2-1 cases, three P2-2 cases). After this report,
+  the hub's `1c8e00e16` (baseline read from the fixture) and `a98ee557a`
+  (`raise_at` through `sys.monitoring`) changed it. Fix r2 revises only the
+  three `closed_first=False` handoff expectations and corrects the mechanism
+  docstring. The opt-in mutant plugin and its r1 evidence were committed
+  separately in `c00804112`.
 
 - The original report's ownership statements have been corrected for the
   additional r1 evidence. The requested PR-body replacements appear below.
@@ -121,11 +125,11 @@ gives each mutant, start/load, counts, and named killing test. The two new
 mutants remove both handoff guards (six failures) and stop the shared drain
 at the first close error (three failures). The seven inherited mutants
 reproduced their review results. No production file was modified by a
-mutant; the final source hash still matches the second fix commit:
+mutant; the source hash at the end of fix r1 matched its second fix commit:
 
 `0a54853fb58923320a4ea066a23acd041a921683699b8507e7d7d98f958d3128`.
 
-## PR-body replacements for the hub
+## PR-body replacements supplied by fix r1 (superseded)
 
 **Line 9:** The audit protects validation, allocation, and registration
 failures. Failed-open/mkdir descent is protected; the new child in
@@ -162,3 +166,14 @@ holds supply the coverage. Not run: the archive's real-lsof case (explicitly
 deselected), the full suite, and the live frontend test (left to CI). No CI/network snapshot was
 requested or taken. No live store, real CLI, real provider, or unrelated
 host process was accessed; every walked fixture tree was made in scratch.
+
+## Review r2 and fix round r2
+
+Review r2 requested changes at `a98ee557a` for P2-3 and P3-1–P3-4. Fix r2
+removes the parent-close retry, checks registration ownership, and applies the
+[main report's cleanup invariant](2026-10-29-walk-descriptors.md#invariant)
+throughout `retention_fs.py`. Its precedence rule requires no expectation changes
+in the existing review or walk file. The three revised synthetic pre-release
+handoff cases belong to P2-3: they now assert one parent-close attempt, child
+closure, and test-owned release of the stranded parent. The [r2 report](2026-10-29-walk-descriptors-r2.md)
+contains current run and mutant results, plus replacement PR-body lines.
