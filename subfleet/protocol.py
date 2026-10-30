@@ -48,7 +48,7 @@ OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
-    "sessions", "pick", "operations",
+    "sessions", "pick", "operations", "tasks",
     *CONVERSATION_OPS,
 )
 
@@ -344,6 +344,16 @@ class LanesArgs:
     dry_run: bool = False               # transfer: print the diff, write nothing
     confirm_v1_edit: bool = False       # transfer: --i-understand-v1-edit
     note: str | None = None            # release-limits: operator's reason
+
+
+@dataclass
+class TasksArgs:
+    """`tasks` (C-11.10, D-TASKHOLD1): `list` the holds in force, `hold` a task
+    until an instant with a note, or `release` it."""
+    action: str = "list"
+    task: str | None = None
+    until: str | None = None
+    note: str | None = None
 
 
 @dataclass

@@ -308,6 +308,8 @@ class Store:
         # held it, for how long, and what they were doing.
         self._lock = WatchedLock("store")
         self._depth = 0
+        # C-3.2: each open transaction's audit event, innermost last (`audit_as`).
+        self._audits: list[list] = []
         # Bumped by every committed top-level transaction that changed a row.
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
@@ -426,12 +428,14 @@ class Store:
             self.connection.execute("BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}")
             self._depth += 1
             before = self.connection.total_changes
+            audit = [kind, data]
+            self._audits.append(audit)
             try:
                 yield self.connection
-                if self.connection.total_changes != before:
+                if self.connection.total_changes != before and audit[0] is not None:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
-                        (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))
+                        (utc_now(), audit[0], job_id, attempt_id, lane_id, _json(audit[1] or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
                 if depth == 0 and self.connection.total_changes != before:
                     self.generation += 1
@@ -443,7 +447,20 @@ class Store:
                     self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
                 raise
             finally:
+                self._audits.pop()
                 self._depth -= 1
+
+    def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None) -> None:
+        """C-3.2: the audit event of the innermost transaction open on this thread is `kind`
+        with `data`, for a transaction that learns inside itself what it did; with `kind`
+        None it writes none, its block having recorded its own events. C-11.10 (review r3
+        of #260, R3-1): an admission write that finds the task held becomes that hold's take,
+        so it records `job.task_held`, and an episode that opens behind a hold records its
+        own `job.pin_unadmittable` before the take that pauses it."""
+        with self._lock:
+            if not self._audits:
+                raise RuntimeError("audit_as: no transaction is open on this thread")
+            self._audits[-1][:] = [kind, data]
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         if self._reads_elsewhere():

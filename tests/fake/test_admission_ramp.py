@@ -704,6 +704,12 @@ def first_difference(actual, previous, path="passes"):
 
 
 @DIFFERENTIAL
+@example(queue=[("ordinary", "trivial", "codex-1")], enabled=False, cap=None,
+         initial=180, advance=0, gate=None, restart=False)
+@example(queue=[("ordinary", "trivial", "codex-1")], enabled=False, cap=None,
+         initial=0, advance=0, gate=None, restart=False)
+@example(queue=[("ordinary", "hard", "codex-1")], enabled=False, cap=None,
+         initial=2910, advance=58, gate="disk", restart=False)
 @example(queue=[("ordinary", "trivial", None)] * 3, enabled=False, cap=None,
          initial=36, advance=0, gate="disk", restart=True)
 @given(queue=QUEUES, enabled=st.sampled_from([False, None]), cap=st.sampled_from([None, 1, 3]),

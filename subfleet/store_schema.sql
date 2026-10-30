@@ -248,6 +248,8 @@ CREATE INDEX IF NOT EXISTS decisions_job ON decisions(job_id, evaluated_at DESC)
 --     conversation turn's rows, one per turn, since turns share a folder (C-24.5, `subfleet/folders.py`)
 --   | conversation:<id> and native:<provider>:<session id>: one turn per conversation and one writer
 --     per native session (C-26.3). A <folder> is spelled one way (`folders.canonical`, C-6.5).
+--   | task-hold:<task>: an operator's hold on a task at admission (C-11.10), holder `operator: <note>`,
+--     `expires_at` its end; no attempt or job holds one, and no reaper removes it (`subfleet/task_holds.py`).
 CREATE TABLE IF NOT EXISTS leases (
   lease_key TEXT PRIMARY KEY,
   holder TEXT NOT NULL,              -- attempt id or job id
