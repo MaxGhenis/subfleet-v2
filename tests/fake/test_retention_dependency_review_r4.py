@@ -10,7 +10,6 @@ from tests.unit.retention_world import git
 from tests.unit.test_retention_dependency_units import repo
 
 
-@pytest.mark.xfail(strict=True, reason="R4-F1: initial objects directory aliases are neither recorded nor revalidated")
 @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
 @pytest.mark.parametrize("entry", ["same-inode", "absent"])
 def test_objects_parent_swap_keeps_every_allocated_tree(world, monkeypatch, state, entry):
@@ -223,8 +222,7 @@ def test_repeated_alias_failures_cannot_be_erased_by_deduplication(tmp_path, mon
 
 
 @pytest.mark.parametrize("state", [
-    pytest.param("running", marks=pytest.mark.xfail(
-        strict=True, reason="R4-F1: initial objects directory target is not recorded"), id="live"),
+    pytest.param("running", id="live"),
     pytest.param("succeeded", id="exporting-control"),
 ])
 def test_stable_objects_alias_keeps_the_tree_git_reads(world, state):

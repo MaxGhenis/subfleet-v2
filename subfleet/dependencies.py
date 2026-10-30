@@ -226,7 +226,9 @@ def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | Non
         common = aliases.resolve(os.path.join(gitdir, pointer.strip()))
     elif named and os.path.basename(os.path.dirname(gitdir)) == "worktrees":
         common = os.path.dirname(os.path.dirname(gitdir))
-    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, "objects"), incomplete=incomplete, aliases=aliases)]))
+    objects = os.path.join(common, "objects")
+    target = aliases.resolve(objects)
+    return list(dict.fromkeys([gitdir, common, target, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))
 
 
 def _unquote(line: bytes) -> tuple[bytes, int]:
