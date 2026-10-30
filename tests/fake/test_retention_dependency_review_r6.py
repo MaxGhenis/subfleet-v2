@@ -11,8 +11,7 @@ from tests.unit.test_retention_dependency_units import repo
 @pytest.mark.parametrize("ending", [None, b"\n", b"\r\n"], ids=["absent", "lf", "crlf"])
 @pytest.mark.parametrize("named,state", [
     pytest.param(False, "running", id="directory-live-control"),
-    pytest.param(True, "running", id="named-live", marks=pytest.mark.xfail(
-        strict=True, reason="R6-F1: empty common target guesses a parent and omits Git's own objects")),
+    pytest.param(True, "running", id="named-live"),
     pytest.param(False, "succeeded", id="directory-exporting-control"),
     pytest.param(True, "succeeded", id="named-exporting-control"),
 ])
@@ -53,8 +52,7 @@ def test_empty_common_target_keeps_the_own_store_git_reads(world, named, state, 
 @pytest.mark.parametrize("layout", ["gitfile", "commondir"])
 @pytest.mark.parametrize("padded", [
     pytest.param(False, id="short-control"),
-    pytest.param(True, id="padded", marks=pytest.mark.xfail(
-        strict=True, reason="R6-F2: pointer read cap drops usable storage without incomplete evidence")),
+    pytest.param(True, id="padded"),
 ])
 def test_crlf_padded_pointer_keeps_the_storage_real_git_reads(world, layout, padded):
     tree = world.job("owner")

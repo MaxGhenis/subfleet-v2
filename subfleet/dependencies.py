@@ -117,8 +117,8 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
     and no process, and a `.git` file that names a directory no longer there
     still names it: a linked checkout's `gitdir:` (relative to the folder that
     holds it), its admin directory's `commondir` (relative to that directory;
-    with no `commondir`, an admin directory under `worktrees/` belongs to the
-    repository two levels up, as `retention_git.repository_near` reads it), and
+    with absent or CR/LF-only `commondir`, a named admin under `worktrees/`
+    keeps both its own store and the inferred repository two levels up), and
     `objects/info/alternates` (relative to the objects directory), followed five
     levels deep as git follows them. Empty outside a checkout. What this cannot
     read is left out: environment variables (`GIT_DIR`, `GIT_COMMON_DIR`) and
@@ -172,7 +172,7 @@ class _Aliases:
         try:
             info = os.stat(path)
             identity = (info.st_dev, info.st_ino)
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             identity = None        # a gitdir target may already be absent
         return resolved, identity
 
@@ -187,7 +187,15 @@ class _Aliases:
 
     def text(self, path: str) -> str | None:
         self.resolve(path)
-        value = _text(path)
+        try:
+            value = os.fsdecode(read_regular(path, limit=_FILE_LIMIT))
+        except NotADirectoryError:
+            value = None
+        except (OSError, ValueError) as exc:
+            # A dangling link exists but is unreadable, just as for alternates.
+            if not (isinstance(exc, FileNotFoundError) and not os.path.lexists(path)):
+                self.errors.setdefault(path, str(exc))
+            value = None
         self.pointers.setdefault(path, value)
         return value
 
@@ -226,7 +234,14 @@ def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | Non
     if pointer:
         common = aliases.resolve(os.path.join(gitdir, pointer))
     elif named and os.path.basename(os.path.dirname(gitdir)) == "worktrees":
-        common = os.path.dirname(os.path.dirname(gitdir))
+        # The parent hint protects a linked admin that lost its registration;
+        # Git can also use a complete repository at this very pathname.
+        inferred = os.path.dirname(os.path.dirname(gitdir))
+        own_objects = os.path.join(gitdir, "objects")
+        own = aliases.resolve(own_objects)
+        parent = _storage(inferred, named=False, incomplete=incomplete, aliases=aliases)
+        alternates = _alternates(own_objects, incomplete=incomplete, aliases=aliases)
+        return list(dict.fromkeys([gitdir, *parent, own, *alternates]))
     objects = os.path.join(common, "objects")
     target = aliases.resolve(objects)
     return list(dict.fromkeys([gitdir, common, target, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))
