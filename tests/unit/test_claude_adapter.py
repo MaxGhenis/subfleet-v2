@@ -18,7 +18,8 @@ import pytest
 from subfleet.adapters import claude as claude_adapter
 from subfleet.adapters.claude import (
     ADMISSION_WINDOW, ENROLL_MODEL, ENROLL_PROMPT, ENV_REMOVE, HEADLESS_BLOCK,
-    ClaudeAdapter, apply_headless_block, encode_project_dir, iso_from_epoch, iso_utc,
+    LANE_SETTINGS_ENV, ClaudeAdapter, apply_headless_block, encode_project_dir, iso_from_epoch, iso_utc,
+    lane_settings_args,
     model_matches_requested, parse_reset_clock, reconstruct_v1_argv,
 )
 from subfleet.adapters.base import AdapterError
@@ -391,9 +392,9 @@ def _build(adapter, tmp_path, sandbox, prompt="Do the thing.\n", *, effort=None)
 @pytest.mark.parametrize("sandbox", [Sandbox.READ_ONLY, Sandbox.WORKSPACE_WRITE])
 def test_launch_argv_equals_v1s_line_for_the_same_inputs(adapter, tmp_path, sandbox):
     """C-12.4, C-21 milestone 2: for each sandbox the argv equals v1's, rebuilt from
-    `bin/subfleet-claude`, apart from the three documented v2 changes (stream-json and
-    --verbose, so the rate_limit_event is readable, and strict empty MCP for a
-    writable launch, C-12.9)."""
+    `bin/subfleet-claude`, apart from the four documented v2 changes (stream-json and
+    --verbose, so the rate_limit_event is readable, strict empty MCP for a writable
+    launch, C-12.9, and the lane settings' `--settings`, d1031)."""
     launch = _build(adapter, tmp_path, sandbox)
     argv = without_publish_hook(launch.argv, writable_review=sandbox == Sandbox.WORKSPACE_WRITE)
     assert argv == reconstruct_v1_argv(
@@ -402,19 +403,22 @@ def test_launch_argv_equals_v1s_line_for_the_same_inputs(adapter, tmp_path, sand
 
 
 def without_publish_hook(argv, *, writable_review: bool) -> tuple:
-    """C-12.4: a writable review launch adds two v2 pairs right after its
-    permission flags, `--setting-sources user` (#221 r2 P3-6: the reviewed
-    tree's project settings never load) and `--settings` with the publish hook
-    (#221 r1b P1); nothing else does."""
+    """C-12.4: every launch ends with one `--settings` carrying the lane settings
+    (d1031); a writable review launch puts `--setting-sources user` before it
+    (#221 r2 P3-6: the reviewed tree's project settings never load) and the
+    publish hook in it (#221 r1b P1); nothing else does. Returns the argv with
+    that pair and the hook taken out, the lane settings' `--settings` kept."""
     argv = tuple(argv)
-    if not writable_review:
-        assert "--settings" not in argv and "user" not in argv
-        return argv
+    assert argv.count("--settings") == 1
     index = argv.index("--settings")
+    settings = json.loads(argv[index + 1])
+    if not writable_review:
+        assert "hooks" not in settings and "user" not in argv
+        return argv
     assert argv[index - 2:index] == ("--setting-sources", "user")
-    hook = json.loads(argv[index + 1])["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    hook = settings.pop("hooks")["PreToolUse"][0]["hooks"][0]["command"]
     assert hook.endswith("/publish-bin/review-publish-hook")
-    return argv[:index - 2] + argv[index + 2:]
+    return argv[:index - 2] + tuple(lane_settings_args(settings)) + argv[index + 2:]
 
 
 def test_isolated_read_only_matches_v1s_isolated_permission_args(adapter):
@@ -423,7 +427,7 @@ def test_isolated_read_only_matches_v1s_isolated_permission_args(adapter):
         Sandbox.READ_ONLY, isolated=True, review_root="/tmp/review"
     ) == reconstruct_v1_argv(
         "claude", "m", "s", "read-only", isolated=True, review_root="/tmp/review",
-    )[9:]
+    )[9:-2]
 
 
 def test_read_only_fails_closed_on_the_tool_surface(adapter, tmp_path):
@@ -445,9 +449,10 @@ def test_workspace_write_takes_the_bypass_flag_and_no_mcp_server(adapter, tmp_pa
     never-rules hook in `~/.claude/settings.json` (C-14.3), then strict MCP with an
     empty config (d714): no server from any settings file starts."""
     argv = without_publish_hook(_build(adapter, tmp_path, Sandbox.WORKSPACE_WRITE).argv, writable_review=True)
-    assert argv[-4:] == ("--dangerously-skip-permissions", "--strict-mcp-config",
-                         "--mcp-config", '{"mcpServers":{}}')
+    assert argv[-6:] == ("--dangerously-skip-permissions", "--strict-mcp-config",
+                         "--mcp-config", '{"mcpServers":{}}', *lane_settings_args())
     assert "--permission-mode" not in argv
+    assert json.loads(argv[-1]) == {"env": dict(LANE_SETTINGS_ENV)}
 
 
 def test_launch_carries_the_credential_only_in_env_add(adapter, tmp_path):
@@ -566,8 +571,9 @@ def test_resume_launch_uses_resume_not_session_id(adapter, tmp_path):
     assert launch is not None
     assert "--session-id" not in launch.argv
     assert launch.argv[:4] == (str(adapter.claude_bin), "-p", "--resume", "abc-123")
-    assert without_publish_hook(launch.argv, writable_review=True)[-4:] == (
-        "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}')
+    assert without_publish_hook(launch.argv, writable_review=True)[-6:] == (
+        "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+        *lane_settings_args())
     assert launch.argv[launch.argv.index("--model") + 1] == "claude-opus-5"
     assert launch.native_session_id == "abc-123"
     assert launch.notes["resumed_from"] == "abc-123"
@@ -727,6 +733,7 @@ def test_enroll_runs_one_haiku_turn_and_reads_the_sensor(tmp_path):
     assert turn[1:] == [
         "-p", ENROLL_PROMPT, "--model", ENROLL_MODEL,
         "--output-format", "stream-json", "--verbose", "--max-turns", "1",
+        "--settings", '{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}',
     ]
 
 

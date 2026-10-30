@@ -20,7 +20,7 @@ import base64
 import json
 from typing import Any, Callable
 
-from ..adapters.claude import model_matches_requested
+from ..adapters.claude import lane_settings_args, model_matches_requested
 from ..adapters.claude_stream import is_synthetic_api_error
 from . import redact
 from .reconcile import SETTINGS_FRAME
@@ -134,6 +134,7 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         command += ["--session-id", spec.new_session_id]
     else:
         raise ValueError("a Claude turn needs a session to resume or a new session id")
+    settings: dict[str, Any] = {}
     if spec.permission == "read-only":
         command += list(read_only_flags)
     elif spec.permission in PERMISSION_FLAGS:
@@ -141,19 +142,18 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         command += ["--disallowedTools", ",".join(DISALLOWED_TOOLS)]
         # Command-line settings outrank project and local settings, so a workspace
         # file cannot switch the user's never-rules hook off (C-26.11).
-        settings: dict[str, Any] = {"disableAllHooks": False}
-        if spec.fast:
-            settings["fastMode"] = True
-        if ultracode:
-            # C-26.8: the orchestration half of ultracode. Read-only turns get only
-            # its effort: their tool set has no Workflow tool to orchestrate with.
-            settings["ultracode"] = True
-        command += ["--settings", json.dumps(settings, separators=(",", ":"))]
+        settings["disableAllHooks"] = False
     else:
         raise ValueError(f"unknown permission {spec.permission!r}")
-    if spec.permission == "read-only" and spec.fast:
-        command += ["--settings", json.dumps({"fastMode": True}, separators=(",", ":"))]
-    return command
+    if spec.fast:
+        settings["fastMode"] = True
+    if ultracode and spec.permission != "read-only":
+        # C-26.8: the orchestration half of ultracode. Read-only turns get only
+        # its effort: their tool set has no Workflow tool to orchestrate with.
+        settings["ultracode"] = True
+    # One `--settings` for every permission, with Claude Code's retry watchdog
+    # off (C-26.11, d1031), intended to end a turn at its plan's ceiling rather than wait.
+    return command + lane_settings_args(settings)
 
 
 def environment() -> dict[str, str]:

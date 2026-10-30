@@ -567,8 +567,9 @@ def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str
 
     The CLI runs in a process group of its own, in a scratch directory, with no
     MCP server (`--strict-mcp-config` and an empty config, so a login folder's
-    own servers never start), one turn, no tools needed, and an environment
-    holding no other credential. No heal starts once `cancel` is set. The group
+    own servers never start), one turn, no tools needed, Claude Code's retry
+    watchdog off (`--settings`, d1031), and an environment holding no other
+    credential. No heal starts once `cancel` is set. The group
     is stopped when the turn outlives `timeout` or `cancel` is set (a daemon stop
     must not wait for a heal): SIGTERM, then SIGKILL two seconds later. However
     the heal ends, a normal exit and an error while its output is read included,
@@ -578,10 +579,12 @@ def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str
     timeout, 127 a CLI that could not start, 130 a cancelled heal. Nothing here
     reads or writes the credential.
     """
+    from .adapters.claude import lane_settings_args
     env = (environment or ProviderEnvironment({})).build("claude", env_remove=HEAL_ENV_REMOVE)
     env["CLAUDE_CONFIG_DIR"] = str(home)
+    # D-WATCHDOG1: the login folder's own settings may turn the retry watchdog on.
     argv = [claude_bin, "-p", prompt, "--model", model, "--max-turns", "1",
-            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', *lane_settings_args()]
     if cancel is not None and cancel.is_set():
         return 130, "", "heal cancelled: the daemon is stopping"
     with tempfile.TemporaryDirectory(prefix="subfleet-card-heal-") as workdir:

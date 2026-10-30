@@ -45,6 +45,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -128,6 +129,15 @@ MCP_CONFIG_MAX_BYTES = 4 << 20
 #: Removed from the child's environment: a lane bills the subscription through the
 #: pinned OAuth token, never the API meter (C-12.4).
 ENV_REMOVE: tuple[str, ...] = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+#: d1031 (D-WATCHDOG1): the `env` every Claude launch that starts a model turn gets in the
+#: settings it is given on the command line. Under Claude Code's retry watchdog
+#: (`CLAUDE_CODE_RETRY_WATCHDOG=1`) 429 and 529 responses retry without end, so a lane
+#: that reaches its plan's ceiling would wait out the window instead of exiting, and
+#: C-4.5's `limited` failover could not move the job on before the wall. A lane has no
+#: home of its own, so the user's `settings.json` `env` reaches every launch that loads
+#: user settings; this sets the variable back on all of them (C-12.4, C-26.11).
+LANE_SETTINGS_ENV: Mapping[str, str] = MappingProxyType({"CLAUDE_CODE_RETRY_WATCHDOG": "0"})
 
 HEADLESS_BLOCK = f"""{HEADLESS_MARKER}
 ## HEADLESS EXECUTION (binding — read before anything else)
@@ -328,6 +338,20 @@ def _atomic_write_text(path: Path, text: str) -> None:
         os.fsync(dir_fd)
     finally:
         os.close(dir_fd)
+
+
+def lane_settings(settings: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """`settings` with `LANE_SETTINGS_ENV` merged over its `env` (D-WATCHDOG1): the
+    payload of a launch's one `--settings`. Every other key, and every other
+    variable in `env`, is kept as it was; `settings` itself is not changed."""
+    merged = dict(settings or {})
+    merged["env"] = {**dict(merged.get("env") or {}), **LANE_SETTINGS_ENV}
+    return merged
+
+
+def lane_settings_args(settings: Mapping[str, Any] | None = None) -> list[str]:
+    """`--settings` with `lane_settings(settings)`, as compact JSON."""
+    return ["--settings", json.dumps(lane_settings(settings), separators=(",", ":"))]
 
 
 def apply_headless_block(prompt: str) -> str:
@@ -850,6 +874,7 @@ class ClaudeAdapter(Adapter):
             "--output-format", "stream-json",
             "--verbose",
             "--max-turns", "1",
+            *lane_settings_args(),            # D-WATCHDOG1: a probe's turn carries it too
         ]
 
     def _run_turn(self, env_add: dict[str, str], model_id: str,
@@ -1382,7 +1407,8 @@ class ClaudeAdapter(Adapter):
         `guard_override` is accepted and unused: a Claude launch relies on the global
         never-rules hook in `~/.claude/settings.json`, and `doctor` reports when that
         hook is missing (C-14.3). The one per-launch hook is a writable review's
-        publish rule, given with `--settings` (C-12.4, `claude_settings_args`).
+        publish rule, merged into the launch's one `--settings` with
+        `LANE_SETTINGS_ENV` (C-12.4, `claude_settings_args`, D-WATCHDOG1).
         """
         attempt_dir = Path(attempt_dir)
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -1405,7 +1431,7 @@ class ClaudeAdapter(Adapter):
                                          review_root=job.review_root,
                                          mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
                                          tmpdir=credential_env.get("TMPDIR")))
-        argv += claude_settings_args(job, sandbox, attempt_dir)          # C-12.4: publish hook
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
@@ -1455,7 +1481,7 @@ class ClaudeAdapter(Adapter):
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
             tmpdir=credential_env.get("TMPDIR")))
-        argv += claude_settings_args(job, sandbox, attempt_dir)          # C-12.4: publish hook
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
@@ -2100,13 +2126,14 @@ def reconstruct_v1_argv(
         "$CLAUDE_BIN" -p --model "$MODEL" --session-id "$SID" \\
             --output-format json ${PERM_ARGS[@]+"${PERM_ARGS[@]}"}
 
-    v2 differs in exactly three documented places: the output format is `stream-json`
-    (C-12.4, so the `rate_limit_event` is readable), `--verbose` accompanies it, and
+    v2 differs in exactly four documented places: the output format is `stream-json`
+    (C-12.4, so the `rate_limit_event` is readable), `--verbose` accompanies it,
     a writable launch adds `--strict-mcp-config --mcp-config <config>` after v1's
-    bypass flag (C-12.9, d714), so it starts only the MCP servers its job named.
-    Read-only `PERM_ARGS` is reproduced verbatim, in v1's order. The parity test
-    compares this against `ClaudeAdapter.build_launch`, so a drift in either fails
-    loudly.
+    bypass flag (C-12.9, d714), so it starts only the MCP servers its job named, and
+    every launch ends with one `--settings` carrying `LANE_SETTINGS_ENV` (d1031,
+    D-WATCHDOG1), intended to let a lane at its plan's ceiling exit. Read-only `PERM_ARGS` is
+    reproduced verbatim, in v1's order. The parity test compares this against
+    `ClaudeAdapter.build_launch`, so a drift in either fails loudly.
     """
     argv = [claude_bin, "-p", "--model", model, "--session-id", session_id,
             "--output-format", output_format]
@@ -2129,6 +2156,7 @@ def reconstruct_v1_argv(
         ]
         if isolated and review_root:
             argv += ["--add-dir", review_root]
+    argv += lane_settings_args()
     return tuple(argv)
 
 
@@ -2138,6 +2166,7 @@ __all__ = [
     "ENROLL_PROMPT",
     "ENV_REMOVE",
     "KEYCHAIN_PREFIX",
+    "LANE_SETTINGS_ENV",
     "HEADLESS_BLOCK",
     "ADMISSION_WINDOW",
     "SOURCE_RATE_LIMIT_EVENT",
@@ -2152,6 +2181,8 @@ __all__ = [
     "encode_project_dir",
     "iso_from_epoch",
     "iso_utc",
+    "lane_settings",
+    "lane_settings_args",
     "link_raw_stream",
     "model_matches_requested",
     "parse_reset_clock",

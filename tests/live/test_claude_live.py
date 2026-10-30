@@ -93,9 +93,11 @@ def test_the_live_reset_clocks_are_in_the_future(live_lane_info):
 
 def test_the_probe_command_is_the_one_experiment_zero_ran():
     """C-10.2 the live command is checked without spending a turn: the argv this
-    adapter builds is byte for byte the one experiment 0 recorded."""
+    adapter builds is byte for byte the one experiment 0 recorded, then the lane
+    settings' one `--settings` (d1031, D-WATCHDOG1)."""
     adapter = ClaudeAdapter(claude_bin="claude")
     assert adapter._turn_argv(ENROLL_MODEL) == [
         "claude", "-p", ENROLL_PROMPT, "--model", ENROLL_MODEL,
         "--output-format", "stream-json", "--verbose", "--max-turns", "1",
+        "--settings", '{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}',
     ]

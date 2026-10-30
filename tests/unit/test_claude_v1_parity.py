@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from subfleet.adapters.claude import (
-    ENV_REMOVE, ClaudeAdapter, reconstruct_v1_argv,
+    ENV_REMOVE, ClaudeAdapter, lane_settings_args, reconstruct_v1_argv,
 )
 from subfleet.contracts import Sandbox
 
@@ -110,8 +110,9 @@ def test_workspace_write_permission_args_come_from_v1s_own_array(v1_source):
 
 def test_the_base_launch_line_matches_v1s_apart_from_the_documented_changes(v1_source):
     """C-12.4 v1's launch line is `-p --model M --session-id S --output-format json`
-    followed by PERM_ARGS. v2 changes exactly two things: `stream-json` instead of
-    `json`, so the `rate_limit_event` is readable, and `--verbose` beside it."""
+    followed by PERM_ARGS. v2 changes exactly three things here: `stream-json` instead
+    of `json`, so the `rate_limit_event` is readable, `--verbose` beside it, and one
+    `--settings` with the lane settings last (d1031, D-WATCHDOG1)."""
     launch_line = re.search(
         r'"\$CLAUDE_BIN" -p --model "\$MODEL" \\\n\s*'
         r'--session-id "\$SID" --output-format (\w+) '
@@ -127,7 +128,8 @@ def test_the_base_launch_line_matches_v1s_apart_from_the_documented_changes(v1_s
         "--output-format",
     )
     assert argv[7:9] == ("stream-json", "--verbose")
-    assert argv[9:] == ClaudeAdapter.permission_args(Sandbox.READ_ONLY)
+    assert argv[9:-2] == ClaudeAdapter.permission_args(Sandbox.READ_ONLY)
+    assert list(argv[-2:]) == lane_settings_args()
 
 
 def test_v1_unsets_the_same_api_key_variables_this_adapter_removes(v1_source):

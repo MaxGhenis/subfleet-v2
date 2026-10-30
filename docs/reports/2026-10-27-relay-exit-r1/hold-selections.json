@@ -1,0 +1,162 @@
+{
+  "core2": [
+    "tests/unit/test_claude_turn.py",
+    "tests/unit/test_codex_turn.py",
+    "tests/unit/test_codex_turn_completed.py",
+    "tests/fake/test_codex_turn_completed_fake.py"
+  ],
+  "catalog": [
+    "tests/unit/test_conversation_catalog.py",
+    "tests/unit/test_conversation_catalog_lifecycle.py",
+    "tests/unit/test_conversation_connections.py",
+    "tests/unit/test_conversation_fifo_reads.py",
+    "tests/unit/test_conversation_diff.py",
+    "tests/unit/test_conversation_history.py"
+  ],
+  "handoff": [
+    "tests/unit/test_conversation_handoff.py",
+    "tests/unit/test_conversation_handoff_briefs.py",
+    "tests/unit/test_conversation_handoff_dispatch_races.py",
+    "tests/unit/test_conversation_peers_attachments.py",
+    "tests/unit/test_conversation_reconcile.py",
+    "tests/unit/test_conversation_redact.py",
+    "tests/unit/test_conversation_refresh.py"
+  ],
+  "state": [
+    "tests/unit/test_conversation_state_reads.py",
+    "tests/unit/test_conversation_status.py",
+    "tests/unit/test_conversation_store.py",
+    "tests/unit/test_conversation_stream_assertion.py",
+    "tests/unit/test_conversation_waits.py",
+    "tests/unit/test_conversation_wakes.py"
+  ],
+  "service": [
+    "tests/unit/test_conversation_service.py",
+    "tests/unit/test_claude_conversation_mcp_scope.py"
+  ],
+  "relay": [
+    "tests/unit/test_relay.py",
+    "tests/unit/test_enrollment_runner.py",
+    "tests/unit/test_retention_turn_contract.py",
+    "tests/unit/test_retention_turn_workdirs.py",
+    "tests/unit/test_retention_turns.py",
+    "tests/unit/test_scheduler_turns.py",
+    "tests/unit/test_cli_turns.py"
+  ],
+  "steer-service": [
+    "tests/unit/test_conversation_steer_service.py",
+    "tests/unit/test_capacity_steer_route.py",
+    "tests/unit/test_capacity_steer_mutations.py",
+    "tests/fake/test_interactive_steer.py",
+    "tests/fake/test_capacity_steer_daemon.py"
+  ],
+  "steer-properties": [
+    "tests/unit/test_steer_invariants.py",
+    "-k",
+    "not through_the_runner_loop"
+  ],
+  "steer-loop": [
+    "tests/unit/test_steer_invariants.py",
+    "-k",
+    "through_the_runner_loop"
+  ],
+  "fakes": [
+    "tests/fake/test_conversation_pools.py",
+    "tests/fake/test_conversation_wakes_fake.py",
+    "tests/fake/test_turn_listing.py",
+    "tests/fake/test_turn_retention_cwd.py",
+    "tests/fake/test_turn_retention_cwd_properties.py",
+    "tests/fake/test_turn_retention_job_directory.py",
+    "tests/fake/test_turn_retention_job_properties.py",
+    "tests/fake/test_turn_retention_quarantine.py",
+    "tests/fake/test_turn_trees.py",
+    "tests/fake/test_turn_wait_reasons.py"
+  ],
+  "probe": [
+    "tests/fake/test_probe_turn.py",
+    "-k",
+    "not no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe"
+  ],
+  "probe-property": [
+    "tests/fake/test_probe_turn.py",
+    "-k",
+    "no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe"
+  ],
+  "sessions": [
+    "tests/unit/test_sessions_handoff.py"
+  ],
+  "excerpts-fixed": [
+    "tests/unit/test_sessions_handoff_excerpts.py",
+    "-k",
+    "not within_the_budget and not an_excerpt_never and not wrapper_walk"
+  ],
+  "excerpts-budget": [
+    "tests/unit/test_sessions_handoff_excerpts.py",
+    "-k",
+    "within_the_budget"
+  ],
+  "excerpts-secret": [
+    "tests/unit/test_sessions_handoff_excerpts.py",
+    "-k",
+    "an_excerpt_never"
+  ],
+  "excerpts-wrapper": [
+    "tests/unit/test_sessions_handoff_excerpts.py",
+    "-k",
+    "wrapper_walk"
+  ],
+  "e2e": [
+    "tests/e2e/test_conversations.py",
+    "-rs"
+  ],
+  "titles": [
+    "tests/unit/test_conversation_titles.py"
+  ],
+  "core1-overlap": [
+    "tests/unit/test_turn_overlap.py"
+  ],
+  "bulk-service": [
+    "tests/unit/test_conversation_service.py",
+    "tests/unit/test_claude_conversation_mcp_scope.py",
+    "tests/unit/test_relay.py",
+    "tests/unit/test_enrollment_runner.py",
+    "tests/unit/test_retention_turn_contract.py",
+    "tests/unit/test_retention_turn_workdirs.py",
+    "tests/unit/test_retention_turns.py",
+    "tests/unit/test_scheduler_turns.py",
+    "tests/unit/test_cli_turns.py",
+    "tests/unit/test_conversation_titles.py"
+  ],
+  "bulk-fakes-handoff": [
+    "tests/fake/test_conversation_pools.py",
+    "tests/fake/test_conversation_wakes_fake.py",
+    "tests/fake/test_turn_listing.py",
+    "tests/fake/test_turn_retention_cwd.py",
+    "tests/fake/test_turn_retention_cwd_properties.py",
+    "tests/fake/test_turn_retention_job_directory.py",
+    "tests/fake/test_turn_retention_job_properties.py",
+    "tests/fake/test_turn_retention_quarantine.py",
+    "tests/fake/test_turn_trees.py",
+    "tests/fake/test_turn_wait_reasons.py",
+    "tests/fake/test_probe_turn.py",
+    "tests/unit/test_sessions_handoff.py",
+    "tests/unit/test_sessions_handoff_excerpts.py",
+    "-k",
+    "not no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe"
+  ],
+  "bulk-conversations": [
+    "tests/unit/test_conversation_handoff.py",
+    "tests/unit/test_conversation_handoff_briefs.py",
+    "tests/unit/test_conversation_handoff_dispatch_races.py",
+    "tests/unit/test_conversation_peers_attachments.py",
+    "tests/unit/test_conversation_reconcile.py",
+    "tests/unit/test_conversation_redact.py",
+    "tests/unit/test_conversation_refresh.py",
+    "tests/unit/test_conversation_state_reads.py",
+    "tests/unit/test_conversation_status.py",
+    "tests/unit/test_conversation_store.py",
+    "tests/unit/test_conversation_stream_assertion.py",
+    "tests/unit/test_conversation_waits.py",
+    "tests/unit/test_conversation_wakes.py"
+  ]
+}
