@@ -172,8 +172,21 @@ host process was accessed; every walked fixture tree was made in scratch.
 Review r2 requested changes at `a98ee557a` for P2-3 and P3-1–P3-4. Fix r2
 removes the parent-close retry, checks registration ownership, and applies the
 [main report's cleanup invariant](2026-10-29-walk-descriptors.md#invariant)
-throughout `retention_fs.py`. Its precedence rule requires no expectation changes
+to explicit error and finally cleanup in `retention_fs.py`. Normal walk
+completion and successful descent handoffs still called `os.close` directly.
+Review r3 then found P2-4, P2-5, P3-5 and P3-6; the broader invariant still had
+those gaps at the r2 head. Its precedence rule requires no expectation changes
 in the existing review or walk file. The three revised synthetic pre-release
 handoff cases belong to P2-3: they now assert one parent-close attempt, child
 closure, and test-owned release of the stranded parent. The [r2 report](2026-10-29-walk-descriptors-r2.md)
 contains current run and mutant results, plus replacement PR-body lines.
+
+
+## Fix round r3 correction
+
+The [r3 fixes and evidence](2026-10-29-walk-descriptors-r3.md) close the four
+executed gaps: explicit operation exit state, `size` root cleanup, pop ownership,
+and explicit ownership of all ten walk consumers. The main invariant is achieved
+again in the exercised scenarios. Coverage of every possible cleanup interruption
+extends only as far as the tests, including the reported marker-to-call boundary.
+All r1 run and mutant counts above remain historical evidence.

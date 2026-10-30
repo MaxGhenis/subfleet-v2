@@ -13,13 +13,17 @@ The first red hold started at 03:05:52 UTC, within the first hour.
 2. P3-1 (`1b6989c67`): walk and repository registration handlers close only a
    descriptor their owning collection does not already hold. Post-append
    interrupts now propagate unchanged with one close per owned descriptor.
-3. P3-2/P3-3 (`6594392bd`): every descriptor cleanup in `retention_fs.py` uses
-   `_close_all`, including all 27 pre-existing single-descriptor finally
-   blocks, validation, registration handlers, descent handlers and both drains.
+3. P3-2/P3-3 (`6594392bd`): explicit error and finally cleanup in
+   `retention_fs.py` uses `_close_all`, including all 27 pre-existing
+   single-descriptor finally blocks, validation, registration handlers, descent
+   handlers and both drains. Normal walk completion and successful descent
+   handoffs still called `os.close` directly.
    The [main invariant](2026-10-29-walk-descriptors.md#invariant) defines precedence.
-   The original single-failure exception type, TreeError code, errno and message
-   remain unchanged. A natural GeneratorExit plus a failed close is the deliberate
-   two-exception case explained below.
+   The named single-failure differentials retain the original exception type,
+   TreeError code, errno and message for their executed inputs. A natural
+   GeneratorExit plus a failed close is the deliberate two-exception case below.
+   Review r3's handled-caller, root-close, pop and finalization counterexamples
+   expose the remaining gaps at this historical head.
 4. P3-4: the review file's docstring now states that settrace with opcode
    tracing enabled in the call event misses every opcode in the first frame
    traced in a Python 3.12 process. sys.monitoring INSTRUCTION events reach every
@@ -134,8 +138,10 @@ new precedence on both Pythons. Repository plans and 400 walk + 400 repository
 differentials passed in each exploratory parity hold; walk differentials
 include 230 raising cases per 400. After the two scratch assertion corrections,
 all 33 walk plans pass on each Python. No production change was needed.
-Single-failure behavior without a cleanup failure matches d3a48269a, including
-yields, return values, exception class, TreeError reason, errno and message.
+For the executed differentials, single-failure behavior without a cleanup
+failure matches d3a48269a, including yields, return values, exception class,
+TreeError reason, errno and message. This scopes parity to those inputs;
+review r3's four counterexamples are additional behavior beyond that matrix.
 Baselines were regenerated with the review's git-show instructions in scratch.
 The reviewer's in-memory fix was read as a reference, not applied as a patch.
 
@@ -195,9 +201,9 @@ MC all four; MH six; MD both walk cases plus repository cleanup; ML/MI one each)
 - Validation, allocation, registration, and failed descent are protected. In `_open_path` and `_conflict_dir`, the new child takes ownership before the previous descriptor is closed; each descriptor receives at most one close attempt, so a failed parent close cleans up the child without retrying a number another thread may have reused.
 - Cleanup attempts every remaining owned close once. `walk` preserves the borrowed `root_fd`; the exit behavior follows the invariant below.
 
-**Invariant:** With nothing in flight, try every owned close once, then raise the first close error. An exception in flight propagates unchanged, except cleanup cancellation overrides an `Exception` or `GeneratorExit`, with that exception as its `__context__`. An in-flight cancellation always wins. Cancellation is a `BaseException` other than `Exception` or `GeneratorExit`, including `KeyboardInterrupt`, `SystemExit`, and custom subclasses.
+**Invariant (achieved for fix r3's tested paths; gaps remained at the historical r2 head):** With nothing in flight, try every owned close once, then raise the first close error. An exception in flight propagates unchanged, except cleanup cancellation overrides an `Exception` or `GeneratorExit`, with that exception as its `__context__`. An in-flight cancellation always wins. Cancellation is a `BaseException` other than `Exception` or `GeneratorExit`, including `KeyboardInterrupt`, `SystemExit`, and custom subclasses.
 
-**Review r2 and fix round r2:** Review r2 (Claude Opus 5.5, lane job `20261029-155526-pr279-review-r2`) requested changes at `a98ee557a` for P2-3 and P3-1–P3-4; regression commit `9629969c4` supplied eight strict expected failures. Fix r2 removes the close retry, respects registration ownership, applies cleanup precedence throughout `retention_fs.py`, and corrects the Python 3.12 tracing explanation. All eight fail at `b20cf84ad` and pass without marks on Python 3.14.7 and 3.12.14; 766 distinct maintained cases pass, and all thirteen named mutants are killed. One unchanged lifecycle property fails for `start → swap → vanish` at both base and head: its model removes its own replacement, then asserts it still exists. The 33 walk and 33 repository plans and 400-case differentials run on both Pythons, with the intentional GeneratorExit precedence change recorded.
+**Review r2 and fix round r2:** Review r2 (Claude Opus 5.5, lane job `20261029-155526-pr279-review-r2`) requested changes at `a98ee557a` for P2-3 and P3-1–P3-4; regression commit `9629969c4` supplied eight strict expected failures. Fix r2 removes the close retry, respects registration ownership, centralizes explicit error and finally cleanup in `retention_fs.py`, and corrects the Python 3.12 tracing explanation. All eight fail at `b20cf84ad` and pass without marks on Python 3.14.7 and 3.12.14; 766 distinct maintained cases pass, and all thirteen named mutants are killed. One unchanged lifecycle property fails for `start → swap → vanish` at both base and head: its model removes its own replacement, then asserts it still exists. The 33 walk and 33 repository plans and 400-case differentials run on both Pythons, with the intentional GeneratorExit precedence change recorded.
 
 ## Delivery and exclusions
 
@@ -222,3 +228,21 @@ Not run: the deselected live lsof case, the full suite, the live frontend
 `tests/frontend/test_core_live.py` (lane person-only check; CI owns it), and the
 broader regression set on Python 3.12 (it ran on 3.14). No CI job log or current
 CI snapshot was requested or read. Every requested non-live case was run; the unchanged lifecycle property failure is documented above.
+
+
+## Review r3 and fix round r3
+
+Review r3 requested changes at `03d9270b2` for P2-4, P2-5, P3-5 and P3-6.
+The r2 cleanup helper inferred an operation's pending exit from ambient state;
+handled caller exceptions exposed that mistake. `size` still used a plain root
+close, a popped child could become unowned, and `record_complete` implicitly
+finalized its walk. Nine strict regression cases fail on both Pythons, with
+one passing control, at the merged r3 starting head.
+
+Fix r3 makes pending exits explicit, applies the same owner to `size`, protects
+the pop transition, and explicitly closes all ten production walk iterators.
+The ten r3 cases pass without marks on both Pythons. The invariant is achieved
+for the tested scenarios; universal cleanup claims go only as far as those tests.
+The [r3 report](2026-10-29-walk-descriptors-r3.md) names the marker-to-call
+instruction gap, reports current runs and all seventeen mutants, and supplies
+current PR-body replacements. Historical r2 counts above are unchanged.
