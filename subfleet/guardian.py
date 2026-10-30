@@ -27,9 +27,17 @@ from .launch_env import build_environment, valid_name
 # (`pthread_set_qos_class_self_np`) and `nice` reach no child, fork or posix_spawn
 # (docs/reports/2026-09-27-daemon-qos.md). taskpolicy(8) sets the clamp and execs the
 # provider in its own place, so its pid, group, environment and argv are the provider's.
+#
+# A priority caller's booked run is the exception (D-QOS-BOOKED1): a job that requested
+# `run --qos default` and is `priority` at its launch (C-6.16) is the operator's chosen
+# work, and clamped it waited behind every process at the default QoS (a UK microsimulation
+# at PRI 20 behind about 900% CPU of PRI-31 work, 2026-10-28). The daemon asks for
+# `--provider-qos inherit` when it launches one; everything else keeps the clamp.
 TASKPOLICY = "/usr/sbin/taskpolicy"
 PROVIDER_QOS = "utility"
-PROVIDER_QOS_ENV = "SUBFLEET_PROVIDER_QOS"    # `inherit`: the provider runs at the guardian's QoS
+INHERIT = "inherit"
+PROVIDER_QOS_CHOICES = (PROVIDER_QOS, INHERIT)  # `--provider-qos`: the daemon's choice for one launch
+PROVIDER_QOS_ENV = "SUBFLEET_PROVIDER_QOS"    # `inherit`: every provider runs at the guardian's QoS
 # taskpolicy exits 66 (EX_NOINPUT) with this line when its posix_spawn of the provider fails.
 CLAMP_SPAWN_FAILED_RC = 66
 CLAMP_SPAWN_FAILED = b"taskpolicy: posix_spawn: "
@@ -56,12 +64,17 @@ ABANDON_NAME = "abandon.json"
 ABANDONED_RC = 127
 
 
-def provider_qos() -> str | None:
+def provider_qos(requested: str = PROVIDER_QOS) -> str | None:
     """The QoS clamp the provider starts under, or None when it inherits the guardian's.
 
-    Only `inherit` opts out. A host without taskpolicy(8) inherits too: that is not macOS,
-    where it ships in the base system."""
-    if os.environ.get(PROVIDER_QOS_ENV, PROVIDER_QOS) == "inherit" or not os.access(TASKPOLICY, os.X_OK):
+    `requested` is the daemon's choice for this launch (`--provider-qos`): `inherit` for a
+    priority caller's job that asked for it (D-QOS-BOOKED1), `utility` for everything else.
+    Only `inherit` opts out, from the daemon for one launch or from the operator
+    (`SUBFLEET_PROVIDER_QOS`) for every launch; neither can clamp what the other lets
+    inherit. A host without taskpolicy(8) inherits too: that is not macOS, where it ships
+    in the base system."""
+    if (requested == INHERIT or os.environ.get(PROVIDER_QOS_ENV, PROVIDER_QOS) == INHERIT
+            or not os.access(TASKPOLICY, os.X_OK)):
         return None
     return PROVIDER_QOS
 
@@ -218,12 +231,14 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                  stdin_path: str | None, stdout_path: str, stderr_path: str,
                  start_delay_s: float = 0, launch_fd: int | None = None,
                  control_socket: str | None = None, relay_peer_lock: str | None = None,
-                 env_pass: tuple[str, ...] = ()) -> int:
+                 env_pass: tuple[str, ...] = (), qos_request: str = PROVIDER_QOS) -> int:
     """Run argv in a new session, writing start before spawn and exit after wait.
 
     With `control_socket`, the child's stdin is a pipe fed only through the relay
     (C-26.4): the socket is bound before `start.json` names it, and frames are
-    applied once each, in order, logged to `stdin.jsonl`."""
+    applied once each, in order, logged to `stdin.jsonl`. `qos_request` is the
+    daemon's `--provider-qos` (C-5.1, D-QOS-BOOKED1); `start.json` records the QoS
+    the provider was given as `provider_qos`, `utility` or `inherit`."""
     os.umask(0o077)
     os.setsid()
     # Keep the leader alive while a child ignores TERM, so the daemon can
@@ -252,6 +267,8 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
         "guardian_pid": os.getpid(), "pgid": os.getpgrp(), "boot_id": boot_id(),
         "proc_start": proc_start(os.getpid()), "started_at": _utc(),
     }
+    qos = provider_qos(qos_request)
+    start["provider_qos"] = qos or INHERIT       # what the provider is given, never what was asked
     if not start["proc_start"]:
         raise RuntimeError("guardian could not establish its process start identity")
     relay = None
@@ -276,7 +293,6 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
             if relay is not None:
                 relay.stop()
             return _abandon(attempt_dir, marker, started, "spawn")
-        qos = provider_qos()
         command = provider_argv(argv, qos)
         child_env = build_environment(removals=(LINGER_SETTLE_ENV,), pass_names=env_pass)
         try:
@@ -348,6 +364,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--relay-peer-lock", help="accept relay connections only from the daemon this lock names")
     parser.add_argument("--env-pass", action="append", default=[], metavar="NAME",
                         help="explicit launch-owned or policy-selected variable name")
+    parser.add_argument("--provider-qos", choices=PROVIDER_QOS_CHOICES, default=PROVIDER_QOS,
+                        help="inherit: start the provider at this process's QoS, unclamped (D-QOS-BOOKED1)")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if any(not valid_name(name) for name in args.env_pass):
@@ -359,7 +377,8 @@ def main(argv: list[str] | None = None) -> int:
                       stdin_path=args.stdin_path, stdout_path=args.stdout_path,
                       stderr_path=args.stderr_path, start_delay_s=args.start_delay_s,
                       launch_fd=args.launch_fd, control_socket=args.control_socket,
-                      relay_peer_lock=args.relay_peer_lock, env_pass=tuple(args.env_pass))
+                      relay_peer_lock=args.relay_peer_lock, env_pass=tuple(args.env_pass),
+                      qos_request=args.provider_qos)
     if rc < 0:
         # Preserve subprocess's signal returncode as well as the raw receipt.
         if -rc not in {signal.SIGKILL, signal.SIGSTOP}:

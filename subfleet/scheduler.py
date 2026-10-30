@@ -17,6 +17,7 @@ from typing import Any
 
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .launch_env import refused_reference
+from .protocol import PROVIDER_QOS_REQUESTS
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
@@ -245,6 +246,41 @@ def priority_class(job: Any, live: Liveness | None = None, *,
     if job.get("parent_job_id") and job["parent_job_id"] in live.jobs:
         return "session"
     return "background"
+
+
+#: C-5.1, D-QOS-BOOKED1: what a job may request (`run --qos`).
+QOS_REQUESTS = PROVIDER_QOS_REQUESTS
+
+
+def requested_qos(job: Any) -> str:
+    """D-QOS-BOOKED1: the provider QoS a job requested. Anything but `default`, NULL
+    (every job from before `run --qos`, and every job that never asked) included, is
+    `utility`."""
+    return "default" if _row(job).get("provider_qos") == "default" else "utility"
+
+
+def launch_qos(job: Any, *, policy: Mapping[str, Any],
+               jobs: Mapping[str, Any] | None = None) -> tuple[str, str]:
+    """C-5.1, D-QOS-BOOKED1: what this launch of the job's provider asks the guardian
+    for, `inherit` or `utility`, and why, in the words `why` shows.
+
+    Only a job that requested `default` and is `priority` now asks for `inherit`
+    (C-6.16: its caller or an ancestor's is in `admission.priority_callers`; `jobs`
+    supplies the ancestors, as for `priority_class`). It is decided at each launch,
+    from the policy then, so a caller taken off the list between attempts is clamped
+    on the next. A request that is not honoured is no error: the provider starts
+    clamped, as every other provider does."""
+    job = _row(job)
+    if requested_qos(job) != "default":
+        return "utility", "qos utility requested; provider clamped to utility"
+    if job.get("kind") == "turn":
+        return "utility", ("qos default requested; a conversation turn is never priority (C-6.16); "
+                           "provider clamped to utility")
+    if priority_class(job, None, policy=policy, jobs=jobs) == "priority":
+        return "inherit", ("qos default requested; class priority (admission.priority_callers); "
+                           "provider starts unclamped")
+    return "utility", ("qos default requested; caller is not in admission.priority_callers; "
+                       "provider clamped to utility")
 
 
 def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness | None = None, *,

@@ -932,6 +932,7 @@ def _prepare_submit(args: argparse.Namespace,
         prompt_path=prompt_path,
         sandbox=sandbox,
         needs_shell=getattr(args, "needs_shell", None),
+        provider_qos=getattr(args, "qos", None),
         task=args.task,
         tier=args.tier,
         pinned_model=args.m,
@@ -1135,9 +1136,10 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "mcp": ("mcp", "list"),
     "push_branch": ("push_branch", "str"),
     "needs_shell": ("needs_shell", "bool"),
+    "qos": ("qos", "str"),
 }
 BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES,
-                 "sandbox": SANDBOX_CHOICES}
+                 "sandbox": SANDBOX_CHOICES, "qos": protocol.PROVIDER_QOS_REQUESTS}
 BATCH_MAX = 256
 
 
@@ -3587,6 +3589,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="commands only, no writes; for tests use -s workspace-write (default: policy requires for --task)")
     shell.add_argument("--no-needs-shell", dest="needs_shell", action="store_false",
                        help="allow launches without command execution")
+    p_run.add_argument("--qos", choices=protocol.PROVIDER_QOS_REQUESTS,
+                       help="the provider's QoS (default: utility, C-5.1); default starts it unclamped, "
+                            "but only at a launch where this job's caller, or an ancestor's, is in "
+                            "admission.priority_callers (C-6.16); `why` says which")
     p_run.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL",
                        help="never pick this account (repeatable)")
     p_run.add_argument("--allow-desktop", action="store_true",

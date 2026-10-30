@@ -1,4 +1,4 @@
--- subfleet v2 store schema, version 9 (three launch capabilities and review publish denial).
+-- subfleet v2 store schema, version 10 (a job's requested provider QoS).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   prompt_path TEXT NOT NULL,
   out_path TEXT,
   needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1)),
+  -- C-5.1, D-QOS-BOOKED1 (schema version 10): `run --qos`; NULL is `utility`, the clamp.
+  provider_qos TEXT CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default')),
   sandbox TEXT NOT NULL CHECK (sandbox IN ('read-only','workspace-write')),
   exclusions TEXT NOT NULL DEFAULT '[]',
   allow_desktop INTEGER NOT NULL DEFAULT 0,

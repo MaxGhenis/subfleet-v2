@@ -141,6 +141,11 @@ class Response:
 POLICY_SANDBOX = "policy"
 
 
+#: C-5.1, D-QOS-BOOKED1: what `run --qos` may request. `utility` is the clamp every provider
+#: starts under; `default` asks to start it unclamped, at the guardian's QoS.
+PROVIDER_QOS_REQUESTS = ("utility", "default")
+
+
 @dataclass
 class SubmitArgs:
     request_id: str
@@ -185,6 +190,10 @@ class SubmitArgs:
     push_branch: str | None = None
     # C-11.1–2: None takes policy requires; a boolean is an explicit override.
     needs_shell: bool | None = None
+    # C-5.1, D-QOS-BOOKED1: `run --qos`, `utility` or `default`; None is `utility`. A
+    # `default` request starts the provider unclamped only at a launch where the job is
+    # `priority` (C-6.16); the daemon decides at each launch, and `why` says which.
+    provider_qos: str | None = None
 
 
 @dataclass

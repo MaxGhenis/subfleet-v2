@@ -106,7 +106,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
                    round_lease: str | None = None, resume: Mapping[str, Any] | None = None,
                    unmeasured_reserve_reason: str | None = None,
                    mcp_servers: Collection[str] = (), push_branch: str | None = None,
-                   push_remote: str | None = None, needs_shell: bool = False) -> str:
+                   push_remote: str | None = None, needs_shell: bool = False,
+                   provider_qos: str | None = None) -> str:
     """Hash the exact C-6.2 payload, excluding caller identity and display name.
 
     A mapping is accepted for callers that have already assembled these canonical
@@ -142,6 +143,9 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
         if needs_shell:
             # Keep old no-requirement requests stable across the additive upgrade.
             payload["needs_shell"] = True
+        if provider_qos == "default":
+            # D-QOS-BOOKED1: likewise; `utility` and no request are one request, the clamp.
+            payload["provider_qos"] = provider_qos
         if push_branch is not None:
             payload.update(push_branch=push_branch, push_remote=push_remote)
     return hashlib.sha256(canonical_json(payload)).hexdigest()

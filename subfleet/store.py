@@ -42,7 +42,8 @@ from .lockwatch import WatchedLock, thread_name
 
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
-SCHEMA_VERSION = LAUNCH_CAPABILITY_MIGRATION
+PROVIDER_QOS_MIGRATION = 10
+SCHEMA_VERSION = PROVIDER_QOS_MIGRATION
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -122,6 +123,12 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
         "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
     ),
+    # C-5.1, D-QOS-BOOKED1: the provider QoS a job requested (`run --qos`); an older job
+    # requested none, which is `utility`, the clamp.
+    PROVIDER_QOS_MIGRATION: (
+        "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
+        "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
+    ),
 }
 
 
@@ -131,6 +138,18 @@ def shell_flags(row: Mapping[str, Any]) -> Row:
     for key in ("needs_shell", "has_shell", "publish_denied"):
         if key in value and value[key] is not None:
             value[key] = bool(value[key])
+    return value
+
+
+def job_flags(row: Mapping[str, Any]) -> Row:
+    """A job's domain record: `shell_flags`, and the provider QoS the job requested
+    (C-5.1, D-QOS-BOOKED1). NULL, which every job from before the column has, is
+    `utility`, the clamp; so is a missing column, as a read-only Store reads a schema-9
+    file it may not migrate (#277 review r1, P2). Attempt rows take `shell_flags` alone,
+    so they gain no job field; raw SQL still reads NULL."""
+    value = shell_flags(row)
+    if value.get("provider_qos") is None:
+        value["provider_qos"] = "utility"
     return value
 
 
@@ -814,11 +833,11 @@ class Store:
 
     def get_job(self, job_id: str) -> Row | None:
         row = self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
-        return shell_flags(row) if row is not None else None
+        return job_flags(row) if row is not None else None
 
     def get_job_by_request(self, request_id: str) -> Row | None:
         row = self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
-        return shell_flags(row) if row is not None else None
+        return job_flags(row) if row is not None else None
 
     def list_jobs(self, *, state: str | None = None, session_id: str | None = None, limit: int | None = None) -> list[Row]:
         clauses, values = [], []
@@ -830,7 +849,7 @@ class Store:
         if limit is not None:
             sql += " LIMIT ?"
             values.append(limit)
-        return [shell_flags(row) for row in self.query(sql, values)]
+        return [job_flags(row) for row in self.query(sql, values)]
 
     def update_job(self, job_id: str, **values: Any) -> None:
         self._update("jobs", "job_id", job_id, values)
