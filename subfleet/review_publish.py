@@ -143,12 +143,14 @@ def publish_hook(state_root: Path) -> str:
     return _hook_command(install_hook(Path(state_root) / HOOK_DIRECTORY))
 
 
-def claude_settings_args(job: JobSpec, sandbox: str, attempt_dir: Path) -> list[str]:
-    """`--setting-sources user` and `--settings` with the publish hook, for a
-    writable Claude review launch (C-12.4).
+def claude_settings_args(job: JobSpec, sandbox: str, attempt_dir: Path, *, settings: dict) -> list[str]:
+    """The one `--settings` of a Claude job launch: `settings`, the launch's own
+    (the adapter's `lane_settings()`, D-WATCHDOG1), with the publish hook merged
+    in and `--setting-sources user` before it for a writable review launch
+    (C-12.4). The hook joins those settings rather than riding a second flag.
 
     A read-only Claude launch has no Bash tool and runs with `--safe-mode`,
-    which turns hooks off, so it gets none. The entry has no matcher: every
+    which turns hooks off, so it gets no hook. The entry has no matcher: every
     tool call whose input carries a `command` is judged.
 
     `--setting-sources user` keeps the user's own settings (the never-rules
@@ -163,11 +165,11 @@ def claude_settings_args(job: JobSpec, sandbox: str, attempt_dir: Path) -> list[
     Claude loads it is shown by those references, not by a Claude run.
     """
     if not publishing_denied(job) or sandbox != Sandbox.WORKSPACE_WRITE.value:
-        return []
+        return ["--settings", json.dumps(settings, separators=(",", ":"))]
     command = hook_command(install_hook(Path(attempt_dir) / 'publish-bin'))
-    settings = {"hooks": {"PreToolUse": [{"hooks": [
+    hooked = {**settings, "hooks": {"PreToolUse": [{"hooks": [
         {"type": "command", "command": command, "timeout": CLAUDE_HOOK_TIMEOUT_S}]}]}}
-    return ["--setting-sources", "user", "--settings", json.dumps(settings, separators=(",", ":"))]
+    return ["--setting-sources", "user", "--settings", json.dumps(hooked, separators=(",", ":"))]
 
 
 def hook_command(path: Path) -> str:

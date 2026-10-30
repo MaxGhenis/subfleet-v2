@@ -568,8 +568,9 @@ def test_c13_1_a_checkout_that_changes_while_the_retry_waits_keeps_the_first_hel
 
 def test_c13_1_a_retry_with_no_commit_to_hold_a_failed_salvage_on_fails(state_daemon, monkeypatch):
     """Review of 43b8bf29, F3: a1's salvage failed, and by a2's admission the worktree's
-    repository is gone (the thesis-* jobs' shape: every git call says `not a git
-    repository`), so there is no HEAD and no start snapshot to hold a1's work in. a2 was
+    repository is gone (the thesis-* jobs' shape: every git call fails, `not a git
+    repository` in git 2.55 and `gitfile does not point to a valid repository` in 2.56),
+    so there is no HEAD and no start snapshot to hold a1's work in. a2 was
     reserved and ran there unheld; now the job fails with the cause, as any baseline that
     cannot be held does (C-6.8), and a1's files are left as they are."""
     daemon, harness = state_daemon
@@ -1127,8 +1128,9 @@ def test_c13_1_live_an_empty_repository_beside_a_committed_one_is_left_out(state
 
 def test_c13_1_live_a_worktree_whose_repository_was_deleted_is_recorded_at_once(state_daemon):
     """thesis-prepush-guard-r21/a1 and thesis-resolver-exit3-merge-review/a1 (live): the
-    repository the worktree was cut from was deleted, so every git call in it says `not a
-    git repository`. Recorded on the first try; the files are left alone."""
+    repository the worktree was cut from was deleted, so every git call in it fails: git 2.55
+    says `not a git repository`, and git 2.56 says `gitfile does not point to a valid
+    repository` (D-CI-GIT256). Recorded on the first try; the files are left alone."""
     daemon, harness = state_daemon
     workdir, job_id, attempt, adir = finalizing(daemon, harness)
     (workdir / ".git").rename(workdir.parent / "moved-away.git")
@@ -1140,7 +1142,9 @@ def test_c13_1_live_a_worktree_whose_repository_was_deleted_is_recorded_at_once(
         (workdir.parent / "moved-away.git").rename(workdir / ".git")
     error = json.loads((adir / "salvage.json").read_text())["error"]
     assert error == "salvage failed: git rev-parse failed (exit 128); daemon.log has its output"
-    assert "salvage failed: SalvageError: git rev-parse failed: fatal: not a git repository" in log_text(daemon)
+    logged = log_text(daemon)
+    assert any(f"salvage failed: SalvageError: git rev-parse failed: fatal: {said}" in logged
+               for said in ("not a git repository", "gitfile does not point to a valid repository")), logged
     assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
     assert (workdir / "tracked.txt").read_text() == "provider progress\n"
 

@@ -215,9 +215,12 @@ def test_workspace_write_carries_the_bypass_and_strict_empty_mcp(tmp_path):
     _adapter_, launch = _build(tmp_path, Sandbox.WORKSPACE_WRITE)
     _rc, report = _spawn(launch, scenario="success-allowed")
     from tests.unit.test_claude_adapter import without_publish_hook
-    # The fixture job is a review, so its writable launch also carries the publish hook (C-12.4).
-    assert list(without_publish_hook(report["argv"], writable_review=True))[-4:] == [
-        "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+    # The fixture job is a review, so its writable launch also carries the publish hook (C-12.4),
+    # in the one `--settings` that ends every launch with the lane settings (d1031).
+    from subfleet.adapters.claude import lane_settings_args
+    assert list(without_publish_hook(report["argv"], writable_review=True))[-6:] == [
+        "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+        *lane_settings_args()]
     assert "--permission-mode" not in report["argv"]
 
 
@@ -235,9 +238,11 @@ def test_a_guard_override_is_accepted_and_never_reaches_the_argv(tmp_path):
         prompt_path, "hooks=/tmp/guard.json",
     )
     assert "hooks=/tmp/guard.json" not in launch.argv
-    # The one `--settings` a writable review launch carries is its publish hook (C-12.4).
+    # The one `--settings` a writable review launch carries holds its publish hook (C-12.4)
+    # and the lane settings (d1031), and nothing else.
+    from subfleet.adapters.claude import lane_settings_args
     from tests.unit.test_claude_adapter import without_publish_hook
-    assert "--settings" not in without_publish_hook(launch.argv, writable_review=True)
+    assert without_publish_hook(launch.argv, writable_review=True)[-2:] == tuple(lane_settings_args())
     assert "hooks=/tmp/guard.json" not in "".join(launch.argv)
 
 

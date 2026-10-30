@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
-from . import daemon_log, refusals, resource_leases
+from . import daemon_log, refusals, resource_leases, task_holds
 from .actions import demand_verdict
 from . import attempt_tmp
 from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
@@ -254,8 +254,22 @@ ADMISSION_IDLE_REPEAT_S = 600
 ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
 #: C-6.11: waits that are a person's or a retry's to end, not admission's. A
 #: turn held for its conversation (C-24.5, C-30.4) is not admission's to place.
+#: An operator's hold on a job's task (C-11.10) is the operator's own act: it is no
+#: admission left pending, and no idle stretch or warning counts it.
 NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live", "conversation-blocked",
-                           "message-settled")
+                           "message-settled", "task-held")
+#: C-6.10, C-11.10: the key range admission's lease census leaves out: an operator's task
+#: holds (`task_holds.KEY`), which are no capacity, so a release frees no capacity wait early.
+LEASE_CENSUS_SKIPS = task_holds.ROWS_PARAMS
+#: C-4.5, C-11.10: when the job's latest attempt ended, and the retry deadline its finalizer
+#: wrote (`retry_due_at` in the attempt's evidence, review r3 of #260, R3-2), if it ended
+#: `transient` with no model capacity steer (C-9.5: a steered retry is due at the next pass,
+#: with no backoff). A task hold keeps that deadline only while it is still ahead (`_kept_retry`).
+RETRY_END_SQL = ("SELECT a.finished_at, CASE WHEN json_valid(a.evidence_json) "
+                 "THEN json_extract(a.evidence_json,'$.retry_due_at') END, a.attempt_id "
+                 "FROM attempts a WHERE a.job_id=? AND a.outcome_class='transient' "
+                 "AND a.seq=(SELECT MAX(seq) FROM attempts WHERE job_id=a.job_id) "
+                 "AND NOT (json_valid(a.evidence_json) AND json_extract(a.evidence_json,'$.capacity_steer') IS NOT NULL)")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "provider-cap", "provider-slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy",
@@ -596,6 +610,18 @@ def after(seconds: float) -> str:
 def _later(stamp: str, seconds: float) -> str:
     """`stamp` plus `seconds`, retaining fractional precision (C-11.8, C-9.5)."""
     return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+
+
+def _earlier(stamp: str, other: str) -> bool:
+    """Whether instant `stamp` is strictly before instant `other`, read as instants, not
+    as text (a fractional second sorts after `Z` as text) (C-11.10)."""
+    return (datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            < datetime.fromisoformat(other.replace("Z", "+00:00")))
+
+
+def _event_json(data: dict[str, Any]) -> str:
+    """An event's `data_json` as `Store.transaction` writes one."""
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _seconds_between(earlier: str, later: str) -> float:
@@ -1089,6 +1115,9 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-11.10: bumped after each task hold or release commits, so a pass that
+        # read the holds before it reads them again at its next job.
+        self._task_hold_epoch = 0
         # C-6.12: job id -> its consecutive route evaluation failures and the last
         # one's error, replaced whole on each. In memory as C-6.8's count is.
         self._route_deferrals: dict[str, dict] = {}
@@ -1103,6 +1132,12 @@ class Daemon:
         # (`_load_pin_episodes`), so a restart keeps the grace's clock and never
         # sends a second notice.
         self._pin_episodes: dict[str, dict] = {}
+        # C-11.10, T6: a hold or release commits on the socket's thread and pauses or gives back
+        # a pin grace in the store alone. The detached pass marks its jobs' open episodes stale
+        # once a commit's epoch is new (`_pin_epoch`), and reads each again from the store
+        # before it looks at that job (`_pin_stale`). Touched by the detached pass only.
+        self._pin_epoch = 0
+        self._pin_stale: set[str] = set()
         # C-6.10: the leases the last pass of each kind saw that no probe holds.
         # One that has gone since is capacity that came free.
         self._leases_seen: dict[str, frozenset[tuple[str, str]]] = {}
@@ -1487,6 +1522,496 @@ class Daemon:
         return {"released": a.lane_id, "limits_released": data["closure_ids"],
                 "limits_reported": data["reported_closure_ids"],
                 "lanes": view["lanes"], "closures": view["closures"]}
+
+    # --- C-11.10 (D-TASKHOLD1): an operator's hold on one task, at admission ---------------
+
+    def _known_task(self, task: Any) -> bool:
+        """A task the scheduler routes: a key of the policy's `chains`, as submit checks it."""
+        return isinstance(task, str) and task in self.policy["chains"]
+
+    def _task_holds_now(self, read: Callable | None = None) -> dict[str, dict]:
+        """C-11.10: task -> its hold, for each hold in force at this instant (one range read of `leases`).
+
+        `read(sql, params)` is a transaction's own read, so a reservation judges the
+        rows it commits beside; without it the store is read as any look reads it."""
+        rows = (read or self.store.query)(task_holds.ROWS_SQL, task_holds.ROWS_PARAMS)
+        return task_holds.in_force([dict(row) for row in rows], utcnow())
+
+    def _task_hold_for(self, job: dict, holds: dict[str, dict]) -> dict | None:
+        """C-11.10: the hold that keeps `job` from a new attempt, or None. A hold on task T
+        covers every job whose task is T but a conversation turn (C-26.9: a person waits)."""
+        if job["kind"] == "turn" or not job["task"]:
+            return None
+        return holds.get(job["task"])
+
+    def _task_held(self, job: dict, hold: dict, holds: dict[str, dict], *,
+                   tx: sqlite3.Connection | None = None) -> None:
+        """C-11.10: `job` waits for the operator's hold on its task: `task-held`, its clock
+        the hold's end. The row is written only when it says otherwise, so a pass that
+        finds the job held as before writes nothing. Its capacity wait is forgotten: a
+        hold is no verdict on capacity (C-6.10), and no reset credit is spent for it
+        (`_reset_demand` leaves a held job out, C-23.16).
+
+        T6: no clock of the job's runs while it is held. The hold's own transaction takes
+        the jobs that wait when it commits (`_take_task_jobs`); a pass takes one that came
+        to wait after (submitted since, a person's wait answered, an attempt ended). The
+        take keeps, in the job's `job.task_held` event (`_take_for_hold`), its C-4.5 retry
+        deadline while it is ahead and, while a C-11.8 pin grace runs, the grace left at
+        the hold's start; its end gives both back (`_task_hold_restore`). A job still
+        `task-held` for a hold that ended before this one began, with no pass and no commit
+        between the two (a store a daemon before fix round 2 wrote), has that hold ended
+        where it ended first, so the time between them counts against its grace, as time
+        with no hold does."""
+        job_id = job["job_id"]
+        paused = None
+        if not (job["state"] == "waiting" and job["wait_reason"] == "task-held"
+                and job["next_check_at"] == hold["until"]):
+            held_before = job["state"] == "waiting" and job["wait_reason"] == "task-held"
+            if (held_before and tx is None and job["next_check_at"] and hold.get("since")
+                    and _earlier(job["next_check_at"], hold["since"])):
+                job = self._task_hold_ended(job, ended_at=job["next_check_at"])
+                held_before = job["state"] == "waiting" and job["wait_reason"] == "task-held"
+            if held_before:
+                # Held through a replacement: only its clock moves, to the end now in force.
+                sql = ("UPDATE jobs SET next_check_at=? WHERE job_id=? AND state='waiting' "
+                       "AND wait_reason='task-held' AND cancel_requested_at IS NULL")
+                if tx is not None:
+                    tx.execute(sql, (hold["until"], job_id))
+                else:
+                    with self.store.transaction("job.task_hold_moved", job_id=job_id,
+                                                data={"task": hold["task"], "until": hold["until"]}) as inner:
+                        current = self._task_held_at_write(inner, job, holds)
+                    if current is None:
+                        holds.pop(job_id, None)
+                        return
+                    hold = current
+            elif tx is not None:
+                paused = self._take_for_hold(tx, job, hold)
+            else:
+                data: dict[str, Any] = {"task": hold["task"], "until": hold["until"]}
+                with self.store.transaction("job.task_held", job_id=job_id, data=data) as inner:
+                    current = self._task_held_at_write(inner, job, holds)
+                if current is None:
+                    holds.pop(job_id, None)
+                    return
+                hold = current
+        if tx is not None:
+            if paused is not None:
+                # Read from the store once this transaction's outcome is known (a reservation's may
+                # roll back): the next pass's look at the job, as after a commit elsewhere.
+                self._pin_stale.add(job_id)
+        elif paused is not None or job_id in self._pin_stale:
+            # The episode as the store has it now: paused by this take, or by the hold's own
+            # commit on the socket's thread (`_take_task_jobs`), which writes the store alone.
+            self._pin_stale.discard(job_id)
+            self._sync_pin_episode(job_id)
+        self._capacity_waits.pop(job_id, None)
+        holds[job_id] = task_holds.wait_hold(hold)
+
+    def _take_for_hold(self, tx: sqlite3.Connection, job: dict, hold: dict, *,
+                       data: dict | None = None) -> float | None:
+        """C-11.10, T6: inside `tx`, the hold takes `job`: it waits `task-held` until the
+        hold's end. Its `job.task_held` event (`data`, which the caller's transaction
+        records; or a row of its own inside another's transaction, the hold's or the
+        reservation's) is marked `taken` and keeps:
+
+        - `kept`: the job's C-4.5 retry deadline while it is still ahead (`_kept_retry`),
+          so the hold's end gives it back rather than starting the retry early. Any other
+          clock (a capacity recheck, a workspace or route deferral) is only when to look
+          again, and a look at the hold's end is as good: the job is queued then, and
+          capacity that frees up brings it forward as with no hold;
+        - `pin_paused_s`: while the job's C-11.8 pin episode has a grace running, the
+          seconds of it left at the hold's start (`since`, kept through replacements that
+          leave the hold in force) or the episode's own start, whichever is later. The
+          episode is read in `tx` (`_held_pin_episode`), as the store has it: one a take
+          paused and no end has given back stays paused, with the seconds it had.
+
+        A job taken already (the hold's commit took it after the look began) keeps the
+        clocks the event that took it kept; only its end moves, if a replacement moved it.
+        If its pin episode runs all the same (review r3 of #260, R3-1: a look under way
+        when the hold committed opened it, in its own transaction, after the commit's
+        take, `_task_held_at_write`), the grace is paused here, as that take would have
+        paused it, in a new `taken` event that keeps what the first one kept.
+
+        The seconds paused, or None (no grace ran, the job is no longer queued or
+        waiting, or a take before this one holds it already, its grace paused)."""
+        job_id = job["job_id"]
+        row = tx.execute("SELECT state, wait_reason, next_check_at FROM jobs WHERE job_id=? "
+                         "AND state IN ('queued','waiting') AND cancel_requested_at IS NULL "
+                         "AND COALESCE(wait_reason,'') NOT IN ('approval','uncertain')", (job_id,)).fetchone()
+        if row is None:
+            return None
+        state, reason, clock = row[0], row[1], row[2]
+        now = utcnow()
+        episode = self._held_pin_episode(tx, job_id)
+        if reason == "task-held":
+            if clock != hold["until"]:
+                tx.execute("UPDATE jobs SET next_check_at=? WHERE job_id=?", (hold["until"], job_id))
+            if not (episode.get("open") and episode.get("fail_at") and "paused_s" not in episode):
+                return None
+            taken = tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_held' "
+                               "AND json_valid(data_json) AND json_extract(data_json,'$.taken') "
+                               "ORDER BY event_id DESC LIMIT 1", (job_id,)).fetchone()
+            first = json.loads(taken[0]) if taken else {}
+            kept = first.get("kept") if isinstance(first.get("kept"), dict) else None
+        else:
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason='task-held',next_check_at=? WHERE job_id=?",
+                       (hold["until"], job_id))
+            kept = self._kept_retry(tx, job_id, state, reason, clock, now)
+        record: dict[str, Any] = {
+            "task": hold["task"], "until": hold["until"], "since": hold.get("since"), "taken": True,
+            "kept": kept}
+        paused = None
+        if episode.get("open") and episode.get("fail_at"):
+            if isinstance(episode.get("paused_s"), (int, float)):
+                paused = float(episode["paused_s"])
+            else:
+                start = max(task_holds.instant(hold.get("since") or now),
+                            task_holds.instant(episode.get("since") or now))
+                paused = max(0.0, (task_holds.instant(episode["fail_at"]) - start).total_seconds())
+            record["pin_paused_s"] = paused
+        if data is not None:
+            data.update(record)
+        else:
+            tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
+                       (now, "job.task_held", job_id, None, None, _event_json(record)))
+        return paused
+
+    def _task_held_at_write(self, tx: sqlite3.Connection, job: dict, holds: dict[str, dict] | None, *,
+                            opened: dict | None = None) -> dict | None:
+        """C-11.10, T6 (review r3 of #260, R3-1): inside `tx`, an admission transaction about to
+        write `job`'s wait, open its C-11.8 episode or fail it on a clock, the job's task hold is
+        read again, at the transaction's own clock. A look already under way when a hold commits
+        read no hold at its door, and its write landed over `task-held`: r3 failed a held job rc 3
+        on a stale episode whose grace the commit had paused with 1 s left, and an episode opened
+        at 10 over the commit's take, its capacity wait due at 70, failed the job at 70 though the
+        hold was released at 50. A later pass could put that right only if it came first.
+
+        A hold covers the job: this transaction takes it for the hold instead, as the commit's own
+        take would (`_take_for_hold`: its clocks paused from the hold's start, or, taken already,
+        a grace that runs paused now), and its audit event becomes that take's `job.task_held`
+        (`Store.audit_as`), or `job.task_hold_moved` if only the job's end moved. An episode the
+        look opens (`opened`, its `job.pin_unadmittable` record) opens all the same, at the look's
+        clock, its event written before the take that pauses it; the transaction then writes no
+        audit event of its own beyond the take's. The caller writes nothing more. The pass reports
+        the job `task-held` (`holds`, when given) and reads its episode from the store at its next
+        look (`_pin_stale`). The hold, or None: no hold, and the caller writes as before."""
+        hold = self._task_hold_for(job, self._task_holds_now(lambda sql, params: tx.execute(sql, params).fetchall()))
+        if hold is None:
+            return None
+        if opened is not None:
+            tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
+                       (utcnow(), "job.pin_unadmittable", job["job_id"], None, opened.get("lane_id"),
+                        _event_json(opened)))
+        start = tx.total_changes
+        data: dict[str, Any] = {"task": hold["task"], "until": hold["until"]}
+        self._take_for_hold(tx, job, hold, data=data)
+        if data.get("taken"):
+            self.store.audit_as("job.task_held", data)
+        elif tx.total_changes != start:
+            self.store.audit_as("job.task_hold_moved", data)
+        elif opened is not None:
+            self.store.audit_as(None)
+        self._capacity_waits.pop(job["job_id"], None)
+        self._pin_stale.add(job["job_id"])
+        if holds is not None:
+            holds[job["job_id"]] = task_holds.wait_hold(hold)
+        return hold
+
+    def _kept_retry(self, tx: sqlite3.Connection, job_id: str, state: str, reason: str | None,
+                    clock: str | None, now: str) -> dict | None:
+        """C-4.5, C-11.10 (review r2 of #260, F2; review r3, R3-2): the clock a hold that takes
+        the job at `now` keeps for its end, or None. Only a retry's backoff: the job waits on
+        `capacity` after a latest attempt that ended `transient` with no capacity steer
+        (`RETRY_END_SQL`), and the deadline its finalizer wrote, kept in that attempt's
+        evidence as `retry_due_at`, is still ahead; that deadline is what is kept. It is 60 s
+        after the finalizer ran, which may be long after the provider's exit: r3 finalized an
+        exit at 0 at 100, so the retry was due at 160, and the exit plus 60 had passed when a
+        hold at 110 took the job, which a release at 111 then started 49 s early. Until the
+        deadline no look has given the job a recheck (a retry's wait has no capacity wait for
+        freed capacity to bring forward, C-6.10). Once it has passed, the job's clock is a
+        C-6.10 recheck's, which is no deadline: keeping it would leave the job waiting for it
+        after the hold, unmoved by capacity that frees up (r2: a hold of one second delayed a
+        retry 28 s). An attempt a daemon before fix round 3 finalized has no `retry_due_at`;
+        its deadline is its own `attempt.accepted` audit stamp plus `TRANSIENT_RETRY_DELAY_S`.
+        Store.transaction stamps that event after the finalizer reads its deadline, using
+        the same UTC wall clock. While that clock runs forward, the fallback is never earlier
+        than the finalizer's deadline. It is later by the finalizer's time from reading the
+        deadline to committing, rounded up to the second, so a held legacy retry starts at
+        most 60 s late. A backward step between the reads makes it earlier by the step."""
+        if not (state == "waiting" and reason == "capacity" and clock):
+            return None
+        row = tx.execute(RETRY_END_SQL, (job_id,)).fetchone()
+        if row is None or not isinstance(row[0], str):
+            return None
+        deadline = row[1]
+        if not isinstance(deadline, str):
+            accepted = tx.execute("SELECT ts FROM events WHERE kind='attempt.accepted' AND attempt_id=? "
+                                  "ORDER BY event_id DESC LIMIT 1", (row[2],)).fetchone()
+            if accepted is None:
+                return None
+            deadline = _later(accepted[0], TRANSIENT_RETRY_DELAY_S)
+        if not _earlier(now, deadline):
+            return None
+        return {"wait_reason": reason, "next_check_at": deadline}
+
+    def _held_pin_episode(self, tx: sqlite3.Connection, job_id: str) -> dict:
+        """C-11.8, C-11.10: `job_id`'s pin episode as the store has it, read in `tx`
+        (`_load_pin_episodes`): what a take pauses, on whichever thread it runs."""
+        rows = self._load_pin_episodes(job_id, read=lambda sql, params: tx.execute(sql, params).fetchall())
+        return rows.get(job_id) or {}
+
+    def _take_task_jobs(self, tx: sqlite3.Connection, hold: dict, now: str) -> None:
+        """C-11.10, T6 (review r2 of #260, F1): inside the `task.held` transaction, the hold
+        takes every job of its task that waits or is queued when it commits, as a release
+        gives them back inside its own, so their clocks stop at the commit and not at the
+        first pass that looks: a hold that ended before any pass (the daemon stopped, paced
+        by C-5.10, or still in startup recovery) had charged all its held time to a grace.
+
+        - A job a person must act on first (`approval`, `uncertain`), a conversation turn,
+          and a job being cancelled are left alone, as a pass leaves them.
+        - A job the hold in force that this one replaces keeps (`task-held`, moved to this
+          end beside this call) waits for this end.
+        - A job still `task-held` for a hold that ended by its clock before this one, which
+          no pass saw end, has that hold ended where it ended (its clocks given back, with a
+          `job.task_hold_ended` event, so the time between counts against a grace as time
+          with no hold does), then is taken.
+
+        Each take writes its own `job.task_held` event (`_take_for_hold`)."""
+        rows = tx.execute("SELECT job_id, state, wait_reason, next_check_at FROM jobs WHERE task=? AND kind!='turn' "
+                          "AND state IN ('queued','waiting') AND cancel_requested_at IS NULL "
+                          "AND COALESCE(wait_reason,'') NOT IN ('approval','uncertain') "
+                          "ORDER BY created_at, rowid", (hold["task"],)).fetchall()
+        for job_id, state, reason, clock in rows:
+            if reason == "task-held":
+                if clock == hold["until"]:
+                    continue
+                end = clock if clock and _earlier(clock, now) else now
+                record: dict[str, Any] = {"by": "end"}
+                if self._task_hold_restore(tx, job_id, end, now, record=record) is None:
+                    continue
+                tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
+                           (now, "job.task_hold_ended", job_id, None, None, _event_json(record)))
+            self._take_for_hold(tx, {"job_id": job_id, "state": state, "wait_reason": reason,
+                                     "next_check_at": clock}, hold)
+
+    def _task_hold_restore(self, tx: sqlite3.Connection, job_id: str, ended_at: str, now: str, *,
+                           record: dict, unheld_s: float = 0.0) -> tuple[str, str | None, str | None] | None:
+        """C-11.10, T6: inside `tx`, the hold that kept `job_id` waiting ended at `ended_at`:
+        its `until` for an end by the clock, however late a pass noticed it (a restart
+        included); the release's instant for a release. The job gets back the clocks its
+        `job.task_held` event kept (`_take_for_hold`):
+
+        - a paused pin grace runs again from `ended_at` with the seconds it had left, so
+          the job waits on `capacity` until it would fail (C-11.8 looks at it every pass);
+        - else a retry deadline still ahead of `now` is its next check again: next
+          checked at `max(now, deadline)`, so a hold that outlasted a retry's backoff
+          satisfied it and never extends it;
+        - else it is queued, looked at on the next pass.
+
+        `unheld_s` is time with no hold inside the pause (a release's own pause began after
+        the job's last hold had ended unseen): it counts against the grace. `record` gets
+        what it gave back (`job.task_hold_ended`'s data). The row's new
+        `(state, wait_reason, next_check_at)`, or None for a job not held now."""
+        row = tx.execute("SELECT state, wait_reason FROM jobs WHERE job_id=? AND cancel_requested_at IS NULL",
+                         (job_id,)).fetchone()
+        if row is None or row[0] != "waiting" or row[1] != "task-held":
+            return None
+        taken = tx.execute("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_held' "
+                           "AND json_valid(data_json) AND json_extract(data_json,'$.taken') "
+                           "ORDER BY event_id DESC LIMIT 1", (job_id,)).fetchone()
+        data = json.loads(taken[0]) if taken else {}
+        kept = data.get("kept") if isinstance(data.get("kept"), dict) else {}
+        paused = data.get("pin_paused_s")
+        record.update(task=data.get("task"), ended_at=ended_at)
+        values: tuple[str, str | None, str | None] = ("queued", None, None)
+        if isinstance(paused, (int, float)) and not isinstance(paused, bool):
+            values = ("waiting", "capacity", _later(ended_at, max(0.0, paused - unheld_s)))
+            record["pin_fail_at"] = values[2]
+        elif isinstance(kept.get("next_check_at"), str) and _earlier(now, kept["next_check_at"]):
+            values = ("waiting", kept.get("wait_reason") or "capacity", kept["next_check_at"])
+        record["next_check_at"] = values[2]
+        tx.execute("UPDATE jobs SET state=?,wait_reason=?,next_check_at=? WHERE job_id=?", (*values, job_id))
+        return values
+
+    def _task_hold_ended(self, job: dict, *, ended_at: str | None = None,
+                         holds: dict[str, dict] | None = None) -> dict | None:
+        """C-11.10: the hold that kept `job` waiting has ended by its clock (a release
+        gives its jobs back itself): the job gets its clocks back (`_task_hold_restore`)
+        and is looked at on this pass. The hold ended at its `until`, which its row's
+        clock is, read inside the ending transaction, never from the pass's copy.
+        With `ended_at`, nothing is restored unless the row still names that end;
+        without it, the row supplies the end (or now if its clock is still ahead).
+        A newer take or move cannot have an older end given back over it (review
+        r5 of #260, R5-1). The job as the rest of the pass sees it.
+
+        With `holds` (the door's look, whose read of the holds may predate a hold that
+        has since committed and taken the job again), the transaction reads the task's
+        hold first (`_task_held_at_write`, review r3 of #260, R3-1): held, nothing is given
+        back, and None says the pass looks at the job no further."""
+        now = utcnow()
+        clock = job["next_check_at"]
+        end = ended_at or (clock if clock and not _earlier(now, clock) else now)
+        record: dict[str, Any] = {"by": "end"}
+        with self.store.transaction("job.task_hold_ended", job_id=job["job_id"], data=record) as tx:
+            if holds is not None and self._task_held_at_write(tx, job, holds) is not None:
+                return None
+            seen = tx.execute("SELECT next_check_at FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
+            seen = seen[0] if seen else None
+            if ended_at is not None and seen != ended_at:
+                values = None
+            else:
+                if ended_at is None:
+                    end = seen if seen and not _earlier(now, seen) else now
+                values = self._task_hold_restore(tx, job["job_id"], end, now, record=record)
+        self._sync_pin_episode(job["job_id"])
+        if values is None:
+            # Released (and given its clocks back) since the pass read it: as it is now.
+            current = self.store.get_job(job["job_id"])
+            return {**job, **{key: current[key] for key in ("state", "wait_reason", "next_check_at")}} if current else job
+        return {**job, "state": values[0], "wait_reason": values[1], "next_check_at": values[2]}
+
+    def _sync_pin_episode(self, job_id: str) -> None:
+        """C-11.8, C-11.10: the job's pin episode as its events now say (a release, on the
+        socket's thread, gives a paused grace back in the store alone). A grace still
+        paused for a job no hold keeps any longer (nothing recorded its end) runs again
+        from now, recorded as such, so no grace stays paused for good."""
+        episode = self._load_pin_episodes(job_id).get(job_id)
+        if episode is None:
+            self._pin_episodes.pop(job_id, None)
+            return
+        if "paused_s" in episode:
+            row = self.store.one("SELECT state, wait_reason FROM jobs WHERE job_id=?", (job_id,))
+            if not row or row["wait_reason"] != "task-held":
+                now = utcnow()
+                fail_at = _later(now, episode["paused_s"])
+                self.store.add_event("job.task_hold_ended", job_id=job_id,
+                                     data={"by": "recovered", "ended_at": now, "pin_fail_at": fail_at})
+                episode = {key: value for key, value in episode.items() if key != "paused_s"}
+                episode["fail_at"] = fail_at
+        self._pin_episodes[job_id] = episode
+
+    def _task_holds_changed(self) -> None:
+        """C-11.10: after a hold or release commits: a pass in flight reads the holds
+        again at its next job, and the daemon's waiters look now."""
+        self._task_hold_epoch += 1
+        self._notify()
+
+    def _unknown_task(self, task: Any, action: str) -> protocol.ProtocolError:
+        return protocol.ProtocolError(f"tasks {action}: unknown task {task!r}", Exit.INVALID_INPUT,
+                                      refusals.HANDLER_MESSAGES["unknown-task"][1], reason="unknown-task",
+                                      details={"task": task} if isinstance(task, str) else None)
+
+    def _tasks(self, a: protocol.TasksArgs) -> dict:
+        """`tasks [list]`, `tasks hold <task> --until <iso> --note <text>`, `tasks release <task>` (C-11.10)."""
+        if a.action == "list":
+            return {"task_holds": task_holds.listing(self._task_holds_now())}
+        if a.action == "hold":
+            return self._hold_task(a)
+        if a.action == "release":
+            return self._release_task(a)
+        raise protocol.ProtocolError("tasks: the action is list, hold or release", reason="tasks-action")
+
+    def _hold_task(self, a: protocol.TasksArgs) -> dict:
+        """C-11.10: hold task `a.task` until `a.until`, with the operator's note.
+
+        Every argument is checked before anything is written; a refusal writes
+        nothing. The hold is one `leases` row (`task_holds`); a second hold on the
+        task replaces the first, in one transaction with its `task.held` event, and
+        the jobs the first kept waiting wait for the new end. A replacement of a hold
+        still in force keeps its `since` (`acquired_at`): the task has been held since
+        then without a break, and a held job's paused clocks count from there (T6).
+        The same transaction takes every job of the task that waits or is queued now
+        (`_take_task_jobs`), so a hold pauses their clocks from its commit. Running
+        attempts are not read, signalled or touched: a new attempt is what a hold stops."""
+        if not self._known_task(a.task):
+            raise self._unknown_task(a.task, "hold")
+        try:
+            note = task_holds.note_text(a.note)
+        except ValueError:
+            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-note"][0],
+                                         reason="task-hold-note") from None
+        task, key = a.task, task_holds.lease_key(a.task)
+        data: dict[str, Any] = {"task": task, "note": note, "replaced": None}
+        with self.store.transaction("task.held", data=data) as tx:
+            now = utcnow()
+            try:
+                until = task_holds.until_text(a.until, now)
+            except ValueError:
+                raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-until"][0],
+                                             reason="task-hold-until") from None
+            data["until"] = until
+            row = tx.execute(task_holds.ROW_SQL, (key,)).fetchone()
+            replaced = task_holds.hold_of(dict(row)) if row else None
+            if not task_holds.in_force_now(replaced, now):
+                replaced = None
+            if replaced is not None:
+                data["replaced"] = {"until": replaced["until"], "note": replaced["note"]}
+            since = replaced["since"] if replaced is not None and replaced.get("since") else now
+            tx.execute("INSERT INTO leases(lease_key,holder,acquired_at,expires_at) VALUES(?,?,?,?) "
+                       "ON CONFLICT(lease_key) DO UPDATE SET holder=excluded.holder, "
+                       "acquired_at=excluded.acquired_at, expires_at=excluded.expires_at",
+                       (key, task_holds.HOLDER + note, since, until))
+            if replaced is not None:
+                # The jobs a hold in force keeps wait for this one's end: a second hold replaces the first.
+                tx.execute("UPDATE jobs SET next_check_at=? WHERE state='waiting' AND wait_reason='task-held' "
+                           "AND task=? AND kind!='turn'", (until, task))
+            # T6 (review r2 of #260, F1): the jobs that wait now are taken in this transaction,
+            # so their clocks stop at the commit, whether or not a pass looks before the hold ends.
+            self._take_task_jobs(tx, {"task": task, "until": until, "since": since}, now)
+        self._task_holds_changed()
+        return {"held": task, "task_hold": {"task": task, "until": until, "note": note, "since": since},
+                "replaced": replaced, "task_holds": task_holds.listing(self._task_holds_now())}
+
+    def _release_task(self, a: protocol.TasksArgs) -> dict:
+        """C-11.10: end the hold on `a.task` at once, and wake the jobs it kept waiting.
+
+        One transaction deletes the row and gives each job it kept waiting its clocks
+        back (`_task_hold_restore`: queued again, unless a retry's backoff or a paused
+        pin grace says when), each with its `job.task_hold_ended` event, beside the
+        `task.released` event; the next pass looks at them, and one in flight reads
+        the holds again at its next job. A task the policy no longer routes can
+        still be released while its row is there. A release with no row changes
+        nothing and records nothing. A release of a hold already past its end
+        (`was_held` false) still deletes the row and records `task.released`, and
+        gives any job no pass has woken since the end its clocks back, from that end."""
+        task = a.task
+        if not (isinstance(task, str) and task and (
+                self._known_task(task) or self.store.one(task_holds.ROW_SQL, (task_holds.lease_key(task),)))):
+            raise self._unknown_task(task, "release")
+        data: dict[str, Any] = {"task": task}
+        with self.store.transaction("task.released", data=data) as tx:
+            now = utcnow()
+            row = tx.execute(task_holds.ROW_SQL, (task_holds.lease_key(task),)).fetchone()
+            ended = task_holds.hold_of(dict(row)) if row else None
+            if ended is not None:
+                data.update(until=ended["until"], note=ended["note"])
+            tx.execute("DELETE FROM leases WHERE lease_key=?", (task_holds.lease_key(task),))
+            held = tx.execute("SELECT job_id, next_check_at FROM jobs WHERE state='waiting' "
+                              "AND wait_reason='task-held' AND task=? AND kind!='turn' "
+                              "AND cancel_requested_at IS NULL ORDER BY created_at, rowid", (task,)).fetchall()
+            woken = 0
+            for job_id, clock in held:
+                end, unheld = now, 0.0
+                if clock and _earlier(clock, now):
+                    # Held for a hold that had already ended by its clock, unseen by any pass:
+                    # it ended there. Had the hold released here begun after that end, the time
+                    # between counts as time with no hold, and the job was held again until
+                    # that hold's own end: now, or its `until` if that passed unseen too.
+                    end = clock
+                    if ended is not None and ended.get("since") and _earlier(clock, ended["since"]):
+                        end = now if task_holds.in_force_now(ended, now) else ended["until"]
+                        unheld = _seconds_between(clock, ended["since"])
+                record: dict[str, Any] = {"by": "release"}
+                if self._task_hold_restore(tx, job_id, end, now, record=record, unheld_s=unheld) is not None:
+                    woken += 1
+                    tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) "
+                               "VALUES (?,?,?,?,?,?)", (now, "job.task_hold_ended", job_id, None, None,
+                                                        _event_json(record)))
+            data["woken"] = woken
+        self._task_holds_changed()
+        return {"released": task, "was_held": task_holds.in_force_now(ended, now), "woken": woken,
+                "task_holds": task_holds.listing(self._task_holds_now())}
 
     def _roster(self) -> list:
         """`lanes.json`, the seed roster: a list of lane rows, or `{"lanes": [...]}`."""
@@ -2160,10 +2685,16 @@ class Daemon:
 
         def latest(job_id: str) -> dict:
             return next((found[job_id] for found in running if job_id in found), None) or holds.get(job_id) or {}
-        rows = self.store.query("SELECT * FROM jobs WHERE state='waiting' AND wait_reason='capacity' "
-                                "AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+        # C-11.10: the holds in force read in the same snapshot as the rows, so a hold
+        # committed before this read leaves its jobs out at once, before any pass has
+        # looked at them again: a held job is no demand (T7).
+        with self.store.snapshot():
+            rows = self.store.query("SELECT * FROM jobs WHERE state='waiting' AND wait_reason='capacity' "
+                                    "AND cancel_requested_at IS NULL ORDER BY created_at,rowid")
+            held_now = self._task_holds_now()
         rows = [job for job in rows if (wait := waits.get(job["job_id"])) and wait.get("lane_wait")
-                and latest(job["job_id"]).get("reason") == wait.get("label")]
+                and latest(job["job_id"]).get("reason") == wait.get("label")
+                and not self._demand_held(job, held_now)]
         if not rows:
             return []
         desktop = self._cached_desktop_identity()
@@ -2179,6 +2710,10 @@ class Daemon:
                 continue            # C-6.12: a route that cannot be evaluated is no demand
             demand.append({"job_id": job["job_id"], "tier": job["tier"], **demand_verdict(decision)})
         return demand
+
+    def _demand_held(self, job: dict, holds: dict[str, dict]) -> bool:
+        """C-11.10, C-23.16: whether a hold in force keeps `job`, so it is no reset-credit demand."""
+        return self._task_hold_for(job, holds) is not None
 
     def _route(self, job: dict, **options):
         """C-6.12: `_pick` for admission. An evaluation that raises is this job's, not the pass's."""
@@ -3674,8 +4209,11 @@ class Daemon:
             # D-STATUS-SRC1 (review r2 of #263, P3-2): each lane's closure rows as `daemon.status` shows them.
             return {"lanes": closure_rows(self._capacity_view(self._desktop_identity()))["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
+        if op == "tasks":
+            return self._tasks(protocol.coerce_args(protocol.TasksArgs, args))
         if op == "readings":
             view = closure_rows(self._capacity_view(self._desktop_identity()))
+            view["task_holds"] = task_holds.listing(self._task_holds_now())        # C-11.10
             return {"readings": view["readings"], "closures": view["closures"], "status": render.status(view)}
         if op == "why":
             a = protocol.coerce_args(protocol.WhyArgs, args)
@@ -3788,6 +4326,10 @@ class Daemon:
                 RESTRICTED_RUNS_SQL, restricted_window(utcnow()))]
             if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
+            # C-11.10: the holds in force, a list that is empty when there are none, each with
+            # the count of jobs it keeps waiting over the whole store (C-17.4).
+            view["task_holds"] = task_holds.listing(
+                self._task_holds_now(), waiting=task_holds.waiting_counts(self.store.query(task_holds.WAITING_SQL)))
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
                     "claude_cards": self.timers.cards_view(),  # C-9.10
@@ -5610,8 +6152,10 @@ class Daemon:
         if job["wait_reason"] != "workspace":
             try:
                 with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
-                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
-                               "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL", (job_id,))
+                    if self._task_held_at_write(tx, job, None) is None:     # C-11.10 (R3-1)
+                        tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
+                                   "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                                   (job_id,))
             except sqlite3.Error as exc:
                 if not self._push_workspace_store_busy(exc):
                     self._push_workspace_store_errors[job_id] = exc
@@ -6488,10 +7032,15 @@ class Daemon:
                 with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
                                             data={"model": pair[1], "class": outcome.cls.value,
                                                   "next_check_at": next_check}) as tx:
-                    if not repeat:
-                        self.store.add_decision(job["job_id"], decision)
-                    tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? AND state IN ('queued','waiting')",
-                               ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
+                    # C-11.10 (review r3 of #260, R3-1): a hold committed while the probe ran takes
+                    # the job here instead of its capacity wait (the caller finds it `task-held`).
+                    # A quarantined probe's wait is a person's (`uncertain`), which a hold leaves.
+                    if quarantined or self._task_held_at_write(tx, job, None) is None:
+                        if not repeat:
+                            self.store.add_decision(job["job_id"], decision)
+                        tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? "
+                                   "AND state IN ('queued','waiting')",
+                                   ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
                 return None, desktop
         return None, desktop
 
@@ -6682,6 +7231,8 @@ class Daemon:
                                  (job["job_id"],)).fetchone()
             if current is None or current[1] or current[0] not in ("queued", "waiting"):
                 return True
+            if self._task_held_at_write(tx, job, holds) is not None:
+                return True                 # C-11.10 (R3-1): held since the door's look, so taken
             fence, held_folder = fences(lambda sql, params: tx.execute(sql, params).fetchall())
             if not fence:
                 return False                # let go since the read above: the job is looked at now
@@ -6820,6 +7371,8 @@ class Daemon:
         for table in tables:
             for job_id in gone:
                 table.pop(job_id, None)
+        if kind == "detached":
+            self._pin_stale.intersection_update(pending)
         queued = [job for job in queued if self._in_pass(job, kind)]
         # C-6.10: a lease that was held at the last pass and is not now is capacity
         # that came free (an attempt ended, a job let go of its worktree or its
@@ -6831,8 +7384,11 @@ class Daemon:
         # waits for exactly that lease, so the turn pass counts it, and looks
         # again as soon as the probe ends rather than on its backed-off clock.
         probes = "holder NOT LIKE 'probe:timer:%'" if kind == "turn" else "holder NOT LIKE 'probe:%'"
+        # C-11.10: an operator's task hold is a row here too, and no capacity: its
+        # release frees nothing a capacity wait waits for (it wakes its own jobs).
         leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
-            f"SELECT lease_key,holder FROM leases WHERE {probes}"))
+            f"SELECT lease_key,holder FROM leases WHERE {probes} AND NOT (lease_key >= ? AND lease_key < ?)",
+            LEASE_CENSUS_SKIPS))
         quarantines_now = (frozenset(row["attempt_id"] for row in self.store.query(PROVIDER_QUARANTINES)
                                     if scheduler.uncontained_quarantine(row))
                            if scheduler.provider_caps_on(self.policy) else frozenset())
@@ -6923,9 +7479,45 @@ class Daemon:
         turns_cap = turn_cap(self.policy.get("conversations"), "max_active_turns")
         # C-6.9, C-6.16: attended, priority, session, background. Priority is
         # FIFO across tiers; the other classes keep tier then FIFO.
+        # C-11.10: the operator's task holds, read once and again only after a hold
+        # or release commits (the epoch is read first, so a commit after the read
+        # is read at the next job).
+        task_hold_read = [self._task_hold_epoch]
+        task_hold_read.append(self._task_holds_now())
+
+        def episodes_after_commits(epoch: int) -> None:
+            """C-11.10, T6: once a hold or release has committed since the last mark, every
+            open pin episode of this pass's jobs is read again from the store before the
+            pass looks at its job (`_pin_stale`): the commit paused or gave back its grace there."""
+            if kind == "detached" and epoch != self._pin_epoch:
+                self._pin_epoch = epoch
+                self._pin_stale.update(job["job_id"] for job in queued
+                                       if self._pin_episodes.get(job["job_id"], {}).get("open"))
+        episodes_after_commits(task_hold_read[0])
         for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
             if job["job_id"] in workspace_skips:
                 continue
+            if task_hold_read[0] != self._task_hold_epoch:
+                task_hold_read = [self._task_hold_epoch]
+                task_hold_read.append(self._task_holds_now())
+                episodes_after_commits(task_hold_read[0])
+            # C-11.10: first, before any look: a detached job of a held task waits for the
+            # hold, looked at no further, holding no one back (it registers as no waiter
+            # and queues for no lease), unless a person must act on it first. A job a hold
+            # kept waiting that no hold covers now is queued again and looked at here.
+            task_hold = self._task_hold_for(job, task_hold_read[1])
+            if task_hold is not None and job["wait_reason"] not in ("approval", "uncertain"):
+                self._task_held(job, task_hold, holds)       # reads a stale episode again (T6)
+                continue
+            if job["job_id"] in self._pin_stale:
+                # A release or a hold (the socket's thread) paused this job's pin grace or gave it
+                # back in the store: its episode is read again before anything looks at it (T6).
+                self._pin_stale.discard(job["job_id"])
+                self._sync_pin_episode(job["job_id"])
+            if job["wait_reason"] == "task-held":
+                job = self._task_hold_ended(job, holds=holds)
+                if job is None:
+                    continue                    # C-11.10: held again since the door's read
             tier = job["tier"] or ("standard" if "standard" in self.policy["tiers"] else self.policy["tiers"][0])
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
             klass = (scheduler.priority_class(job, liveness, policy=self.policy, jobs=priority_jobs)
@@ -6976,7 +7568,9 @@ class Daemon:
                 if stuck:
                     self._stuck_pin(job, stuck, holds)
                     continue
-                job = self._unstuck_pin(job)
+                job = self._unstuck_pin(job, holds)
+                if job is None:
+                    continue                    # C-11.10: held since the door's look
             if (not job["pinned_lane"] and job["kind"] != "turn"
                     and job["wait_reason"] not in ("approval", "uncertain")
                     and self.store.one("SELECT 1 FROM attempts WHERE job_id=? LIMIT 1", (job["job_id"],))):
@@ -6994,7 +7588,9 @@ class Daemon:
                     self._stuck_pin(job, {"lane_id": None, "reasons": permanent, "closures": [],
                                           "all_lanes": True}, holds)
                     continue
-                job = self._unstuck_pin(job)
+                job = self._unstuck_pin(job, holds)
+                if job is None:
+                    continue                    # C-11.10: held since the door's look
             due = not (job["next_check_at"] and job["next_check_at"] > utcnow())
             if (job["kind"] != "turn" and job["wait_reason"] not in ("approval", "uncertain")
                     and (due or job["wait_reason"] != "workspace")):
@@ -7306,7 +7902,8 @@ class Daemon:
                 self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
                 continue
             except (OSError, subprocess.SubprocessError, SalvageError) as exc:
-                self._workspace_failed(job, exc)
+                if self._workspace_failed(job, exc, holds):
+                    continue                                        # C-11.10: held since the door's look
                 self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
                 holds[job["job_id"]] = {"reason": "workspace", **self._hold_error(exc)}
                 continue
@@ -7391,16 +7988,20 @@ class Daemon:
                         # neither passes an older job it competes with nor is passed by a younger one":
                         # a waiter with that demand now, as on the passes before its clock is due
                         # (above), unless no lane can admit it as submitted (C-11.8).
-                        if not for_good:
-                            wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                         hold = {"reason": "behind-older-job", "behind": behind, "tier": tier,
                                 **({"for_good": for_good} if for_good else {})}
                         rechecks = self._capacity_wait(job["job_id"], f"retry-let-go:behind:{behind}", hold)
                         next_check = after(scheduler.capacity_recheck_delay(rechecks))
                         with self.store.transaction("job.retry_let_go", job_id=job["job_id"]) as tx:
-                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
-                                       "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
-                                       (next_check, job["job_id"]))
+                            taken = self._task_held_at_write(tx, job, holds)        # C-11.10 (R3-1)
+                            if taken is None:
+                                tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                                           "WHERE job_id=? AND state IN ('queued','waiting') "
+                                           "AND cancel_requested_at IS NULL", (next_check, job["job_id"]))
+                        if taken is not None:
+                            continue
+                        if not for_good:
+                            wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
             try:
@@ -7427,9 +8028,14 @@ class Daemon:
                     # waits on a person. It holds back nobody and says so on this pass too.
                     holds[job["job_id"]] = {"reason": current["wait_reason"]}
                     continue
-                wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                if current["wait_reason"] == "task-held":
+                    # C-11.10 (R3-1): the probe's answer found the task held, and its transaction
+                    # took the job (`_prepare_route`'s `job.probe_waiting`).
+                    held_now = self._task_hold_for(current, self._task_holds_now())
+                    holds[job["job_id"]] = task_holds.wait_hold(held_now) if held_now else {"reason": "task-held"}
+                    continue
                 # C-6.11: which probe, and whose turn it is when it is not this job's.
-                hold = holds[job["job_id"]] = {"reason": "probe-pending", **(probe_note or {})}
+                hold = {"reason": "probe-pending", **(probe_note or {})}
                 # A probe that ran set the job's clock itself (C-6.10), which is due
                 # at once when the probe used the whole of it.
                 clocked = "next_check_at" in hold or (current["next_check_at"] and current["next_check_at"] > utcnow())
@@ -7445,13 +8051,19 @@ class Daemon:
                     next_check = after(scheduler.capacity_recheck_delay(rechecks))
                     with self.store.transaction("job.probe_deferred", job_id=job["job_id"],
                                                 data={"behind": behind} if behind else None) as tx:
-                        tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
-                                   "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
-                                   (next_check, job["job_id"]))
+                        taken = self._task_held_at_write(tx, job, holds)            # C-11.10 (R3-1)
+                        if taken is None:
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                                       "WHERE job_id=? AND state IN ('queued','waiting') "
+                                       "AND cancel_requested_at IS NULL", (next_check, job["job_id"]))
+                    if taken is not None:
+                        continue
                     hold["next_check_at"] = next_check
                 elif clocked:
                     hold.setdefault("next_check_at", current["next_check_at"])
                     self._refresh_hold(job["job_id"], hold)
+                wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                holds[job["job_id"]] = hold
                 if kind == "detached" and hold.get("model"):
                     # C-6.9: it waits on this probe, so it carries the next one (a job
                     # whose probe was quarantined waits on an operator and left above).
@@ -7528,6 +8140,13 @@ class Daemon:
                                       (job["job_id"],)).fetchone():
                             # Checked again here: one job, one attempt at a time, whichever pass got there.
                             holds[job["job_id"]] = {"reason": "attempt-live"}
+                            status = "held"
+                            break
+                        task_hold = self._task_hold_for(job, self._task_holds_now(read))
+                        if task_hold is not None:
+                            # C-11.10, C-6.3: read again at this transaction's clock, so a hold
+                            # committed after the door's read still stops the reservation.
+                            self._task_held(job, task_hold, holds, tx=tx)
                             status = "held"
                             break
                         why, judged, standing = self._route_stands(basis, decision)
@@ -8215,19 +8834,26 @@ class Daemon:
                 and not job["worktree"] and path.exists() and not self.store.list_attempts(job_id)):
             self._discard_worktree(job["workdir"], str(path), self.policy["caps"]["workspace_git_timeout_s"])
 
-    def _load_pin_episodes(self) -> dict[str, dict]:
-        """C-11.8: each unfinished job's pin episode as its events left it.
+    def _load_pin_episodes(self, job_id: str | None = None, *, read: Callable | None = None) -> dict[str, dict]:
+        """C-11.8: each unfinished job's pin episode as its events left it (one job's, with `job_id`).
 
         The latest of a job's `job.pin_unadmittable` and `job.pin_admittable`
         events says whether an episode is open, since when, and when it fails.
-        Read once, at start, by the kinds' index. Whether its one notice went is
-        asked of the store when it is due (`_pin_notice`), whatever this held."""
+        C-11.10: a task hold that took the job while its grace ran paused it
+        (`job.task_held`'s `pin_paused_s`, the seconds left), and the hold's end
+        set when it fails again (`job.task_hold_ended`'s `pin_fail_at`), so a
+        restart keeps a paused grace paused. Read once, at start, by the kinds'
+        index, and for one job when a hold or release changed it in the store, or
+        inside a take's own transaction (`read(sql, params)`, `_held_pin_episode`).
+        Whether its one notice went is asked of the store when it is due
+        (`_pin_notice`), whatever this held."""
         episodes: dict[str, dict] = {}
-        rows = self.store.query(
+        rows = (read or self.store.query)(
             "SELECT e.job_id,e.kind,e.data_json FROM events e JOIN jobs j ON j.job_id=e.job_id "
             "WHERE e.kind IN ('job.pin_unadmittable','job.pin_admittable','job.pin_noticed',"
-            "'job.pin_notice_withdrawn') "
-            "AND j.state IN ('queued','waiting') ORDER BY e.event_id")
+            "'job.pin_notice_withdrawn','job.task_held','job.task_hold_ended') "
+            "AND j.state IN ('queued','waiting')" + (" AND e.job_id=?" if job_id is not None else "")
+            + " ORDER BY e.event_id", (job_id,) if job_id is not None else ())
         for row in rows:
             try:
                 data = json.loads(row["data_json"] or "{}")
@@ -8235,16 +8861,24 @@ class Daemon:
                 data = {}
             data = data if isinstance(data, dict) else {}
             previous = episodes.get(row["job_id"], {})
+            running = {key: value for key, value in previous.items() if key != "paused_s"}
             if row["kind"] == "job.pin_noticed":
                 episodes[row["job_id"]] = {**previous, "noticed": True}
             elif row["kind"] == "job.pin_notice_withdrawn":
                 episodes[row["job_id"]] = {**previous, "noticed": False}
             elif row["kind"] == "job.pin_unadmittable":
-                episodes[row["job_id"]] = {**previous, "open": True, "since": data.get("since"),
+                episodes[row["job_id"]] = {**running, "open": True, "since": data.get("since"),
                                            "fail_at": data.get("fail_at"), "lane_id": data.get("lane_id"),
                                            "all_lanes": bool(data.get("all_lanes"))}
+            elif row["kind"] == "job.task_held":
+                paused = data.get("pin_paused_s")
+                if previous.get("open") and isinstance(paused, (int, float)) and not isinstance(paused, bool):
+                    episodes[row["job_id"]] = {**previous, "paused_s": paused}
+            elif row["kind"] == "job.task_hold_ended":
+                if "paused_s" in previous and isinstance(data.get("pin_fail_at"), str):
+                    episodes[row["job_id"]] = {**running, "fail_at": data["pin_fail_at"]}
             else:
-                episodes[row["job_id"]] = {**previous, "open": False}
+                episodes[row["job_id"]] = {**running, "open": False}
         return episodes
 
     def _pin_notice_jobs(self, rows: list[dict]) -> dict[int, str]:
@@ -8283,7 +8917,12 @@ class Daemon:
         (`_pin_notice`). A conversation turn is held and nothing more: its message is
         the person's, and the conversation carries its end (C-26.12). A job with an
         attempt still live or quarantined is never failed here: it is held until that
-        attempt settles. Every clock here is read once, from `now`."""
+        attempt settles. Every clock here is read once, from `now`.
+
+        C-11.10 (review r3 of #260, R3-1): the episode's opening and the failure each read the
+        job's task hold again in their own transaction (`_task_held_at_write`), so a hold that
+        committed after this look began holds the job: an episode opens all the same, its grace
+        paused from the hold's start, and no job is failed on a grace its hold paused."""
         job_id, now = job["job_id"], utcnow()
         turn = job["kind"] == "turn"
         episode = self._pin_episodes.get(job_id) or {}
@@ -8295,16 +8934,22 @@ class Daemon:
                       **({"all_lanes": True} if stuck.get("all_lanes") else {})}
             with self.store.transaction("job.pin_unadmittable", job_id=job_id, lane_id=stuck["lane_id"],
                                         data=record) as tx:
-                tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
-                           "WHERE job_id=? AND state IN ('queued','waiting')",
-                           (fail_at or _later(now, CAPACITY_RECHECK_CEILING_S), job_id))
+                held = self._task_held_at_write(tx, job, holds, opened=record)
+                if held is None:
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                               "WHERE job_id=? AND state IN ('queued','waiting')",
+                               (fail_at or _later(now, CAPACITY_RECHECK_CEILING_S), job_id))
+            self.log.warning("job %s: %s can never admit it (%s); %s", job_id,
+                             "every candidate lane" if stuck.get("all_lanes") else f"pinned lane {stuck['lane_id']}",
+                             ", ".join(stuck["reasons"]),
+                             render.pin_ends(fail_at) if held is None else "its grace is paused while its task is held")
+            if held is not None:
+                self._held_at_pin(job_id)
+                return
             episode = {**episode, "open": True, "since": now, "fail_at": fail_at, "lane_id": stuck["lane_id"],
                        "all_lanes": bool(stuck.get("all_lanes"))}
             self._pin_episodes[job_id] = episode
             self._capacity_waits.pop(job_id, None)          # C-6.10: not a wait for capacity now
-            self.log.warning("job %s: %s can never admit it (%s); %s", job_id,
-                             "every candidate lane" if stuck.get("all_lanes") else f"pinned lane {stuck['lane_id']}",
-                             ", ".join(stuck["reasons"]), render.pin_ends(fail_at))
             self._notify()
         fail_at = episode.get("fail_at")
         failing = bool(fail_at) and now >= fail_at
@@ -8314,11 +8959,14 @@ class Daemon:
         if failing and not self.store.one(
                 "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
                 "('reserved','starting','running','finalizing','quarantined')", (job_id,)):
+            if not self._fail_queued(job, render.pin_failure(stuck, episode.get("since")), rc=int(Exit.NO_LANE),
+                                     kind="job.pin_refused", data={**stuck, "since": episode.get("since")},
+                                     holds=holds) and (holds.get(job_id) or {}).get("reason") == "task-held":
+                self._held_at_pin(job_id)
+                return
             self.log.warning("job %s failed: %s could never admit it (%s)", job_id,
                              "every candidate lane" if stuck.get("all_lanes") else f"pinned lane {stuck['lane_id']}",
                              ", ".join(stuck["reasons"]))
-            self._fail_queued(job, render.pin_failure(stuck, episode.get("since")), rc=int(Exit.NO_LANE),
-                              kind="job.pin_refused", data={**stuck, "since": episode.get("since")})
             self._discard_fresh_worktree(job_id)
             self._pin_episodes.pop(job_id, None)
             return
@@ -8327,6 +8975,13 @@ class Daemon:
                          "closures": stuck["closures"], "since": episode.get("since"), "fail_at": fail_at,
                          **({"all_lanes": True, "for_good": stuck["reasons"]} if stuck.get("all_lanes") else {}),
                          **({"probe_status": stuck["probe_status"]} if stuck.get("probe_status") else {})}
+
+    def _held_at_pin(self, job_id: str) -> None:
+        """C-11.10 (R3-1): C-11.8's look at the job found its task held inside the transaction that
+        would have opened its episode or failed it, which took the job instead: the episode is as
+        the store now has it, its grace paused."""
+        self._pin_stale.discard(job_id)
+        self._sync_pin_episode(job_id)
 
     def _pin_notice(self, job: dict, stuck: dict, episode: dict, now: str) -> dict:
         """C-11.8: the job's one notice, to its caller's session (else the configured
@@ -8379,10 +9034,14 @@ class Daemon:
             if episode:
                 self._pin_episodes[job_id] = {**episode, "noticed": False}
 
-    def _unstuck_pin(self, job: dict) -> dict:
+    def _unstuck_pin(self, job: dict, holds: dict[str, dict]) -> dict | None:
         """C-11.8: the pinned lane could admit the job again (capacity allowing): its
         episode ends with a `job.pin_admittable` event and the job is due now, not at
-        the failure its episode had set. The job, as the rest of the pass sees it."""
+        the failure its episode had set. The job, as the rest of the pass sees it, or
+        None when the transaction found its task held (C-11.10, review r3 of #260, R3-1:
+        a hold committed after this look began): the job is taken for the hold instead,
+        its episode left open and paused for the hold's end to give back, and the pass
+        looks at it no further."""
         episode = self._pin_episodes.get(job["job_id"])
         if not episode or not episode.get("open"):
             return job
@@ -8390,6 +9049,8 @@ class Daemon:
         with self.store.transaction("job.pin_admittable", job_id=job["job_id"], lane_id=episode.get("lane_id"),
                                     data={"lane_id": episode.get("lane_id"), "since": episode.get("since"),
                                           "ended_at": now}) as tx:
+            if self._task_held_at_write(tx, job, holds) is not None:
+                return None
             tx.execute("UPDATE jobs SET next_check_at=CASE WHEN state='waiting' THEN ? ELSE next_check_at END "
                        "WHERE job_id=? AND state IN ('queued','waiting')", (now, job["job_id"]))
             self._withdraw_pin_notice(tx, job["job_id"], why="admittable")
@@ -8436,9 +9097,14 @@ class Daemon:
         # Replaced whole, never updated in place: `why` reads it from another thread.
         self._route_deferrals[job_id] = record
         with self.store.transaction("job.route_deferred", job_id=job_id, data=record) as tx:
-            tx.execute("UPDATE jobs SET state='waiting',wait_reason='route',next_check_at=? "
-                       "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
-                       (next_check, job_id))
+            taken = self._task_held_at_write(tx, job, holds)        # C-11.10 (review r3 of #260, R3-1)
+            if taken is None:
+                tx.execute("UPDATE jobs SET state='waiting',wait_reason='route',next_check_at=? "
+                           "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                           (next_check, job_id))
+        if taken is not None:
+            self._route_deferrals.pop(job_id, None)     # held: this deferral was never written
+            return
         # The type only, as C-5.10 logs a worker's: the message is in the event and in `why`.
         self.log.warning("job %s route could not be evaluated (%d in a row, next check in %d s): %s",
                          job_id, count, delay, record["error_type"])
@@ -8511,9 +9177,13 @@ class Daemon:
         refusals.log_detail(self.log, job_id, exc, subject="job")
         return refusals.refusal_detail(exc)
 
-    def _workspace_failed(self, job: dict, exc: BaseException) -> None:
+    def _workspace_failed(self, job: dict, exc: BaseException, holds: dict[str, dict] | None = None) -> bool:
         """C-6.8: a transient failure waits with backoff; anything else, or a
-        transient one past `caps.workspace_retry_max`, fails with its cause."""
+        transient one past `caps.workspace_retry_max`, fails with its cause.
+
+        C-11.10 (review r3 of #260, R3-1): the transaction that would write the backoff
+        reads the job's task hold first; a hold committed since the look began takes the
+        job instead, and True says so (the deferral is not counted)."""
         transient, record = self._workspace_error(exc)
         count = self._workspace_deferrals.get(job["job_id"], 0) + 1
         limit = self.policy["caps"]["workspace_retry_max"]
@@ -8529,20 +9199,25 @@ class Daemon:
             next_check = after(delay)
             record.update(deferrals=count, retry_max=limit, next_check_at=next_check)
             with self.store.transaction("job.workspace_deferred", job_id=job["job_id"], data=record) as tx:
-                tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=? "
-                           "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
-                           (next_check, job["job_id"]))
+                taken = self._task_held_at_write(tx, job, holds)
+                if taken is None:
+                    tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=? "
+                               "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
+                               (next_check, job["job_id"]))
+            if taken is not None:
+                return True
             self._workspace_deferrals[job["job_id"]] = count
             self.log.warning("job %s workspace preparation deferred %d/%d, next check in %d s: %s",
                              job["job_id"], count, limit, delay, words)
             self._notify()
-            return
+            return False
         record.update(transient=transient, deferrals=count - 1)
         self.log.error("job %s workspace preparation failed: %s", job["job_id"], words)
         tail = f" after {count - 1} retries" if transient else ""
         self._fail_queued(job, f"workspace preparation failed{tail}: {detail}",
                           kind="job.workspace_failed", data=record)
         self._workspace_deferrals.pop(job["job_id"], None)
+        return False
 
     def _folder_absent(self, job: dict, folder: str, missing: OSError, holds: dict) -> None:
         """C-8.4, C-6.8: `folder`, the one `job`'s row would name, is not there now
@@ -8555,17 +9230,25 @@ class Daemon:
                              f"({missing.strerror or missing}: {missing.filename or folder})", transient=True,
                              public=f"its folder {folder} is not there now ({os_error_text(missing)})")
         error.__cause__ = missing
-        self._workspace_failed(job, error)
+        if self._workspace_failed(job, error, holds):
+            return                                          # C-11.10: held since the door's look
         self._capacity_waits.pop(job["job_id"], None)      # C-6.10: the wait is C-6.8's now
         holds[job["job_id"]] = {"reason": "workspace", **self._workspace_error(error)[1]}
 
     def _fail_queued(self, job: dict, detail: str, *, rc: int = 1, kind: str = "job.failed",
-                     data: dict | None = None) -> None:
+                     data: dict | None = None, holds: dict[str, dict] | None = None) -> bool:
+        """End a job admission will not place, with `detail` in its notice. With `holds` (a
+        failure on a clock, C-11.8's grace), the transaction reads the job's task hold first and,
+        if one covers the job, takes it for the hold instead (`_task_held_at_write`; review r3 of
+        #260, R3-1): no job is failed because of a hold. Whether it ended the job (False: held,
+        or already ended)."""
         observers = self._ending_observers(job["job_id"])     # C-5.9, before the transaction
         with self.store.transaction(kind, job_id=job["job_id"], data=data) as tx:
+            if holds is not None and self._task_held_at_write(tx, job, holds) is not None:
+                return False
             job = self._job(job["job_id"])
             if job["state"] in TERMINAL:
-                return
+                return False
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("failed", rc)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?",
                        (state, rc, utcnow(), job["job_id"]))
@@ -8575,6 +9258,7 @@ class Daemon:
             self._notice(tx, job, (f"{state} while preparing the retry: " if earlier else "") + detail + earlier
                          + retained)
         self._notify()
+        return True
 
     def _launch(self, a: dict) -> None:
         job = self._job(a["job_id"])
@@ -10785,6 +11469,14 @@ class Daemon:
             if steered:
                 evidence["capacity_steer"] = {"model_id": a["model_requested"],
                                               "until": _later(provider_finished_at, MODEL_CAPACITY_STEER_S)}
+            # C-4.5: a transient retry is due `TRANSIENT_RETRY_DELAY_S` after this finalization, which
+            # may be well after the provider's exit (load, a restart); the deadline is kept with the
+            # attempt, so a task hold keeps exactly it, not the exit plus 60 s (C-11.10, review r3
+            # of #260, R3-2).
+            next_check = after(TRANSIENT_RETRY_DELAY_S if outcome.cls == OutcomeClass.TRANSIENT and not steered
+                               else 0) if retry else None
+            if retry and outcome.cls == OutcomeClass.TRANSIENT and not steered:
+                evidence["retry_due_at"] = next_check
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=? WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
                         outcome.native_session_id, outcome.transcript_path, provider_finished_at, a["attempt_id"]))
@@ -10816,8 +11508,6 @@ class Daemon:
                 job_rc = {OutcomeClass.LIMITED: 4,  # C-17.3: a final limited attempt reports 4, pinned or not
                           OutcomeClass.AUTH_DEAD: 5, OutcomeClass.CLI_TOO_OLD: 6}.get(outcome.cls, rc)
             accepted = a["attempt_id"] if ok and not cancel else None
-            next_check = after(TRANSIENT_RETRY_DELAY_S if outcome.cls == OutcomeClass.TRANSIENT and not steered
-                               else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
             self._cascade_final_wall(a, wall_exited)
