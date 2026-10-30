@@ -6456,3 +6456,99 @@ def test_r11_known_differences_name_the_over_blocks_and_what_is_let_through():
         assert rule(outs[command]) is None, command
         assert named in known, named
     assert R11_EVAL_TEXT in known and R10_EVAL_TEXT not in known
+
+
+# ---------------------------------------------------------------- review r11 (at c134c83bf)
+
+#: Review r11's over-blocks of r11 decision 3 that "Known differences" does not name: a loop the shells run in place
+#: where the prep reads it as joining an earlier root loop's words, after && or ||, in a case arm, in an eval script, or
+#: at the top of a nested script or substitution whose earlier loop over the name is a root. r10, r9 and the installed
+#: hook allow each; r11 denies each, and neither shell walks a root.
+REVIEW_R11_STRICTER = [
+    R7V_L + "; eval '" + R9_LS + "'; " + R7V_R,
+    R7V_L + '; eval "' + R9_LS + '"; ' + R7V_R,
+    R7V_L + "; case x in x) " + R9_LS + ";; esac; " + R7V_R,
+    R7V_L + "; true && " + R9_LS + "; " + R7V_R,
+    R7V_L + "; false || " + R9_LS + "; " + R7V_R,
+    R7V_L + "\ntrue &&\n" + R9_LS + "\n" + R7V_R,
+    "bash -c '" + R7V_L + "; " + R9_LS + "; " + R7V_R + "'",
+    "x=$(" + R7V_L + "; " + R9_LS + "; " + R7V_R + ")",
+    "bash <<'EOF'\n" + R7V_L + "\n" + R9_LS + "\n" + R7V_R + "\nEOF",
+    "bash <<'EOF'\nfor d in ~/*; do du -sh \"$d\"; done\nfor d in src tests; do rg -n foo \"$d\"; done\nEOF",
+    "bash -c 'for d in ~/*; do du -sh \"$d\"; done; for d in src tests; do rg -n foo \"$d\"; done'",
+    "sh -c 'for d in ~/*; do du -sh \"$d\"; done; for d in src tests; do rg -n foo \"$d\"; done'",
+    'echo "$(for d in ~/*; do du -sh "$d"; done; for d in src; do rg -n foo "$d"; done)"',
+]
+#: Review r11's open forms, each allowed by every hook (r11, r10, r9 and the installed one), each walked by the shells
+#: named: more spellings of r11's listed gap (a loop a pipe or & runs in a subshell), a redirection, heredoc or
+#: arithmetic word between a searcher and its root, and a loop over a list that expands to nothing (the shells keep
+#: the earlier loop's value). All but r11's gap spellings predate r11.
+REVIEW_R11_OPEN = {
+    R7V_L + "; " + R9_LS + " |& cat; " + R7V_R: ("zsh",),
+    R7V_L + "; " + R9_LS + " &! " + R7V_R: ("zsh", "bash"),
+    R7V_L + "; " + R9_LS + " 2>&1 | cat; " + R7V_R: ("zsh", "bash"),
+    R7V_L + "; " + R9_LS + " & " + R7V_R: ("zsh", "bash"),
+    R7V_L + "\n" + R9_LS + " |\ncat\n" + R7V_R: ("zsh", "bash"),
+    R7V_L + "; " + R9_LS + " | while read x; do :; done; " + R7V_R: ("zsh", "bash"),
+    "rg --files 2>/dev/null ~/.subfleet": ("zsh", "bash"),
+    "rg --files 2>&1 ~/.subfleet": ("zsh", "bash"),
+    "find 2>&1 / -name x": ("zsh", "bash"),
+    "rg --files &>/dev/null ~/.subfleet": ("zsh", "bash"),
+    "rg --files <<EOF ~/.subfleet\nx\nEOF": ("zsh", "bash"),
+    "rg --files $((1<<2)) ~/.subfleet": ("zsh", "bash"),
+    "rg --files $((2>1)) ~/.subfleet": ("zsh", "bash"),
+    R7V_L + "; for d in $nothing; do :; done; " + R7V_R: ("zsh", "bash"),
+}
+#: Controls: two loops reusing a name at the top of the command (the second replaces the words; no shell walks), and a
+#: loop over a substitution that writes nothing after a root loop (denied; both shells walk).
+REVIEW_R11_ALLOWED = ['for d in ~/*; do du -sh "$d"; done; for d in src tests; do rg -n foo "$d"; done']
+REVIEW_R11_DENIED = [R7V_L + "; for d in $(true); do :; done; " + R7V_R]
+#: r11 decision 1's key for judging a path word once: one word in a bash -c script and again at the top (judged in b
+#: and in z), or as a cd target and again as a search operand (its .. read logically, then physically through the
+#: link ~/work/jl). Each is denied, and both shells walk a root; dropping the context or the cd reading from the key
+#: lets each through, and no other committed input moves (review r11's mutants rv11-key-ctx-dropped and
+#: rv11-key-cd-dropped).
+REVIEW_R11_KEY_DENIED = [
+    "bash -c 'rg --files /[^/]*'; rg --files /[^/]*",
+    "bash -c 'find /[!/]* -name x'; find /[!/]* -name x",
+    "cd ~/work/jl/.. 2>/dev/null; rg --files ~/work/jl/..",
+    "cd ~/w*/jl/.. 2>/dev/null; rg --files ~/w*/jl/..",
+]
+
+
+def test_review_r11_pins_r11s_unpinned_readings(tmp_path, hooks):
+    """Review r11's inputs, each run by /bin/zsh -f and /bin/bash over the fixture (r6's stubs, the fixture's HOME): the
+    stricter forms are denied and walk none, and the installed hook allows them; the open forms are allowed by this
+    hook and the installed one and walk a root in the shells named; the controls and the path-word key's forms
+    hold (denied, and both shells walk a root)."""
+    commands = (REVIEW_R11_STRICTER + list(REVIEW_R11_OPEN) + REVIEW_R11_ALLOWED + REVIEW_R11_DENIED
+                + REVIEW_R11_KEY_DENIED)
+    new, old = judged(HOOK, commands, S_), judged(hooks["old"], commands, S_)
+    walks = {c: {sh: r6_shell_walks(sh, c, S_, tmp_path) for sh in ("zsh", "bash")} for c in commands}
+    assert [c for c in REVIEW_R11_STRICTER if rule(new[c]) != "unscoped-search" or rule(old[c]) is not None
+            or any(walks[c].values())] == []
+    assert [c for c, shells in REVIEW_R11_OPEN.items() if rule(new[c]) is not None or rule(old[c]) is not None
+            or not all(walks[c][sh] for sh in shells)] == []
+    assert [c for c in REVIEW_R11_ALLOWED if rule(new[c]) is not None or any(walks[c].values())] == []
+    assert [c for c in REVIEW_R11_DENIED + REVIEW_R11_KEY_DENIED
+            if rule(new[c]) != "unscoped-search" or not all(walks[c].values())] == []
+
+
+#: Review r11's P2: what find's -exec {} stands for (all of find's roots, r5 decision 3) is never charged to the step
+#: budget, so 150 roots and 150 {} (1.1 KB) cost 2.6 s of CPU here (0.15 s installed), 300 of each 26 s, and 400 of
+#: each ran past 120 s; a {} inside a word, read as the first root, is the same with a long first root.
+REVIEW_R11_BRACES = {
+    "150 roots x 150 {}": "find " + " ".join(f"a{i}" for i in range(150)) + " -exec rg x " + "{} " * 150 + "\\;",
+    "a 3 KB root x 300 b{}": "find /" + "a" * 3000 + " -exec rg x " + "b{} " * 300 + "\\;",
+}
+
+
+@pytest.mark.xfail(strict=True, reason="review r11 P2-1: find's -exec {} is not charged to the step budget")
+def test_review_r11_find_exec_braces_cost_steps_of_the_shared_budget():
+    """Each row is denied as too complex to judge in at most R11_COST_CPU_S of child CPU, as review r10's loop rows are
+    (strict xfail at c134c83bf: each is allowed after seconds of CPU; the fix makes it pass)."""
+    for name, command in REVIEW_R11_BRACES.items():
+        cpu, _, out = hook_cpu(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        assert "too complex to judge" in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"], name
+        assert cpu <= R11_COST_CPU_S, (name, cpu)

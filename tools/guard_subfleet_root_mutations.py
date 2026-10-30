@@ -197,6 +197,9 @@ MUTATIONS = {
     "r11-join-vt-dropped": (HOOK, None, None, "test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words"),
     "r11-join-fn-dropped": (HOOK, None, None, "test_r11_known_differences_name_the_over_blocks_and_what_is_let_through"),
     "r11-read-join-dropped": (HOOK, None, None, "test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words"),
+    # review r11's probe mutants: the context or the cd reading dropped from the key that judges a path word once
+    "rv11-key-ctx-dropped": (HOOK, None, None, "test_review_r11_pins_r11s_unpinned_readings"),
+    "rv11-key-cd-dropped": (HOOK, None, None, "test_review_r11_pins_r11s_unpinned_readings"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -494,6 +497,8 @@ EDITS = {
     "r11-join-fn-dropped": [(r"""(st["ka"] || ld > 1 || !st["vt"] || FN)""", r"""(st["ka"] || ld > 1 || !st["vt"])""")],
     "r11-read-join-dropped": [(r"""LVAR[val[k]] = (val[k] in LVAR) ? LVAR[val[k]] " " st["pr"] : st["pr"]""",
                                r"""LVAR[val[k]] = st["pr"]""")],
+    "rv11-key-ctx-dropped": [(r"""key = ctx SUBSEP ((run == sf) ? "u" : "q")""", r"""key = ((run == sf) ? "u" : "q")""")],
+    "rv11-key-cd-dropped": [(r"""SUBSEP ((cd && !cdp) ? "c" : "p") SUBSEP sf SUBSEP b""", r"""SUBSEP sf SUBSEP b""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
@@ -585,7 +590,7 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = ([name for name in MUTATIONS if name.startswith(("r11-", "rv10-"))]
+    newest = ([name for name in MUTATIONS if name.startswith(("r11-", "rv10-", "rv11-"))]
               + [name for name in MUTATIONS if name.startswith(("r10-", "rv9-"))]
               + [name for name in MUTATIONS if name.startswith(("r9-", "rv8-"))]
               + [name for name in MUTATIONS if name.startswith(("r8-", "rv7-"))]
