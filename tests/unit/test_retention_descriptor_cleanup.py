@@ -142,3 +142,27 @@ def test_tree_bytes_check_cancellation_survives_drain_close_error(monkeypatch):
         assert len(opened) == 2
         assert set(opened) <= set(attempted)
         assert len(attempted) == len(set(attempted))
+
+
+def test_walk_close_preserves_generator_exit_over_close_oserror(monkeypatch):
+    with tree(DEEP) as (_, root_fd), unchanged_descriptors(root_fd):
+        opened, attempted = [], []
+        original_open, original_close = rfs.open_dir, os.close
+        def open_dir(*args, **kwargs):
+            fd = original_open(*args, **kwargs)
+            opened.append(fd)
+            return fd
+        def close(fd):
+            attempted.append(fd)
+            original_close(fd)
+            if fd == opened[0]:
+                raise OSError(errno.EIO, "close during GeneratorExit")
+        with monkeypatch.context() as patch:
+            patch.setattr(rfs, "open_dir", open_dir)
+            iterator = rfs.walk(root_fd)
+            for _ in range(4):
+                next(iterator)
+            patch.setattr(os, "close", close)
+            iterator.close()
+        assert attempted == opened
+        assert len(opened) == 2
