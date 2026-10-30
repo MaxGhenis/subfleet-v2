@@ -174,6 +174,11 @@ MUTATIONS = {
     # r9 (the hub's decisions on review r8): one per fix, the join where the reset is off and the count of "
     "r9-join-dropped": (HOOK, None, None, "test_r9_a_later_value_joins_the_loop_words_where_the_reset_does_not_apply"),
     "r9-cap-dquote-dropped": (HOOK, None, None, "test_r9_double_quotes_count_against_the_cap"),
+    # r10 (the hub's decisions on review r9): one per fix, the depth gate restored and the function body's join dropped,
+    # and review r9's probe mutant (the deny message drops ", which review r9's committed test reads)
+    "r10-depth-gate-restored": (HOOK, None, None, "test_r10_a_value_joins_inside_a_substitution_or_a_nested_script"),
+    "r10-function-body-join-dropped": (HOOK, None, None, "test_r10_a_function_body_written_before_its_loop_joins"),
+    "rv9-message-dquote-dropped": (HOOK, None, None, "test_review_r9_pins_r9s_unpinned_readings"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -392,8 +397,10 @@ EDITS = {
 """, "")],
     "r7-known-form-unlisted": [("""  - zsh's `=(…)`, `source =(echo 'rg --files ~/.subfleet')` and `zsh =(…)`: zsh writes""",
                                 """  - zsh's process substitution to a file: zsh writes""")],
-    # retargeted in r8 and r9: each rewrote the assignment line; the edit still drops it
+    # retargeted in r8, r9 and r10: each rewrote the assignment line (r10 gave it an else, the function body's value);
+    # the edit still drops the update, its else with it
     "r7-loopvar-unscoped": [("""        if ((w in LVAR) && op != "") LVAR[w] = (vrp && op !~ /[$`\\047"\\\\[:space:]]/) ? op : LVAR[w] " " op
+        else if (FN && op != "" && (st["ka"] || ld || !st["vt"])) FA[w] = FA[w] " " op
 """, "")],
     "r7-loopvar-anywhere": [("""      vtop = (!depth && !pd && !pn && !bto && (pv == "" || pv == ";" || pv == "\\n" || pv == "&") && (sep == ";" || sep == "\\n" || sep == "&&" || sep == "||"))
 """, """      vtop = !depth
@@ -439,6 +446,16 @@ EDITS = {
                          """LVAR[w] = (vrp && op !~ /[$`\\047"\\\\[:space:]]/) ? op : !vrp ? LVAR[w] : LVAR[w] " " op""")],
     # r9 decision 2: " is counted but no longer against the cap
     "r9-cap-dquote-dropped": [("""e > 4096 || f > 4096) ? 1 : 0""", """e > 4096) ? 1 : 0""")],
+    # r10 decision 1: the depth gate restored, so inside a substitution or a nested script the value is dropped again
+    "r10-depth-gate-restored": [("""    if (mode == "prep" && t > nt) {
+""", """    if (mode == "prep" && !depth && t > nt) {
+""")],
+    # r10 decision 2: the value a function body assigns before its loop no longer joins the loop's words
+    "r10-function-body-join-dropped": [("""LVAR[val[t + 1]] = w ((FN && (val[t + 1] in FA)) ? FA[val[t + 1]] : "")""",
+                                        """LVAR[val[t + 1]] = w""")],
+    # review r9's probe mutant: the cap's deny message drops "
+    "rv9-message-dquote-dropped": [(r"""of one of \$, #, \\, ', \" or \` and names""",
+                                    r"""of one of \$, #, \\, ' or \` and names""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
@@ -530,7 +547,8 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = ([name for name in MUTATIONS if name.startswith(("r9-", "rv8-"))]
+    newest = ([name for name in MUTATIONS if name.startswith(("r10-", "rv9-"))]
+              + [name for name in MUTATIONS if name.startswith(("r9-", "rv8-"))]
               + [name for name in MUTATIONS if name.startswith(("r8-", "rv7-"))]
               + [name for name in MUTATIONS if name.startswith(("r7-", "rv6-"))]
               + [name for name in MUTATIONS if name.startswith(("r6-", "rv5-"))]
