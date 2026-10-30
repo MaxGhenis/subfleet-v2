@@ -6313,3 +6313,44 @@ def test_r11_a_function_body_joins_a_piped_while_read_loop():
     """Decision 2: review r10's P3-1 input and its spellings are denied; the two controls stay allowed."""
     assert r5_denied([(c, S_) for c in R11_READ_FUNCTION_DENIED]) == []
     assert r5_allowed([(c, S_) for c in R11_READ_FUNCTION_ALLOWED]) == []
+
+
+#: Decision 3: review r10's seven P3-4 inputs, after a loop over ~/.subfleet's children a loop over a scoped word in an
+#: inner scope (a nested script, a substitution, a <(...), a function body, a subshell, a quoted $(...) that searches,
+#: a piped while read). r10, r9 and the installed hook allow each; both shells walk the root in the first six, and bash
+#: in the last (zsh runs a pipe's last command in the shell itself) ...
+R11_INNER_DENIED = [
+    R7V_L + "; bash -c 'for d in src; do :; done'; " + R7V_R,
+    R7V_L + "; x=$(for d in src; do :; done); " + R7V_R,
+    R7V_L + "; cat <(for d in src; do :; done); " + R7V_R,
+    R7V_L + "; f() { for d in src; do :; done; }; " + R7V_R,
+    R7V_L + "; (for d in src; do :; done); " + R7V_R,
+    R7V_L + '; echo "$(for d in src; do rg foo "$d"; done)"; ' + R7V_R,
+    R7V_L + "; echo src | while read d; do :; done; " + R7V_R,
+]
+#: ... and the terms of the join this round's probes exercise alone: another compound command open (a brace group a
+#: pipe runs in a subshell; both shells walk) and a keyword before the loop (zsh's coproc runs it apart; zsh walks,
+#: and bash 3.2 has no coproc) ...
+R11_INNER_TERMS_DENIED = [
+    R7V_L + "\n{\nfor d in src; do :; done\n} | cat\n" + R7V_R,
+    R7V_L + "; coproc for d in src; do :; done; " + R7V_R,
+]
+#: ... while a loop at the top of the command still replaces the words (no shell walks), and scoped loops, scoped
+#: values in inner scopes and a loop after a closed compound command stay allowed.
+R11_INNER_ALLOWED = [
+    R7V_L + "; for d in src; do :; done; " + R7V_R,
+    R7V_L + "\nfor d in src; do :; done\n" + R7V_R,
+    R7V_L + "; while false; do :; done; for d in src; do :; done; " + R7V_R,
+    R9_LS + "; for d in lib; do :; done; " + R7V_R,
+    R9_LS + "; bash -c 'for d in lib; do :; done'; " + R7V_R,
+    R9_LS + "; echo lib | while read d; do :; done; " + R7V_R,
+    "for d in src lib; do " + R7V_R + "; done; for d in tests; do " + R7V_R + "; done",
+    "ls src | while read d; do " + R7V_R + "; done; ls lib | while read d; do " + R7V_R + "; done",
+]
+
+
+def test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words():
+    """Decision 3: review r10's seven P3-4 inputs, and the forms each join term reads alone, are denied; a loop at the
+    top of the command still replaces the words, and scoped forms stay allowed."""
+    assert r5_denied([(c, S_) for c in R11_INNER_DENIED + R11_INNER_TERMS_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R11_INNER_ALLOWED]) == []

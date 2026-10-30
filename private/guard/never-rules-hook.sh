@@ -2006,19 +2006,24 @@ pw_prep_awk="$pw_lib_awk"'
     if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }
     # r6 decision 9: a for loop variable stands for its words, and a variable a piped while-read reads for the roots
     # of what the pipe carries (find: its roots; any other command: its words), as {} does for -exec; a searcher
-    # operand that is only $V, "$V", ${V} or "${V}" is read as them (LVAR). r11 decision 1: each word an operand is
+    # operand that is only $V, "$V", ${V} or "${V}" is read as them (LVAR). r11 decision 3: a for loop read where the
+    # reset would not apply (a keyword before it, another compound command open, not where an assignment lasts, or a
+    # command that defines a function), and every read, joins the words the variable stood for instead of replacing
+    # them, since the loop may run in a scope of its own (a subshell, a nested script, a function body); the words a
+    # function body assigned (FA) join once, where the variable is first read, and stay among its words after that
+    # (FA stops growing once a loop reads the name). r11 decision 1: each word an operand is
     # read as costs a step of the shared budget (pst), and so does each 16 bytes of them (one long word read in many
     # places costs as much as many words), so a loop variable standing for more than the budget holds makes the
     # command too complex to judge
     if (mode == "prep" && t <= nt) {
       if (val[t] == "for" && t + 2 <= nt && val[t + 2] == "in" && val[t + 1] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
         w = ""; for (k = t + 3; k <= nt; k++) if (!rd[k]) w = w (w == "" ? "" : " ") tk[k]
-        if (w != "") LVAR[val[t + 1]] = w ((FN && (val[t + 1] in FA)) ? FA[val[t + 1]] : "")
+        if (w != "") LVAR[val[t + 1]] = ((val[t + 1] in LVAR) && (st["ka"] || ld > 1 || !st["vt"] || FN)) ? LVAR[val[t + 1]] " " w : w ((FN && (val[t + 1] in FA)) ? FA[val[t + 1]] : "")
       } else if (val[t] == "read" && st["pr"] != "") {
         for (k = t + 1; k <= nt; k++) {
           if (rd[k]) continue
           if (val[k] ~ /^-[a-zA-Z]*[adnNptu]$/) { k++; continue }
-          if (val[k] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) LVAR[val[k]] = st["pr"] ((FN && (val[k] in FA)) ? FA[val[k]] : "")
+          if (val[k] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) LVAR[val[k]] = (val[k] in LVAR) ? LVAR[val[k]] " " st["pr"] : st["pr"] ((FN && (val[k] in FA)) ? FA[val[k]] : "")
         }
       } else if (isname(base(val[t])) || val[t] == "grep -r") {
         for (k = t + 1; k <= nt; k++) {
