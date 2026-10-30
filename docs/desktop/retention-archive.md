@@ -623,7 +623,8 @@ recorded it (or, for a job queued before that, as admission spelled it,
 `job.folder_spelled`); and what submit records as `depends`, spelled once: the
 review root, the `-o` path, and the git storage its folder's checkout uses
 (for each `.git` at or above the folder, the directory it is or names, that
-directory's common directory and the alternates of its objects, read from the
+directory's common directory, its resolved initial objects directory and the
+alternates of its objects, read from the
 files without running git, decoding Git C-style escapes on raw bytes before
 filesystem decoding and resolving relative alternates against the objects
 directory, five levels deep). Alternates files are streamed to their end with
@@ -631,16 +632,21 @@ no whole-file cap and a 1 MiB per-line bound (256 times a 4096-byte PATH_MAX).
 Read errors, overlong lines, invalid quotes and detected changes during discovery
 record incomplete discovery. For each opened alternates descriptor, discovery
 compares device/inode, size, mtime and ctime before and after reading, then
-checks the final identity of the resolved pathname it opened. It also retains
-each original checkout and `.git` spelling (directory, symlink or `gitdir:` file),
-the `gitdir:` and `commondir` pointers and their targets, and each alternates
-entry's own pathname beside its resolved target. After traversal it resolves
-these aliases again and rereads pointer text, outside transactions. A changed
-or vanished alias, replacement or detected write fails closed. An alias swapped
-and swapped back within one traversal can escape this check. A write that
-leaves size, mtime and ctime unchanged within one timestamp tick can escape the
-descriptor check; dependencies introduced after discovery are also outside
-these observations. Submission and admission still accept the
+checks the final identity of the resolved pathname it opened. Discovery
+revalidates the tracked checkout/`.git` aliases, `gitdir:` and `commondir` pointer
+paths/targets, parsed alternate-entry paths, and the initial `<common>/objects`
+spelling. It records the initial object directory's resolved target beside
+`gitdir` and `common`. A stable link into an allocated tree pins that storage for
+a live borrower. A changed or vanished initial object-directory target records
+incomplete discovery even when its alternates file stays absent or keeps the same
+inode and contents. The global pin then retains every allocated worktree while the
+affected job is live or exporting; a terminal exporter with complete discovery
+keeps only its output paths. An alias swapped away and back within one traversal
+can escape final comparison. A write that preserves size, mtime and ctime within
+one timestamp tick can escape descriptor checks; dependencies introduced after
+discovery also remain outside these observations. The documented swap-back,
+timestamp and later-dependency bounds remain additional limits of the
+observations. Submission and admission still accept the
 job. Recorded failures and legacy failures keep every allocated worktree while
 the job is live or exporting, with a `dependency-incomplete` reason naming the
 job and file. The off-transaction legacy census includes every job holding an

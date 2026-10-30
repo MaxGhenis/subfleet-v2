@@ -1,0 +1,540 @@
+{
+  "label": "test_state_contract",
+  "start": "2026-10-30T05:10:12.522328+00:00",
+  "loads": [
+    16.9853515625,
+    21.4970703125,
+    21.76806640625
+  ],
+  "seconds": 30.188909625001543,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.18153037499723723
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1016918750028708
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6598138330009533
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.13988124999741558
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1872886249984731
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.03748175000509946
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.02245733299787389
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0014398330022231676
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0024501250009052455
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0013097499977448024
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0013809170050080866
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.020617041001969483
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.016447916998004075
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.014068000004044734
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.08373391700297361
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0820534580052481
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.11277045799943153
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.04078454100090312
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 18.19281658300315
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.09650699999474455
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.15813033399899723
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1595525840020855
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1305865829999675
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.15824241699738195
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.026976166001986712
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.026575417003186885
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.12075937500048894
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1159363749975455
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.17332579100184375
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2998414999965462
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.08987920799700078
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.11740424999879906
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.24409641599777387
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.18306170800497057
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.13921891700010747
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2964397920004558
+    },
+    {
+      "nodeid": "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.17108991599525325
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+    "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+    "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+    "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+    "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+    "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+    "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+    "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+    "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+    "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry"
+  ],
+  "all_nodes": [
+    "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+    "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+    "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+    "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+    "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+    "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+    "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+    "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+    "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+    "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry"
+  ],
+  "phases": {
+    "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 121503744
+}

@@ -629,7 +629,7 @@ class Retirement:
         assert self.journal is not None
         folder = self.journal.get("job_folder") or folders.canonical(self.journal["job_dir"])
         if "job_folder" not in self.journal:
-            # Upgrade old journals in memory; quarantine saves before any rename.
+            # Upgrade old journals entering quarantine in memory; quarantine saves before its renames.
             # Leave job_dir unchanged so the rename still refuses a symlink there.
             self.journal["job_folder"] = folder
         key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"

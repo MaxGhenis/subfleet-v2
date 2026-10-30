@@ -1,0 +1,74 @@
+from pathlib import Path
+from collections import defaultdict
+import hashlib,json,shutil,subprocess
+
+scratch=Path('/private/tmp/sf-fix272r4')
+out=Path('docs/reports/2026-10-30-retention-pins-fix-r4-data')
+report=Path('docs/reports/2026-10-30-retention-pins-fix-r4.md')
+ledger=[]
+for p in scratch.glob('*.json'):
+    d=json.loads(p.read_text())
+    if isinstance(d,dict) and 'start' in d and 'exit' in d:ledger.append(d)
+ledger.sort(key=lambda d:d['start'])
+ordinary=[d for d in ledger if d['label']!='r4-red' and not d['label'].startswith('mutant-')]
+mutants=[d for d in ledger if d['label'].startswith('mutant-')]
+assert len(mutants)==9
+required=[]
+for name in ('ordinary-plan.json','control-plan.json','guard-plan.json','red-plan.json','green-plan.json','oracle-plan.json','mutant-plan.json'):
+    required.extend(label for label,args in json.loads((scratch/name).read_text()))
+assert set(required)=={d['label'] for d in ledger},('incomplete holds',set(required)-{d['label'] for d in ledger})
+assert all(d['exit']==0 or d['label']=='retention_dependency_units' for d in ordinary),[(d['label'],d['exit']) for d in ordinary if d['exit']]
+latest={};expected=set();first={}
+for d in ordinary:
+    for node in d['nodes']:
+        first.setdefault(node.split('::')[0],d)
+        latest[node]=(d,d['phases'].get(node,{}))
+    expected.update(d.get('all_nodes',d['nodes']) if not any(node.startswith('/private/tmp/') for node in d['nodes']) else d['nodes'])
+expected.discard('tests/unit/test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree')
+assert expected==latest.keys(),('missing',sorted(expected-latest.keys()),'extra',sorted(latest.keys()-expected))
+for node,(d,phases) in latest.items():assert phases=={'setup':'passed','call':'passed','teardown':'passed'},(node,phases)
+byfile=defaultdict(int)
+for node in latest:byfile[node.split('::')[0]]+=1
+for d in mutants:
+    assert len(d['loaded'])==1 and d['exit']==1
+    node=d['nodes'][0]
+    assert node in latest and latest[node][1]=={'setup':'passed','call':'passed','teardown':'passed'}, ('killer lacks passing control',node)
+    assert d['phases'][node]=={'setup':'passed','call':'failed','teardown':'passed'}
+    module=d['loaded'][0]['module'];source=Path(module.replace('.','/')+'.py').read_bytes()
+    assert d['loaded'][0]['original_sha256']==hashlib.sha256(source).hexdigest()
+
+(out/'ledger.json').write_text(json.dumps(ledger,indent=2)+'\n')
+for d in ledger:
+    for ext in ('.json','.log'):
+        shutil.copyfile(scratch/(d['label']+ext),out/(d['label']+ext))
+for name in ('ordinary-plan.json','control-plan.json','guard-plan.json','red-plan.json','green-plan.json','oracle-plan.json','text-integrity.json'):
+    shutil.copyfile(scratch/name,out/name)
+for name in ('run_hold.py','run_batch.py','account.py'):
+    shutil.copyfile(scratch/name,out/(name+'.txt'))
+loads=lambda d:'/'.join(f'{x:.2f}' for x in d['loads'])
+text=(scratch/'report-intro.md').read_text()
+shutil.copyfile(scratch/'counterexample.md',out/'counterexample.md')
+text+=f'\n- **Evidence for this round:** Review r4 red **48 passed / 5 failed** at `5b94fd32a815` → green **53 passed**; **{len(latest)} distinct ordinary passes** and **nine named mutants killed**. The [report](2026-10-30-retention-pins-fix-r4.md) and [complete ledger](2026-10-30-retention-pins-fix-r4-data/ledger.json) supply per-file counts, UTC starts and loads.\n'
+text+='\n## Exact-list oracle correction\n\n'+(scratch/'counterexample.md').read_text().split('\n\n',1)[1]
+text+='\n## Per-file results\n\nAll starts below are UTC on October 30 after lock admission; loads are 1/5/15-minute averages. The 851 final ordinary passes comprise 846 repository nodes and five scratch controls. Ordinary counts exclude the red baseline and mutant failures and require all three phases passing. Scratch probes are listed separately. `F` means `tests/fake/`, `U` means `tests/unit/`.\n\n| File | Passed | First start UTC | Load 1/5/15 |\n|---|---:|---|---|\n'
+for file,count in sorted(byfile.items(),key=lambda item:first[item[0]]['start']):
+    d=first[file];short=file.replace('tests/fake/','F/').replace('tests/unit/','U/').replace('/private/tmp/sf-fix272r4/','scratch/')
+    text+=f'| `{short}` | {count} | {d["start"][11:19]} | {loads(d)} |\n'
+text+='\n## Named mutants\n\nR2/R3/R4 refer to `tests/fake/test_retention_dependency_review_rN.py`; probes refer to the preserved `probes.py.txt`. Every named killer passes on unmutated source. All nine mutants run against this head\'s module bytes; each has one assertion failure with passing setup/teardown. No mutant changed source files on disk.\n\n| Mutant | Named killing test | Result | Start UTC | Load 1/5/15 |\n|---|---|---|---|---|\n'
+for d in mutants:
+    node=d['nodes'][0]
+    for r in (2,3,4):node=node.replace(f'tests/fake/test_retention_dependency_review_r{r}.py',f'R{r}')
+    node=node.replace('/private/tmp/sf-fix272r4/probes.py','probes')
+    text+=f'| `{d["label"].removeprefix("mutant-")}` | `{node}` | KILLED | {d["start"][11:19]} | {loads(d)} |\n'
+text+='\n## Complete hold ledger\n\n| Hold | Start UTC | Load 1/5/15 | Passed / failed | Seconds |\n|---|---|---|---:|---:|\n'
+for d in ledger:
+    passed=sum(r['phase']=='call' and r['outcome']=='passed' for r in d['tests'])
+    failed=sum(r['outcome']=='failed' for r in d['tests'])
+    text+=f'| `{d["label"]}` | {d["start"][11:19]} | {loads(d)} | {passed} / {failed} | {d["seconds"]:.2f} |\n'
+text+=f'\nAll {len(ledger)} holds used the shared lock; no outside-lock fallback or harness retry was needed. The initial dependency-unit file’s outdated exact-list assertion failed once and passed after the documented oracle update; both runs remain in this ledger. Longest pytest: **{max(d["seconds"] for d in ledger):.2f} seconds**; peak observed pytest RSS: **{max(d["rss"] for d in ledger)/1048576:.1f} MiB**. The source hashes in all nine mutant records match the final module sources. The observer was extended after the initial runs to retain pre-deselection collection lists; the union verifies that every selected repository module node ran, except the one deliberate live-lsof exclusion. No property settings or property assertions were changed.\n'
+text+='\n## Not run\n\nDeliberately deselected: `tests/unit/test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree`. No other requested local node remains unrun. The full suite, Python 3.12, external CI execution and `tests/frontend/test_core_live.py` were not run. The live frontend is person-only and cannot run on a lane. No current CI result or approving review is claimed.\n'
+text+='\n## Delivery and cleanup\n\nThe ordered commits contain the fix with its five flipped cases, the nine named-mutant proofs, the dependency-list oracle update, then text and final execution evidence. Every commit ends with the prescribed co-author footer. Delivery is `retention-fix272r4.bundle` at the workspace root, requiring base `5b94fd32a815`; it is verified before private metadata is removed. The original shared Git metadata remains at the supplied detached base. All owned tool sessions finish before the final answer; both scratch roots are removed with the prescribed guarded cleanup. Combined scratch measured 559 MiB before cleanup, below 1.5 GB. The final answer supplies the bundle head.\n'
+report.write_text(text)
+summary={'ordinary_passes':len(latest),'files':len(byfile),'holds':len(ledger),'mutants':len(mutants),'rows':[{'file':f,'passed':n,'start':first[f]['start'],'loads':first[f]['loads']} for f,n in byfile.items()]}
+(out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+print(json.dumps({k:v for k,v in summary.items() if k!='rows'}))

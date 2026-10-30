@@ -1,0 +1,36 @@
+{
+  "label": "turn_retention_cwd_properties",
+  "start": "2026-10-30T05:42:15.203572+00:00",
+  "loads": [
+    13.28564453125,
+    14.82861328125,
+    17.51806640625
+  ],
+  "seconds": 10.539549749999424,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 8.918332040993846
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder"
+  ],
+  "all_nodes": [
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder"
+  ],
+  "phases": {
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 128204800
+}

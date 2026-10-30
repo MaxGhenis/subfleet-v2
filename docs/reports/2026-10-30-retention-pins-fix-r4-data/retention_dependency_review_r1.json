@@ -1,0 +1,254 @@
+{
+  "label": "retention_dependency_review_r1",
+  "start": "2026-10-30T05:08:21.289984+00:00",
+  "loads": [
+    24.7529296875,
+    23.13037109375,
+    22.2568359375
+  ],
+  "seconds": 11.82306287499523,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.025606000002881046
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfc]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.03075012499903096
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfd]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.02705187499668682
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[greek]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.10439249999762978
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[sharp-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.11103308299789205
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.047357041999930516
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.022083625000959728
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[firmlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.02738612500252202
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[symlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0344045419988106
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[dotdot]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.028035625000484288
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[trailing]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.026343917001213413
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1840712499979418
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.139947250005207
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7375366249980289
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-dotless-i]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7720718330019736
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-default-ignorable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.4774879169999622
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.46105591699597426
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.3666712499980349
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[case]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfc]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfd]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[greek]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[sharp-s]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[fi]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[kelvin]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[firmlink]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[symlink]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[dotdot]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[trailing]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-dotless-i]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-default-ignorable]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfc]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfd]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[greek]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[sharp-s]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[fi]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[kelvin]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[firmlink]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[symlink]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[dotdot]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[trailing]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-dotless-i]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-default-ignorable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 130662400
+}

@@ -46,8 +46,12 @@ started = datetime.datetime.now(datetime.UTC).isoformat()
 loads = os.getloadavg()
 results = []
 nodes = []
+all_nodes = []
 phases = {}
 class Observer:
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_collection_modifyitems(self, session, config, items):
+        all_nodes.extend(item.nodeid for item in items)
     def pytest_sessionfinish(self, session, exitstatus):
         from subfleet.home_paths import PYTEST_SENTINEL
         base = session.config._subfleet_safe_home_base
@@ -69,6 +73,6 @@ try:
 finally:
     signal.alarm(0)
     data = dict(label=label, start=started, loads=loads, seconds=time.monotonic()-t0,
-                exit=int(code), locked=not bool(os.environ.get('SF_SKIP_LOCK')), tests=results, nodes=nodes, phases=phases, loaded=loaded, rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+                exit=int(code), locked=not bool(os.environ.get('SF_SKIP_LOCK')), tests=results, nodes=nodes, all_nodes=all_nodes, phases=phases, loaded=loaded, rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     (scratch / (label + '.json')).write_text(json.dumps(data, indent=2)+'\n')
 sys.exit(code)

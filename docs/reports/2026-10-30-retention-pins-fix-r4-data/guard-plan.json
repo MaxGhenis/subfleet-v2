@@ -1,0 +1,20 @@
+[
+  [
+    "test_state_contract",
+    [
+      "tests/fake/test_state_contract.py"
+    ]
+  ],
+  [
+    "test_test_module_names",
+    [
+      "tests/unit/test_test_module_names.py"
+    ]
+  ],
+  [
+    "test_invariants_index",
+    [
+      "tests/unit/test_invariants_index.py"
+    ]
+  ]
+]

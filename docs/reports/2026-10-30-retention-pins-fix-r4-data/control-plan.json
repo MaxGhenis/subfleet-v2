@@ -1,0 +1,22 @@
+[
+  [
+    "probe-controls",
+    [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-fix272r4",
+      "/private/tmp/sf-fix272r4/probes.py::test_changes[same-size-running]",
+      "/private/tmp/sf-fix272r4/probes.py::test_changes[symlink-info-running]"
+    ]
+  ],
+  [
+    "journal-controls",
+    [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-fix272r4",
+      "/private/tmp/sf-fix272r4/journal_probes.py",
+      "-s"
+    ]
+  ]
+]

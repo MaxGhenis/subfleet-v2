@@ -2,22 +2,11 @@
 
 Base: `ad4d612ee93a` (fix round r1 plus the hub's review r2 evidence and release/217 merge). First recorded clock: 10:46:55 UTC; first correctness hold: 10:47:51 UTC. The four-hour new-hold cutoff is 14:46 UTC; the six-hour wall is 16:46 UTC. Only the assigned worktree is edited. The sandbox denied the requested Darwin scratch directory, so the equivalent private fixture scratch is `/private/tmp/sf-fix272r2`. Shared Git metadata also refused writes; ordered commits use private metadata and are delivered in a verified bundle. These are operational departures; no product decision changed.
 
-## Current behavior after review r3 and fix round r3
+## Current behavior after review r4 and fix round r4
 
-Review r3 showed that round r2's descriptor metadata and resolved-path checks
-did not revalidate an original repository alias, and that recovery preceded
-the legacy census. [Fix round r3](2026-10-29-retention-pins-fix-r3.md) repairs both:
-discovery retains original `.git` spellings and all followed pointers/targets,
-then revalidates them after traversal outside transactions. Changed or vanished
-aliases record incomplete evidence. The live/exporting legacy census now precedes
-recovery and is shared with the archive context; if it raises, recovery makes
-no move. Recorded-evidence controls still prevent quarantine.
+At `e4b20c9e5` the checks did not revalidate original aliases; round r3 fixed the original r3 inputs. Review r4 identified the separate initial objects-directory omission, now repaired by [fix round r4](2026-10-30-retention-pins-fix-r4.md). Discovery revalidates the tracked checkout/`.git` aliases, `gitdir:` and `commondir` pointer paths/targets, parsed alternate-entry paths, and the initial `<common>/objects` spelling. It records the initial object directory's resolved target beside `gitdir` and `common`. A stable link into an allocated tree pins that storage for a live borrower. A changed or vanished initial object-directory target records incomplete discovery even when its alternates file stays absent or keeps the same inode and contents. The global pin then retains every allocated worktree while the affected job is live or exporting; a terminal exporter with complete discovery keeps only its output paths. The documented swap-back, timestamp and later-dependency bounds remain additional limits of the observations.
 
-An alias swapped and swapped back within one traversal remains invisible to
-these final comparisons. Metadata-preserving writes within one timestamp tick
-and dependencies introduced after discovery are additional observation bounds.
-The decisions, six-case red/green result and 452-node ledger below are dated
-round-r2 evidence, not coverage claims for the new r3 inputs.
+The live/exporting legacy census precedes recovery and is shared with the archive context; if it raises, recovery makes no move. Recorded-evidence controls still prevent quarantine. An alias swapped and swapped back within one traversal, metadata-preserving writes within one timestamp tick and dependencies introduced after discovery remain observation bounds. The decisions, six-case red/green result and 452-node ledger below are dated round-r2 evidence.
 
 ## Decisions built
 
@@ -26,7 +15,7 @@ round-r2 evidence, not coverage claims for the new r3 inputs.
 3. **Tests and mutants:** remove only the three strict expected-failure decorators covering the six repaired cases. No other byte of either review r2 regression file changes; review r2's report and data remain unchanged. Add exactly two named mutants, each run against its named deterministic killing test. Definitions, loaded-source hashes and outcomes accompany this report.
 4. **Text:** apply review r2's corrections to the dated r1 claims, then describe the repaired behavior in C-8.3/C-8.4, the changelog, desktop dependency description and I16 evidence, the main report's “Review r2 and fix round r2” section, the fix r1 report and the c4a resolution. Earlier counts, timings and CI snapshots remain dated evidence. The review r2 report remains the immutable record of its reviewed head.
 
-At round r2 the stability check validated only the opened descriptor and resolved pathname, leaving the original-alias and pre-census recovery gaps described above; round r3 repairs them. The descriptor stability check cannot see a write that leaves size, mtime and ctime unchanged inside one timestamp tick. At the current head, post-traversal alias revalidation additionally checks original spellings, but cannot see an alias swapped away and back within that traversal. These checks do not cover arbitrary dependencies introduced after discovery. There is no claim of an atomic filesystem snapshot. The line buffer remains bounded at 1 MiB plus its overflow byte; results/frontier remain proportional to distinct paths. Admission still accepts incomplete discovery. While the affected job is live or exporting, its incomplete evidence prevents retirement of any allocated worktree and names the job and file.
+At round r2 the stability check validated only the opened descriptor and resolved pathname, leaving the original-alias and pre-census recovery gaps described above; round r3 repairs them. The descriptor stability check cannot see a write that leaves size, mtime and ctime unchanged inside one timestamp tick. At the round-r4 head, post-traversal alias revalidation additionally checks original spellings, including the initial object directory, but cannot see an alias swapped away and back within that traversal. These checks do not cover arbitrary dependencies introduced after discovery. There is no claim of an atomic filesystem snapshot. The line buffer remains bounded at 1 MiB plus its overflow byte; results/frontier remain proportional to distinct paths. Admission still accepts incomplete discovery. While the affected job is live or exporting, its incomplete evidence prevents retirement of any allocated worktree and names the job and file.
 
 ## Red and green
 
@@ -40,7 +29,7 @@ One pytest per hold; two suite workers, with at most four owned pytest holds act
 
 The complete results and delivery accounting follow the PR-body replacements below.
 
-## PR-body replacements for this round
+## Historical PR-body replacements for fix round r2 at `e4b20c9e5`
 
 - **Status (saved lines 1 and 3):** Review r2's R2-F1 and R2-F2 are fixed on top of `ad4d612ee93a`; approving review and CI remain external gates. Retention remains dormant. Review r1's original fixes, exporter destination join and canonical job-directory boundary remain covered.
 - **Changes (saved lines 4, 5 and 18):** Detect alternates disappearance, replacement and writes during discovery by descriptor metadata plus final pathname identity. Discover terminal legacy `out:` holders outside transactions and preserve incomplete evidence through database-only exporter rechecks, including a job ending after census. Incomplete evidence keeps allocated worktrees while the job is live or exporting and identifies the job/file; admission proceeds. The observation bounds are stated in the fix r2 report.
