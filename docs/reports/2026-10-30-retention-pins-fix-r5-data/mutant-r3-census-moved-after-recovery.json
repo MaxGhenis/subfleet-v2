@@ -1,0 +1,43 @@
+{
+  "label": "mutant-r3-census-moved-after-recovery",
+  "start": "2026-10-30T16:20:07.201284+00:00",
+  "loads": [
+    22.61181640625,
+    23.6220703125,
+    25.876953125
+  ],
+  "seconds": 10.325322874996345,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.2603181659942493
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.retention",
+      "original_sha256": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+      "baseline_sha256": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+      "mutated_sha256": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+    }
+  ],
+  "rss": 121470976
+}
