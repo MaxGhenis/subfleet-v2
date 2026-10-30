@@ -1975,7 +1975,8 @@ pw_prep_awk="$pw_lib_awk"'
     # hold it when the loop variable is read. r10 decision 1: inside a substitution or a nested script too (depth),
     # where st["vt"] is 0, so there the value always joins. r10 decision 2: in a command that defines a function, a
     # value assigned where the reset does not apply, to a name no loop has read yet, is kept (FA) and joins the
-    # words of a later loop over that name, since a function body written before the loop may run after it
+    # words of a later loop over that name, since a function body written before the loop may run after it; r11
+    # decision 2: the words of a later piped while-read loop too, as for a for loop
     if (mode == "prep" && t > nt) {
       vrp = (!st["ka"] && !ld && st["vt"] && !FN)
       for (k = 1; k <= nt; k++) {
@@ -2017,7 +2018,7 @@ pw_prep_awk="$pw_lib_awk"'
         for (k = t + 1; k <= nt; k++) {
           if (rd[k]) continue
           if (val[k] ~ /^-[a-zA-Z]*[adnNptu]$/) { k++; continue }
-          if (val[k] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) LVAR[val[k]] = st["pr"]
+          if (val[k] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) LVAR[val[k]] = st["pr"] ((FN && (val[k] in FA)) ? FA[val[k]] : "")
         }
       } else if (isname(base(val[t])) || val[t] == "grep -r") {
         for (k = t + 1; k <= nt; k++) {

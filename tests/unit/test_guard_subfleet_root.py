@@ -6290,3 +6290,26 @@ def test_r11_each_path_word_is_judged_once():
     assert r5_denied([(c, S_) for c in (f"rg foo {scoped} ~/.subfleet", f"rg foo ~/.subfleet {scoped} ~/.subfleet",
                                         f"rg foo {scoped}; rg foo {scoped} /", f"rg foo / {scoped}; rg foo /")]) == []
     assert r5_allowed([(f"rg foo {scoped}; rg foo {scoped}", S_)]) == []
+
+
+#: Decision 2: review r10's P3-1 input, a function body written before a piped while-read loop over a scoped producer
+#: and called after it assigns a root, and its spellings (the word function, a ~/.subfleet value, an if in the body,
+#: read -r). r10, r9 and the installed hook allow each, and both shells walk the root in each ...
+R11_READ_FUNCTION_DENIED = [
+    "f() { d=/; }; echo src | while read d; do :; done; f; " + R7V_R,
+    "function f { d=/; }; echo src | while read d; do :; done; f; " + R7V_R,
+    "f() { d=~/.subfleet; }; ls src | while read d; do :; done; f; " + R7V_R,
+    "f() { if true; then d=/; fi; }; echo src | while read d; do :; done; f; " + R7V_R,
+    "f() { d=/; }; echo src | while read -r d; do :; done; f; " + R7V_R,
+]
+#: ... while a scoped value in the body, or a root assigned to another name, stays allowed; neither shell walks a root.
+R11_READ_FUNCTION_ALLOWED = [
+    "f() { d=lib; }; echo src | while read d; do :; done; f; " + R7V_R,
+    "f() { e=/; }; echo src | while read d; do :; done; f; " + R7V_R,
+]
+
+
+def test_r11_a_function_body_joins_a_piped_while_read_loop():
+    """Decision 2: review r10's P3-1 input and its spellings are denied; the two controls stay allowed."""
+    assert r5_denied([(c, S_) for c in R11_READ_FUNCTION_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R11_READ_FUNCTION_ALLOWED]) == []
