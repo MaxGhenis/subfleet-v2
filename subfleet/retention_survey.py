@@ -70,14 +70,15 @@ def _walk_sizes(path: Path, omit: dict[str, dict[str, int]] | None) -> dict[str,
     the manifest would spend on the tree's entries (every file as stored)."""
     out = {"bytes": 0, "files": 0, "omittable_upper": 0, "nested_gitfiles": [], "error": None,
            "manifest_bytes": 0}
-    try:
-        fd = rfs.open_dir(path)
-    except FileNotFoundError:
-        return out
-    except OSError as exc:
-        out["error"] = str(exc)
-        return out
-    with rfs._cleanup((fd,)):
+    with rfs._cleanup([None]) as owner:
+        try:
+            owner.resources[0] = rfs.open_dir(path)
+            fd = owner.resources[0]
+        except FileNotFoundError:
+            return out
+        except OSError as exc:
+            out["error"] = str(exc)
+            return out
         try:
             iterator = rfs.walk(fd)
             with rfs._cleanup((iterator,), close=lambda it: it.close()):
@@ -496,15 +497,16 @@ def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignore
     out: dict[str, Any] = {"bytes": 0, "files": 0, "archived_bytes": 0, "omitted_bytes": 0, "omitted_disk": 0,
                            "regenerable_bytes": 0, "regenerable_disk": 0, "regenerable": [], "hashed_bytes": 0,
                            "omission_exact": True, "regenerable_exact": True, "error": None, "manifest_bytes": 0}
-    try:
-        fd = rfs.open_dir(path)
-    except FileNotFoundError:
-        return out
-    except OSError as exc:
-        out["error"] = str(exc)
-        return out
-    regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
-    with rfs._cleanup((fd,)):
+    with rfs._cleanup([None]) as owner:
+        try:
+            owner.resources[0] = rfs.open_dir(path)
+            fd = owner.resources[0]
+        except FileNotFoundError:
+            return out
+        except OSError as exc:
+            out["error"] = str(exc)
+            return out
+        regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
         try:
             iterator = rfs.walk(fd)
             with rfs._cleanup((iterator,), close=lambda it: it.close()):

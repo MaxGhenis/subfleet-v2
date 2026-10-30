@@ -828,8 +828,9 @@ class Retirement:
                 raise Defer("changed after archive", DEFER_CHANGED_S, f"{label} appeared")
             entries = {e["p"]: e for e in tree["entries"]}
             seen = 0
-            fd = rfs.open_dir(path)
-            with rfs._cleanup((fd,)):
+            with rfs._cleanup([None]) as owner:
+                owner.resources[0] = rfs.open_dir(path)
+                fd = owner.resources[0]
                 try:
                     iterator = rfs.walk(fd, self.ctx.check)
                     with rfs._cleanup((iterator,), close=lambda it: it.close()):
@@ -1126,8 +1127,9 @@ class Retirement:
         entries = {e["p"]: e for e in tree["entries"]}
         changed: list[str] = []
         data: list[bytes] = []
-        fd = rfs.open_dir(admin)
-        with rfs._cleanup((fd,)):
+        with rfs._cleanup([None]) as owner:
+            owner.resources[0] = rfs.open_dir(admin)
+            fd = owner.resources[0]
             try:
                 iterator = rfs.walk(fd, self.ctx.check)
                 with rfs._cleanup((iterator,), close=lambda it: it.close()):
@@ -1144,8 +1146,9 @@ class Retirement:
             except rfs.TreeError as exc:
                 changed.append(f"(walk: {exc})")
         present = set()
-        fd = rfs.open_dir(admin)
-        with rfs._cleanup((fd,)):
+        with rfs._cleanup([None]) as owner:
+            owner.resources[0] = rfs.open_dir(admin)
+            fd = owner.resources[0]
             try:
                 iterator = rfs.walk(fd)
                 with rfs._cleanup((iterator,), close=lambda it: it.close()):
@@ -1677,12 +1680,13 @@ class _Builder:
         entries: list[dict[str, Any]] = []
         links: dict[tuple[int, int], str] = {}
         admin = self.j.get("admin")
-        try:
-            fd = rfs.open_dir(path)
-        except (FileNotFoundError, NotADirectoryError) as exc:
-            raise Defer("tree vanished", DEFER_CHANGED_S, f"{label}: {exc}") from exc
-        regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
-        with rfs._cleanup((fd,)):
+        with rfs._cleanup([None]) as owner:
+            try:
+                owner.resources[0] = rfs.open_dir(path)
+                fd = owner.resources[0]
+            except (FileNotFoundError, NotADirectoryError) as exc:
+                raise Defer("tree vanished", DEFER_CHANGED_S, f"{label}: {exc}") from exc
+            regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
             try:
                 iterator = rfs.walk(fd, self._tick)
                 with rfs._cleanup((iterator,), close=lambda it: it.close()):

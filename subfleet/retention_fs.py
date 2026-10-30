@@ -119,11 +119,12 @@ def still_archived(entry: dict[str, Any], st: os.stat_result, parent_fd: int, na
     if (recorded["t"] != "f" or recorded.get("nlink", 1) < 2 or not entry.get("sha256") or name is None
             or not _same_but_ctime(recorded, st)):
         return False
-    try:
-        fd = os.open(name, O_FILE, dir_fd=parent_fd)
-    except OSError:
-        return False
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        try:
+            owner.resources[0] = os.open(name, O_FILE, dir_fd=parent_fd)
+            fd = owner.resources[0]
+        except OSError:
+            return False
         before = os.fstat(fd)
         if not _same_but_ctime(recorded, before):
             return False
@@ -172,6 +173,8 @@ def open_dir(name: str | os.PathLike, *, dir_fd: int | None = None,
 class _cleanup:
     """Own resources until this operation exits, independently of caller handlers.
 
+    Prepare and enter descriptor owners with preallocated None slots before
+    acquisition; store each result directly into its slot without appending.
     Descriptors use os.close; an iterator owner supplies its close operation.
     """
 
@@ -194,6 +197,8 @@ def _close_all(descriptors: Iterable[Any], pending: BaseException | None, *,
     first: BaseException | None = None
     cancelled: BaseException | None = None
     for fd in descriptors:
+        if fd is None:
+            continue
         try:
             close(fd)
         except BaseException as exc:
@@ -278,13 +283,14 @@ def _list(fd: int, rel: str) -> list[str]:
 
 def tree_bytes(path: Path, check: Check | None = None) -> int:
     """Apparent bytes of regular files and links under `path` (0 if absent)."""
-    try:
-        fd = os.open(path, O_DIR)
-    except FileNotFoundError:
-        return 0
-    except NotADirectoryError:
-        return os.lstat(path).st_size
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        try:
+            owner.resources[0] = os.open(path, O_DIR)
+            fd = owner.resources[0]
+        except FileNotFoundError:
+            return 0
+        except NotADirectoryError:
+            return os.lstat(path).st_size
         iterator = walk(fd, check)
         with _cleanup((iterator,), close=lambda it: it.close()):
             return sum(st.st_size for rel, st, _, _ in iterator
@@ -353,9 +359,10 @@ def clone_or_copy(src_fd: int, dst_dir_fd: int, name: str, check: Check | None =
     size = os.fstat(src_fd).st_size
     if free_bytes(dst_dir_fd) - size < LOW_SPACE_FLOOR:
         raise TreeError("low-space", f"copying {size} bytes would leave less than {LOW_SPACE_FLOOR} free")
-    out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
-                  dir_fd=dst_dir_fd)
-    with _cleanup((out,)):
+    with _cleanup([None]) as owner:
+        owner.resources[0] = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
+                      dir_fd=dst_dir_fd)
+        out = owner.resources[0]
         offset = 0
         while True:
             if check is not None and offset and offset % (64 * CHUNK) == 0:
@@ -517,8 +524,9 @@ def _venv_marker(parent_fd: int, name: str, st: os.stat_result) -> bool:
 def _package_or_scope(parent_fd: int, name: str, st: os.stat_result) -> bool:
     """A package directory (holding a regular `package.json`), or an `@scope`
     directory of package directories and links."""
-    fd = open_dir(name, dir_fd=parent_fd, expect=st)
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        owner.resources[0] = open_dir(name, dir_fd=parent_fd, expect=st)
+        fd = owner.resources[0]
         if not name.startswith("@"):
             return _regular(fd, "package.json")
         names = os.listdir(fd)
@@ -528,8 +536,9 @@ def _package_or_scope(parent_fd: int, name: str, st: os.stat_result) -> bool:
                 continue
             if not stat.S_ISDIR(cst.st_mode):
                 return False
-            inner = open_dir(child, dir_fd=fd, expect=cst)
-            with _cleanup((inner,)):
+            with _cleanup([None]) as owner:
+                owner.resources[0] = open_dir(child, dir_fd=fd, expect=cst)
+                inner = owner.resources[0]
                 if not _regular(inner, "package.json"):
                     return False
         return bool(names)
@@ -601,8 +610,9 @@ def regenerable(parent_fd: int, name: str, st: os.stat_result) -> Regenerable | 
 def _layout(parent_fd: int, name: str, st: os.stat_result, layout: _Layout) -> Regenerable | None:
     children: dict[str, tuple[int, str]] = {}
     extra: list[str] = []
-    fd = open_dir(name, dir_fd=parent_fd, expect=st)
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        owner.resources[0] = open_dir(name, dir_fd=parent_fd, expect=st)
+        fd = owner.resources[0]
         for child in _names(fd):
             cst = os.stat(child, dir_fd=fd, follow_symlinks=False)
             t = kind(cst.st_mode)
@@ -641,14 +651,15 @@ def bytecode(parent_fd: int, name: str, st: os.stat_result) -> bool:
     module = name.split(".", 1)[0]
     if not module:
         return False
-    try:
-        source = os.stat(f"../{module}.py", dir_fd=parent_fd, follow_symlinks=False)
-        if not stat.S_ISREG(source.st_mode):
+    with _cleanup([None]) as owner:
+        try:
+            source = os.stat(f"../{module}.py", dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISREG(source.st_mode):
+                return False
+            owner.resources[0] = os.open(name, O_FILE, dir_fd=parent_fd)
+            fd = owner.resources[0]
+        except OSError:
             return False
-        fd = os.open(name, O_FILE, dir_fd=parent_fd)
-    except OSError:
-        return False
-    with _cleanup((fd,)):
         try:
             now = os.fstat(fd)
             head = os.pread(fd, 4, 0)
@@ -670,19 +681,21 @@ def installed_files(venv_fd: int, limit: int = 64 << 20) -> dict[str, tuple[str,
     leave a distribution out: when in doubt, the bytes are archived."""
     found: dict[str, tuple[str, int | None] | None] = {}
     for base in _site_packages(venv_fd):
-        try:
-            sp = _open_path(venv_fd, base)
-        except (OSError, TreeError):
-            continue
-        with _cleanup((sp,)):
+        with _cleanup([None]) as owner:
+            try:
+                owner.resources[0] = _open_path(venv_fd, base)
+                sp = owner.resources[0]
+            except (OSError, TreeError):
+                continue
             for dist in _names(sp):
                 if not dist.endswith(".dist-info"):
                     continue
-                try:
-                    fd = open_dir(dist, dir_fd=sp)
-                except (OSError, TreeError):
-                    continue
-                with _cleanup((fd,)):
+                with _cleanup([None]) as owner:
+                    try:
+                        owner.resources[0] = open_dir(dist, dir_fd=sp)
+                        fd = owner.resources[0]
+                    except (OSError, TreeError):
+                        continue
                     if not _from_an_index(fd):
                         continue
                     record = _small(fd, "RECORD", limit)
@@ -724,8 +737,9 @@ def record_complete(dist_fd: int, installed: dict[str, tuple[str, int | None]], 
                 if not stat.S_ISREG(st.st_mode) or vouched is None or vouched[0] == RECORD_SELF \
                         or vouched[1] not in (None, st.st_size) or name is None:
                     return False
-                fd = os.open(name, O_FILE, dir_fd=parent)
-                with _cleanup((fd,)):
+                with _cleanup([None]) as owner:
+                    owner.resources[0] = os.open(name, O_FILE, dir_fd=parent)
+                    fd = owner.resources[0]
                     digest, _ = read_hashes(fd, os.fstat(fd).st_size, None)
                 if digest != vouched[0]:
                     return False
@@ -743,18 +757,20 @@ def _site_packages(venv_fd: int) -> list[str]:
     except OSError:
         return out
     for lib in (n for n in top if n in ("lib", "Lib")):
-        try:
-            fd = open_dir(lib, dir_fd=venv_fd)
-        except (OSError, TreeError):
-            continue
-        with _cleanup((fd,)):
+        with _cleanup([None]) as owner:
+            try:
+                owner.resources[0] = open_dir(lib, dir_fd=venv_fd)
+                fd = owner.resources[0]
+            except (OSError, TreeError):
+                continue
             try:
                 for name in _names(fd):
                     if name == "site-packages" and _is_dir(fd, name):
                         out.append(f"{lib}/{name}")
                     elif name.startswith(("python", "pypy")) and _is_dir(fd, name):
-                        inner = open_dir(name, dir_fd=fd)
-                        with _cleanup((inner,)):
+                        with _cleanup([None]) as owner:
+                            owner.resources[0] = open_dir(name, dir_fd=fd)
+                            inner = owner.resources[0]
                             if _is_dir(inner, "site-packages"):
                                 out.append(f"{lib}/{name}/site-packages")
             except (OSError, TreeError):
@@ -949,8 +965,9 @@ class RegenerableWalk:
     def _rule_for(self, kind_: str, rel: str, parent: int, name: str, st: os.stat_result) -> _Rule:
         if kind_ != "venv":
             return _Rule(kind_, rel)
-        fd = open_dir(name, dir_fd=parent, expect=st)
-        with _cleanup((fd,)):
+        with _cleanup([None]) as owner:
+            owner.resources[0] = open_dir(name, dir_fd=parent, expect=st)
+            fd = owner.resources[0]
             if kind_ == "venv":
                 return _Rule(kind_, rel, installed=installed_files(fd))
             return _Rule(kind_, rel)
@@ -962,8 +979,9 @@ class RegenerableWalk:
         if rule.kind == "tox" and stat.S_ISDIR(st.st_mode):
             # Each environment is a virtualenv: its own distributions' RECORDs.
             try:
-                fd = open_dir(name, dir_fd=parent, expect=st)
-                with _cleanup((fd,)):
+                with _cleanup([None]) as owner:
+                    owner.resources[0] = open_dir(name, dir_fd=parent, expect=st)
+                    fd = owner.resources[0]
                     self._rule = _Rule("venv", rel, installed=installed_files(fd))
             except (OSError, TreeError):
                 self._rule = _Rule("tox", rel)
@@ -1025,12 +1043,13 @@ class RegenerableWalk:
         gone reads as a broken distribution (review of the revision-4 build)."""
         key = f"{rule.base}/{info}"
         if key not in self._wholes:
-            try:
-                fd = _open_path(self.root_fd, key)
-            except (OSError, TreeError):
-                self._wholes[key] = False
-            else:
-                with _cleanup((fd,)):
+            with _cleanup([None]) as owner:
+                try:
+                    owner.resources[0] = _open_path(self.root_fd, key)
+                    fd = owner.resources[0]
+                except (OSError, TreeError):
+                    self._wholes[key] = False
+                else:
                     self._wholes[key] = record_complete(fd, rule.installed or {}, f"{info}/RECORD")
         return self._wholes[key]
 
@@ -1086,11 +1105,12 @@ def _open_path(dir_fd: int, path: str) -> int:
 
 def _small(dir_fd: int, name: str, limit: int) -> bytes | None:
     """A regular file's bytes, or None when it is missing, not regular or larger than `limit`."""
-    try:
-        fd = os.open(name, O_FILE, dir_fd=dir_fd)
-    except OSError:
-        return None
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        try:
+            owner.resources[0] = os.open(name, O_FILE, dir_fd=dir_fd)
+            fd = owner.resources[0]
+        except OSError:
+            return None
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
             return None
@@ -1109,13 +1129,15 @@ def _regular(dir_fd: int, name: str) -> bool:
 
 def _marker(parent_fd: int, directory: str, st: os.stat_result, name: str, limit: int = 65536) -> bytes | None:
     """The first `limit` bytes of a regular file `name` inside `directory`, or None."""
-    fd = open_dir(directory, dir_fd=parent_fd, expect=st)
-    with _cleanup((fd,)):
-        try:
-            handle = os.open(name, O_FILE, dir_fd=fd)
-        except OSError:
-            return None
-        with _cleanup((handle,)):
+    with _cleanup([None]) as owner:
+        owner.resources[0] = open_dir(directory, dir_fd=parent_fd, expect=st)
+        fd = owner.resources[0]
+        with _cleanup([None]) as owner:
+            try:
+                owner.resources[0] = os.open(name, O_FILE, dir_fd=fd)
+                handle = owner.resources[0]
+            except OSError:
+                return None
             if not stat.S_ISREG(os.fstat(handle).st_mode):
                 return None
             return os.read(handle, limit)
@@ -1132,8 +1154,9 @@ def fullsync(fd: int) -> None:
 
 
 def sync_path(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | (os.O_DIRECTORY if path.is_dir() else 0))
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        owner.resources[0] = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | (os.O_DIRECTORY if path.is_dir() else 0))
+        fd = owner.resources[0]
         fullsync(fd)
 
 
@@ -1144,8 +1167,9 @@ def write_atomic(path: Path, data: bytes, mode: int = 0o600) -> None:
         temporary.unlink()
     except FileNotFoundError:
         pass
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode)
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        owner.resources[0] = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode)
+        fd = owner.resources[0]
         view = memoryview(data)
         while view:
             view = view[os.write(fd, view):]
@@ -1155,8 +1179,9 @@ def write_atomic(path: Path, data: bytes, mode: int = 0o600) -> None:
 
 
 def read_regular(path: Path, limit: int = 1 << 30) -> bytes:
-    fd = os.open(path, O_FILE)
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        owner.resources[0] = os.open(path, O_FILE)
+        fd = owner.resources[0]
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError(errno.EINVAL, "not a regular file", str(path))
         chunks, total = [], 0
@@ -1173,11 +1198,12 @@ def read_regular(path: Path, limit: int = 1 << 30) -> bytes:
 def remove_own_tree(path: Path) -> None:
     """Delete a directory retention itself created and alone writes (a cache, a
     temporary verification repository). Never used on a job's trees."""
-    try:
-        fd = os.open(path, O_DIR)
-    except FileNotFoundError:
-        return
-    with _cleanup((fd,)):
+    with _cleanup([None]) as owner:
+        try:
+            owner.resources[0] = os.open(path, O_DIR)
+            fd = owner.resources[0]
+        except FileNotFoundError:
+            return
         _remove_children(fd)
     os.rmdir(path)
 
@@ -1187,8 +1213,9 @@ def _remove_children(fd: int) -> None:
     for name in os.listdir(fd):
         st = os.stat(name, dir_fd=fd, follow_symlinks=False)
         if stat.S_ISDIR(st.st_mode):
-            child = open_dir(name, dir_fd=fd, expect=st)
-            with _cleanup((child,)):
+            with _cleanup([None]) as owner:
+                owner.resources[0] = open_dir(name, dir_fd=fd, expect=st)
+                child = owner.resources[0]
                 _remove_children(child)
             os.rmdir(name, dir_fd=fd)
         else:
@@ -1231,8 +1258,9 @@ class Reclaim:
             # Not the tree that was archived: move it aside whole, untouched.
             self._set_aside(root.parent, root.name, "", "root-replaced")
             return not os.path.lexists(root)
-        fd = open_dir(root, expect=st)
-        with _cleanup((fd,)):
+        with _cleanup([None]) as owner:
+            owner.resources[0] = open_dir(root, expect=st)
+            fd = owner.resources[0]
             self._empty(fd, "")
         try:
             os.rmdir(root)
@@ -1268,13 +1296,14 @@ class Reclaim:
             self._set_aside_fd(fd, name, path, "changed")
             return
         if stat.S_ISDIR(st.st_mode):
-            try:
-                child = open_dir(name, dir_fd=fd, expect=st)
-            except (TreeError, OSError) as exc:
-                self.errors.append({"path": path, "error": str(exc)})
-                self._set_aside_fd(fd, name, path, "unopenable")
-                return
-            with _cleanup((child,)):
+            with _cleanup([None]) as owner:
+                try:
+                    owner.resources[0] = open_dir(name, dir_fd=fd, expect=st)
+                    child = owner.resources[0]
+                except (TreeError, OSError) as exc:
+                    self.errors.append({"path": path, "error": str(exc)})
+                    self._set_aside_fd(fd, name, path, "unopenable")
+                    return
                 mode = stat.S_IMODE(st.st_mode)
                 if mode & 0o700 != 0o700:
                     os.fchmod(child, mode | 0o700)     # 0555 module caches (design 5.7)
@@ -1334,13 +1363,14 @@ class Reclaim:
 
     def _set_aside_fd(self, fd: int, name: str, path: str, reason: str) -> None:
         parent = path.rpartition("/")[0]
-        try:
-            target = self._conflict_dir(parent)
-        except OSError as exc:
-            self.errors.append({"path": path, "error": f"conflicts folder: {exc}"})
-            self.kept.append({"path": path, "reason": reason, "where": "in place"})
-            return
-        with _cleanup((target,)):
+        with _cleanup([None]) as owner:
+            try:
+                owner.resources[0] = self._conflict_dir(parent)
+                target = owner.resources[0]
+            except OSError as exc:
+                self.errors.append({"path": path, "error": f"conflicts folder: {exc}"})
+                self.kept.append({"path": path, "reason": reason, "where": "in place"})
+                return
             try:
                 final = name
                 for n in range(1, 1000):
@@ -1354,8 +1384,9 @@ class Reclaim:
                 self.kept.append({"path": path, "reason": reason, "where": "in place"})
 
     def _set_aside(self, parent: Path, name: str, path: str, reason: str) -> None:
-        fd = open_dir(parent)
-        with _cleanup((fd,)):
+        with _cleanup([None]) as owner:
+            owner.resources[0] = open_dir(parent)
+            fd = owner.resources[0]
             self._set_aside_fd(fd, name, path, reason)
 
 

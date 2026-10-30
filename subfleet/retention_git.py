@@ -680,8 +680,9 @@ def admin_objects(admin: Path, fmt: str, *, timeout: float = 300,
     """
     tokens: set[str] = set()
     pattern = _token_pattern(fmt)
-    fd = os.open(admin, rfs.O_DIR)
-    with rfs._cleanup((fd,)):
+    with rfs._cleanup([None]) as owner:
+        owner.resources[0] = os.open(admin, rfs.O_DIR)
+        fd = owner.resources[0]
         iterator = rfs.walk(fd)
         with rfs._cleanup((iterator,), close=lambda it: it.close()):
             for rel, st, parent, name in iterator:

@@ -288,8 +288,9 @@ class AttemptTemp:
             where = self.located(record)
             if where is None:
                 return 0
-            fd = rfs.open_dir(where)
-            with rfs._cleanup((fd,)):
+            with rfs._cleanup([None]) as owner:
+                owner.resources[0] = rfs.open_dir(where)
+                fd = owner.resources[0]
                 if not self._is(record, os.fstat(fd)):
                     return 0
                 iterator = rfs.walk(fd)

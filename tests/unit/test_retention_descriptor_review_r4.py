@@ -10,10 +10,6 @@ from subfleet import retention_fs as rfs
 from tests.unit.test_retention_descriptor_review import raise_at
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="P2-6 (review r4): owner construction/entry after open leaks the descriptor",
-)
 @pytest.mark.parametrize("phase", ["construction", "entry"])
 @pytest.mark.parametrize("fault", ["memory", "keyboard"])
 def test_owner_setup_failure_closes_acquired_file(tmp_path, monkeypatch, phase, fault):
