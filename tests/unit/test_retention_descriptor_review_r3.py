@@ -14,9 +14,9 @@ from tests.unit.test_retention_walk_descriptors import DEEP, open_descriptors, t
 
 
 @pytest.mark.parametrize("ambient_kind,close_kind", [
-    ("runtime", "os"),
-    ("keyboard", "os"),
-    ("keyboard", "keyboard"),
+    pytest.param("runtime", "os"),
+    pytest.param("keyboard", "os"),
+    pytest.param("keyboard", "keyboard"),
     ("runtime", "keyboard"),
 ])
 def test_normal_read_close_failure_is_not_suppressed_by_handled_caller_exception(
@@ -123,7 +123,6 @@ def test_attempt_temp_size_root_close_preserves_walk_cancellation(tmp_path, monk
     assert caught is primary, (value, type(caught).__name__)
 
 
-@pytest.mark.xfail(strict=True, reason="P3-6 (review r3): record_complete drops walk cleanup cancellation during finalization")
 @pytest.mark.parametrize("failure", ["keyboard", "system", "custom"])
 def test_record_complete_early_return_propagates_cleanup_cancellation(monkeypatch, failure):
     injected = {"keyboard": KeyboardInterrupt("walk cleanup"), "system": SystemExit("walk cleanup"),

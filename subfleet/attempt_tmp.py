@@ -292,7 +292,9 @@ class AttemptTemp:
             with rfs._cleanup((fd,)):
                 if not self._is(record, os.fstat(fd)):
                     return 0
-                return sum(found.st_size for _, found, _, _ in rfs.walk(fd) if not stat.S_ISDIR(found.st_mode))
+                iterator = rfs.walk(fd)
+                with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                    return sum(found.st_size for _, found, _, _ in iterator if not stat.S_ISDIR(found.st_mode))
         except (OSError, rfs.TreeError, KeyError, TypeError):
             return None
 

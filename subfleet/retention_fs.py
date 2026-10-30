@@ -285,8 +285,10 @@ def tree_bytes(path: Path, check: Check | None = None) -> int:
     except NotADirectoryError:
         return os.lstat(path).st_size
     with _cleanup((fd,)):
-        return sum(st.st_size for rel, st, _, _ in walk(fd, check)
-                   if rel and not stat.S_ISDIR(st.st_mode))
+        iterator = walk(fd, check)
+        with _cleanup((iterator,), close=lambda it: it.close()):
+            return sum(st.st_size for rel, st, _, _ in iterator
+                       if rel and not stat.S_ISDIR(st.st_mode))
 
 
 # --- reading, hashing, cloning ---------------------------------------------------
@@ -713,18 +715,20 @@ def record_complete(dist_fd: int, installed: dict[str, tuple[str, int | None]], 
     holding only a RECORD as a broken distribution)."""
     prefix = record.rpartition("/")[0]
     try:
-        for rel, st, parent, name in walk(dist_fd):
-            if not rel or rel == "RECORD" or stat.S_ISDIR(st.st_mode):
-                continue
-            vouched = installed.get(f"{prefix}/{rel}")
-            if not stat.S_ISREG(st.st_mode) or vouched is None or vouched[0] == RECORD_SELF \
-                    or vouched[1] not in (None, st.st_size) or name is None:
-                return False
-            fd = os.open(name, O_FILE, dir_fd=parent)
-            with _cleanup((fd,)):
-                digest, _ = read_hashes(fd, os.fstat(fd).st_size, None)
-            if digest != vouched[0]:
-                return False
+        iterator = walk(dist_fd)
+        with _cleanup((iterator,), close=lambda it: it.close()):
+            for rel, st, parent, name in iterator:
+                if not rel or rel == "RECORD" or stat.S_ISDIR(st.st_mode):
+                    continue
+                vouched = installed.get(f"{prefix}/{rel}")
+                if not stat.S_ISREG(st.st_mode) or vouched is None or vouched[0] == RECORD_SELF \
+                        or vouched[1] not in (None, st.st_size) or name is None:
+                    return False
+                fd = os.open(name, O_FILE, dir_fd=parent)
+                with _cleanup((fd,)):
+                    digest, _ = read_hashes(fd, os.fstat(fd).st_size, None)
+                if digest != vouched[0]:
+                    return False
     except (OSError, TreeError):
         return False
     return True
