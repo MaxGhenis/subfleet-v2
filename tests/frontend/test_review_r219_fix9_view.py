@@ -33,12 +33,12 @@ def test_live_row_reveal_during_slow_catchup_keeps_the_end(fix9_view, name):
     assert run["after_initial_reveal"]["from_end"] <= END, run
     assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
     # The slow UIModel opening remains covered. A separate, sequence-controlled
-    # page proves the changed-key/suspended/atBottom branch without page races.
+    # page proves catch-up after actual near-end completion releases suspension.
     control = run["settling_control"]
     assert control["reveals"] == 2 and control["consumed"], control
     assert control["before_page"]["from_end"] <= END, control
     assert control["changed_key"] and control["settling"], control
-    assert control["suspended"] and control["at_bottom"], control
+    assert control["confirmations"] >= 1 and not control["suspended"] and control["at_bottom"], control
     assert control["after_page"]["from_end"] <= END, control
     assert run["after_open"]["from_end"] <= END, run
     assert run["after_stream"]["from_end"] <= END, run

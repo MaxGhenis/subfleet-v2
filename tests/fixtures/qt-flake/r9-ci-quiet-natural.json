@@ -1,0 +1,765 @@
+{
+  "catchup": false,
+  "geometry": [
+    {
+      "at": 0.29505693912506104,
+      "position": {
+        "content": 9666,
+        "from_end": 0,
+        "offset": 9090,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 0.33382999897003174,
+      "position": {
+        "content": 14683,
+        "from_end": 0,
+        "offset": 14107,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 0.39656198024749756,
+      "position": {
+        "content": 15624,
+        "from_end": 194,
+        "offset": 14854,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 0.4114609956741333,
+      "position": {
+        "content": 15624,
+        "from_end": 0,
+        "offset": 15048,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 0.470304012298584,
+      "position": {
+        "content": 30259,
+        "from_end": 11,
+        "offset": 29672,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 0.47605693340301514,
+      "position": {
+        "content": 30062,
+        "from_end": 0,
+        "offset": 29486,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 0.48517096042633057,
+      "position": {
+        "content": 30062,
+        "from_end": 24,
+        "offset": 29462,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 2.3982850313186646,
+      "position": {
+        "content": 30062,
+        "from_end": 2000,
+        "offset": 27486,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 2.4004969596862793,
+      "position": {
+        "content": 23793,
+        "from_end": 0,
+        "offset": 23217,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 2.4041110277175903,
+      "position": {
+        "content": 23745,
+        "from_end": 0,
+        "offset": 23169,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 2.966536045074463,
+      "position": {
+        "content": 23745,
+        "from_end": 2000,
+        "offset": 21169,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 3.10439395904541,
+      "position": {
+        "content": 23878,
+        "from_end": 0,
+        "offset": 23302,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 3.253805994987488,
+      "position": {
+        "content": 24375,
+        "from_end": 0,
+        "offset": 23799,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 3.366431951522827,
+      "position": {
+        "content": 25970,
+        "from_end": 0,
+        "offset": 25394,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 3.385848045349121,
+      "position": {
+        "content": 26466,
+        "from_end": 0,
+        "offset": 25890,
+        "viewport": 576
+      }
+    },
+    {
+      "at": 3.3936679363250732,
+      "position": {
+        "content": 26466,
+        "from_end": 24,
+        "offset": 25866,
+        "viewport": 576
+      }
+    }
+  ],
+  "held_before_reveal": false,
+  "landing": "quiet-regrow-natural",
+  "presentation": {
+    "animated_root_transactions": 0,
+    "animation_calls": 1,
+    "forwarded_animations": [
+      "BezierAnimation(duration: 0.15, curve: (extension in SwiftUI):SwiftUI.UnitCurve.CubicSolver(ax: -0.7399999999999998, bx: 1.7399999999999998, cx: 0.0, ay: -2.0, by: 3.0, cy: 0.0))"
+    ],
+    "natural": true,
+    "root_transactions": 10
+  },
+  "readiness_waits": [
+    {
+      "elapsed": 0.2952699661254883,
+      "wait": "scene.waitFolded"
+    },
+    {
+      "elapsed": 8.106231689453125e-06,
+      "wait": "scene.reveal_consumed"
+    },
+    {
+      "elapsed": 0.00012695789337158203,
+      "wait": "scene.opened_at_end"
+    },
+    {
+      "away_from_end": false,
+      "elapsed": 0.4814800024032593,
+      "stable": 3,
+      "wait": "stablePosition"
+    },
+    {
+      "elapsed": 0.39615797996520996,
+      "wait": "send.marker_appeared"
+    },
+    {
+      "elapsed": 0.46614396572113037,
+      "wait": "send.landed"
+    },
+    {
+      "elapsed": 0.11488807201385498,
+      "wait": "waitFolded"
+    }
+  ],
+  "steps": [
+    {
+      "at": 2.369908928871155,
+      "last_row": "text:live:live",
+      "own_send_last": false,
+      "position": {
+        "content": 30062,
+        "from_end": 24,
+        "offset": 29462,
+        "viewport": 576
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 362,
+        "last_seq": 362,
+        "position": {
+          "content": 30062,
+          "from_end": 24,
+          "offset": 29462,
+          "viewport": 576
+        },
+        "reveal_pending": false,
+        "scene": "quiet-regrow-natural"
+      },
+      "resets": 0,
+      "step": "opened",
+      "target_in_model": true
+    },
+    {
+      "at": 2.382409930229187,
+      "last_row": "text:live:live",
+      "own_send_last": false,
+      "position": {
+        "content": 30062,
+        "from_end": 24,
+        "offset": 29462,
+        "viewport": 576
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 362,
+        "last_seq": 362,
+        "position": {
+          "content": 30062,
+          "from_end": 24,
+          "offset": 29462,
+          "viewport": 576
+        },
+        "reveal_pending": false,
+        "scene": "quiet-regrow-natural"
+      },
+      "resets": 0,
+      "step": "reveal",
+      "target_in_model": true
+    },
+    {
+      "at": 2.966683030128479,
+      "last_row": "text:live:live",
+      "own_send_last": false,
+      "position": {
+        "content": 23745,
+        "from_end": 2000,
+        "offset": 21169,
+        "viewport": 576
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 362,
+        "last_seq": 362,
+        "position": {
+          "content": 23745,
+          "from_end": 2000,
+          "offset": 21169,
+          "viewport": 576
+        },
+        "reveal_pending": false,
+        "scene": "quiet-regrow-natural"
+      },
+      "resets": 0,
+      "step": "pending",
+      "target_in_model": true
+    },
+    {
+      "at": 3.36668598651886,
+      "last_row": "person:edcdb0a7-024f-454f-81c7-83657ddb143d",
+      "own_send_last": true,
+      "position": {
+        "content": 25970,
+        "from_end": 0,
+        "offset": 25394,
+        "viewport": 576
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 362,
+        "last_seq": 362,
+        "position": {
+          "content": 25970,
+          "from_end": 0,
+          "offset": 25394,
+          "viewport": 576
+        },
+        "reveal_pending": false,
+        "scene": "quiet-regrow-natural"
+      },
+      "resets": 0,
+      "step": "growing",
+      "target_in_model": true
+    },
+    {
+      "at": 3.837499976158142,
+      "landed": {
+        "at": 3.7440459728240967,
+        "at_bottom": true,
+        "event": "own_send_landed",
+        "position": {
+          "content": 26466,
+          "from_end": 24,
+          "offset": 25866,
+          "viewport": 576
+        },
+        "suspended": false
+      },
+      "last_row": "person:edcdb0a7-024f-454f-81c7-83657ddb143d",
+      "own_send_last": true,
+      "position": {
+        "content": 26466,
+        "from_end": 24,
+        "offset": 25866,
+        "viewport": 576
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 362,
+        "last_seq": 362,
+        "position": {
+          "content": 26466,
+          "from_end": 24,
+          "offset": 25866,
+          "viewport": 576
+        },
+        "reveal_pending": false,
+        "scene": "quiet-regrow-natural"
+      },
+      "resets": 0,
+      "step": "landed",
+      "target_in_model": true
+    },
+    {
+      "after_landing": 0.2062079906463623,
+      "at": 3.950260043144226,
+      "last_row": "person:edcdb0a7-024f-454f-81c7-83657ddb143d",
+      "own_send_last": true,
+      "position": {
+        "content": 26466,
+        "from_end": 24,
+        "offset": 25866,
+        "viewport": 576
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 362,
+        "last_seq": 362,
+        "position": {
+          "content": 26466,
+          "from_end": 24,
+          "offset": 25866,
+          "viewport": 576
+        },
+        "reveal_pending": false,
+        "scene": "quiet-regrow-natural"
+      },
+      "resets": 0,
+      "step": "regrowing",
+      "target_in_model": true
+    },
+    {
+      "at": 5.069481015205383,
+      "last_row": "person:edcdb0a7-024f-454f-81c7-83657ddb143d",
+      "own_send_last": true,
+      "position": {
+        "content": 27268,
+        "from_end": 826,
+        "offset": 25866,
+        "viewport": 576
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 362,
+        "last_seq": 362,
+        "position": {
+          "content": 27268,
+          "from_end": 826,
+          "offset": 25866,
+          "viewport": 576
+        },
+        "reveal_pending": false,
+        "scene": "quiet-regrow-natural"
+      },
+      "resets": 0,
+      "step": "sent",
+      "target_in_model": true
+    },
+    {
+      "at": 6.3013609647750854,
+      "last_row": "person:edcdb0a7-024f-454f-81c7-83657ddb143d",
+      "own_send_last": true,
+      "position": {
+        "content": 27322,
+        "from_end": 880,
+        "offset": 25866,
+        "viewport": 576
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 363,
+        "last_seq": 363,
+        "position": {
+          "content": 27322,
+          "from_end": 880,
+          "offset": 25866,
+          "viewport": 576
+        },
+        "reveal_pending": false,
+        "scene": "quiet-regrow-natural"
+      },
+      "resets": 0,
+      "step": "reply",
+      "target_in_model": true
+    }
+  ],
+  "target": "person:m000040",
+  "trace": [
+    {
+      "at": 0.3298790454864502,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 0,
+      "position": {
+        "content": 9666,
+        "from_end": 0,
+        "offset": 9090,
+        "viewport": 576
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 0.40119898319244385,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 15624,
+        "from_end": 194,
+        "offset": 14854,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 0.41639792919158936,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 15624,
+        "from_end": 0,
+        "offset": 15048,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 0.41655194759368896,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 15624,
+        "from_end": 0,
+        "offset": 15048,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 0.4631119966506958,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 17,
+      "old_length": 127,
+      "position": {
+        "content": 23748,
+        "from_end": 8124,
+        "offset": 15048,
+        "viewport": 576
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 0.47500598430633545,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 30259,
+        "from_end": 11,
+        "offset": 29672,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 0.5294649600982666,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 17,
+      "old_length": 17,
+      "position": {
+        "content": 30062,
+        "from_end": 24,
+        "offset": 29462,
+        "viewport": 576
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 2.3762660026550293,
+      "at_bottom": true,
+      "event": "reveal",
+      "position": {
+        "content": 30062,
+        "from_end": 24,
+        "offset": 29462,
+        "viewport": 576
+      },
+      "suspended": true
+    },
+    {
+      "at": 2.3980250358581543,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 30062,
+        "from_end": 2000,
+        "offset": 27486,
+        "viewport": 576
+      },
+      "suspended": true
+    },
+    {
+      "at": 2.398159980773926,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 30062,
+        "from_end": 2000,
+        "offset": 27486,
+        "viewport": 576
+      },
+      "suspended": true
+    },
+    {
+      "at": 2.402320981025696,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 23793,
+        "from_end": 0,
+        "offset": 23217,
+        "viewport": 576
+      },
+      "suspended": true
+    },
+    {
+      "at": 2.4300479888916016,
+      "distance": 0,
+      "event": "reveal_check",
+      "position": {
+        "content": 23745,
+        "from_end": 0,
+        "offset": 23169,
+        "viewport": 576
+      },
+      "presented": false,
+      "source": "clip",
+      "target": "person:m000040"
+    },
+    {
+      "at": 2.430202007293701,
+      "distance": 0,
+      "event": "reveal_check",
+      "position": {
+        "content": 23745,
+        "from_end": 0,
+        "offset": 23169,
+        "viewport": 576
+      },
+      "presented": false,
+      "source": "completion",
+      "target": "person:m000040"
+    },
+    {
+      "at": 2.966225028038025,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 23745,
+        "from_end": 2000,
+        "offset": 21169,
+        "viewport": 576
+      },
+      "suspended": true
+    },
+    {
+      "at": 2.9663790464401245,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 23745,
+        "from_end": 2000,
+        "offset": 21169,
+        "viewport": 576
+      },
+      "suspended": true
+    },
+    {
+      "at": 3.018501043319702,
+      "at_bottom": false,
+      "event": "reveal_abandoned",
+      "position": {
+        "content": 23745,
+        "from_end": 2000,
+        "offset": 21169,
+        "viewport": 576
+      },
+      "reason": "own_send",
+      "suspended": true
+    },
+    {
+      "at": 3.018656015396118,
+      "at_bottom": false,
+      "event": "move",
+      "landing": true,
+      "move": "glide",
+      "new_length": 17,
+      "old_length": 17,
+      "position": {
+        "content": 23745,
+        "from_end": 2000,
+        "offset": 21169,
+        "viewport": 576
+      },
+      "settling": false,
+      "suspended": false
+    },
+    {
+      "at": 3.366191029548645,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 25970,
+        "from_end": 0,
+        "offset": 25394,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 3.3780410289764404,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 25970,
+        "from_end": 0,
+        "offset": 25394,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 3.3782249689102173,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 25970,
+        "from_end": 0,
+        "offset": 25394,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 3.385596990585327,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 26466,
+        "from_end": 0,
+        "offset": 25890,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 3.7440459728240967,
+      "at_bottom": true,
+      "event": "own_send_landed",
+      "position": {
+        "content": 26466,
+        "from_end": 24,
+        "offset": 25866,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 4.19271194934845,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 27066,
+        "from_end": 624,
+        "offset": 25866,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 4.192885994911194,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 27066,
+        "from_end": 624,
+        "offset": 25866,
+        "viewport": 576
+      },
+      "suspended": false
+    },
+    {
+      "at": 5.167248010635376,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "stay",
+      "new_length": 447,
+      "old_length": 17,
+      "position": {
+        "content": 27268,
+        "from_end": 826,
+        "offset": 25866,
+        "viewport": 576
+      },
+      "settling": false,
+      "suspended": false
+    }
+  ],
+  "visible_windows": 0
+}

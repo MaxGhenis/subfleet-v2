@@ -76,6 +76,7 @@ from __future__ import annotations
 
 import bisect
 import copy
+import functools
 import logging
 import re
 import sys
@@ -84,8 +85,9 @@ import warnings
 from typing import Any, Callable
 
 from . import refusals
-from .sessions.handoff import (REDACTED, cut_marker, cut_whole, quoted_value_spans, reminder_tags,
-                                scrub_secrets, settled_end)
+from .sessions import scrub_release
+from .sessions.handoff import (REDACTED, _head_scrub_secrets, cut_marker, cut_whole, quoted_value_spans,
+                                reminder_tags, settled_end, shown_by_both)
 
 #: What a record that cannot be scrubbed is written as (C-25.7).
 SCRUB_FAILED = "[scrub failed]"
@@ -137,33 +139,45 @@ def scrubbed_block(text: str, *, group: bool = False, keep_lines: bool = False) 
     hides at least what its members' plain tracebacks hide (`_group_block`): a
     text is read as one when `group` says so (the handler decides on the uncut
     record, whose cut may keep no separator: review r2 of #233), when it holds a
-    group's separator, or when any of its lines starts with a group's margin."""
-    plain = _kept_block if keep_lines else _plain_block
+    group's separator, or when any of its lines starts with a group's margin.
+
+    Release/217's block form (`scrub_release`, frozen) and the head's each read the whole
+    text, fold and second scrub included, and release's is written, but for each run the
+    head's does not hold, which becomes `[REDACTED]` (`handoff.shown_by_both`): so it
+    shows nothing either form hides (C-23.14, #239 round 8)."""
+    group = bool(group or _GROUP_SEPARATOR.search(text) or _GROUP_MARGIN_LINE.search(text))
+    return shown_by_both(_block_form(scrub_release.scrub_secrets, text, group, keep_lines),
+                         _block_form(_head_scrub_secrets, text, group, keep_lines))
+
+
+def _block_form(scrub: Callable, text: str, group: bool, keep_lines: bool) -> str:
+    """`scrubbed_block`'s form with one scrubber (`scrub`, as `scrub_secrets` is called)."""
+    plain = functools.partial(_kept_block if keep_lines else _plain_block, scrub=scrub)
     block = plain(text)
-    if group or _GROUP_SEPARATOR.search(text) or _GROUP_MARGIN_LINE.search(text):
+    if group:
         return _group_block(text, block, plain)
     return block
 
 
-def _plain_block(text: str) -> str:
-    clean, _ = scrub_secrets(text, strip_reminders=True, whole=True)
+def _plain_block(text: str, *, scrub: Callable) -> str:
+    clean, _ = scrub(text, strip_reminders=True, whole=True)
     folded = " ".join(clean.split())
-    again, _ = scrub_secrets(folded, strip_reminders=True, whole=True)
+    again, _ = scrub(folded, strip_reminders=True, whole=True)
     return clean.rstrip("\r\n") if again == folded else again
 
 
-def _kept_block(text: str) -> str:
+def _kept_block(text: str, *, scrub: Callable) -> str:
     """`_plain_block`, its lines kept where folding lets the scrubber find more: each
     run of the block is written only if the folded, rescrubbed text holds it too
     (review r3 of #233, P3-3: `daemon start`'s tail had become one folded line)."""
-    clean, _ = scrub_secrets(text, strip_reminders=True, whole=True)
+    clean, _ = scrub(text, strip_reminders=True, whole=True)
     folded = " ".join(clean.split())
-    again, _ = scrub_secrets(folded, strip_reminders=True, whole=True)
+    again, _ = scrub(folded, strip_reminders=True, whole=True)
     block = clean.rstrip("\r\n")
     return block if again == folded else _only(block, set(_RUN.findall(again)))
 
 
-def _group_block(text: str, block: str, plain: Callable[[str], str] | None = None) -> str:
+def _group_block(text: str, block: str, plain: Callable[[str], str]) -> str:
     """An exception group's traceback, `block` being its block form as written.
 
     Python writes a margin (`    | `) before each line of a group's members. A value
@@ -180,7 +194,7 @@ def _group_block(text: str, block: str, plain: Callable[[str], str] | None = Non
     margin-free text as `block` was scrubbed (`_plain_block`, or `_kept_block`)."""
     lines = text.rstrip("\r\n").split("\n")
     margins = [match.group() if (match := _GROUP_MARGIN.match(line)) else "" for line in lines]
-    bare = (plain or _plain_block)("\n".join(line[len(margin):] for line, margin in zip(lines, margins))).split("\n")
+    bare = plain("\n".join(line[len(margin):] for line, margin in zip(lines, margins))).split("\n")
     kept = block.split("\n")
     if len(bare) == len(kept) == len(lines):
         return "\n".join(margin + _only(line, set(_RUN.findall(within)))
@@ -544,8 +558,18 @@ def _taken_out(text: str, tags: list[tuple[int, int, bool]]) -> tuple[str, list[
     reminders as indexes into `tags` (each its opening and its closing tag): `_resolve_blocks`
     after the scrub's first pass (`quoted_value_spans`), so a tag inside what that pass
     replaces is none. None unless that pass over what is left replaces exactly what it
-    replaces in `text` outside those reminders, by the same words (review r5 of #233, P2-1)."""
-    spans = quoted_value_spans(text)
+    replaces in `text` outside those reminders, by the same words (review r5 of #233, P2-1).
+    Every mode reads the text with release/217's scrub (`scrub_release`) and the head's
+    (#239 round 8), each stripping reminders after its own first pass, so both first passes
+    must take out the same reminders, each so."""
+    released = _taken_out_by(scrub_release.quoted_value_spans, text, tags)
+    return released if released is not None and released == _taken_out_by(quoted_value_spans, text, tags) else None
+
+
+def _taken_out_by(first_pass: Callable, text: str,
+                  tags: list[tuple[int, int, bool]]) -> tuple[str, list[tuple[int, int]]] | None:
+    """`_taken_out` for one scrubber, `first_pass` its `quoted_value_spans`."""
+    spans = first_pass(text)
     starts = [start for start, _, _ in spans]
     pairs, opening = [], None
     for index, (start, _, opens) in enumerate(tags):
@@ -577,7 +601,7 @@ def _taken_out(text: str, tags: list[tuple[int, int, bool]]) -> tuple[str, list[
                 continue                    # taken out with its reminder
             return None                     # across a reminder's edge: never, as its tags show
         expected.append((start - shift, end - shift, out))
-    return (kept, pairs) if quoted_value_spans(kept) == expected else None
+    return (kept, pairs) if first_pass(kept) == expected else None
 
 
 #: The most text `daemon logs --follow` holds back while no break in it is settled

@@ -45,7 +45,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import sys
 import tempfile
+import time
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
@@ -87,13 +89,29 @@ def moment(stamp: str) -> datetime:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
+def stand_still(patch) -> datetime:
+    """The daemon's clock (`utcnow`, `after`) held at one whole second, which this returns.
+
+    D-PROBE-TEST-CLOCK1: a test that bounds a clock the pass wrote by one it reads itself reads
+    both here, so a pass that takes seconds on a loaded host moves neither."""
+    instant = datetime.now(timezone.utc).replace(microsecond=0)
+
+    def stamp(value):
+        return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+    patch.setattr(daemon_module, "utcnow", lambda: stamp(instant))
+    patch.setattr(daemon_module, "after", lambda seconds: stamp(instant + timedelta(seconds=seconds)))
+    return instant
+
+
 class Probes:
     """`Daemon._execute_probe`, scripted: each probe takes the next outcome, then `ok`.
 
     An outcome may come with how long its probe ran, `(outcome, seconds)`; the
     default is its policy deadline, as a probe its deadline stopped runs. Nothing
     waits: the probe's reservation is moved that far into the past before it
-    returns. `line` is who waited on a probe each time one was carried (I1).
+    returns, on the daemon's clock (`daemon_module.after`, so a test that sets
+    that clock moves the reservation with it). `line` is who waited on a probe
+    each time one was carried (I1).
     """
 
     def __init__(self, service, monkeypatch, outcomes=(), bad=()):
@@ -110,7 +128,7 @@ class Probes:
         self.vehicles.append((job["job_id"], lane.lane_id, MODELS[model["id"]]))
         self.line.append(list(getattr(self.service, "_probe_line", ())))   # none before the fix
         record = self.service._probe_record(holder)
-        record["created_at"] = self.reserved[job["job_id"]] = after(-ran_s)
+        record["created_at"] = self.reserved[job["job_id"]] = daemon_module.after(-ran_s)
         self.service._save_probe(record)
         return outcome
 
@@ -124,9 +142,10 @@ def started(service) -> list[str]:
 
 
 def make_due(service, *job_ids):
+    """Due now on the daemon's clock, whichever clock a test gave it."""
     for job_id in job_ids or [row["job_id"] for row in service.store.list_jobs()]:
         if service.store.get_job(job_id)["state"] == "waiting":
-            service.store.update_job(job_id, next_check_at=utcnow())
+            service.store.update_job(job_id, next_check_at=daemon_module.utcnow())
 
 
 # --- the incident ---------------------------------------------------------------------------------
@@ -183,7 +202,8 @@ def test_the_retry_clock_runs_from_the_probes_reservation(routing_state, monkeyp
     service, harness = routing_state
     job_id = submit(service, harness)
     probes = Probes(service, monkeypatch, [(CUT, ran_s)])
-    before = utcnow()
+    stand_still(monkeypatch)
+    before = daemon_module.utcnow()
     service._admit()
     due = moment(service.store.get_job(job_id)["next_check_at"])
     assert 0 <= (due - moment(before)).total_seconds() - left_s <= 2          # whole-second stamps
@@ -195,15 +215,79 @@ def test_the_retry_clock_runs_from_the_probes_reservation(routing_state, monkeyp
                                               "next_check_at": service.store.get_job(job_id)["next_check_at"]}
 
 
+@pytest.mark.parametrize("ran_s", [0, 7, 60, 75])
+def test_the_retry_clock_is_not_recomputed_after_the_wait_is_recorded(routing_state, monkeypatch, ran_s):
+    """I3 uses the reservation and one decision instant even if the pass later stalls."""
+    service, harness = routing_state
+    clock = {"now": stand_still(monkeypatch)}
+
+    def stamp(value):
+        return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: stamp(clock["now"]))
+    monkeypatch.setattr(daemon_module, "after", lambda seconds: stamp(clock["now"] + timedelta(seconds=seconds)))
+    job_id = submit(service, harness)
+    probes = Probes(service, monkeypatch, [(CUT, ran_s)])
+    capacity_wait, decision_instants = service._capacity_wait, []
+
+    def then_the_pass_stalls(waiting_job, signature, hold, **kwargs):
+        repeat = capacity_wait(waiting_job, signature, hold, **kwargs)
+        if waiting_job == job_id and hold["reason"] == "probe-pending":
+            decision_instants.append(clock["now"])
+            clock["now"] += timedelta(seconds=125)
+        return repeat
+
+    monkeypatch.setattr(service, "_capacity_wait", then_the_pass_stalls)
+    service._admit()
+    assert len(decision_instants) == 1
+    expected = stamp(max(decision_instants[0], moment(probes.reserved[job_id]) + timedelta(seconds=PROBE_RETRY_S)))
+    assert service.store.get_job(job_id)["next_check_at"] == expected
+    assert service._holds[job_id]["next_check_at"] == expected
+    event = service.store.query("SELECT data_json FROM events WHERE kind='job.probe_waiting' "
+                                "AND data_json<>'{}'")[-1]
+    assert json.loads(event["data_json"])["next_check_at"] == expected
+
+
+def host_running_late(patch) -> dict:
+    """The time as daemon.py reads it (`datetime.now`): the host's clock, `late` on, which a test
+    moves on where a loaded host's pass spends seconds (D-PROBE-TEST-CLOCK1)."""
+    host = {"late": timedelta(0)}
+
+    class HostClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + host["late"]
+    patch.setattr(daemon_module, "datetime", HostClock)
+    return host
+
+
+@pytest.mark.parametrize("ran_s, left_s", [(60, 0), (75, 0), (7, 53), (0, 60)])
+def test_the_retry_clock_holds_however_long_the_pass_takes_to_reserve(routing_state, monkeypatch, ran_s, left_s):
+    """D-PROBE-TEST-CLOCK1: the test above with the host's clock three seconds on by the time the
+    pass reserves the probe, as the start of a pass took at load 130 (its (7, 53) case failed)."""
+    service, _ = routing_state
+    host, transaction = host_running_late(monkeypatch), service.store.transaction
+
+    @contextmanager
+    def after_the_start_of_the_pass(kind="state.changed", **kwargs):
+        if kind == "probe.reserved":
+            host["late"] += timedelta(seconds=3)
+        with transaction(kind, **kwargs) as tx:
+            yield tx
+    monkeypatch.setattr(service.store, "transaction", after_the_start_of_the_pass)
+    test_the_retry_clock_runs_from_the_probes_reservation(routing_state, monkeypatch, ran_s, left_s)
+
+
 def test_a_vehicle_whose_clock_runs_keeps_its_place(routing_state, monkeypatch):
     """I1, I3: a probe that failed in a second leaves its vehicle on a clock for the rest of the
     minute; the job behind it is looked at meanwhile and still waits for it, rather than probing the
     lane the moment its own clock comes due."""
     service, harness = routing_state
+    stand_still(monkeypatch)
     oldest, later = submit(service, harness), submit(service, harness)
     probes = Probes(service, monkeypatch, [(CUT, 1)])
     service._admit()
-    assert service.store.get_job(oldest)["next_check_at"] > after(30)
+    assert service.store.get_job(oldest)["next_check_at"] > daemon_module.after(30)
     for _ in range(3):
         make_due(service, later)
         service._admit()
@@ -217,6 +301,7 @@ def test_a_vehicle_whose_clock_runs_keeps_its_place(routing_state, monkeypatch):
 def test_a_wait_on_a_probe_is_not_brought_forward_by_a_release(routing_state, monkeypatch):
     """C-6.10, unchanged: freed capacity never re-probes the provider before the clock."""
     service, harness = routing_state
+    stand_still(monkeypatch)
     job_id = submit(service, harness)
     probes = Probes(service, monkeypatch, [(CUT, 1)])
     service._admit()
@@ -262,6 +347,7 @@ def test_a_job_that_needs_no_probe_is_never_held_for_one(routing_state, monkeypa
 def test_a_measured_lane_takes_the_waiter_without_a_probe(routing_state, monkeypatch):
     """I4: what the waiter waits for is a look at the lane; a fresh reading is one."""
     service, harness = routing_state
+    service.policy["caps"]["reading_ttl_s"] = 86400       # the route view ages readings on the host's clock (daemon.py:2115)
     oldest, second = submit(service, harness), submit(service, harness)
     probes = Probes(service, monkeypatch, [CUT])
     service._admit()
@@ -369,6 +455,7 @@ def test_rotation_never_promotes_at_the_reservation(routing_state, monkeypatch):
     Astra. It looks again instead, and the next round goes back to claude-1."""
     from tests.fake.test_routing_end_to_end import claude_lane
     service, harness = routing_state
+    service.policy["caps"]["reading_ttl_s"] = 86400       # the route view ages readings on the host's clock (daemon.py:2115)
     for identity in ("claude-1", "claude-2"):
         service.store.put_lane(claude_lane(identity))
     service.store.add_reading(Reading("codex-1", "account", "seven_day", .1, after(3600),
@@ -549,6 +636,7 @@ def test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved(routing_state
     is no promotion. It is reserved there, not held as if promoted."""
     from tests.fake.test_routing_end_to_end import claude_lane
     service, harness = routing_state
+    service.policy["caps"]["reading_ttl_s"] = 86400       # the route view ages readings on the host's clock (daemon.py:2115)
     service.store.put_lane(codex_lane(service.root, "codex-2"))
     service.store.put_lane(claude_lane("claude-1"))
     service.store.add_reading(Reading("claude-1", "account", "seven_day", .1, after(86400),
@@ -799,11 +887,20 @@ def test_the_deadline_is_in_the_probes_evidence(routing_state, monkeypatch, rece
 
 @contextmanager
 def fleet():
-    """A daemon over two unmeasured Codex lanes, as `routing_state` builds one, for one example."""
+    """A daemon over two unmeasured Codex lanes, as `routing_state` builds one, for one example.
+
+    Its clock stands still (D-PROBE-TEST-CLOCK1): the daemon's `utcnow` and `after`, which write
+    and read every clock I3 compares, and the helpers above that read them, see one instant for
+    the whole example. On the host's clock a pass that wrote a vehicle's clock at its start was
+    checked against the time at its end: seconds later at load 39 to 61, (180, 183) for a clock
+    that was right. Nothing the property checks waits for time to pass; `make_due` and the
+    probes' own lengths move the clocks it is about.
+    """
     with tempfile.TemporaryDirectory(prefix="probe-turn-") as tmp, pytest.MonkeyPatch.context() as patch:
         root = Path(tmp).resolve() / "state"
         root.mkdir()
         harness = Harness(root)
+        stand_still(patch)
         patch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
         patch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
         patch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
@@ -877,10 +974,11 @@ def test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe(job
                     assert could_use(wants[hold["behind"]], hold["lane"], hold["model"])
                     assert service._holds[hold["behind"]]["reason"] == "probe-pending"
                 elif job_id in probes.jobs()[first:]:
-                    # I3: due PROBE_RETRY_S after its probe was reserved, or now if that has passed.
+                    # I3: due PROBE_RETRY_S after its probe was reserved, or now if that has passed,
+                    # "now" being the instant the pass ran at, on the clock it wrote (`fleet`).
                     reserved = moment(probes.reserved[job_id])
                     waited = (moment(job["next_check_at"]) - reserved).total_seconds()
-                    ran = (moment(utcnow()) - reserved).total_seconds()
+                    ran = (moment(daemon_module.utcnow()) - reserved).total_seconds()
                     assert abs(waited - max(PROBE_RETRY_S, ran)) <= 2, (waited, ran)
             assert not service.store.query("SELECT 1 FROM leases WHERE holder LIKE 'probe:%'")
 
@@ -922,6 +1020,121 @@ def test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe(job
         assert set(started(service)) == set(ids) - killed
 
 
+# --- I3 on a loaded host (D-PROBE-TEST-CLOCK1) ---------------------------------------------------
+
+#: Examples whose vehicle I3 checks after a probe that ran its whole minute or more, so the clock the
+#: pass wrote is the instant it ran at: the one Hypothesis reported from a review lane at load 39 to 61,
+#: and one of each pair that lane saw, (180, 183) on the slow lane and (60, 63).
+LOADED = {
+    "reported": dict(jobs=[("astra", None), ("terra", None), ("astra", None), ("terra", None), ("astra", None)],
+                     outcomes=[(CUT, 90), OK], steps=[("due", 0)], bad={"codex-2"}),
+    "slow-lane-180": dict(jobs=[("astra", "codex-2"), ("astra", "codex-2")], outcomes=[], steps=[("due", 0)],
+                          bad={"codex-2"}),
+    "minute-60": dict(jobs=[("astra", None), ("astra", None)], outcomes=[(CUT, 60)], steps=[("due", 0)], bad=set()),
+}
+
+
+@pytest.mark.parametrize("example", list(LOADED.values()), ids=list(LOADED))
+def test_i3_reads_the_instant_the_pass_ran_at_however_long_the_pass_takes(monkeypatch, example):
+    """D-PROBE-TEST-CLOCK1: the property above, on examples it failed on at load 39 to 61, with the
+    host's clock three seconds on each time a pass has written a vehicle's clock, as the rest of a
+    pass takes on a loaded host. I3 is about the clock the pass wrote, not how long the pass took."""
+    property_fleet = fleet
+
+    @contextmanager
+    def loaded():
+        with property_fleet() as (service, harness, patch):
+            host, transaction = host_running_late(patch), service.store.transaction
+
+            @contextmanager
+            def then_the_rest_of_the_pass(kind="state.changed", **kwargs):
+                with transaction(kind, **kwargs) as tx:
+                    yield tx
+                if kind == "job.probe_waiting":
+                    host["late"] += timedelta(seconds=3)
+            patch.setattr(service.store, "transaction", then_the_rest_of_the_pass)
+            yield service, harness, patch
+    monkeypatch.setattr(sys.modules[__name__], "fleet", loaded)
+    test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe.hypothesis.inner_test(**example)
+
+
+# --- the other tests on a loaded host (D-PROBE-TEST-CLOCK1, review r2 of #273) -------------------
+
+def late_after_the_wait(seconds):
+    """The rest of the first pass, after its vehicle's clock is written, takes `seconds`."""
+    def install(service, patch):
+        host, transaction, waits = host_running_late(patch), service.store.transaction, []
+
+        @contextmanager
+        def then_the_rest_of_the_pass(kind="state.changed", **kwargs):
+            with transaction(kind, **kwargs) as tx:
+                yield tx
+            if kind == "job.probe_waiting" and not waits:
+                waits.append(kind)
+                host["late"] += timedelta(seconds=seconds)
+        patch.setattr(service.store, "transaction", then_the_rest_of_the_pass)
+    return install
+
+
+def late_before_passes(seconds, passes):
+    """Each pass numbered in `passes` (the first is 1) starts `seconds` later than it would."""
+    def install(service, patch):
+        host, admit, count = host_running_late(patch), service._admit, []
+
+        def a_slow_start():
+            count.append(1)
+            if len(count) in passes:
+                host["late"] += timedelta(seconds=seconds)
+            return admit()
+        patch.setattr(service, "_admit", a_slow_start)
+    return install
+
+
+def late_after_the_reading(seconds):
+    """Everything after a provider reading is added takes `seconds`."""
+    def install(service, patch):
+        host, add = host_running_late(patch), service.store.add_reading
+
+        def then_time_passes(reading):
+            added = add(reading)
+            host["late"] += timedelta(seconds=seconds)
+            return added
+        patch.setattr(service.store, "add_reading", then_time_passes)
+    return install
+
+
+#: Review r2 of #273: the tests above that bounded how long the host takes, each with the host's
+#: clock moved past its bound where a loaded host spends that time: about 29 s from the reservation
+#: to the vehicle test's check of its clock, about 59 s from the probe to the last pass of the vehicle
+#: and release tests, and a reading's 120 s. `measured` is the lane a test's reading measures.
+LATE = {
+    "vehicle-30s-after-the-wait": (test_a_vehicle_whose_clock_runs_keeps_its_place, late_after_the_wait(30), None),
+    "vehicle-20s-before-passes-2-to-4": (test_a_vehicle_whose_clock_runs_keeps_its_place,
+                                         late_before_passes(20, {2, 3, 4}), None),
+    "release-60s-before-the-third-pass": (test_a_wait_on_a_probe_is_not_brought_forward_by_a_release,
+                                          late_before_passes(60, {3}), None),
+    "measured-lane-121s-after-the-reading": (test_a_measured_lane_takes_the_waiter_without_a_probe,
+                                             late_after_the_reading(121), "codex-1"),
+    "rotation-121s-after-the-reading": (test_rotation_never_promotes_at_the_reservation,
+                                        late_after_the_reading(121), "codex-1"),
+    "walk-back-121s-after-the-reading": (test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved,
+                                         late_after_the_reading(121), "claude-1"),
+}
+
+
+@pytest.mark.parametrize("test, late, measured", list(LATE.values()), ids=list(LATE))
+def test_no_test_here_bounds_how_long_the_host_takes(routing_state, monkeypatch, test, late, measured):
+    """D-PROBE-TEST-CLOCK1: what a test checks is the clocks the daemon wrote and the readings it
+    was given, not how long the host took. A reading's lane is still measured at the end, on the
+    clock the route view reads (daemon.py:2115), so a test that needs it measured kept it so."""
+    service, _ = routing_state
+    late(service, monkeypatch)
+    test(routing_state, monkeypatch)
+    if measured:
+        view = service._capacity_view(now=daemon_module.datetime.now(timezone.utc))
+        assert {lane["lane_id"]: lane["measured"] for lane in view["lanes"]}[measured]
+
+
 # --- the rule itself ----------------------------------------------------------------------------
 
 WAITERS = st.lists(st.tuples(st.sampled_from(["astra", "terra", "opus"]),
@@ -929,6 +1142,10 @@ WAITERS = st.lists(st.tuples(st.sampled_from(["astra", "terra", "opus"]),
                    max_size=6)
 
 
+# A pure rule: nothing in it is timed, so a loaded host's pause is no failure (D-PROBE-TEST-CLOCK1:
+# one example took 285 ms against the default 200 ms deadline at load 39 to 61, and at load 156 one
+# draw took 5.8 s, which the slow-input health check reads as slow generation).
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(waiters=WAITERS, lane=st.sampled_from(["a", "b", "c"]), model=st.sampled_from(["astra", "terra", "opus"]))
 def test_the_turn_is_the_first_waiter_that_could_use_the_probe(waiters, lane, model):
     line = [(f"job-{index}", wanted, lanes) for index, (wanted, lanes) in enumerate(waiters)]
@@ -943,3 +1160,18 @@ def test_the_turn_is_the_first_waiter_that_could_use_the_probe(waiters, lane, mo
     # A line with nobody in it, or only waiters on other models, holds nobody.
     assert scheduler.probe_turn([], lane, model) is None
     assert scheduler.probe_turn([row for row in line if row[1] != model], lane, model) is None
+
+
+def test_the_rule_is_not_timed(monkeypatch):
+    """D-PROBE-TEST-CLOCK1: one example of the rule above took 285 ms on a review lane at load 39 to
+    61, past Hypothesis's default 200 ms deadline, and passed on replay. The rule asserts nothing
+    about time; here the host makes its first look take 300 ms."""
+    rule, looks = scheduler.probe_turn, []
+
+    def slow_first(*args):
+        if not looks:
+            time.sleep(0.3)
+        looks.append(args)
+        return rule(*args)
+    monkeypatch.setattr(scheduler, "probe_turn", slow_first)
+    test_the_turn_is_the_first_waiter_that_could_use_the_probe()

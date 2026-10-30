@@ -244,7 +244,7 @@ def test_a_scrubber_that_raises_writes_the_fixed_marker(written, monkeypatch):
     def broken(*args, **kwargs):
         raise RecursionError("scrubber broke on password=SECRET7broke9")
     monkeypatch.setattr(daemon_log.refusals, "scrubbed_line", broken)
-    monkeypatch.setattr(daemon_log, "scrub_secrets", broken)
+    monkeypatch.setattr(daemon_log, "_head_scrub_secrets", broken)   # the block form's head pass (#239 round 8)
     exc = raised("token=SECRET7carried9")
     written.log.error("job %s failed: %s", "j1", "password=SECRET7message9",
                       exc_info=(type(exc), exc, exc.__traceback__))
@@ -329,7 +329,7 @@ def test_write_scrubbed_with_a_scrubber_that_raises_writes_the_fixed_marker(monk
     def broken(*args, **kwargs):
         raise RecursionError("scrubber broke on password=SECRET7broke9")
     monkeypatch.setattr(daemon_log.refusals, "scrubbed_line", broken)
-    monkeypatch.setattr(daemon_log, "scrub_secrets", broken)
+    monkeypatch.setattr(daemon_log, "_head_scrub_secrets", broken)   # the block form's head pass (#239 round 8)
     daemon_log.write_scrubbed(REFUSAL)
     assert capsys.readouterr().err == "[scrub failed] ERROR record from subfleet.daemon left out: RecursionError\n"
     assert daemon_log.scrubbed(REFUSAL) == "[scrub failed] INFO record from subfleet.daemon left out: RecursionError"
@@ -1077,8 +1077,8 @@ def test_a_credential_flag_whose_value_starts_the_kept_tail_stays_hidden(written
 
 
 #: For each rule the scrubber applies (its names in `handoff`; `quoted`, `plain` and
-#: `flags` are `_scrub_named_values`' three passes): what it masks, split where a line
-#: break may fall. Folding puts a space there.
+#: `flags` are `_scrub_named_values`' three passes, `inline` is `_scrub_inline_headers`,
+#: #239): what it masks, split where a line break may fall. Folding puts a space there.
 RULE_EXAMPLES = {
     "_SYSTEM_REMINDER_RE": ("note <system-reminder>", "SECRET7reminder9 </system-reminder>"),
     "_PEM_RE": ("-----BEGIN RSA", "PRIVATE KEY-----\nMIIabcSECRET7pem9\n-----END RSA\nPRIVATE KEY-----"),
@@ -1092,6 +1092,7 @@ RULE_EXAMPLES = {
     "quoted": ("password='open", "SECRET7quoted9'"),
     "plain": ("token =", "SECRET7plain9"),
     "flags": ("deploy --password", "SECRET7flag9 rest"),
+    "inline": ("sent Cookie:", "SECRET7inline9 rest"),
 }
 #: Where only folding joins the two parts: the rest are joined across a line break by
 #: the rule itself (`\\s` in it), or not at all.
@@ -1121,7 +1122,8 @@ def _rule_names() -> set[str]:
     from subfleet.sessions import handoff
     rules = {pattern for pattern, _ in (*handoff._BLOCK_RULES, *handoff._TOKEN_RULES)} | {handoff._SYSTEM_REMINDER_RE}
     return {name for name, value in vars(handoff).items()
-            if name.startswith("_") and isinstance(value, re.Pattern) and value in rules} | {"quoted", "plain", "flags"}
+            if name.startswith("_") and isinstance(value, re.Pattern) and value in rules} | {
+        "quoted", "plain", "flags", "inline"}
 
 
 def test_every_scrub_rule_has_an_example_and_only_the_folding_rules_fold():

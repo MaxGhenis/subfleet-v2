@@ -1137,10 +1137,56 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   initial bottom scroll anchor. An explicit app scroll to an approval or search
   row suspends that conversation’s opening pin, including any scheduled pin,
   so later measurement and history cannot undo the reveal (C-27.5, C-29.12).
-  While Timeline.startReading's log read settles,
-  changes jump to the end without animation. The person's own new send glides;
-  other changes follow only with the end on screen. Remote event-only turns do
-  not count as the person's own send. Approval positioning on opening also has
+  While Timeline.startReading's log read settles, changes jump to the end
+  without animation unless an explicit approval or search reveal that scrolls
+  the timeline has suspended settling and ordinary following (C-27.5, C-29.7,
+  C-29.12). Suspension starts before scrolling and preserves the revealed
+  position even while the lazy end marker's disappearance is pending. Each
+  reveal request names its target row, which the view marks with a
+  `RevealTargetMark` (an NSView in the row's background), and the reveal is
+  outstanding until that row is presented in the clip. While it is
+  outstanding, the end coming into view releases nothing: the reveal's scroll
+  can leave the end before the lazy stack has laid out the row, and measuring
+  the rows it then lays out can shrink the document under the clip and clamp
+  it to the end (CI run 40251214771, a 6,382 pt shrink with no page, history
+  or row change). The opening pin reads the mark's presented frame after each
+  clip or document change, whenever the mark's place in the document changes,
+  and on the turn after the reveal's completion. SwiftUI moves a row by moving
+  the host view it makes for the mark, so the mark's own frame can stay put:
+  before the main run loop next sleeps (the last `beforeWaiting` observer),
+  the mark compares its frame in the document's coordinates (and whether it is
+  hidden) with what it last reported, and reports a change; a reused mark that
+  takes a new row id reports again. A completion can arrive before its scroll
+  is laid out, so that turn first lays out the window. When the row is
+  presented the reveal has landed, and the end visible beside it releases
+  suspension (a nearby reveal). A reveal whose target row leaves the model
+  before it is presented (a reset, a history change, a rebuild), or is not in
+  the model when it is requested, is abandoned at once: the view cancels that
+  request by id in the pin, clears its pending state and releases suspension
+  if the end marker is on screen; otherwise the marker's next appearance does.
+  Once no reveal is outstanding the marker appearing again releases it, as
+  before. The person's live scroll, wheel or paging keys end an outstanding
+  reveal and release suspension if the end is then visible. The person's own
+  new send ends any reveal and releases suspension before the move is chosen,
+  catch-up included: it glides to the end, or during catch-up the settling
+  move jumps there. The send's move can land short while its row is measured,
+  so until the measured end settles, the person scrolls or a reveal starts,
+  later changes follow as if the end were on screen. A landing check settles
+  it: after 300 ms without a clip or document change, pending layout is
+  applied, and a measured gap within `column + 1` ends the check; a wider gap
+  re-pins the clip, and layout changes restart the wait. The marker’s first
+  appearance does not end it. The wait outlasts the 150 ms glide: in round 10's
+  stale-glide scene, where the glide's last frame lands on the old end 150 ms
+  after the clip rests at the new one, a check on the next turn ended before
+  that frame took the clip 1,662–1,676 pt from the end. Following lasts longer
+  than the check: from the send until the person scrolls or a reveal starts, document
+  frame changes re-pin the clip to the end, as the opening pin does, so growth
+  after a quiet landing is followed too (review r8: 600 pt above the clip had
+  left the reply 779 pt behind). Person input cancels queued pins immediately. Release does not scroll;
+  catch-up resumes on the next changed key. Other changes follow only with the
+  end on screen. Remote event-only turns do not count as the person's own
+  send.
+  Approval positioning on opening also has
   no animation; subsequent newly pending cards retain their explicit reveal.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.

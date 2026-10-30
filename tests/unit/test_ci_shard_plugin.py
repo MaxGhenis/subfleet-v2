@@ -125,13 +125,42 @@ def test_the_workflow_matrix_names_every_shard_of_one_count_once():
 
 
 def test_the_checked_in_map_fits_the_workflow_limit():
-    """Each predicted shard is at most half the job limit; past that, add a shard."""
+    """Keep ten minutes of runner margin, and never project more than 35 minutes."""
     millis, groups = shard_plugin.validate_map(json.loads(MAP.read_text(encoding="utf-8")))
     count = len(workflow_shards())
     [limit] = re.findall(r"^    timeout-minutes: (\d+)$", WORKFLOW.read_text(encoding="utf-8"), re.MULTILINE)
     loads = shard_plugin.predicted_loads(millis, groups, count)
     assert all(load > 0 for load in loads), loads
-    assert max(loads) <= int(limit) * 60_000 / 2, [round(load / 60_000, 1) for load in loads]
+    assert max(loads) <= min(35, int(limit) - 10) * 60_000, [round(load / 60_000, 1) for load in loads]
+
+
+def test_review_probes_share_a_group_before_the_other_frontend_tests():
+    data = json.loads(MAP.read_text(encoding="utf-8"))
+    groups = data["groups"]
+    prefix = "tests/frontend/test_review_r219_"
+    # Each has a distinct cold source variant. Keeping either in the common
+    # review group would hide its compile cost or exceed the prediction guard.
+    separate = {prefix + "fix14_setup.py", prefix + "fix8_mutations.py"}
+    assert all(groups.index(path) < groups.index(prefix) for path in separate)
+    assert groups.index(prefix) < groups.index("tests/frontend/")
+    millis, groups = shard_plugin.validate_map(data)
+    shards = shard_plugin.plan(millis, groups, len(workflow_shards()))
+    files = [path.relative_to(REPO).as_posix() for path in (REPO / "tests/frontend").glob("test_review_r219_*.py")]
+    assert separate <= set(files)
+    shared = set(files) - separate
+    assert shared and all(shard_plugin.group_of(path, groups) == prefix for path in shared)
+    assert all(shard_plugin.group_of(path, groups) == path and path in millis for path in separate)
+    assert len({shard_plugin.shard_of(path, shards, groups, len(workflow_shards())) for path in shared}) == 1
+
+
+def test_a_narrow_file_prefix_can_precede_its_directory_group():
+    prefix = "tests/frontend/test_review_r219_"
+    millis, groups = shard_plugin.validate_map({"groups": [prefix, "tests/frontend/"], "seconds": {
+        prefix + "fix8_view.py": 900, prefix + "fix8_mutations.py": 600,
+        "tests/frontend/test_other.py": 1200,
+    }})
+    assert shard_plugin.group_of(prefix + "unmeasured.py", groups) == prefix
+    assert shard_plugin.predicted_loads(millis, groups, 2) == [1_500_000, 1_200_000]
 
 
 # Real collections: a small project whose files each record that they were imported.

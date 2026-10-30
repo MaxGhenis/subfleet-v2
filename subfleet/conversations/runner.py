@@ -33,13 +33,24 @@ from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
 from .reconcile import SETTINGS_FRAME, USER_FRAME
 from .store import ConversationError, ConversationStore, TitleUpdate
-from .turn import COMPLETE, RUNNING, Approval, Event, Frame, Image, Outcome, Step, TurnSpec
+from .turn import COMPLETE, FAILED, RUNNING, Approval, Event, Frame, Image, Outcome, Step, TurnSpec
 from .titles import CLAIMED, OPEN, PIPE_FLOOR, SessionTitle, TITLE_CANCEL_FRAME, TITLE_FRAME, request_line
 
 FLUSH_S = 0.25
 FLUSH_BYTES = 64 * 1024
 POLL_S = 0.05
 READ_CHUNK = 1 << 20
+# A proved exit may lose its receipt or leave descendants writing stdout. The exit
+# drain reads all of stdout on disk when it begins; output written after that gets
+# this long from the read that catches up, then containment is requested rather
+# than keeping this turn in the drain loop forever (`_drain_stdout`, C-26.4).
+# Chosen equal to the default of policy `conversations.stop_contain_after_s`
+# (C-24.7, `CONTAIN_AFTER_S` below). It is a constant: it does not follow a
+# customised policy.
+EXIT_DRAIN_S = 30.0
+# A failed stat of stdout at the drain's entry, other than its absence, is tried again
+# this many times, POLL_S apart; a size still unknown is never taken as zero (C-26.4).
+STDOUT_STAT_RETRIES = 3
 
 # Stop escalation (C-24.7, review IR-3, design D-13 revision 3), seconds after the stop request:
 # the provider's interrupt at once, then SIGINT (ends a Claude turn; SIGTERM
@@ -152,6 +163,11 @@ class TurnRunner:
         self.replayed_message = USER_FRAME in self.sent
         self.handshake_done_once = False
         self.relay_failed = False
+        self.relay_io_ended = False             # permanent, independent of the child
+        self.exit_proved_at: float | None = None
+        self.drain_entry_size: int | None = None      # stdout's size on disk when this runner's exit drain began,
+                                                      # None in the drain when unknown (`_stdout_size`)
+        self.drain_caught_up_at: float | None = None  # when the drain had read that much: EXIT_DRAIN_S runs from it
         self.handshaken = False
         self.optional_ack_lost = False         # a title write went unanswered: resynchronize first
         self.wrote_bytes: dict[str, int] = {}  # tag → bytes of each stdin line this runner wrote
@@ -266,7 +282,7 @@ class TurnRunner:
     def steerable(self) -> bool:
         """The request handler's fast check; handover rechecks on the runner thread."""
         return (self.replay_caught_up and not self.ended and not self.finished.is_set()
-                and not self.withheld and not self.relay_failed and self.stop_reason is None
+                and not self.withheld and not self.relay_io_ended and self.stop_reason is None
                 and self.stop_at is None and "close" not in self.sent
                 and self.driver.outcome is None and bool(getattr(self.driver, "steerable", False)))
 
@@ -369,8 +385,7 @@ class TurnRunner:
                 if self._flush_due():
                     self._flush()
                 if self._process_gone():
-                    while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
-                        pass
+                    self._drain_stdout()
                     # Ended-attempt replay may never reach an empty read in the main
                     # loop. Its unwritten claims must still settle as missed.
                     self._discard_steers("provider-ended")
@@ -383,6 +398,7 @@ class TurnRunner:
                     time.sleep(POLL_S)
         except Exception as exc:          # a runner defect must not take the daemon down
             self._failed(exc)
+            self._settle_failed(exc)
         finally:
             try:
                 self._flush()
@@ -404,8 +420,108 @@ class TurnRunner:
         else:
             self.log.error("turn runner %s failed: %s", self.attempt_id, refusals.scrubbed_words(exc))
 
+    def _settle_failed(self, exc: Exception) -> None:
+        """A runner that ends on an exception still settles its turn (fix r3 of
+        #271), as an unproved loss settles (`_relay_lost`): no frame is written
+        after it, unwritten steers are missed, and the stop reason is
+        `relay-failed` unless the turn already had an outcome or a stop reason.
+        Nothing escalates a stop from now on, so containment is requested at once
+        unless the guardian is known to be done (its receipt, or an attempt the
+        job store ended). Then the outcome from the stdout read so far, as at the
+        end of the exit drain, and the report. Not once its service is closing
+        (`stop`, or a `store-closed` refusal): a later daemon adopts or replays
+        the attempt (C-26.6). A step that fails is logged and the next is tried."""
+        if (self.outcome_reported or self._stopping.is_set()
+                or isinstance(exc, ConversationError) and exc.reason == "store-closed"):
+            return
+        if self.log:
+            self.log.warning("turn %s settles as an unproved loss: its runner failed", self.attempt_id)
+        self.relay_io_ended = self.relay_failed = True
+        self.outbox.clear()
+        if self.driver.outcome is None:
+            self.stop_reason = self.stop_reason or "relay-failed"
+
+        def contain() -> None:
+            if not (self.contained or self.ended or (self.adir / "exit.json").exists()):
+                self.contained = True
+                self.on_contain(self.attempt_id)
+
+        def end() -> None:
+            try:
+                if self.driver.outcome is None:
+                    self._apply(self.driver.eof(self.offset), send=False)
+            finally:
+                driver = self.driver
+                if driver.outcome is None:          # the driver failed too: the outcome EOF would give
+                    driver.outcome = Outcome(FAILED, "ended-without-result", ended_by="eof",
+                                             accepted=bool(getattr(driver, "accepted", False)),
+                                             answered=bool(getattr(driver, "answered", False)),
+                                             limited=bool(getattr(driver, "limited", False)),
+                                             served_model=getattr(driver, "served_model", None))
+
+        for step in (lambda: self.end_title("relay-failed"), lambda: self._discard_steers("relay-failed"),
+                     contain, end, self._flush, self._report):
+            try:
+                step()
+            except Exception as again:
+                self._failed(again)
+
     def _process_gone(self) -> bool:
-        return self.ended or (self.adir / "exit.json").exists()
+        return self.exit_proved_at is not None or self.ended or (self.adir / "exit.json").exists()
+
+    def _drain_stdout(self) -> None:
+        """Read stdout to an empty read once the provider is gone (C-26.4, C-26.6).
+
+        However the drain is entered (a proved relay loss, the exit receipt or an
+        owner-ended attempt), it records the size stdout has on disk then, and all
+        of that is read however long it takes: a replay can be far behind. Only
+        output written after the entry is bounded. From the read that catches up
+        with the entry size, EXIT_DRAIN_S is checked after each chunk; a writer
+        still going at the deadline (a reaped child does not rule out a
+        descendant) gets containment, which needs no working relay or guardian
+        receipt, and the turn settles from everything read so far. A runner
+        rebuilt after a restart records its own entry and starts its own clock.
+        An entry size that stays unknown (`_stdout_size`) is not taken as zero:
+        the drain has caught up at the first read that reaches the end of the
+        file, one short of a whole chunk or empty, since stdout is append-only
+        and so then holds all it held at the entry."""
+        self.drain_entry_size = self._stdout_size()
+        while True:
+            now = self.clock()
+            if self.drain_entry_size is not None:
+                if self.drain_caught_up_at is None and self.offset + len(self.partial) >= self.drain_entry_size:
+                    self.drain_caught_up_at = now
+            if self.drain_caught_up_at is not None and now - self.drain_caught_up_at >= EXIT_DRAIN_S:
+                self.stop_reason = self.stop_reason or "stdout-drain-timeout"
+                self.contained = True
+                self.on_contain(self.attempt_id)
+                return
+            position = self.offset + len(self.partial)
+            progressed = self._read_stdout()
+            if (self.drain_entry_size is None and self.drain_caught_up_at is None
+                    and self.offset + len(self.partial) - position < READ_CHUNK):
+                self.drain_caught_up_at = self.clock()
+            if not progressed:
+                return
+
+    def _stdout_size(self) -> int | None:
+        """stdout's size on disk; 0 when it is missing. Any other failure is tried
+        again up to STDOUT_STAT_RETRIES times, POLL_S apart, and a size still unknown
+        is None: never zero, which would start the drain's bound before the
+        backlog on disk is read (fix r3 of #271)."""
+        for retry in range(STDOUT_STAT_RETRIES + 1):
+            if retry:
+                time.sleep(POLL_S)
+            try:
+                return (self.adir / "stdout").stat().st_size
+            except FileNotFoundError:
+                return 0
+            except OSError as exc:
+                failure = exc
+        if self.log:
+            self.log.warning("turn %s stdout size unknown at its exit drain, read to the end first: %s",
+                             self.attempt_id, refusals.scrubbed_words(failure))
+        return None
 
     def _read_stdout(self) -> bool:
         path = self.adir / "stdout"
@@ -673,7 +789,7 @@ class TurnRunner:
         and a frame shown `pending` a moment earlier is not mistaken for a failure.
         It also carries the relay's frame cap. A relay older than version 2 has
         no status; its log is read as before."""
-        if self.handshaken:
+        if self.relay_io_ended or self.handshaken:
             return True
         try:
             status = self.relay.status()
@@ -706,14 +822,21 @@ class TurnRunner:
                 self._replay_steers[:] = [pending for pending in self._replay_steers if pending != mid]
         if status is not None:
             self.relay_version = status.get("version")
+            if status.get("child") == "exited" and self.exit_proved_at is None:
+                # A fresh status naming the child exited is exit proof whatever the
+                # log shows (C-26.4). A runner rebuilt after a restart needs it: a
+                # `closed` refusal logs nothing, and the receipt may never come.
+                self.exit_proved_at = self.clock()
             if status["applied"] != self.logged:
                 # The log and the relay disagree: nothing is sent on a guess.
-                self._relay_lost(f"the relay applied {status['applied']} frames, its log shows {self.logged}")
+                self._relay_lost(f"the relay applied {status['applied']} frames, its log shows {self.logged}",
+                                 child_exited=status.get("child") == "exited")
                 return True
         if unwritten:
             # A frame the log shows unwritten ended relaying for good (C-26.4); a
-            # runner rebuilt after a restart stops the turn as its predecessor did.
-            self._relay_lost("the relay log shows a frame that was not written")
+            # runner rebuilt after a restart makes the same child-exit distinction.
+            self._relay_lost("the relay log shows a frame that was not written",
+                             child_exited=status is not None and status.get("child") == "exited")
         return True
 
     def _unacknowledged(self, why: str) -> None:
@@ -733,12 +856,12 @@ class TurnRunner:
 
     def _send_frames(self) -> None:
         while self.outbox:
-            if self.outbox[0].op == "close" and self._title_holds():
-                return                          # the title's answer, its budget, or anything else first
-            if self.relay_failed:
-                self._discard_steers("relay-failed")
+            if self.relay_io_ended:
+                self._discard_steers("relay-failed" if self.relay_failed else "provider-ended")
                 self.outbox.clear()
                 return
+            if self.outbox[0].op == "close" and self._title_holds():
+                return                          # the title's answer, its budget, or anything else first
             if self.resends and self.clock() < self.resend_at:
                 return                          # IR-27: the next try waits its turn
             if self.optional_ack_lost:
@@ -749,7 +872,7 @@ class TurnRunner:
             if not self._handshake():
                 return
             frame = self.outbox[0] if self.outbox else None
-            if frame is None or self.relay_failed:
+            if frame is None or self.relay_io_ended:
                 self.outbox.clear()
                 return
             if self.sent.get(frame.tag) == "written":
@@ -798,6 +921,8 @@ class TurnRunner:
 
     def _transmit(self, frame: Frame) -> bool:
         """Send the head frame and act on the answer; whether the outbox may go on."""
+        if self.relay_io_ended:
+            return False
         # C-9.2 / D-WALL1: queuing a stop is not delivery. The builder knows
         # its protocol: approval cancel/abort replies can stop just as interrupts,
         # signals and stdin close can. A lost answer leaves the intent pending.
@@ -847,7 +972,17 @@ class TurnRunner:
             self.outbox.pop(0)
             return True
         # conflict, failed, closed, gap, peer-refused: nothing more is written.
-        self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}")
+        child_exited = ack.child_exited or self._process_gone()
+        if not child_exited:
+            # Older guardians do not include exit evidence in refusals. Ask for
+            # their current child state; a missing answer proves no exit. The
+            # receipt may arrive while this exchange discovers shutdown.
+            try:
+                status = self.relay.status()
+            except RelayError:
+                status = None
+            child_exited = status is not None and status.get("child") == "exited"
+        self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}", child_exited=child_exited)
         return False
 
     # --- the first turn's title (titles.py) ---------------------------------------
@@ -901,7 +1036,7 @@ class TurnRunner:
         runner is told of (`interrupt`) or a command it is sent (a steer, an answer).
         The rest is this thread's own state, checked at the claim and unchanged since
         (the claim and the write are one `_apply`). In-memory only, never I/O."""
-        return self.stop_reason is None and self.commands.empty()
+        return not self.relay_io_ended and self.stop_reason is None and self.commands.empty()
 
     def _send_title(self) -> bool:
         """Write the claimed title request: one line, at most TITLE_LINE_MAX bytes, to
@@ -911,7 +1046,7 @@ class TurnRunner:
         it but the stdin close it holds. A refused, oversized or unanswered write is
         never retried and never fails the relay: the close resynchronizes first
         (`_send_frames`). It uses only the relay's `send`. Whether anything changed."""
-        if self.title.state != CLAIMED:
+        if self.relay_io_ended or self.title.state != CLAIMED:
             return False
         if not self.title.begin_write(self._title_may_write):
             self.end_title("not-quiescent")
@@ -998,7 +1133,7 @@ class TurnRunner:
             self.handshaken = False
             if not self._handshake():
                 return "wait"
-            if self.relay_failed or USER_FRAME in self.sent:
+            if self.relay_io_ended or USER_FRAME in self.sent:
                 return "again"                # handed over (or lost): not this runner's to withdraw
         return "withdraw"
 
@@ -1019,7 +1154,7 @@ class TurnRunner:
             self.handshaken = False
             if not self._handshake():
                 return "wait"
-            if self.relay_failed or f"steer:{message_id}" in self.sent:
+            if self.relay_io_ended or f"steer:{message_id}" in self.sent:
                 return "again"
         row = self.store.find_message(message_id)
         host = self.store.find_message(self.message_id)
@@ -1044,11 +1179,23 @@ class TurnRunner:
         self._discard_steers("host-frame-refused")
         self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close", stops=True)]
 
-    def _relay_lost(self, why: str) -> None:
-        """Nothing more can be written (C-26.4). A turn with no terminal event is
-        then stopped as a stop request would stop it; the steps that need the
-        relay are skipped, so containment ends it (D-13, design §6)."""
+    def _relay_lost(self, why: str, *, child_exited: bool = False) -> None:
+        """Nothing more can be written (C-26.4). A proved child exit leaves the
+        outcome to stdout and EOF. Otherwise a turn with no terminal event is
+        stopped, skipping the relay steps so containment ends it (D-13, design §6)."""
+        self.relay_io_ended = True
+        if child_exited or self._process_gone():
+            self.end_title("provider-ended")
+            # Refusal after a proved exit is the provider's end, not a stop.
+            # Keep the proof even if the guardian never publishes exit.json.
+            # The stdout drain (`_drain_stdout`) decides the outcome.
+            if self.exit_proved_at is None:
+                self.exit_proved_at = self.clock()
+            self._discard_steers("provider-ended")
+            self.outbox.clear()
+            return
         self.relay_failed = True
+        self.end_title("relay-failed")
         self._discard_steers("relay-failed")
         self.outbox.clear()
         if self.log:

@@ -141,7 +141,8 @@ func runQueueWords(_ data: Data) throws -> [String: Any] {
     }
     let moves = (input["moves"]?.array ?? []).map { value -> String in
         moveWord(FollowKey.move(from: followKey(value["old"] ?? .null), to: followKey(value["new"] ?? .null),
-                                atBottom: value["at_bottom"]?.bool ?? true))
+                                atBottom: value["at_bottom"]?.bool ?? true,
+                                suspended: value["suspended"]?.bool ?? false))
     }
     let stops = (input["stops"]?.array ?? []).map { value -> [String: Any] in
         let action = stopAction(for: value["message_id"]?.string ?? "", state: value["state"]?.string, outboxEntry: nil)

@@ -125,19 +125,30 @@ struct FollowKey: Equatable {
     /// - Anything else only while the end is on screen: a new row, a new
     ///   followed row, or a tray that changed the timeline's height glide; a
     ///   growing block, or the first page of history landing above, jumps.
-    /// An explicit row reveal suspends catch-up jumps until the end is visible again.
+    /// An explicit row reveal suspends ordinary following even while the end
+    /// marker's disappearance is pending. The marker resumes following when it
+    /// appears again, or its presented geometry confirms that a completed reveal
+    /// left it visible.
+    /// Catch-up resumes after that confirmation releases suspension. The view
+    /// releases suspension for the person's own send before asking (`ownSend`),
+    /// so during catch-up it jumps to the end and otherwise glides.
     /// A message queued or withdrawn while the person reads further up moves
     /// nothing; the tray shows it.
     static func move(from old: FollowKey, to new: FollowKey, atBottom: Bool, suspended: Bool = false) -> Move {
         guard old != new else { return .stay }
-        if old.settling || new.settling { return suspended && !atBottom ? .stay : .jump }
-        if new.last != old.last && new.lastIsOwnSend,
-           new.localSend == nil || new.localSend != old.localSend { return .glide }
+        if old.settling || new.settling { return suspended ? .stay : .jump }
+        if ownSend(from: old, to: new) { return .glide }
+        guard !suspended else { return .stay }
         guard atBottom else { return .stay }
         if new.last != old.last || new.followed != old.followed || new.tray != old.tray { return .glide }
         if new.followedLength != old.followedLength || new.hasHistory != old.hasHistory
             || new.live != old.live || new.held != old.held { return .jump }
         return .stay
+    }
+
+    /// The change is the person's own new message: the last row is one this app sent.
+    static func ownSend(from old: FollowKey, to new: FollowKey) -> Bool {
+        new.last != old.last && new.lastIsOwnSend && (new.localSend == nil || new.localSend != old.localSend)
     }
 }
 
