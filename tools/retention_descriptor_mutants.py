@@ -1,4 +1,4 @@
-"""Opt-in pytest plugin for the nine named D-WALK-FD1 mutations.
+"""Opt-in pytest plugin for the thirteen named D-WALK-FD1 mutations.
 
 Run under the suite hold, for example::
 
@@ -8,6 +8,8 @@ Run under the suite hold, for example::
 Only the imported module is mutated; production source stays unchanged.
 M1/M2/MO/ML/MI/MP/MC repeat the build/review mutants. MH drops the two
 handoff protections, and MD makes the shared cleanup drain stop on an error.
+MR retries a released parent, MA ignores registration ownership, ME replaces
+an active exception, and MX discards a cancellation raised by cleanup.
 """
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ from pathlib import Path
 import subprocess
 
 
-MUTANTS = ("M1", "M2", "MO", "ML", "MI", "MP", "MC", "MH", "MD")
+MUTANTS = ("M1", "M2", "MO", "ML", "MI", "MP", "MC", "MH", "MD", "MR", "MA", "ME", "MX")
 
 
 def pytest_addoption(parser):
@@ -62,7 +64,9 @@ def pytest_configure(config):
     if mutant == "M1":
         source = _replace_once(
             source,
-            "                except BaseException:\n                    os.close(child)\n                    raise\n",
+            "                except BaseException:\n"
+            "                    if not stack or stack[-1][0] != child:\n"
+            "                        _close_all((child,))\n                    raise\n",
             "                except BaseException:\n                    raise\n",
         )
     elif mutant == "M2":
@@ -75,7 +79,9 @@ def pytest_configure(config):
         source = _replace_once(
             source,
             "                try:\n                    opened.append(fd)\n"
-            "                except BaseException:\n                    os.close(fd)\n                    raise\n",
+            "                except BaseException:\n"
+            "                    if not opened or opened[-1] != fd:\n"
+            "                        _close_all((fd,))\n                    raise\n",
             "                opened.append(fd)\n",
         )
     elif mutant == "MH":
@@ -86,4 +92,32 @@ def pytest_configure(config):
         original = ("def _close_all(descriptors: Iterable[int]) -> None:\n"
                     "    for fd in descriptors:\n        os.close(fd)\n")
         source = _replace_definition(source, "_close_all", original)
+    elif mutant == "MR":
+        source = _replace_once(
+            source,
+            "            if parent != dir_fd:\n                os.close(parent)\n",
+            "            if parent != dir_fd:\n                try:\n                    os.close(parent)\n"
+            "                except BaseException:\n                    os.close(parent)\n                    raise\n",
+        )
+    elif mutant == "MA":
+        for guard, descriptor in (("not stack or stack[-1][0] != child", "child"),
+                                  ("not opened or opened[-1] != fd", "fd")):
+            source = _replace_once(
+                source, f"                    if {guard}:\n                        _close_all(({descriptor},))\n",
+                f"                    _close_all(({descriptor},))\n",
+            )
+    elif mutant == "ME":
+        source = _replace_once(
+            source,
+            "    if pending is None:\n        if first is not None:\n            raise first\n"
+            "    elif isinstance(pending, (Exception, GeneratorExit)) and cancelled is not None:\n"
+            "        raise cancelled\n",
+            "    if first is not None:\n        raise first\n",
+        )
+    elif mutant == "MX":
+        source = _replace_once(
+            source,
+            "    elif isinstance(pending, (Exception, GeneratorExit)) and cancelled is not None:\n"
+            "        raise cancelled\n", "",
+        )
     exec(compile(source, f"<retention descriptor mutant {mutant}>", "exec"), rfs.__dict__)
