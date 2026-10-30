@@ -79,6 +79,7 @@ class Rows:
             CREATE TABLE jobs (job_id TEXT PRIMARY KEY, state TEXT, cancel_requested_at TEXT,
                                worktree TEXT, wait_reason TEXT, next_check_at TEXT);
             CREATE TABLE attempts (job_id TEXT);
+            CREATE TABLE leases (lease_key TEXT PRIMARY KEY, holder TEXT, acquired_at TEXT, expires_at TEXT);
         """)
         for index in range(count):
             self.connection.execute("INSERT INTO jobs VALUES (?, 'queued', NULL, NULL, NULL, NULL)",
@@ -101,7 +102,7 @@ class Rows:
         row = self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
         return {**row, "push_branch": f"jobs/{job_id}", "sandbox": "workspace-write",
                 "in_place": False, "workdir": "/unused/local-fixture", "workdir_head": "0" * 40,
-                "kind": "dispatch"}
+                "kind": "dispatch", "task": None}
 
 
 class ManualExecutor:

@@ -185,6 +185,8 @@ class Store:
         yield self
 
     def execute(self, sql, parameters):
+        if sql.startswith("SELECT") and " FROM leases" in sql:
+            return SimpleNamespace(fetchall=lambda: [])
         if sql.startswith("SELECT"):
             return SimpleNamespace(fetchone=lambda: self.jobs[parameters[0]])
         if sql.startswith("UPDATE jobs SET worktree="):
@@ -197,6 +199,7 @@ class Store:
 def gate_harness(root: Path, count: int):
     jobs = {str(index): {"job_id": str(index), "push_branch": f"jobs/{index}",
                         "sandbox": "workspace-write", "in_place": False,
+                        "kind": "dispatch", "task": None,
                         "state": "queued", "wait_reason": None, "worktree": None,
                         "cancel_requested_at": None}
             for index in range(count)}

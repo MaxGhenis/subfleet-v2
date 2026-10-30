@@ -90,7 +90,8 @@ def assert_never_lost_with_live_pids(attempt: dict, driver: procs.ProcessIdentit
 @pytest.mark.parametrize("ending", ["exit-receipt", "walled"])
 def test_a_counted_loop_driver_is_contained_with_its_children(daemon, ending):
     """The provider's loop is a walk member while the provider lives, so inspection
-    counts it (D-KILL3). After the provider exits by itself, or the wall stops it,
+    counts it (D-KILL3), or records it as owned if it lands before the loop's `setsid`
+    (D-KILL4-EVIDENCE1). After the provider exits by itself, or the wall stops it,
     the kill protocol signals the counted loop and its children: contained, and the
     attempt ends from its own outcome (or `interrupted` by the wall) with none alive.
     Before D-KILL4 both quarantined, the loop alive and never signalled."""
@@ -108,7 +109,12 @@ def test_a_counted_loop_driver_is_contained_with_its_children(daemon, ending):
         assert attempt["state"] != "quarantined", json.loads(attempt["quarantine_reason"] or "{}")
         daemon.until(lambda: not alive(driver), timeout=10)
         evidence = json.loads(attempt["evidence_json"])
-        assert str(driver.pid) in evidence["counted_identities"]
+        # D-KILL4-EVIDENCE1: the shell provider backgrounds the driver in the guardian's
+        # group, and it stays there until its `os.setsid()` (`tests/bin/fakeprov`, `driver`).
+        # An inspection in that window rightly records it as owned, and `_record_owned`
+        # never counts an owned identity again; either record attributes it.
+        recorded = {**evidence.get("owned_identities", {}), **evidence["counted_identities"]}
+        assert recorded[str(driver.pid)]["proc_start"] == driver.proc_start
         rounds = evidence["terminal_containment"]
         assert driver.pid in rounds[-1]["signalled"] and rounds[-1]["contained"] is True
         if ending == "walled":
