@@ -2205,6 +2205,10 @@ final class RevealArrivals: @unchecked Sendable {
     return record.finish(["target": target, "away": away])
 }
 
+/// How far above the new end `stale-glide` lands the glide's last frame: the old end, the
+/// send's 30 paragraphs up (in 40 local runs the document grew 1,413-1,954 pt across the send).
+let staleGlideFromEnd: CGFloat = 1_680
+
 // P2-2: the person's own send (`UIModel.send`) during a pending reveal, with
 // catch-up held (`catchup`) or after it (`ordinary`, the control). The live
 // message has ended, so the send is the timeline's last row, not a tray row.
@@ -2250,11 +2254,14 @@ final class RevealArrivals: @unchecked Sendable {
     if landing == "stale-glide", let scroll = timelineScroll(scene.host) {
         // The glide's last frame lands on its stale target, the old end: 150 ms (the
         // glide's length) after the clip came to rest at the new end, inside the landing
-        // check's 300 ms quiet window.
-        let oldEnd = (record.position()["content"] ?? 0) - (record.position()["viewport"] ?? 0)
+        // check's 300 ms quiet window. Place the old end from the new end, not at its offset
+        // before the send: the lazy stack re-estimates the rows above as the send lands. On
+        // CI the document lost 2,777-3,499 pt across the send, which put that offset past
+        // the new end, so the frame never took the clip above it (runs 40812690386,
+        // 40813021187, 40813080519).
         staleGlide = QuietMove(scroll: scroll, after: 0.15) {
             record.step("stale_glide", target: target)
-            record.clipTo(offset: oldEnd)
+            record.clipTo(fromEnd: staleGlideFromEnd)
         }
     }
     defer { staleGlide?.stop() }
