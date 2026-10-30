@@ -25,11 +25,11 @@ closes those of the hub's review r4 (REQUEST_CHANGES at `6afb5ce19`): a long wor
 bodies, a depth bound beside xargs or `-exec`, a root before a closing backtick, bash's `.*` and `.?`,
 the data volume's alias before a mount, commands too long to read, `~{…}`, `~$NAME` and `~$(…)`,
 zsh's `=cmd`, pipes into a shell, `"$@"` scripts, `eval $(…)` and `<&0`. Rounds r6 and r7 (2026-10-28) close the
-findings of the hub's reviews r5 and r6, and rounds r8 and r9 (2026-10-29) those of reviews r7 and r8 (below). Nothing here touches the live guard; the hub installs it with the steps below.
+findings of the hub's reviews r5 and r6, rounds r8 and r9 (2026-10-29) those of reviews r7 and r8, and round r10 (2026-10-30) those of review r9 (below). Nothing here touches the live guard; the hub installs it with the steps below.
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `9eb0db09…e7e2` after r9; r8's was `740728e3…20e9`, r7's `89b0efe1…aa5d`, r6's `6671496b…aea3`, r5's `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `c42f05ef…865f` after r10; r9's was `9eb0db09…e7e2`, r8's `740728e3…20e9`, r7's `89b0efe1…aa5d`, r6's `6671496b…aea3`, r5's `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
 was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
@@ -67,7 +67,7 @@ region's header comments, and since r3c the prefilter's third term, `pw_cmd` in 
 (`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
 line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`339ca3f0…a2c4` after r9; r8's was `f5e5268e…c073`, r7's `b749db5a…e9eb`, r6's `955bc7fa…3d2f`, r5's `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`54cdded8…0432` after r10; r9's was `339ca3f0…a2c4`, r8's `f5e5268e…c073`, r7's `b749db5a…e9eb`, r6's `955bc7fa…3d2f`, r5's `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
@@ -1819,6 +1819,184 @@ the doc's existing "a root held in any variable".
 - Outside the lock, all probes: the sixteen-form and candidate probes, the recount (this head, r8, r7 and the installed
   hook over 1,484 pairs), the shell probes and the timing rows. Every test and mutant ran under the lock.
 
+## r10: review r9's findings closed (2026-10-30)
+
+The hub's review r9 (REQUEST_CHANGES at `b229383fc`, all P3) found three P3s, none a regression. The hub committed its
+test as `8cbedc93d` (`test_review_r9_pins_r9s_unpinned_readings`: 13 walked readings, five stricter forms, six
+controls and the cap's message), and r10 builds on it. Every pin is review r9's input or this round's probe, judged
+through the whole hook in the fixture (`test_r10_*`). Each command pin and control also runs in real `/bin/zsh -f`
+and `/bin/bash` 3.2 over the fixture with r6's stubs and the fixture's HOME
+(`test_r10_command_pins_agree_with_real_shells`). Below, `Ls` is `for d in src; do :; done` and `R` is
+`rg foo "$d"`.
+
+**Decisions as built.**
+
+1. **The join reaches substitutions and nested scripts** (review r9's P3-1, its measured fix).
+   - *Before:* the assignment block ran only at depth 0 (`if (mode == "prep" && !depth && t > nt)`), while the `for`
+     reading had no depth gate. So inside a substitution or a nested script r9 read the loop but dropped a later
+     assignment.
+   - *Now:* `!depth` is gone from that line. Inside a substitution `st["vt"]` is 0 (vtop's first term is `!depth`), so
+     `vrp` is 0 there, the value always joins, and the reset still never applies.
+   - The hook denies review r9's seven inputs (`R10_NESTED_DENIED`): `echo "$(Ls; d=/; R)"`, the same with the
+     assignment in an `if`, `Ls; echo "$(d=/; R)"`, `bash -c 'Ls; d=/; R'`, `eval 'Ls; d=/; R'`, a heredoc script into
+     `bash`, and `echo "$(for e in x; do Ls; done; d=/; R)"`. r9, r8 and the installed hook allow each (review r9
+     found r7 allows them too), and both shells walk `/` in each.
+   - *Addition:* this round's probes found that `eval d=/` after a scoped loop is now denied too
+     (`R10_EVAL_DENIED`: `Ls; eval d=/; R`, `Ls; eval 'd=/'; R` and `Ls; eval d=~/.subfleet; R`). The prep reads
+     eval's argument as a nested script, so the value joins. r9 and the installed hook allow each, and both shells
+     walk the root, since eval runs in the shell itself. Review r9 and decision 3 list `eval` among the
+     builtins let through; see decision 3 for how the doc says this.
+   - A joined depth bound disarms nothing there: `echo "$(for d in ~/.subfleet/*; do :; done; false &&
+     d=--max-depth=1; R)"` is denied, and both shells walk the root (`R10_NESTED_BOUND_DENIED`).
+   - Controls stay allowed (`R10_NESTED_ALLOWED`): the hub's `Ls; echo "$(d=/)"; R` (the substitution names no
+     searcher, so the prep never reads it, and its subshell keeps the value), `echo "$(Ls; d=src; R)"` and
+     `bash -c 'Ls; d=lib; R'`. No shell walks a root on them.
+   - *Over-blocks, listed "stricter":* a root assigned only in a nested script or a substitution, which never reaches
+     the search after it, now joins too. `Ls; bash -c 'd=/'; R` and `Ls; echo "$(d=/; rg foo src)"; R` are denied,
+     and neither shell walks a root (`R10_STRICTER`). r9 allowed both.
+2. **A function body written before its loop joins** (review r9's P3-2, its measured two-line change).
+   - *Before:* the assignment block updated only a name already in `LVAR`, and the `for` reading created the entry.
+     So a function body written before the loop, and called after it, lost its value.
+   - *Now:* in a command that defines a function (`FN`), a value assigned where the reset doesn't apply
+     (`st["ka"] || ld || !st["vt"]`) to a name not yet in `LVAR` is kept in `FA`. A later `for` over that name joins
+     it to the loop's words.
+   - The hook denies review r9's four inputs (`R10_FUNCTION_DENIED`): `f() { d=/; }; Ls; f; R`, the same with
+     `function f { … }`, with `d=~/.subfleet`, and with the assignment in an `if`. r9, r8 and the installed hook allow
+     each (review r9: every hook it ran), and both shells walk the root.
+   - A depth bound a function body joins disarms nothing: `f() { d=--max-depth=1; }; for d in ~/.subfleet/*; do :;
+     done; false && f; R` is denied, and both shells walk the root (`R10_FUNCTION_BOUND_DENIED`).
+   - The hub's two controls stay allowed (`R10_FUNCTION_ALLOWED`): `d=/; f() { :; }; Ls; R` (an assignment at the top
+     where the reset applies goes to no `FA`, and the loop replaces it) and `f() { d=lib; }; Ls; f; R`.
+   - *Over-blocks, listed "stricter":* the uncalled body, `f() { d=/; }; Ls; R`, beside r9's never-run assignment; and,
+     this round's probes found, a root the loop replaces, `f() { :; }; if true; then d=/; fi; Ls; R`. Both are denied,
+     and neither shell walks a root (`R10_STRICTER`). r9 allowed both.
+3. **The doc** (review r9's P3-3, its corrected lines in their form with P3-1's fix).
+   - r9's paragraph (`docs/private-guard-overlay.md:250`) now says "Wherever a plain `name=value` at the top of the
+     command does not end …", which is what r9 built. The parenthesis review r9 proposed ("not yet inside a quoted
+     `$(…)` or a nested script") is dropped. A new r10 paragraph says the join reaches substitutions and nested scripts
+     and a function body written before its loop.
+   - "Let through" (the variables bullet) names an assignment by `+=` or by a builtin (`export`, `declare`, `typeset`,
+     `readonly`, `local`, `eval`, `printf -v`, `read`) and a value a command substitution writes. It gives examples
+     the prep doesn't read and both shells walk (`R10_KNOWN_OPEN`, 12 forms). Modeling the builtins is a follow-up.
+   - *Deviation, smallest change:* decision 1 closes `eval d=/` (above), so a bare "`eval` is let through" would be
+     false at this head. The doc keeps the hub's list of eight builtins and says that of `eval`, only a prefix
+     assignment (`d=/ eval 'rg foo "$d"'`) or a builtin it runs (`eval export d=/`) passes. `R10_KNOWN_OPEN` pins
+     both, and `R10_EVAL_DENIED` pins the closed form.
+   - "Stricter" (the loop-variable bullet, `:412-414` before) now says a root assigned where the shells never run the
+     assignment, run it only in a subshell, a substitution or a nested script, or replace it later in the same command
+     is denied too. That is review r9's sentence, with "a substitution or a nested script" added for decision 1's
+     over-blocks. It lists review r9's five over-blocks (`Ls; (d=/); R`, `Ls; ( d=/ ) && R`,
+     `Ls; if true; then d=/ d=src; fi; R`, `f() { :; }; Ls; d=/; d=src; R` and `Ls; f() { d=/; }; R`), decision 1's two
+     and decision 2's two, the uncalled body among them.
+   - `test_r10_known_differences_name_the_over_blocks_and_what_is_let_through` holds each named form to its verdict,
+     to the shells and to the doc's text.
+4. **TRUST and the hashes.** TRUST changes only `hook_sha256`, to the r10 hook's `c42f05ef…865f`; TRUST is
+   `54cdded8…0432`. The new pair goes into TRUST, the overlay doc's table, install steps 0 and 2 and this report. The
+   pins that check those carry it too: the overlay test, the subfleet-root test's `NEW_HOOK_SHA256` and the mutant
+   driver's. The rollback stays `a60d1c51…`/`b3193b97…`.
+5. **Mutants.**
+   - New: `r10-depth-gate-restored` (`!depth` back on the assignment block) and `r10-function-body-join-dropped` (the
+     `for` reading no longer joins `FA`), one per fix. Review r9's `rv9-message-dquote-dropped` (the cap's deny message
+     drops `"`), which its committed test now kills, joins the driver too.
+   - Retargeted: `r7-loopvar-unscoped` deletes the update line, and r10 put an `else` under it. The edit now drops both
+     lines, so the awk still parses and no later value is read.
+   - The driver holds 105 mutants, and each of its 103 edits matches its file exactly once.
+
+**The recount at this head** (1,677 pairs: S1's 779; the 859 pairs of every r2–review r9 list in the test, taking each
+command that names a searcher, with the cwd its pair gives or the scoped cwd, deduplicated against S1; and r10's 39).
+Review r9's 1,060 list pairs came from a rule it doesn't state, so this count uses the rule above. The P3-1-only hook is
+r9's with decision 1 alone (a scratch copy).
+
+| From → to | S1 (779) | Earlier lists (859) | r10's pins (39) |
+| --- | --- | --- | --- |
+| r9 (`9eb0db09…`) → decision 1 alone | no move | no move | 12 newly denied (the seven, the three `eval` forms, two stricter), none newly allowed |
+| decision 1 alone → this head | no move | no move | 6 newly denied (the four, two stricter), none newly allowed |
+| the installed hook (`a60d1c51…`) → this head | 194 newly denied, and the two apply_patch cases S3 labels | 547 newly denied, none newly allowed | 20 newly denied, none newly allowed |
+
+- S1: the installed hook denies 119 commands and this head 313, as at r9 (H1, H1b).
+- No list pair the installed hook denies is allowed here.
+
+**The real shells.** r10 runs 37 commands (H3): the hook denies 20; zsh walked a root in 28 and bash in 28 (both in 28),
+and neither walked in 9.
+- Every run agrees but the four stricter forms (denied, walked by neither) and the twelve open forms (allowed, walked
+  by both).
+- Both shells walk review r9's eleven inputs and the three `eval` forms.
+- r9's 31 runs, r8's 56, r7's 46 and review r9's (H3) agree as before, and so do r4's to r6's (H4a, H4b).
+
+**Must-allow cases.** `test_r10_scoped_searches_stay_allowed` (11: r10's five controls and review r9's six) passes, as do
+r8's (248 cases) and r9's (14) (H3).
+
+**Holds** (one pytest or driver each, `-k` selections of `test_guard_subfleet_root.py` unless named, home
+`/Users/tester`). Every hold ran under the lock; H1 was admitted 61 s after being queued, and every other hold within
+two seconds. H1 ran at
+`bcd7f2d84`, whose hook bytes are this head's. Every other hold ran at `9d58ca0fb`, whose tests are this head's.
+
+| Hold | Admitted (slot, load) | Selection | Result, time |
+| --- | --- | --- | --- |
+| H1 | 03:24:39Z (B, 20.8) | S1 | 1 passed, 238 s (a fresh `GUARD_DIFF_CACHE`) |
+| H1b | 04:40:57Z (A, 17.7) | S1 again, at `9d58ca0fb` | 1 passed, 8 s (H1's cache: same hook bytes) |
+| H2a | 03:33:25Z (B, 19.5) | S1's protection, S1-r3, S2, S3 ×2, S4 ×2, S5, the cwd list, known limits ×2 | 9 passed, 2 skipped (S4), 170 s |
+| H2b | 03:36:22Z (B, 23.2) | the other tests outside the rounds (r1/r2, TRUST, the fence, env spellings, logging) | 16 passed, 54 s |
+| H3 | 03:37:24Z (B, 24.7) | `test_r7_*` to `test_r10_*`, reviews r7 to r9 | 27 passed, 97 s |
+| H4a | 03:39:08Z (A, 20.6) | r4's tests, review r4 | 14 passed, 40 s |
+| H4b | 03:39:58Z (A, 19.9) | r5's and r6's tests, reviews r5 and r6 | 26 passed, 105 s |
+| H5a | 03:41:49Z (A, 15.8) | r3's tests | 27 passed, 219 s |
+| H5b | 03:45:34Z (A, 16.6) | r3b's and r3c's tests | 26 passed, 213 s |
+| HA | 03:49:18Z (A, 10.6) | `test_guard_overlay.py`, `test_guard_trust.py` | 127 passed, 69 s |
+| HB | 03:50:31Z (A, 16.4) | the three guards | 63 passed, 27 s |
+| M1-M9 | 03:51:30Z to 04:21:30Z (A, 12.5-27.6) | the 105 mutants | below |
+
+H1 and H2a to H5b cover all 148 items of `test_guard_subfleet_root.py` exactly once (checked against `--collect-only`):
+146 passed and S4's 2 skipped.
+
+**Timing** (the 300-path command, child CPU in seconds, three runs of five interleaved pairs with the installed hook,
+04:25:41-47Z):
+
+| Run | Load | This head | Installed | Median ratio |
+| --- | --- | --- | --- | --- |
+| 1 | 19.6 | 0.226-0.239 | 0.148-0.159 | 1.52× |
+| 2 | 19.1 | 0.214-0.234 | 0.130-0.155 | 1.63× |
+| 3 | 19.1 | 0.219-0.236 | 0.138-0.154 | 1.56× |
+
+The installed hook allows the command, and so does this head. The 300-path test itself
+(`test_r4_absolute_paths_cost_at_most_twice_the_installed_hook`, H4a, load 22.8) gave a median of 0.239 s against
+0.153 s, **1.57×**.
+
+**Mutants** (`tools/guard_subfleet_root_mutations.py`, one `git archive` of HEAD each, the named test and the fence,
+all under the lock; each batch's control passed every named test and the fence):
+
+| Mutants | Killing test | Batch (admitted, slot, load) |
+| --- | --- | --- |
+| `r10-depth-gate-restored` | `test_r10_a_value_joins_inside_a_substitution_or_a_nested_script` | M1 (03:51:30Z, A, 12.5) |
+| `r10-function-body-join-dropped` | `test_r10_a_function_body_written_before_its_loop_joins` | M1 |
+| `rv9-message-dquote-dropped` | `test_review_r9_pins_r9s_unpinned_readings` | M1 |
+| review r8's three, r9's two, review r7's `rv7-bto-dropped`, r8's first two | each one's named test | M1 (11 killed) |
+| r8's other eight, r7's first three, review r6's | each one's named test | M2 (03:54:34Z, A, 21.5; 12 killed) |
+| r7's other three (`r7-loopvar-unscoped` retargeted), review r5's two, r6's first seven | each one's named test | M3 (03:56:37Z, A, 15.8; 12 killed) |
+| r6's other five, r5's first seven | each one's named test | M4 (03:58:25Z, A, 15.5; 12 killed) |
+| r5's other five, review r4's four, r4's first three | each one's named test | M5 (04:01:20Z, A, 20.4; 12 killed) |
+| r4's other six, r3c's first six | each one's named test | M6 (04:05:06Z, A, 15.3; 12 killed) |
+| r3c's other six, r3b's first six | each one's named test | M7 (04:10:09Z, A, 18.6; 12 killed) |
+| r3b's other five, r3's first seven | each one's named test | M8 (04:16:45Z, A, 27.3; 11 killed, 1 survived) |
+| r3's other three, r1's and r2's seven | each one's named test | M9 (04:21:30Z, A, 27.6; 10 killed) |
+
+The tests kill 104 of the 105. `stall-mount-listed` (r3b) survives, as it has since r3c, where it became equivalent
+(r4's section and review r4). r10 doesn't touch that code: its hook diff against `8cbedc93d` changes only the assignment
+block's gate, its comment, the `FA` line and the `for` reading's join. The fence fails, as designed, on the six mutants
+whose edit is a line the fence itself undoes: r1's and r2's root edits (`new-roots-removed`, `child-form-dropped`,
+`prefix-match`, `trailing-slash-missed`, `env-spellings-dropped`), and `r6-span-backtick-dropped`, which edits r5's
+`root_end` line in `R5_TEXT`. It passes on the other 99 and on every control. A kill counts only the named test.
+
+**Unrun at this head:**
+- S4's two items, which need the operator's Claude hook, so they skip here;
+- `tests/frontend/test_core_live.py`, which can't run on a lane. CI runs both.
+
+**Disclosures.**
+- Batches M6 and M7 ran in one tool call, which passed the tool's 10-minute limit and moved to its background mode, as
+  this round's brief allows. I polled it to completion. No process of mine outlived its run.
+- Outside the lock, all probes: the candidate and over-block probes, the recount (r9, decision 1 alone, this head and
+  the installed hook over 1,677 pairs), the shell probes and the timing rows. Every test and mutant ran under the lock.
+
 ## Invariants and how they were checked
 
 `tests/unit/test_guard_subfleet_root.py` states each in its docstring and checks it.
@@ -2126,9 +2304,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r9)
-   # 9eb0db0989f4cf153e52593fa6cf9fb7079227e5a4c883cea93ad8b7b4c1e7e2  private/guard/never-rules-hook.sh
-   # 339ca3f0824f94cf1150715d7881ed2f27cf686ae8eeff1b493ce2c014c2a2c4  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r10)
+   # c42f05ef3b4513ec4972192e5bceeaf298df7fc523db532c6057fb7819fd865f  private/guard/never-rules-hook.sh
+   # 54cdded824d93bc34b1d33f115ac43c2206eb10c3c3c7bb79ff2b98985d20432  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -2165,7 +2343,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 9eb0db09…e7e2, 339ca3f0…a2c4
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # c42f05ef…865f, 54cdded8…0432
    ls -la ~/.subfleet/guard
    ```
 
