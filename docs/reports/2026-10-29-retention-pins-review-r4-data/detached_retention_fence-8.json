@@ -1,0 +1,85 @@
+{
+  "label": "detached_retention_fence-8",
+  "start": "2026-10-30T03:17:34.024929+00:00",
+  "loads": [
+    25.46923828125,
+    26.49267578125,
+    25.95166015625
+  ],
+  "seconds": 6.366807083999447,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-allocated-writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9285188750000088
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5653094580011384
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-allocated-writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6859904999982973
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5530452909988526
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-allocated-writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9903170830002637
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-allocated-writer]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-allocated-writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-allocated-writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-allocated-writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 125009920
+}

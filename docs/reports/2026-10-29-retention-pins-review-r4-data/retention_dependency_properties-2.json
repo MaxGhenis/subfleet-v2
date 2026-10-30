@@ -1,0 +1,33 @@
+{
+  "label": "retention_dependency_properties-2",
+  "start": "2026-10-30T03:01:58.657306+00:00",
+  "loads": [
+    20.7158203125,
+    24.18896484375,
+    25.177734375
+  ],
+  "seconds": 61.23414204200162,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 57.61126937500012
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 128106496
+}

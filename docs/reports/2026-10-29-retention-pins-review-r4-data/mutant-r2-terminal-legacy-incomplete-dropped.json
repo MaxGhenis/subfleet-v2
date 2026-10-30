@@ -1,0 +1,39 @@
+{
+  "label": "mutant-r2-terminal-legacy-incomplete-dropped",
+  "start": "2026-10-30T03:08:19.069348+00:00",
+  "loads": [
+    31.2353515625,
+    25.43212890625,
+    24.94091796875
+  ],
+  "seconds": 4.709695541001565,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.03959058400141657
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+      "mutated_sha256": "b8a7e3dd45bde778ca99d7ddf81688e791326bcd1e617bbaae477bc7e902d2f9"
+    }
+  ],
+  "rss": 116441088
+}

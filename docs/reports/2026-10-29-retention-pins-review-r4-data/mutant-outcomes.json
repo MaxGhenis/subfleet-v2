@@ -1,0 +1,314 @@
+[
+  {
+    "label": "mutant-r2-post-read-identity-check-dropped",
+    "start": "2026-10-30T03:08:09.207163+00:00",
+    "loads": [
+      30.0029296875,
+      25.01806640625,
+      24.79248046875
+    ],
+    "seconds": 7.7685228750015085,
+    "exit": 1,
+    "locked": true,
+    "tests": [
+      {
+        "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+        "phase": "call",
+        "outcome": "failed",
+        "wasxfail": null,
+        "duration": 1.8421226249993197
+      }
+    ],
+    "nodes": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+    ],
+    "phases": {
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]": {
+        "setup": "passed",
+        "call": "failed",
+        "teardown": "passed"
+      }
+    },
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "13050168b1c8f5ae20ee2455f7e5ba24137672b043456f3316e1aab877a78109"
+      }
+    ],
+    "rss": 114868224
+  },
+  {
+    "label": "mutant-r2-terminal-legacy-incomplete-dropped",
+    "start": "2026-10-30T03:08:19.069348+00:00",
+    "loads": [
+      31.2353515625,
+      25.43212890625,
+      24.94091796875
+    ],
+    "seconds": 4.709695541001565,
+    "exit": 1,
+    "locked": true,
+    "tests": [
+      {
+        "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+        "phase": "call",
+        "outcome": "failed",
+        "wasxfail": null,
+        "duration": 0.03959058400141657
+      }
+    ],
+    "nodes": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+    ],
+    "phases": {
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]": {
+        "setup": "passed",
+        "call": "failed",
+        "teardown": "passed"
+      }
+    },
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "b8a7e3dd45bde778ca99d7ddf81688e791326bcd1e617bbaae477bc7e902d2f9"
+      }
+    ],
+    "rss": 116441088
+  },
+  {
+    "label": "mutant-r3-post-traversal-alias-check-dropped",
+    "start": "2026-10-30T03:08:25.360671+00:00",
+    "loads": [
+      30.17529296875,
+      25.30859375,
+      24.89990234375
+    ],
+    "seconds": 6.845344499997736,
+    "exit": 1,
+    "locked": true,
+    "tests": [
+      {
+        "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+        "phase": "call",
+        "outcome": "failed",
+        "wasxfail": null,
+        "duration": 2.24974629099961
+      }
+    ],
+    "nodes": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+    ],
+    "phases": {
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]": {
+        "setup": "passed",
+        "call": "failed",
+        "teardown": "passed"
+      }
+    },
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "d3ec61444ccb0209581496fe7ea91c4879111783bc026d48bbee0d0cbc2d47c3"
+      }
+    ],
+    "rss": 115933184
+  },
+  {
+    "label": "mutant-r3-census-moved-after-recovery",
+    "start": "2026-10-30T03:08:33.984663+00:00",
+    "loads": [
+      28.8125,
+      25.181640625,
+      24.85986328125
+    ],
+    "seconds": 6.638076457998977,
+    "exit": 1,
+    "locked": true,
+    "tests": [
+      {
+        "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+        "phase": "call",
+        "outcome": "failed",
+        "wasxfail": null,
+        "duration": 1.8098172089994478
+      }
+    ],
+    "nodes": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+    ],
+    "phases": {
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]": {
+        "setup": "passed",
+        "call": "failed",
+        "teardown": "passed"
+      }
+    },
+    "loaded": [
+      {
+        "module": "subfleet.retention",
+        "original_sha256": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+        "mutated_sha256": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+      }
+    ],
+    "rss": 117784576
+  },
+  {
+    "label": "mutant-r3-write-metadata-check-dropped",
+    "start": "2026-10-30T03:08:42.613146+00:00",
+    "loads": [
+      29.04248046875,
+      25.35498046875,
+      24.9248046875
+    ],
+    "seconds": 5.110527833003289,
+    "exit": 1,
+    "locked": true,
+    "tests": [
+      {
+        "nodeid": "probes.py::test_changes[same-size-running]",
+        "phase": "call",
+        "outcome": "failed",
+        "wasxfail": null,
+        "duration": 0.5025592909987608
+      }
+    ],
+    "nodes": [
+      "probes.py::test_changes[same-size-running]"
+    ],
+    "phases": {
+      "probes.py::test_changes[same-size-running]": {
+        "setup": "passed",
+        "call": "failed",
+        "teardown": "passed"
+      }
+    },
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "f9b565051def2807d47df2e15286c10c443adcc733783ff81e6b20181d73fc74"
+      }
+    ],
+    "rss": 114458624
+  },
+  {
+    "label": "mutant-r3-final-path-check-dropped",
+    "start": "2026-10-30T03:08:49.732836+00:00",
+    "loads": [
+      28.958984375,
+      25.3984375,
+      24.9423828125
+    ],
+    "seconds": 6.579757125000469,
+    "exit": 1,
+    "locked": true,
+    "tests": [
+      {
+        "nodeid": "probes.py::test_changes[symlink-info-running]",
+        "phase": "call",
+        "outcome": "failed",
+        "wasxfail": null,
+        "duration": 1.0294286249991274
+      }
+    ],
+    "nodes": [
+      "probes.py::test_changes[symlink-info-running]"
+    ],
+    "phases": {
+      "probes.py::test_changes[symlink-info-running]": {
+        "setup": "passed",
+        "call": "failed",
+        "teardown": "passed"
+      }
+    },
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "96a4cdcea8c092807e63a96d553f2e5cb0270566a8c61d37ba4805a6e547be6f"
+      }
+    ],
+    "rss": 113115136
+  },
+  {
+    "label": "mutant-r3-terminal-census-live-only",
+    "start": "2026-10-30T03:08:58.350638+00:00",
+    "loads": [
+      27.48828125,
+      25.203125,
+      24.8779296875
+    ],
+    "seconds": 6.0139175840013195,
+    "exit": 1,
+    "locked": true,
+    "tests": [
+      {
+        "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+        "phase": "call",
+        "outcome": "failed",
+        "wasxfail": null,
+        "duration": 1.9166515840006468
+      }
+    ],
+    "nodes": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+    ],
+    "phases": {
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]": {
+        "setup": "passed",
+        "call": "failed",
+        "teardown": "passed"
+      }
+    },
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "f3eec948f32d9b4c106d193548bef115800737c0d24155cb8dee334e12febbac"
+      }
+    ],
+    "rss": 115589120
+  },
+  {
+    "label": "mutant-r4-initial-objects-revalidation-dropped",
+    "start": "2026-10-30T03:18:37.217409+00:00",
+    "loads": [
+      23.9404296875,
+      25.96630859375,
+      25.7958984375
+    ],
+    "seconds": 3.7531078749998414,
+    "exit": 1,
+    "locked": true,
+    "tests": [
+      {
+        "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+        "phase": "call",
+        "outcome": "failed",
+        "wasxfail": null,
+        "duration": 1.9565709170019545
+      }
+    ],
+    "nodes": [
+      "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+    ],
+    "phases": {
+      "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]": {
+        "setup": "passed",
+        "call": "failed",
+        "teardown": "passed"
+      }
+    },
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "fc2322f2169aeb1452c06a41976e1f29dae08b1026ce7879ebcad032fd0d7525"
+      }
+    ],
+    "rss": 115245056
+  }
+]

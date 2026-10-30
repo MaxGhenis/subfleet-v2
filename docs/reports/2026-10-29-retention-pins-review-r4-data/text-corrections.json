@@ -1,0 +1,35 @@
+{
+  "discovery_descriptions": {
+    "files": [
+      "docs/desktop/retention-archive.md:637",
+      "docs/reports/2026-10-27-retention-dependency-pins.md:9",
+      "docs/reports/2026-10-29-retention-pins-fix-r2.md:10",
+      "docs/reports/2026-10-29-retention-pins-fix-r3.md:7",
+      "docs/reports/2026-10-29-retention-pins-fix-r3.md:15"
+    ],
+    "replacement": "Discovery revalidates the tracked checkout/.git aliases, gitdir and commondir pointer paths/targets, and parsed alternate-entry paths. At 7f1888960 it neither records nor revalidates the initial <common>/objects target. A stable link into an allocated tree can lose a live job\u2019s object storage; retargeting that link during discovery can also evade incomplete discovery when its alternates file stays absent or keeps the same inode and contents (R4-F1). These failures require neither a swap-back nor a metadata-preserving write. The documented swap-back, timestamp and later-dependency bounds remain additional limits of the observations."
+  },
+  "journal_description": {
+    "files": [
+      "docs/reports/2026-10-27-retention-dependency-pins.md:13",
+      "docs/reports/2026-10-29-retention-pins-fix-r3.md:11"
+    ],
+    "replacement": "New journals record job_folder in begin. An old journal that enters quarantine is upgraded in memory, then saved before quarantine\u2019s renames. Already-quarantined and archived old journals can reach final_check and archive publication without that field; commit computes its fallback outside the transaction."
+  },
+  "journal_comment": {
+    "file": "subfleet/retention_archive.py:632",
+    "replacement": "Upgrade old journals entering quarantine in memory; quarantine saves before its renames."
+  },
+  "contract": {
+    "C-8.3": "Recovery ordering, census identity and failure behavior are accurate at head.",
+    "C-8.4": "Preserve the normative fail-closed requirement and fix the initial objects dependency/alias omission at subfleet/dependencies.py:229; do not weaken the guarantee to match the defect."
+  },
+  "pr_lead": "Fix round r3 closes the original R3-F1/R3-F2 inputs and the T2 journal regression. Review r4 at 7f1888960 requests changes for R4-F1: the initial <common>/objects target is neither recorded nor revalidated. Five valid real-Git cases fail: four retargeting cases covering live jobs and terminal exporters, and a stable live-job dependency. Retention remains dormant; repairing R4-F1, approving review and completed CI remain merge gates.",
+  "pr_other_lines": [
+    "Qualify the R3-F1 bullet as tracked-alias revalidation and name R4-F1 as an additional gap.",
+    "Qualify old-journal upgrades using the journal replacement above.",
+    "Label 682 passes and seven killed mutants as the fix-round result at 4d8fa5d55.",
+    "Replace the fix-r2 paragraph\u2019s unqualified \u201ccurrent checks ... not the original repository alias\u201d with \u201cAt e4b20c9e5 the checks did not revalidate original aliases; round r3 fixed the original r3 inputs. Review r4 identifies the separate initial objects-directory omission.\u201d",
+    "Replace Next with \u201cRepair R4-F1, correct the legacy-journal wording, obtain approving review and complete CI.\u201d"
+  ]
+}
