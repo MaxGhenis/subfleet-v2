@@ -7,7 +7,7 @@ import shutil
 import stat
 import tempfile
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import example, given, settings, strategies as st
 import pytest
 
 
@@ -347,6 +347,7 @@ OPERATIONS = ["start", "finalize", "quarantine", "resolve", "sweep", "orphan", "
 @settings(max_examples=40, deadline=None)
 @given(st.lists(st.tuples(st.sampled_from(OPERATIONS), st.integers(0, 4), st.booleans()),
                 min_size=1, max_size=35))
+@example([("start", 0, False), ("swap", 0, False), ("vanish", 0, False)])
 def test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority(steps):
     """Invariants 1, 3, 4, 6 and 8 over known and unknown allocations, holds,
     absent folders, swaps and the passage of time. The model releases known
@@ -400,8 +401,11 @@ def test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority(st
                 victims.append(path)
                 disturbed.add(name)
             elif known and operation == "vanish" and Path(records[name]["path"]).is_dir():
-                shutil.rmtree(records[name]["path"])
-                disturbed.add(name)
+                # The recorded allocation vanishes; a swapped-in folder at its name is a victim, and stays.
+                found = Path(records[name]["path"]).lstat()
+                if (found.st_dev, found.st_ino) == identities[name]:
+                    shutil.rmtree(records[name]["path"])
+                    disturbed.add(name)
             elif operation == "advance":
                 clock += (index + 1) * 6 * 3600
             elif operation == "sweep":
