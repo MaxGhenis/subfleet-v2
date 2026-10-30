@@ -862,6 +862,10 @@ class Daemon:
         self._unrooted_logged = False        # D-CEN1: said once that guardians start without a root
         self._disclaim_guardians = procs.guardian_disclaim_allowed()
         self._starting_deadlines: dict[str, float] = {}
+        # Review r3 of #250, check 5: the starting attempts whose deadline began at this
+        # daemon's first look, not at their launch (`_start_landed`). Read through
+        # `__dict__`, as cores built without `__init__` (test fixtures) lack it.
+        self._starting_first_look: set[str] = set()
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
         # C-5.12: attempt id -> when its processes are next inspected, and the
@@ -5134,7 +5138,8 @@ class Daemon:
                 # Fix round 2b, decision 2 (review r2's P3-2): a census whose members no source
                 # may signal (a stranger's leaderless group at the recorded pgid, held parents)
                 # schedules no protocol, which could only spend a TERM grace and push the
-                # attempt's real round out of its evidence.
+                # attempt's real round out of its evidence; an unverifiable one too, unless a
+                # verifiable read could attribute a member (review r3's P3-1).
                 contain = self._may_signal(a, census)
                 if contain:
                     self._schedule("recontain:" + args.job_id, self._recontain, a, census)
@@ -5177,10 +5182,49 @@ class Daemon:
 
     def _may_signal(self, a: dict, census: procs.Containment) -> bool:
         """Fix round 2b, decision 2: would C-5.6's protocol have anything to signal in this
-        census? An unverifiable census may yet verify, and contain, on a later read; a
-        verifiable one with no member C-5.4 allows (`_signal_reasons`) has only held
-        members, which no protocol may signal."""
-        return census.unverifiable or bool(Daemon._signal_reasons(self, a, census))
+        census? A verifiable one with no member C-5.4 allows (`_signal_reasons`) has only
+        held members, which no protocol may signal.
+
+        Review r3 of #250, P3-1: an unverifiable census runs the protocol only when a
+        verifiable read could attribute a member: one the walk or the responsibility
+        source names, which only this census's unverifiability keeps from being a target,
+        or no member at all, as when the listing failed and could have missed any. The
+        protocol's own censuses may verify. A member only a leaderless group at the
+        recorded pgid names, and a held parent, are attributed by no read; nor is a
+        member `_never_signalled`, or one an unverifiable census first recorded or that
+        sits below one (`_tainted`). A census that cannot verify those (a legacy attempt
+        boot: the group's boot never compares) ran a protocol on every `kill` that could
+        signal nothing, and its "next `kill`" never reported the last result.
+
+        Review r1 of #276, P2-1: so is a member whose source attributes it in any census (a
+        marked or parent-chain member, a group member under a verified leader, or an owned
+        one, its `owned_identities` record not of another boot than the attempt's, at a pid
+        this census has not proven recycled) but whose identity this census could not read:
+        `_signal_reasons` skips it only for want of that identity, and a read that captures
+        it signals it (an owned one when it captures the recorded identity). An owned member
+        needs its own term (review r2 of #276): the walk term drops it when a tainted census
+        parent taints it by its link, while `_signal_reasons` reads the owned record before
+        any taint. Only those sources count here: a member only a leaderless group names,
+        with no identity, is still attributed by no read."""
+        if Daemon._signal_reasons(self, a, census):
+            return True
+        if not census.unverifiable:
+            return False
+        if not census.live_pids and not census.held_pids:
+            return True
+        never = Daemon._never_signalled(self, a)
+        evidence = json.loads(a.get("evidence_json") or "{}")
+        boot = Daemon._attempt_boot(self, a)
+        # As `_signal_reasons` reads it: an owned identity of another boot attributes nothing; nor does
+        # one at a pid this census proved recycled, which holds another process than each record of it.
+        owned = {int(pid) for pid, value in (evidence.get("owned_identities") or {}).items()
+                 if not procs.boot_identity.differ(value.get("boot_id"), boot)} - set(census.recycled)
+        unread = (census.marker_pids | census.chain_pids | (census.live_pids & owned)
+                  | (census.group_pids if census.leader_verified else frozenset())) - set(census.identities)
+        if unread - census.held_pids - never:
+            return True
+        tainted = Daemon._tainted(evidence, census, boot)
+        return bool((census.descendant_pids | census.responsible_pids) - census.held_pids - never - tainted)
 
     @staticmethod
     def _held_words(census: procs.Containment) -> str:
@@ -9463,6 +9507,7 @@ class Daemon:
                 os.close(write_fd)
         now = time.monotonic()
         self._starting_deadlines[a["attempt_id"]] = now + self.start_grace_s
+        self.__dict__.setdefault("_starting_first_look", set()).discard(a["attempt_id"])
         # C-5.12: first inspected with a table read after its guardian started,
         # which shows the guardian. Due as it first asked, it was usually given
         # a table another attempt had read before the guardian existed, and paid
@@ -9534,7 +9579,9 @@ class Daemon:
             with self.store.transaction("attempt.running", job_id=a["job_id"], attempt_id=aid) as tx:
                 tx.execute("UPDATE attempts SET state='running',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,started_at=COALESCE(started_at,?) WHERE attempt_id=? AND state='starting'",
                            (start["guardian_pid"], start["pgid"], start["boot_id"], start["proc_start"], start["started_at"], aid))
+            self._start_landed(a)
             self._starting_deadlines.pop(aid, None)
+            self.__dict__.setdefault("_starting_first_look", set()).discard(aid)
             self._boundary("running", a["job_id"], aid)
             a = self.store.get_attempt(aid)
         if job["kind"] != "turn" and a["state"] in ("starting", "running"):
@@ -9587,6 +9634,8 @@ class Daemon:
             if a["state"] not in ("starting", "running"):
                 return  # The fresh wall preflight may itself have found the exit.
         if a["state"] == "starting":
+            if aid not in self._starting_deadlines:
+                self.__dict__.setdefault("_starting_first_look", set()).add(aid)    # a restarted daemon's first look
             deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
             if time.monotonic() < deadline:
                 return
@@ -9602,7 +9651,10 @@ class Daemon:
             # receipt that reads as a value (as above): one that merely exists,
             # holding `{}` or `null`, left the attempt here, taking a census on
             # every tick.
-            if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
+            landed = self._read_json(adir / "start.json")
+            if landed or self._read_json(adir / "exit.json"):
+                if landed:
+                    self._start_landed(a)
                 return
             # D-QUAR-START1 (a): a guardian alive, running and verified by its recorded
             # identity, the census's only member, is slow, not lost (2026-10-26, under load):
@@ -9747,7 +9799,31 @@ class Daemon:
         there is one: it may have launched, and is contained as launched. Each side
         writes its own file before it reads the other's, so at least one sees the other."""
         adir = self._abandon(a, detail)
-        return not self._read_json(adir / "start.json")
+        start = self._read_json(adir / "start.json")
+        if start:
+            self._start_landed(a)
+        return not start
+
+    def _start_landed(self, a: dict) -> None:
+        """Review r3 of #250, check 5: `START_GRACE_MAX_S` rests on one incident, so the
+        first read that finds the `start.json` of an attempt start grace extended
+        (`attempt.start_extended`) is recorded, once, as `attempt.start_landed`: the
+        `seconds` from the deadline's start to that read, and `deadline_start`, `launch`
+        or `restart` when the deadline began at this daemon's first look after a restart
+        (it lives in daemon memory; found at that first look, 0 s). The daemon keeps no
+        count of extensions. An attempt never extended records nothing, and nothing the
+        daemon does depends on the record."""
+        aid = a["attempt_id"]
+        if (not self.store.one("SELECT 1 FROM events WHERE attempt_id=? AND kind='attempt.start_extended'", (aid,))
+                or self.store.one("SELECT 1 FROM events WHERE attempt_id=? AND kind='attempt.start_landed'", (aid,))):
+            return
+        deadline = self._starting_deadlines.get(aid)
+        seconds = 0.0 if deadline is None else time.monotonic() - (deadline - self.start_grace_s)
+        restarted = deadline is None or aid in self.__dict__.get("_starting_first_look", ())
+        self.store.add_event("attempt.start_landed", job_id=a["job_id"], attempt_id=aid,
+                             data={"seconds": round(seconds, 3), "deadline_start": "restart" if restarted else "launch",
+                                   "start_grace_s": self.start_grace_s,
+                                   "start_grace_max_s": getattr(self, "start_grace_max_s", START_GRACE_MAX_S)})
 
     def _inspect_running(self, a: dict, adir: Path, due: float) -> bool:
         """The paced half of `_process_attempt` (C-5.12): is the guardian still ours?
@@ -10407,7 +10483,8 @@ class Daemon:
         then `finalizing` on verified empty, `_lost` for a loss without a
         receipt, and `quarantined` with `reason` for anything else. `census` is a
         deciding census its caller has just taken; `unlaunched` (start grace, no
-        start.json) KILLs the group at once (fix 1, P2)."""
+        start.json) KILLs the group at once (fix 1, P2), and so does a `starting`
+        attempt's cancel or wall stop whose last read finds no start.json (C-5.6)."""
         # Fresh request attribution matters for descendants and clients that
         # replaced the wall after the worker read its attempt row.
         a = self.store.get_attempt(a["attempt_id"])
@@ -10594,7 +10671,8 @@ class Daemon:
         identity, of the census taken before it, still in the group; a member
         found since gets a TERM of its own before any continue. The guardian is
         never continued: it ignores TERM by design, so a continue only resumes its
-        launch. An `unlaunched` attempt (start grace, no start.json) has its group
+        launch. An `unlaunched` attempt (a `starting` one whose last read found no
+        start.json: start grace, a cancel or the wall) has its group
         KILLed at once, so its guardian never starts the provider. Nothing outside
         the census is signalled, and nothing is continued that was not sent a TERM.
         The parent-chain additions and held parents of every census taken here,
