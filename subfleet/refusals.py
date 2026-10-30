@@ -304,6 +304,13 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "release-limits-none": ("lanes release --limits: no open provider-limit or credits closures", None),
     "release-limits-reported": ("lanes release --limits: reported clock; provider clocks cannot be released by hand",
                                 None),
+    # Tasks: an operator's hold on one task at admission (C-11.10, D-TASKHOLD1).
+    "unknown-task": ("tasks: unknown task {task}",
+                     "name a task the policy's chains route; subfleet run --help lists them"),
+    "task-hold-note": ("tasks hold: --note is required: one line of printable characters, at most 160, "
+                       "and no credential", None),
+    "task-hold-until": ("tasks hold: --until must be a later ISO 8601 instant", None),
+    "tasks-action": ("tasks: the action is list, hold or release", None),
     "transfer-lane": ("lanes transfer: name a lane", None),
     "transfer-owner": ("lanes transfer: --to must be v1 or v2", None),
     "transfer-blocked": ("lanes transfer: the lane cannot move yet; the dry run's blocker says why",
@@ -408,6 +415,7 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
     "unknown-provider-lane": (("unknown {provider} lane", "subfleet lanes list"),
                               ("unknown lane", "subfleet lanes list")),
     "sessions-id": (("sessions: session_id is required", None),),
+    "unknown-task": (("tasks: unknown task", HANDLER_MESSAGES["unknown-task"][1]),),
 }
 
 FALLBACK: tuple[str, None] = ("operation: request was refused", None)

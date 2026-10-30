@@ -10,6 +10,7 @@
   subfleet kill <id>             cancel a job (offline: signal the recorded pgid)
   subfleet resume <id> [PROMPT]  continue a job on its own lane (alias: resume-codex)
   subfleet lanes [list|probe|enroll|hold|release|transfer]
+  subfleet tasks [list|hold <task> --until ISO --note TEXT|release <task>]   hold one task at admission
   subfleet why <id> | --task T --tier X
   subfleet daemon [start|stop|status|logs|install]
   subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
@@ -47,7 +48,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, descriptors, ids, protocol, render
+from . import capacity, descriptors, ids, protocol, render, task_holds
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -95,6 +96,7 @@ TASK_CHOICES = ("lookup", "research", "sweep", "review", "build",
 TIER_CHOICES = ("trivial", "easy", "standard", "hard")
 SANDBOX_CHOICES = tuple(item.value for item in Sandbox)
 LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer")
+TASK_ACTIONS = ("list", "hold", "release")
 
 AF_UNIX_PATH_MAX = 103          # sun_path is 104 bytes including the NUL
 DAEMON_STATUS_PING_TIMEOUT_S = 5.0
@@ -552,6 +554,19 @@ def format_status(data: dict[str, Any]) -> str:
         for closure in closures:
             lane = next((row for row in lanes if row.get("lane_id") == closure.get("lane_id")), closure)
             lines.append("  " + render.closure_line(closure, home=render.lane_home(lane)))
+    holds = rows_of(data.get("task_holds"))
+    if holds:
+        # C-11.10: the operator's holds on tasks, each with the jobs it keeps waiting.
+        lines.append("")
+        lines.append("task holds")
+        for hold in holds:
+            # The hold's own count, over every job (C-17.4); a daemon older than the count
+            # lists every nonterminal job, so counting its rows is the whole count too.
+            waiting = hold.get("waiting")
+            if not isinstance(waiting, int) or isinstance(waiting, bool):
+                waiting = sum(1 for row in live if row.get("wait_reason") == "task-held"
+                              and row.get("task") == hold.get("task"))
+            lines.append(f"  {hold.get('task')} until {hold.get('until')} ({waiting} waiting): {hold.get('note')}")
     lines.append("")
     callers = rows_of(data.get("priority_callers"))
     if isinstance(data.get("disk"), dict):
@@ -2401,6 +2416,58 @@ def cmd_lanes(args: argparse.Namespace) -> int:
     return int(Exit.OK)
 
 
+def cmd_tasks(args: argparse.Namespace) -> int:
+    """C-11.10: `tasks [list]`, `tasks hold <task> --until <iso> --note <text>`, `tasks release <task>`.
+
+    The daemon decides (the task names are its policy's); a note or an end this
+    CLI can already tell is wrong is refused here, before anything is sent."""
+    action = args.tasks_command or "list"
+    until, note_text = getattr(args, "until", None), getattr(args, "note", None)
+    if action == "hold":
+        if not (until or "").strip():
+            return fail(Exit.INVALID_INPUT, "tasks hold: --until is required")
+        try:
+            task_holds.instant(until.strip())
+        except (ValueError, OverflowError):
+            return fail(Exit.INVALID_INPUT, "tasks hold: --until must be an ISO 8601 instant")
+        if not isinstance(note_text, str) or not note_text.strip(" "):
+            return fail(Exit.INVALID_INPUT, "tasks hold: --note is required")
+        try:
+            task_holds.note_text(note_text)     # the daemon's own rule: controls anywhere, then spaces
+        except ValueError:
+            return fail(Exit.INVALID_INPUT, "tasks hold: --note must be one line of printable characters, "
+                                            f"at most {task_holds.NOTE_MAX}, with no credential")
+    request = protocol.TasksArgs(action=action, task=getattr(args, "task", None), until=until, note=note_text)
+    try:
+        result = _client(args).call("tasks", _asdict(request))
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    except DaemonError as exc:
+        if protocol.UNKNOWN_OP in str(exc):
+            return fail(Exit.DAEMON_UNAVAILABLE, "the daemon does not hold tasks; it is older than this CLI",
+                        RESTART_DAEMON)
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return _protocol_failure(exc)
+    if args.json:
+        emit(result)
+        return int(Exit.OK)
+    if action == "hold":
+        hold = result.get("task_hold") if isinstance(result.get("task_hold"), dict) else {}
+        out(f"held: {hold.get('task')} until {hold.get('until')} ({hold.get('note')})")
+        replaced = result.get("replaced")
+        if isinstance(replaced, dict):
+            out(f"replaced: the hold until {replaced.get('until')} ({replaced.get('note')})")
+    elif action == "release":
+        out(f"released: {result.get('released')}"
+            + ("" if result.get("was_held") else " (no hold was in force)")
+            + f"; {int(as_number(result.get('woken')) or 0)} waiting jobs queued again")
+    else:
+        holds = rows_of(result.get("task_holds"))
+        out("\n".join(render.task_hold_line(hold) for hold in holds) if holds else "no task holds")
+    return int(Exit.OK)
+
+
 def cmd_why(args: argparse.Namespace) -> int:
     if not args.id and not args.task:
         return fail(Exit.INVALID_INPUT, "why: name a job id, or --task T --tier X")
@@ -3686,6 +3753,24 @@ def build_parser() -> argparse.ArgumentParser:
     l_transfer.add_argument("--dry-run", action="store_true",
                             help="print the roster diff and write nothing")
     _add_json(l_transfer, nested=True)
+
+    p_tasks = sub.add_parser("tasks", help="hold one task at admission; lanes stay open to the rest",
+                             description="C-11.10: while a hold on a task is in force, no new attempt of a "
+                             "detached job of that task starts; every other task, and every conversation turn, "
+                             "is placed as before, and running attempts are never touched.")
+    _add_json(p_tasks)
+    p_tasks.set_defaults(handler=cmd_tasks, tasks_command=None)
+    tasks_sub = p_tasks.add_subparsers(dest="tasks_command")
+    t_list = tasks_sub.add_parser("list", help="the holds in force")
+    _add_json(t_list, nested=True)
+    t_hold = tasks_sub.add_parser("hold", help="hold a task until an instant; a second hold replaces the first")
+    t_hold.add_argument("task", help=f"a task the policy routes ({', '.join(TASK_CHOICES)})")
+    t_hold.add_argument("--until", help="ISO 8601 instant; no zone is UTC")
+    t_hold.add_argument("--note", help=f"required: why, one line of at most {task_holds.NOTE_MAX} characters")
+    _add_json(t_hold, nested=True)
+    t_release = tasks_sub.add_parser("release", help="end a task's hold at once")
+    t_release.add_argument("task")
+    _add_json(t_release, nested=True)
 
     p_why = sub.add_parser("why", help="the routing decision for a job or a shape")
     p_why.add_argument("id", nargs="?")
