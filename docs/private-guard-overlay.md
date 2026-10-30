@@ -271,11 +271,28 @@ run after it: `f() { d=/; }; for d in src; do :; done; f; rg foo "$d"` is denied
 `/`, while `f() { d=lib; }; …; f; rg foo "$d"` and `d=/; f() { :; }; …; rg foo "$d"` pass. The
 over-blocks of both are listed under "stricter" below.
 
+Its r11 (2026-10-30) closes the findings of the hub's review r10. Each word a searcher's operand is
+read as through a loop variable is a step of the shared 20,000-step budget, and so is each 16 bytes of
+them (decision 1): r10 counted none of them, so a 7.9 KB command whose loop variable stood for 420
+values in each of 420 searches ran past the hook's 60 s timeout, and a count of words alone would let
+one 4,000-byte word read 2,000 times cost 25 s. Such a command is now too complex to judge, and the
+message names loop variables. The path-word judgment judges each distinct word once, however many
+places hold it. A function body's value joins a piped `while read` loop's words too (decision 2), so
+`f() { d=/; }; echo src | while read d; do :; done; f; rg foo "$d"` is denied, and both shells walk
+`/`. A `for` loop read where the reset would not apply (a keyword before it, another compound command
+open, not where an assignment lasts, or a command that defines a function), and every `read`, joins the
+words an earlier loop over its name left instead of replacing them (decision 3), since the loop may run
+in a scope of its own: after `for d in ~/.subfleet/*; do :; done`, a loop over `src` in a `bash -c`
+script, a `$(…)`, a `<(…)`, a function body, a subshell, a quoted `$(…)` or a piped `while read` no
+longer hides the root from the `rg foo "$d"` after it, and the shells walk it. A loop at the top of the
+command still replaces the words. The over-blocks of all three are listed under "stricter" below, and
+what stays open under "let through".
+
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
 globs and computed list of folders a glob reads, and the command reading follows its keywords,
 wrapper table, shell options, `eval`, stdin scripts, stdin model and print-and-exit forms. Their
-shared limits are in the report's known limits. Known differences that remain after r10, read from
+shared limits are in the report's known limits. Known differences that remain after r11, read from
 the code as it stands, with review r5's check 8 forms marked (snapshot-5 read from its frozen
 `.ref`: `for` at `:2179-2187`, `read` at `:2192-2197`, shells at `:2227-2252`):
 
@@ -289,16 +306,20 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     or a plain word assigned to it after its loop, r7 decision 5, any other value joining the loop's
     words, r8 decision 1, and any value assigned where that reset does not apply joining them too, r9
     decision 1, inside a substitution or a nested script too, r10 decision 1, and from a function body
-    written before the loop, r10 decision 2) (`d=~/.subfleet; rg --files $d`), and so a `read` after a
+    written before the loop, r10 decision 2, for a piped `while read` loop too, r11 decision 2, with an
+    inner-scope loop joining an earlier loop's words, r11 decision 3) (`d=~/.subfleet; rg --files $d`),
+    and so a `read` after a
     plain assignment (`for d in ~/.subfleet/*; do :; done; d=src; read d <<< ~/.subfleet; rg foo "$d"`:
     `d=src` ends the loop's reading, and a `read` from a here-string assigns nothing the prep reads,
     though both shells walk the root), an assignment by `+=` or by a builtin (`export`, `declare`,
     `typeset`, `readonly`, `local`, `eval`, `printf -v`, `read`), and a value a command substitution
     writes (after `for d in src; do :; done`, each of `d=; d+=/`, `export d=/`, `printf -v d /`, `read d
     <<< /`, `d=/ eval 'rg foo "$d"'` and `d=$(echo /)` before `rg foo "$d"` passes, and both shells walk
-    the root: the prep reads only a plain `name=value`, with its value as written; of `eval`, only a
-    prefix assignment or a builtin it runs passes, since r10 decision 1 reads `eval d=/` as a nested
-    script; modeling the builtins is a follow-up, `R10_KNOWN_OPEN`), and a parameter form other than
+    the root: the prep reads only a plain `name=value`, with its value as written; of `eval`, a prefix
+    assignment, a builtin it runs, or a `+=` or substitution value it assigns passes, since r10 decision
+    1 reads `eval d=/` as a nested script: `eval 'd=$(echo /)'`, ``eval 'd=`echo /`'`` and `d=; eval
+    'd+=/'` pass too, and both shells walk the root, `R11_KNOWN_OPEN`; modeling the builtins is a
+    follow-up, `R10_KNOWN_OPEN`), and a parameter form other than
     `$NAME` and `${NAME}`
     (`${SUBFLEET_ROOT:-~/.subfleet}`, `${HOME%/}/.subfleet`); snapshot-5 tracks assignments and
     expands these forms.
@@ -336,7 +357,21 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     P3-1 and P3-2, r10 decisions 1 and 2). r9 dropped such a value, so it let through `bash -c 'for d
     in src; do :; done; d=/; rg foo "$d"'` and `f() { d=/; }; for d in src; do :; done; f; rg foo
     "$d"`, both of which the shells walk. The value now joins the loop's words.
+  - *Fixed at this head:* a loop in an inner scope over an earlier root loop's name, and a function
+    body's value before a piped `while read` loop (review r10's P3-4 and P3-1, r11 decisions 3 and 2).
+    r10 replaced the loop's words there, so it let through `for d in ~/.subfleet/*; do :; done; (for d
+    in src; do :; done); rg foo "$d"` and `f() { d=/; }; echo src | while read d; do :; done; f; rg foo
+    "$d"`, both of which the shells walk. The words now join.
 - **Forms both let through, or not checked against snapshot-5.**
+  - A loop variable searched in a function body written before its loop (review r10's P3-5, r11
+    decision 4): `f() { rg foo "$d"; }; for d in ~/.subfleet/*; do f; done` and `f() { rg foo "$d"; };
+    for d in src; do :; done; d=/; f` pass, and both shells walk the root. The prep reads in textual
+    order, so it reads the search before the loop or the value; modeling it needs a second reading of
+    a command that defines a function, a follow-up (`R11_KNOWN_OPEN`).
+  - A loop a pipe or `&` runs in a subshell, over an earlier root loop's name (found in r11): `for d in
+    ~/.subfleet/*; do :; done; for d in src; do :; done | cat; rg foo "$d"`, and the same with `& wait`
+    for `| cat`, pass, and both shells walk the root. The loop sits at the top of the command, where its
+    reading replaces the words (`R11_KNOWN_OPEN`).
   - Loop shapes other than a `for` list or a piped `while read` whose variable is a searcher's whole
     operand: `while read d; do …; done < list`, `until`, `select`, a loop variable in a nested
     script, `for d in $(…)` (the prep splits the word at its `(`), and `xargs -a <(…)` or a `>(…)`;
@@ -410,7 +445,12 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     a file of prose with its quotations or a JSON document), or whose `$(…)`,
     `$((…))`, `((…))`, `<(…)` and heredoc forms take the prep past its 20,000-step budget (r6). Since
     r7 decision 2 each heredoc body line read is a step: a body inside `"$(…)"` is read three times, so
-    6,661 lines are past the budget, and one at the top of the command once, so 20,000 lines are.
+    6,661 lines are past the budget, and one at the top of the command once, so 20,000 lines are. Since
+    r11 decision 1 each word a searcher's operand is read as through a loop variable is a step, and so
+    is each 16 bytes of them, so a `bash <<'EOF2'` script with `for d in src; do :; done` and 162 lines
+    of `d=src/mN; rg -n foo "$d"` is too complex to judge, though no shell walks a root (each value
+    joins the loop's words in a nested script, so each search reads all of them; 161 lines are read;
+    `R11_STRICTER`).
   - A component bash can match against `..` is read as its parent in zsh's reading too, and a word
     with more than three such components is denied unread.
   - A pipe into a shell given no script reads every earlier stage's words as its script, also for a
@@ -450,12 +490,23 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     that loop, so beside the never-run assignment a function body never called is denied, `f() { d=/; };
     for d in src; do :; done; rg foo "$d"`, and so is a root the loop replaces, `f() { :; }; if true;
     then d=/; fi; for d in src; do :; done; rg foo "$d"`; neither shell walks a root on either
-    (`R10_STRICTER`).
+    (`R10_STRICTER`). Since r11 decision 2 that holds for a piped `while read` loop too, so `f() { d=/;
+    }; echo src | while read d; do f; done; rg foo "$d"` is denied, though bash runs the loop in a
+    subshell and zsh's `read` replaces the value at the end of its input. Since r11 decision 3 a loop read
+    where the reset would not apply, and every `read`, joins the words an earlier loop over its name
+    left, so a search in an inner scope that reuses a root loop's name is denied, though it searches only
+    the inner loop's words: `for d in ~/.subfleet/*; do echo "$d"; done; ls src | while read d; do rg
+    foo "$d"; done`, and the same with the inner loop in a `bash -c` script, a subshell, a `$(…)`, a
+    quoted `$(…)`, a function body or a `<(…)` (review r10 counted five such; r11's probes found
+    seven). So is a search after a loop the shells run in place where the prep reads it as joining:
+    inside an `if` or a brace group, after `!` or `time`, nested in another loop, or in a command that
+    defines a function (`for d in ~/.subfleet/*; do :; done; if true; then for d in src; do :; done; fi;
+    rg foo "$d"`). Neither shell walks a root on any (`R11_STRICTER`).
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `c42f05ef3b4513ec4972192e5bceeaf298df7fc523db532c6057fb7819fd865f` |
-| `TRUST` | `54cdded824d93bc34b1d33f115ac43c2206eb10c3c3c7bb79ff2b98985d20432` |
+| `never-rules-hook.sh` | `7bba4822e4e850e97ef851b1d29d8024d601ebf64610224401bf89a93b7be102` |
+| `TRUST` | `4e270e5b7b1f65dc16f7afbf67fb5fa71085f007c70d11896a47c617ebce14f8` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one

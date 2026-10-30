@@ -175,8 +175,8 @@ R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7
 R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
 #: The overlay's hook after r3c (review r2's walk-arounds closed), which r4 replaces.
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
-#: The overlay's hook after r10 (review r9's findings closed; 9eb0db09... at r9's end): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "c42f05ef3b4513ec4972192e5bceeaf298df7fc523db532c6057fb7819fd865f"
+#: The overlay's hook after r11 (review r10's findings closed; c42f05ef... at r10's end): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "7bba4822e4e850e97ef851b1d29d8024d601ebf64610224401bf89a93b7be102"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -6436,3 +6436,23 @@ def test_r11_command_pins_agree_with_real_shells(tmp_path):
     assert [c for c, _, _, s in rows if c in R11_READ_FUNCTION_DENIED + R11_INNER_DENIED[:6]
             and not all(s.values())] == []
 
+
+#: Review r10's P3-3, item 1: the doc's corrected eval sentence, and the one it replaces.
+R11_EVAL_TEXT = ("of `eval`, a prefix assignment, a builtin it runs, or a `+=` or substitution value it assigns passes, "
+                 "since r10 decision 1 reads `eval d=/` as a nested script")
+R10_EVAL_TEXT = "of `eval`, only a prefix assignment or a builtin it runs passes"
+
+
+def test_r11_known_differences_name_the_over_blocks_and_what_is_let_through():
+    """Decisions 1-4 and review r10's P3-3: each r11 stricter form is denied and each open form allowed (the shells'
+    side is test_r11_command_pins_agree_with_real_shells), and the overlay doc's "Known differences" names each; the
+    eval sentence is review r10's corrected one."""
+    known = known_differences()
+    outs = judged(HOOK, list(R11_STRICTER) + list(R11_KNOWN_OPEN), S_)
+    for command, named in R11_STRICTER.items():
+        assert rule(outs[command]) == "unscoped-search", command[:120]
+        assert named in known, named
+    for command, named in R11_KNOWN_OPEN.items():
+        assert rule(outs[command]) is None, command
+        assert named in known, named
+    assert R11_EVAL_TEXT in known and R10_EVAL_TEXT not in known
