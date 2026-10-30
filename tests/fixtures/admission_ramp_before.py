@@ -207,7 +207,9 @@ def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detac
             if stuck:
                 self._stuck_pin(job, stuck, holds)
                 continue
-            job = self._unstuck_pin(job)
+            job = self._unstuck_pin(job, holds)
+            if job is None:
+                continue
         due = not (job["next_check_at"] and job["next_check_at"] > utcnow())
         if (job["kind"] != "turn" and job["wait_reason"] not in ("approval", "uncertain")
                 and (due or job["wait_reason"] != "workspace")):
