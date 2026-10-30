@@ -2194,13 +2194,16 @@ pw_prep_awk="$pw_lib_awk"'
   # 9): the roots of find (. when it names none), any other command its words
   function proots(b, fw, prod) { return (b == "find") ? ((fw == "") ? "." : fw) : prod }
   # execs(tk, val, ex, t, nt, roots, ctx, depth): each command the find at t runs (ex 2) judged as its own lines,
-  # {} as roots (a {} inside a word as the first root); 1 when there was one (r5 decision 3).
+  # {} as roots (a {} inside a word as the first root); 1 when there was one (r5 decision 3). r12 decision 1: each
+  # word a {} stands for costs a step of the shared budget (pst), and so does each 16 bytes of them, as for a loop
+  # variable, so a {} standing for more than the budget holds makes the command too complex to judge
   function execs(tk, val, ex, t, nt, roots, ctx, depth,   k, cmd, q, x, any) {
     cmd = ""; x = roots; sub(/ .*/, "", x); x = value(x); gsub(/&/, "\\\\&", x)
     for (k = t + 1; k <= nt + 1; k++) {
       if (k <= nt && ex[k] == 2) {
         q = tk[k]
         if (val[k] == "{}") q = roots; else if (index(q, "{}")) gsub(/\{\}/, x, q)
+        if (q != tk[k] && (cplx || (pst += gsub(/[^[:space:]]+/, "&", q) + int(length(q) / 16)) > 20000)) { cplx = 1; return any }
         cmd = cmd (cmd == "" ? "" : " ") q; any = 1; continue
       }
       if (cmd != "") { script(cmd, ctx, depth); cmd = "" }
@@ -2438,8 +2441,9 @@ if pw_named "$command"; then
   pw_cmd=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' -v mode=prep "$pw_prep_awk" 2>/dev/null) || pw_cmd=""
   # r6 decisions 4, 5 and 9: a command whose $(...), $((...)), ((...)), <(...) and heredoc forms take the prep past
   # its step budget (parend, shared) is too complex to judge; the prep stops there and ends with \003C\003. r11
-  # decision 1: so is one whose loop variables stand for more than the budget holds, and the message names them
-  case "$pw_cmd" in *$'\003C\003') block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more nested \$(...), \$((...)), <(...) and heredoc forms, or loop variables standing for more text, than the guard reads, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth." ;; esac
+  # decision 1: so is one whose loop variables stand for more than the budget holds, and the message names them;
+  # r12 decision 1: and one whose find -exec {} does, named too
+  case "$pw_cmd" in *$'\003C\003') block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more nested \$(...), \$((...)), <(...) and heredoc forms, or loop variables standing for more text, or find's {} standing for more paths, than the guard reads, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth." ;; esac
   [ -n "$pw_cmd" ] || pw_cmd=$command
   # r6 decision 2: the xargs rule below also judges xargs running a shell whose -c script names a searcher
   case "$pw_cmd" in *$'\n\003X\003'*) pw_xsh=1 ;; esac
