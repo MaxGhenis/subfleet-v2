@@ -278,8 +278,7 @@ def test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution(stat
 
 @pytest.mark.parametrize("pointer", ["gitfile-leading", "gitfile-trailing", "commondir-trailing"])
 @pytest.mark.parametrize("state", [
-    pytest.param("running", marks=pytest.mark.xfail(
-        strict=True, reason="R5-F1: stripping pointer path whitespace omits Git's actual storage"), id="live"),
+    pytest.param("running", id="live"),
     pytest.param("succeeded", id="exporting-control"),
 ])
 def test_pointer_path_whitespace_keeps_the_storage_git_reads(world, monkeypatch, pointer, state):
