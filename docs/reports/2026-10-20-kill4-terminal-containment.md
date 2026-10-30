@@ -711,3 +711,253 @@ E3 ran at `cdfbbf5bc` with `f568ff61b`'s one-line change in the tree, before it 
 - **Scratch checks under the lock:** the marker-ignored mutant against round 2b's property (04:26Z); invariant 6 on the real code, first form failing and final form passing, and the mutant against it (04:32 to 04:39Z); the property at 400 random examples (05:56Z, passed in 174 s).
 
 **Not run here:** the rest of `tests/unit`, `tests/fake`, `tests/process` and `tests/e2e`, which CI runs. The harness change reaches every fake test; the 15 fake files above passed with it. `tests/frontend/test_core_live.py` cannot run on a lane.
+
+## Follow-up to review r3 of #250 (P3-1 to P3-3, and check 5's start-bound record)
+
+Review r3 approved #250 at `966262ed7` with three P3s; #250 merged into `release/217` at `c9430763f`. This follow-up builds the hub's four decisions on that head (branch `fix/kill4-p3-217`).
+
+### Decisions as built
+
+1. **P3-1: an unverifiable census with no attributable member runs no protocol on `kill`** (`Daemon._may_signal`). A census with a member `_signal_reasons` allows still runs it, verifiable or not. A verifiable census keeps the rest of fix round 2b's rule. An unverifiable one now runs the protocol only when a verifiable read could attribute a member. That is a walk or responsibility member, minus held parents, `_never_signalled` pids and tainted members, or a census with no member at all, as when the listing failed. A member only a leaderless group at the recorded pgid names never qualifies.
+   - **Taint:** the decision named walk and responsibility members as the ones a verifiable read could attribute. A tainted one (first recorded by an unverifiable census, or below one) is attributed by no census, verifiable or not (C-5.4). So it does not qualify either; otherwise the same repeat would continue for such a member.
+   - **An unreadable identity:** a walk or responsibility member whose identity this census could not read still qualifies, unless a tainted census parent taints it: `_tainted` matches a member's own record by its identity, but follows parent links without one. A marked or parent-chain member, or a group member under a verified leader, whose identity this census could not read did not qualify as built here, which review r1 of #276 found (P2-1); it qualifies since fix round r1 (below), and an owned member since fix round r2. A member only a leaderless group at the recorded pgid names never qualifies, read or not.
+   - **Case 3's world** (a stranger's leaderless group at pgid 4242, with a legacy attempt boot or an unreadable current boot) now answers `already finished … held, never signalled` to every `kill` of review r2's sequence. Nothing is scheduled, signalled or appended.
+   - **What remains:** an unverifiable census that will never verify (a legacy attempt boot with that group) and also has an untainted walk member still runs the protocol on every `kill`. The rule allows it, and nothing wrong is signalled.
+2. **P3-2: C-5.6 names every immediate KILL of a starting attempt.** It now says that a `starting` attempt whose last read finds no `start.json` has its group KILLed at once with no TERM: at an expired start grace, and at a cancel or a wall stop while it is starting (`_kill_attempt` → `_abandon_start` → `_kill_protocol(…, unlaunched=True)`, whose first group signal is `SIGKILL if unlaunched else SIGTERM`). "Need none" is limited to the `reserved` path; a starting attempt's `cancelled-before-launch` follows the protocol. No code changed.
+3. **P3-3: the extension property sees the exact bound.** `test_extension_is_granted_exactly_while_every_condition_holds_and_never_past_the_bound` runs on a fake clock, with `@example`s at `START_GRACE_MAX_S` − 1e-6, exactly at it and + 1e-6. It asserts the expected answer for every draw: the 0.05 s band it used to skip is gone, as the clock's own reading decides. Under the ci profile, `>` for `>=` fails the at-the-bound example. A bound counted from the deadline (70 s) fails the just-past one, and the random draws between 60 and 70 s.
+4. **Check 5: `attempt.start_landed`, the bound's production record** (`Daemon._start_landed`).
+   - **When:** the first read that finds the `start.json` of an attempt with an `attempt.start_extended` event records it, once. That read can be the pass's first read, the read after start grace's census, or the abandon's last read (`_abandon_start`): past the bound, or at a cancel, a wall stop or a failed condition.
+   - **What it holds:** `seconds` from the deadline's start to that read; `deadline_start`, `launch` or `restart`; and the grace and bound in force. `restart` means a restarted daemon's first look: the deadline lives in daemon memory, so `_starting_first_look` keeps the attempts whose deadline began there, and a `start.json` already there at that look reads 0 s.
+   - **Not recorded:** the daemon keeps no count of extensions, so the event has none. An attempt never extended records nothing.
+   - **No behaviour change:** nothing reads the record. The `daemon-reads-first` mutant is retargeted at `_abandon_start`'s new body, with the same reordering.
+
+### Red runs
+
+At `c9430763f`'s code with the red tests (`72e5436d4`), one hold at 05:40Z: 13 failed, 8 passed.
+- **P3-1:** all three of case 3's variants and both of the new sequence's answered `containment requested`, and so did the tainted walk member's test. Both controls (listing failed, an untainted walk member) passed, as they should.
+- **P3-3:** both mutants survived the committed property and were detected by the new one; the new property passes on the real code.
+- **Check 5:** the five landing tests failed (no event); the two "records nothing" tests passed, as they should.
+
+### Mutants
+
+Strict xfail (`tests/unit/test_kill4_p3_mutations.py`); all detected in hold U1a.
+
+| Mutant | The change | Named test |
+|---|---|---|
+| p3-1-unverifiable-always | every unverifiable census runs the protocol again (review r3's input) | `test_case_3_kill_force_release_kill_kill_on_an_unverifiable_census_runs_no_protocol[legacy-attempt-boot]` |
+| p3-1-taint-ignored | a tainted walk member qualifies | `test_an_unverifiable_census_whose_walk_members_are_tainted_runs_no_protocol` |
+| p3-2-starting-stop-terms-first | a cancel or wall stop while starting TERMs first | `test_every_ending_of_a_starting_attempt_writes_the_abandon_before_any_signal_or_end[cancel]` and `[wall]` |
+| p3-3-extend-at-the-bound | `>` for `>=` | the extension property (the at-the-bound example) |
+| p3-3-bound-from-the-deadline | the bound counted from the deadline (+10 s) | the extension property (the just-past example) |
+| check-5-landed-unextended | a landing recorded without an extension | `test_a_start_that_lands_within_start_grace_records_nothing` |
+
+### Holds
+
+One pytest per hold under the suite lock, at `f224c5e90`'s code, from this worktree; load1 was 44 to 170.
+
+| Hold (UTC) | Files | Result |
+|---|---|---|
+| U1a (06:51) | `test_kill4_boot_scope` 51, `test_quar_start1_landed` 7; `test_kill4_boot_scope_mutations` 4 xfailed, `test_kill4_p3_mutations` 7 xfailed | 58 passed, 11 xfailed |
+| G (07:01) | `tests/fake/test_state_contract.py` 37, `test_test_module_names` 1, `test_invariants_index` 25 | 63 passed |
+| U1b (07:12) | `test_kill4_fix2b` 21, `test_kill4_review_r3` 12, `test_kill4_properties` 1; `test_kill4_fix2b_mutations` 8 xfailed, `test_kill4_review_r3` 1 xfailed | 34 passed, 9 xfailed |
+| P1 (07:31) | `tests/process/test_quar_start1_process.py` 4 passed and 2 xfailed (both handshake order mutants, `daemon-reads-first` retargeted), `test_kill4_fix1_process` 3, `test_census_parent_chain_process` 3 | 10 passed, 2 xfailed, in 632 s at load 99 to 138 |
+
+Two earlier holds found two faults of this round, both fixed in `b4fe073dd`: cores built without `__init__` had no `_starting_first_look`, and the tests' `landed()` counted `add_event`'s bare audit row.
+
+**Not run here,** because the lock queue at load 120 to 200 used the round's time:
+- the rest of review r3's U1: `test_kill4_terminal_containment`, `test_kill4_fix1`, `test_kill4_mutations` and `test_kill4_fix1_mutations`. Their `kill` tests assert that nothing is signalled, or that a signallable member is contained, and decision 1 only removes protocol runs;
+- review r3's F1, U2 and F2;
+- `tests/frontend/test_core_live.py`, which cannot run on a lane.
+
+CI runs them.
+
+### Fix round r1 (review r1 of #276)
+
+Review r1 asked for changes at `66274272e`: one P2 and six P3s. Its own commits (`6fa46225b`, `3208ee4dd`) closed the test gaps P3-1 to P3-3. This round builds the hub's decisions on `3208ee4dd`.
+
+1. **P2-1: `_may_signal` counts an attributable member whose identity the census could not read.**
+   - **The gap:** `_signal_reasons` skips a member with no captured identity, and P3-1's fallback counted only walk and responsibility members. A finished job whose escaped, marked runner had no start in the kill's first process table answered `already finished` and left the runner running. The rule before P3-1 ran the protocol, whose next census read the runner and TERMed it.
+   - **The fix, review r1's:** in an unverifiable census, the unread members are the marked ones, the parent-chain ones, and the group's when this census verified its leader, minus the identities the census captured. Any of them that is neither a held parent nor `_never_signalled` runs the protocol.
+   - **Not built:** the broader `live_pids` minus the identities. It counts a leaderless group's member with no identity; in review r1's run it sent both case 3 `[unreadable-current-boot]` tests back to `containment requested`, the loop P3-1 removed.
+   - **No new signal path:** `_may_signal` only decides whether `kill` schedules `_recontain` and how `--confirm-dead` words its answer (`daemon.py:4581`, `:4601`). It names no target, so the protocol keeps its targets: the group after its leader's identity check, or a member `_signal_reasons` names (review r1, check 1). Case 3's sequences (`[legacy-attempt-boot]`, `[unreadable-current-boot]`) and the tainted-walk test still answer `already finished` four times and signal nothing (`world.tried` is empty).
+   - **`--confirm-dead`:** on the runner's shape it now says "`subfleet kill <job>` contains them", and the `kill` that follows TERMs the runner.
+   - **Tests** (`tests/unit/test_pr276_review_r1.py`): review r1's two strict xfails are plain cases. Constructed censuses pin each term: a parent-chain member and a verified group's member with no identity run the protocol; a leaderless group's member with no identity, and a never-signalled marked member with none, do not. A test runs `--confirm-dead` and then `kill` on the runner's shape.
+2. **Review r1's observation on `_terminal_census`, left as it is:** it returns the attempt row it read before its census, so a member that same census first records as unverified is not yet tainted for `_may_signal`, and that one `kill` can run a protocol that signals nothing, a known gap that errs only toward running. `--confirm-dead`, worded from the same row, then says `subfleet kill <job>` contains them, and the `kill` that follows runs no protocol.
+3. **Text:**
+   - C-5.7's "a verifiable read could attribute" now also names a marked or parent-chain member, or a member of the recorded group under a verified leader, whose identity the census could not read.
+   - "Changes in version 3" has one entry for C-4.2, C-5.6 and C-5.7 (review r3 of #250's P3-1, P3-2 and check 5), with P2-1's correction (P3-4).
+   - In this follow-up's decisions above, the unreadable-identity bullet now says which members qualify, and the abandon's last read is past the bound, or at a cancel, a wall stop or a failed condition (P3-5).
+4. **Review r1's unrun mutant:** `_start_landed` without its once-only check, now a strict-xfail control. Both recorded-once landings detect it: the read after start grace's census and the next pass's first read record 20.0 s and 21.0 s, and the abandon's last read, run twice, records 61.0 s twice.
+
+#### Red and green
+
+- **Red** at `3208ee4dd` (an archive of it with this round's venv, which imports the archive's `subfleet`): `test_pr276_review_r1.py` 7 passed, 7 xfailed. Both P2-1 cases xfailed strictly: the marked-runner test's `[p3-1]` and the constructed `[unidentified-marker-member]`.
+- **Green** at `e92324032`, with the marks removed: 14 passed, 7 xfailed.
+  - Its first run, at `520ad91f1`, failed one case this round added: the `--confirm-dead` test read `world.tried`, which only the boot-scope world has, after its answer checks had passed. `e92324032` fixes it.
+  - At `6d5438f36`, with the once-only control: 14 passed, 9 xfailed.
+
+#### Holds
+
+All ran under the suite lock, one pytest per hold, with no xdist. Times are UTC; load is the 1-minute average at admission and at the end.
+
+| Hold | Admitted (load) → end (load) | Per file |
+|---|---|---|
+| Red | 23:58:44, slot A (33) → 23:58:57 (33) | `pr276_review_r1` 7 + 7 xfailed, at `3208ee4dd` |
+| Green | 00:03:16, slot B → 00:03:54 (44) | `pr276_review_r1` 14 + 7 xfailed |
+| C1 | 00:04:25, slot B (52) → 00:07:16 (44) | `boot_scope` 51, `terminal_containment` 17, `fix1` 21, `fix2b` 21, `properties` 1 |
+| C2 | 00:11:01, slot B (21) → 00:13:03 (26) | `review_r3` 12 + 1 xfailed, `quar_start1_census` 21 + 17 xfailed, `quar_start1_landed` 16; xfailed: `fix2b_mutations` 8, `p3_mutations` 7 |
+| F1 | 00:13:31, slot B (32) → 00:15:53 (30) | `kill4_terminal_daemon` 6 passed, 1 failed |
+| F2 | 00:16:58, slot B (37) → 00:18:44 (24) | F1's failure, rerun: passed; `fake_daemon_parent_watch` 5 |
+| G | 00:23:37, slot A (27) → 00:26:17 (57) | `state_contract` 37, `test_module_names` 1, `invariants_index` 25 |
+| Green 2 | 00:28:30, slot B (23) → 00:29:37 (42) | `pr276_review_r1` 14 + 9 xfailed, at `6d5438f36` |
+| M | 00:30:17, slot A (54) → 00:31:21 (55) | the 16 mutant controls of `pr276_review_r1` and `p3_mutations` run with `--runxfail`: each failed at its named assertion |
+
+- **F1's failure:** `test_a_counted_loop_driver_is_contained_with_its_children[exit-receipt]` failed its evidence assertion: the driver's pid was not in `counted_identities`. The kept root has it in `owned_identities`: an inspection recorded it while it was still in the guardian's group, and none counted it. The kill protocol still signalled it, and the one counted pid, with `contained: True`. It is the shape of the merge round's `[walled]` failure, on the other ending. The test runs no `kill`, so `_may_signal` is not on its path, and it passed on the rerun at load 37.
+- **`[stopped]` and `[stopped-short-delay]`** passed in F1 at load 32 to 30. Review r1 found `[stopped]` failing at release too, at load 20 to 26, on the 2 s setsid wait (`tests/fake/test_kill4_terminal_daemon.py:194`). That wait is not this PR's to change, and this round loosened no bound.
+
+#### Mutants
+
+| Mutant | Killing test | Result |
+|---|---|---|
+| p3-1-unverifiable-always (round 3) | case 3's sequence, `[legacy-attempt-boot]` | detected |
+| p3-1-taint-ignored (round 3) | the tainted-walk test | detected |
+| `_kill_attempt`'s handshake inlined, no landing record (review r1) | the last-read landing at the bound, `[guardian-only]`: no record | detected |
+| p3-1-responsibility-dropped (review r1) | `[responsibility-member]` | detected |
+| p3-1-never-ignored (review r1) | `[never-signalled-walk-member]` | detected |
+| `>` for `>=` against D4's property (review r1's P3-3) | D4's extension property, at the bound | detected |
+| p2-1-chain-dropped (new) | `[unidentified-chain-member]` | detected |
+| p2-1-group-unchecked (new) | `[unidentified-leaderless-group-member]` | detected |
+| start-landed-not-once (review r1's unrun one) | the landing `[after-the-census]` and the abandon's last read `[stranger-unread]` | detected by both |
+
+C2 or Green 2 detected each as a strict xfail, and M showed each failing at its named assertion.
+
+**Not run here:** `tests/frontend/test_core_live.py`, which cannot run on a lane; `tests/process`, which this round's brief did not list; and the rest of the suite, which CI runs.
+
+### Fix round r2 (review r2 of #276)
+
+Review r2 asked for changes at `4dd6165a4`: one P2 and two P3s. Its own commits (`bce4d2d2c`, `a310992c5`) added `tests/unit/test_pr276_review_r2.py`, with two strict xfails for the P2. This round builds the hub's decisions on `a310992c5`.
+
+1. **P2-1: `_may_signal`'s unread set counts owned members.**
+   - **The gap:** C-5.4 lets four sources attribute a member in any census: a marker, the parent chain, the recorded group under a verified leader, and an owned identity. Fix round r1's unread set named the first three. `_signal_reasons` reads an owned record before taint and before unverifiability. An owned member with no identity in an unverifiable census reached `_may_signal` only through the walk term, which drops it when a tainted census parent taints it by its link. A finished job with such a member answered `already finished` and left it running.
+   - **The fix, review r2's:** every live pid whose `owned_identities` record is not on another boot than the attempt's joins the unread set when this census could not read its identity. The filter is `_signal_reasons`'s own (`Daemon._attempt_boot`, `procs.boot_identity.differ`). `_may_signal` still names no target, so this adds protocol runs only.
+   - **Tests:** review r2's two strict xfails are plain cases. A third constructed case pins the boot filter: an owned record of another boot attributes nothing in any read, and the unread set does not count it.
+2. **Mutants:** the owned term dropped fails the constructed case `[below-a-tainted-parent]` and the owned member's kill. Owned records counted whatever their boot fail `[owned-on-another-boot]`. Review r2's scratch mutant, never-signalled pids kept in the unread set, is now a control against `[unidentified-never-signalled-marker-member]`.
+3. **D-KILL4-EVIDENCE1:** `test_a_counted_loop_driver_is_contained_with_its_children` accepts the driver's identity from `owned_identities` or `counted_identities`, and checks its start. The fake adapter's shell provider backgrounds `fakeprov --driver` in the guardian's group, and the driver stays there until its `os.setsid()` (`tests/bin/fakeprov:148`). An inspection in that window rightly records it as owned, and `_record_owned` never counts an owned identity again. The protocol still signalled and contained the driver in each recorded failure (`[walled]` in the merge round, `[exit-receipt]` in fix round r1 and review r2).
+4. **Text:** C-5.7 and the "Changes in version 3" entry name the owned member. This report's unreadable-identity bullet says when taint drops a member with no identity, and the `_terminal_census` item names `--confirm-dead`'s wording.
+5. **The unread rule's soundness, a property** (`test_pr276_review_r2.py`). Over constructed unverifiable censuses, whenever the verifiable read of the same members gives `_signal_reasons` a target, `_may_signal` returns True: `kill` never skips the protocol only because the census could not read a member's identity. The censuses have up to four members, any mix of the five sources, parent links and unread identities. Their owned and unverified records name the process there now, an earlier one at that pid, or (owned only) another boot. Dropping the chain, verified-group or owned term fails it. Without the explicit examples, random search finds the chain and verified-group mutants at every seed review r3 tried, but the owned one at 17 of 30 fixed seeds and not at the stripped test's own seed; the `[below-a-tainted-parent]` example pins it.
+   - **The converse is no property:** a walk member with no identity counts, though its read may show it tainted by its own record. That errs toward running only.
+   - **The probe's shrunk counterexample for the owned term:** an owned member that only the leaderless group names, with no identity. No real census has that shape: `procs.containment` seeds its walk with every recorded identity it has not proven recycled, so a live process its owned record names is always a walk member, and only taint drops it from the walk term, as review r2 found. A pid the census proves recycled is not, and this round's owned term still counted it with no identity (review r3's P3-1; fix round r3 leaves it out).
+6. **Left for a follow-up:** review r2's observation that `_contain`'s `fresh` checks only `responsible_identities`. `_contain` is unchanged.
+
+#### Red and green
+
+- **Red** at `a310992c5`, with `--runxfail`: `test_pr276_review_r2.py` 6 passed, 3 failed. The failures were the two P2-1 cases (`already finished` for the owned member's kill; `_may_signal` False on the constructed census below a tainted parent), and the verified-group mutant control, which `--runxfail` fails by design.
+- **Green** at `a11729342`, with the marks removed: 9 passed, 1 xfailed.
+
+#### Holds
+
+All ran under the suite lock, one pytest per hold, with no xdist. Times are UTC; load is the 1-minute average at admission and at the end.
+
+| Hold | Admitted (load) → end (load) | Per file |
+|---|---|---|
+| Red | 03:43:00 (12) → 03:43:04 (12) | `pr276_review_r2` with `--runxfail`: 6 passed, 3 failed, at `a310992c5` |
+| Green | 03:48:41 (8) → 03:48:47 (8) | `pr276_review_r2` 9 + 1 xfailed, at `a11729342` |
+| H1 | 04:01:44, slot B (21) → 04:03:01 (22) | `pr276_review_r1` 14 + 9 xfailed, `pr276_review_r2` 9 + 5 xfailed, `quar_start1_landed` 16, `quar_start1_census` 21 + 17 xfailed, `review_r3` 12 + 1 xfailed, `p3_mutations` 7 xfailed |
+| U1 | 04:03:59, slot B (24) → 04:06:42 (18) | `terminal_containment` 17, `fix1` 21, `fix2b` 21, `boot_scope` 51, `properties` 1; xfailed: `kill4_mutations` 8, `fix1_mutations` 6, `fix2b_mutations` 8, `boot_scope_mutations` 4 |
+| F1a, F1a again | 04:07:51, slot B (13) → 04:09:03 (8); 04:09:48, slot B (7) → 04:11:05 (7) | `kill4_terminal_daemon` 7, then 7 |
+| F1b to F1e | 04:12:10 to 04:14:02, slot B (9 to 18) | `quar_start1_daemon` 2, `fake_daemon_parent_watch` 5, `census_cwd_outcome` 6, `census_boot_seeds_daemon` 5 |
+| P1 | 04:14:14, slot B (16) → 04:15:12 (12) | `kill4_fix1_process` 3, `quar_start1_process` 4 + 2 xfailed |
+| M | 04:16:32, slot B (10) → 04:17:07 (15) | the 21 mutant controls of `pr276_review_r1`, `pr276_review_r2` and `p3_mutations` with `--runxfail`: each failed at its named assertion |
+| Property | 04:19:54, slot B (21) → 04:20:17 (18) | `pr276_review_r2` 10 + 8 xfailed, and its 3 new controls with `--runxfail` at 04:20:30: each failed at the property's assertion |
+| G | 04:23:05, slot B (20) → 04:23:57 (11) | `state_contract` 37, `test_module_names` 1, `invariants_index` 25; `pr276_review_r2` 10 + 8 xfailed, at `255d99f53` |
+
+- **`kill4_terminal_daemon`** passed both runs at load 7 to 13. At that load the window before the driver's `setsid` is short, so these runs cannot show which record held the driver; the assertion now accepts either, and the protocol's own assertions are unchanged.
+
+#### Mutants
+
+| Mutant | Killing test | Result |
+|---|---|---|
+| p3-1-unverifiable-always (round 3) | case 3's sequence, `[legacy-attempt-boot]` (`test_kill4_boot_scope.py:276`) | detected |
+| p3-1-taint-ignored (round 3) | the tainted-walk test (`test_kill4_boot_scope.py:344`) | detected |
+| `_kill_attempt`'s handshake inlined (review r1) | the last-read landing, `[guardian-only]` (`test_pr276_review_r1.py:240`) | detected |
+| p3-1-responsibility-dropped (review r1) | `[responsibility-member]` (`test_pr276_review_r1.py:187`) | detected |
+| p3-1-never-ignored (review r1) | `[never-signalled-walk-member]` (`:187`) | detected |
+| `>` for `>=` against D4's property (review r1's P3-3) | D4's extension property (`test_quar_start1_census.py:253`) | detected |
+| p2-1-chain-dropped (fix round r1) | `[unidentified-chain-member]` (`test_pr276_review_r1.py:187`); the soundness property | detected by both |
+| p2-1-group-unchecked (fix round r1) | `[unidentified-leaderless-group-member]` (`:187`) | detected |
+| start-landed-not-once (review r1) | the landing `[after-the-census]` (`test_quar_start1_landed.py:102`) and the abandon's last read (`:255`) | detected by both |
+| p2-1-group-dropped (review r2) | `[unidentified-verified-group-member]` (`test_pr276_review_r1.py:187`); the soundness property | detected by both |
+| p2-1-never-kept (review r2's scratch mutant, now a control) | `[unidentified-never-signalled-marker-member]` (`:187`) | detected |
+| p2-1-owned-dropped (this round) | the constructed `[below-a-tainted-parent]` (`test_pr276_review_r2.py:175`); the owned member's kill (`:140`); the soundness property | detected by all three |
+| p2-1-owned-boot-unchecked (this round) | the constructed `[owned-on-another-boot]` (`test_pr276_review_r2.py:175`) | detected |
+
+H1, the property hold and the final G hold ran each control as a strict xfail, and M and the property hold's `--runxfail` run showed each failing at its named assertion.
+
+**Not run here:** `tests/frontend/test_core_live.py`, which cannot run on a lane, and the rest of the suite, which CI runs.
+
+### Fix round r3 (review r3 of #276)
+
+Review r3 approved `0eec8c92f` with four P3s, and found a P2 in release/217's `procs._parent_chain` that predates this PR. Its own commits (`73a816cb6`, `f7524e3fd`) added `tests/unit/test_pr276_review_r3.py`, with one strict xfail for P3-1 and `documented_limitation` tests for the P2. The hub merged `release/217` at `bc108d3ad` (#239) in `90b3c5029`, and this round builds the hub's decisions on it.
+
+1. **P3-1: the owned term leaves out the census's proven-recycled pids.**
+   - **The gap:** a stranger's member of a leaderless group at the recorded pgid holds a pid an inspection once recorded as owned for an earlier process, and the current boot cannot be read (case 3's `[unreadable-current-boot]`). The census puts the pid in `recycled` (its start differs from the owned record's) but cannot read its identity. Fix round r2's owned term counted it, so each `kill` of review r2's four-request sequence answered `containment requested` and ran a protocol that could signal nothing. Fix round r1's rule had answered `already finished`.
+   - **The fix, review r3's:** the owned term takes the owned pids whose record is not on another boot than the attempt's, minus `census.recycled`. `_may_signal` still names no target.
+   - **Why the subtraction is sound:** the owned source attributes only the process its record names, and a pid is in `Containment.recycled` only when the census proved the process there is not that one. `procs.containment` adds a pid there in three places:
+     - `is_recycled`: every recorded birth at the pid, the primary record and each alternative, differs from the table's process by its start, or by its boot after C-5.12's fresh read. A comparison it cannot decide keeps the pid out. `boot_identity.matches` never returns False for a recorded legacy seconds value.
+     - `exclude`: the attempt's boot UUID is over, by the same fresh read, so nothing alive now is of the attempt's boot.
+     - The recorded group's absent leader, whose recorded boot is provably not this one (`group of another boot`).
+   - **The owned record is always one of those births:** `_contain` passes every `owned_identities` record to the census. Each is the primary record at its pid, or an alternative where the guardian's own birth takes the pid. The census's attempt-boot filter drops only records on another boot than the attempt's, which `_may_signal` leaves out already, and `_signal_reasons` reads the same records (attempt rows have no `owned_identities` column, so both read `evidence_json`). A read at a recycled pid therefore captures another process than the owned record names. `_signal_reasons` attributes an owned member only when the read identity equals the record, so it never attributes that pid through the owned source. The marker, chain, verified-group and walk terms still count such a pid on their own, so the subtraction removes only protocol runs that no read could use.
+   - **Tests:** review r3's strict xfail is a plain case, and its census case also asserts that `_may_signal` skips the protocol on that census. The soundness property on the daemon's own census generates owned records of an earlier process at the same pid, which the census can prove recycled, and still passes.
+2. **Mutant:** the owned term keeping the recycled pids (`owned-recycled-kept`) fails both stranger cases: `_may_signal` on the census (`test_pr276_review_r3.py:170`) and the four-kill sequence (`:179`).
+3. **Text:** review r3's P3-4 lines, in its words: this report's fix round r2 section (the unread-set bullet, the property's random-search result, the shrunk counterexample's walk claim, and the mutant table's line numbers), `_may_signal`'s docstring, C-5.7 with P3-1's fix built, `test_kill4_boot_scope.py`'s tainted-walk docstring, and a sentence in the "Changes in version 3" entry.
+4. **Left for a follow-up:** review r3's P2 outside this PR. Release/217's parent-chain rule drops a recorded ancestor, or a held parent, when the table shows no start, and records no error. This round changes neither `procs.py` nor `_contain`, and review r3's `documented_limitation` tests record the gap.
+
+#### Red and green
+
+- **Red** at `90b3c5029`, with `--runxfail`: `test_pr276_review_r3.py` 22 passed, 6 failed. P3-1's case failed at its first assertion (each `kill` answered `containment requested`), and the other five were review r3's mutant controls, which `--runxfail` fails by design.
+- **Green** at `c44b3e07d`, with the mark removed: 23 passed, 5 xfailed.
+
+#### Holds
+
+All ran under the suite lock, one pytest per hold, with no xdist. Times are UTC; load is the 1-minute average at admission and at the end. The briefed globs match five `test_kill4_*mutations.py` files, and all five ran.
+
+| Hold | Admitted (load) → end (load) | Per file |
+|---|---|---|
+| Red | 10:50:52, slot B (20) → 10:51:24 (23) | `pr276_review_r3` with `--runxfail`: 22 passed, 6 failed, at `90b3c5029` |
+| Green | 11:12:26, slot B (44) → 11:13:12 (39) | `pr276_review_r3` 23 + 5 xfailed, at `c44b3e07d` |
+| R3M, M0 | 11:14:41, slot B (35) → 11:15:33 (31); 11:22:24, slot A (31) → 11:22:49 (25) | `pr276_review_r3` 23 + 7 xfailed with the new control; the control's two cases with `--runxfail` failed at `:170` and `:179` |
+| H1 | 11:46:39, slot B (11) → 11:48:27 (12) | `pr276_review_r1` 14 + 9 xfailed, `pr276_review_r2` 10 + 8 xfailed, `pr276_review_r3` 23 + 7 xfailed, `quar_start1_census` 21 + 17 xfailed, `quar_start1_landed` 16, `census_parent_chain` 14, `census_boot_seeds` 36, `p3_mutations` 7 xfailed |
+| U1 | 11:49:12, slot A (12) → 11:51:07 (25) | `boot_scope` 51, `terminal_containment` 17, `fix1` 21, `fix2b` 21; xfailed: `kill4_mutations` 8, `fix1_mutations` 6, `fix2b_mutations` 8, `boot_scope_mutations` 4 |
+| F1 | 11:51:26, slot A (27) → 11:53:07 (30) | `kill4_terminal_daemon` 7 |
+| P1 | 12:08:55, slot A (14) → 12:09:21 (17) | `kill4_fix1_process` 3 |
+| G | 12:10:17, slot B (22) → 12:11:22 (25) | `state_contract` 37, `test_module_names` 1, `invariants_index` 25 |
+| M | 12:19:12, slot B (19) → 12:20:03 (19) | the 26 mutant control cases of `p3_mutations`, `pr276_review_r1`, `pr276_review_r2` and `pr276_review_r3` with `--runxfail`: each failed at its named assertion |
+| M2, U2 | 12:21:49, slot A (17) → 12:22:18 (15); 12:23:36, slot B (17) → 12:24:26 (15) | after `5a069ba37` kept the tainted-walk docstring at three lines: the two P3-1 controls failed at `boot_scope:276` and `:344`; `boot_scope` 51, `p3_mutations` 7 xfailed, `boot_scope_mutations` 4 xfailed |
+| M3 | 12:28:39, slot A (22) → 12:28:55 (19) | review r1's constructed cases under `marker-dropped` (a scratch plugin): `[unidentified-marker-member]` failed at `test_pr276_review_r1.py:187`, the other 6 passed |
+| Probe | 12:31:41, slot B (20) → 12:31:57 (17); 12:34:49, slot A (21) → 12:35:07 (19) | a scratch copy of review r3's daemon-census property with the current boot unreadable on the partial read, so a proven-recycled pid can be an unread owned member (seeds 0 and 1, 300 examples each): it never failed. A strategy with only launchd children in the leaderless group (300 examples) had the subtraction decide 5 examples, none with a target in the whole read |
+
+#### Mutants
+
+| Mutant | Killing test | Result |
+|---|---|---|
+| p3-1-unverifiable-always (round 3) | case 3's sequence, `[legacy-attempt-boot]` (`test_kill4_boot_scope.py:276`) | detected |
+| p3-1-taint-ignored (round 3) | the tainted-walk test (`test_kill4_boot_scope.py:344`) | detected |
+| `_kill_attempt`'s handshake inlined (review r1) | the last-read landing, `[guardian-only]` (`test_pr276_review_r1.py:240`) | detected |
+| p3-1-responsibility-dropped (review r1) | `[responsibility-member]` (`test_pr276_review_r1.py:187`) | detected |
+| p3-1-never-ignored (review r1) | `[never-signalled-walk-member]` (`:187`) | detected |
+| `>` for `>=` against D4's property (review r1's P3-3) | D4's extension property (`test_quar_start1_census.py:253`) | detected |
+| p2-1-chain-dropped (fix round r1) | `[unidentified-chain-member]` (`test_pr276_review_r1.py:187`); the soundness property (`test_pr276_review_r2.py:339`) | detected by both |
+| p2-1-group-unchecked (fix round r1) | `[unidentified-leaderless-group-member]` (`test_pr276_review_r1.py:187`) | detected |
+| start-landed-not-once (review r1) | the landing `[after-the-census]` (`test_quar_start1_landed.py:102`) and the abandon's last read (`:255`) | detected by both |
+| p2-1-group-dropped (review r2) | `[unidentified-verified-group-member]` (`test_pr276_review_r1.py:187`); the soundness property (`test_pr276_review_r2.py:339`) | detected by both |
+| p2-1-never-kept (review r2) | `[unidentified-never-signalled-marker-member]` (`test_pr276_review_r1.py:187`) | detected |
+| p2-1-owned-dropped (fix round r2) | `[below-a-tainted-parent]` (`test_pr276_review_r2.py:175`); the owned member's kill (`:140`); the soundness property (`:339`); the property on the daemon's census (`test_pr276_review_r3.py:306`) | detected by all four |
+| p2-1-owned-boot-unchecked (fix round r2) | `[owned-on-another-boot]` (`test_pr276_review_r2.py:175`) | detected |
+| owned-boot-exact (review r3) | the owned filter's `[legacy-seconds]` and `[none]` records (`test_pr276_review_r3.py:105`) | detected by both |
+| owned-not-live (review r3) | the exited owned record (`test_pr276_review_r3.py:135`) | detected |
+| marker-dropped (review r3) | the property on the daemon's census (`test_pr276_review_r3.py:306`); `[unidentified-marker-member]` (`test_pr276_review_r1.py:187`, M3) | detected by both |
+| owned-recycled-kept (this round) | the stranger's census (`test_pr276_review_r3.py:170`) and its four kills (`:179`) | detected by both |
+
+H1, U1 and U2 ran each control as a strict xfail, and M, M0, M2 and M3 showed each failing at its named assertion.
+
+**Not run here:** `tests/frontend/test_core_live.py`, which cannot run on a lane, and the rest of the suite, which CI runs.

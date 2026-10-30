@@ -21,7 +21,7 @@ import json
 import signal
 import time
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
 from subfleet import daemon as daemon_module, folders, procs, protocol
@@ -271,10 +271,17 @@ def test_start_grace_extends_for_no_guardian_but_a_live_verified_running_one(dae
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(stopped=st.booleans(), unverifiable=st.booleans(), member=st.booleans(),
        elapsed=st.floats(0, 2 * MAX_S, allow_nan=False))
+# Review r3 of #250, P3-3: the bound itself, just inside it, at it and just past it.
+@example(stopped=False, unverifiable=False, member=False, elapsed=MAX_S - 1e-6)
+@example(stopped=False, unverifiable=False, member=False, elapsed=MAX_S)
+@example(stopped=False, unverifiable=False, member=False, elapsed=MAX_S + 1e-6)
 def test_extension_is_granted_exactly_while_every_condition_holds_and_never_past_the_bound(
         daemon, monkeypatch, stopped, unverifiable, member, elapsed):
     """Invariant 3: no extension passes START_GRACE_MAX_S, and a stopped guardian or an
-    unverifiable census never extends. `elapsed` is the time since the deadline's start."""
+    unverifiable census never extends. `elapsed` is the time since the deadline's start
+    (here the launch), on a fake clock, so an example can land on the bound exactly: on a
+    real clock, which never reads 60.0, a `>` for the `>=` and a bound counted from the
+    deadline instead of its start (70 s) both survived (review r3 of #250, P3-3)."""
     world = World(ATTEMPT, str(daemon.root))
     with pytest.MonkeyPatch.context() as patch:
         world.install(patch)
@@ -284,8 +291,8 @@ def test_extension_is_granted_exactly_while_every_condition_holds_and_never_past
             world.add(4250, 4242, 4242, marked=True)
         daemon.store.update_attempt(ATTEMPT, state="starting", child_pid=None)
         daemon.start_grace_s = START_GRACE_S
-        origin = time.monotonic() - elapsed
-        daemon._starting_deadlines[ATTEMPT] = origin + START_GRACE_S
+        launch = 1000.0                          # the deadline's start
+        daemon._starting_deadlines[ATTEMPT] = launch + START_GRACE_S
         daemon._inspect_next.pop(ATTEMPT, None)
         census = procs.Containment(group_pids=frozenset({4242}), identities={4242: world.identity(4242)},
                                    shapes={4242: {"ppid": 1, "pgid": 4242, "stat": "T" if stopped else "S"}})
@@ -293,12 +300,12 @@ def test_extension_is_granted_exactly_while_every_condition_holds_and_never_past
             census = dataclasses.replace(census, group_pids=frozenset({4242, 4250}))
         if unverifiable:
             census = dataclasses.replace(census, unverifiable=True, errors=("injected",))
-        extends = daemon._start_extends(attempt(daemon), census, origin + START_GRACE_S)
-        expected = not stopped and not unverifiable and not member and elapsed < MAX_S - .05
-        if elapsed < MAX_S - .05 or elapsed > MAX_S + .05:
-            assert extends == expected, (stopped, unverifiable, member, elapsed)
-        if elapsed >= MAX_S:
-            assert not extends
+        now = launch + elapsed
+        patch.setattr(daemon_module.time, "monotonic", lambda: now)
+        extends = daemon._start_extends(attempt(daemon), census, launch + START_GRACE_S)
+        # The clock's own reading decides, so a sum that rounds onto the bound is at it.
+        expected = not stopped and not unverifiable and not member and now < launch + MAX_S
+        assert extends == expected, (stopped, unverifiable, member, elapsed)
 
 
 # D-QUAR-START1 (b): the abandon handshake.

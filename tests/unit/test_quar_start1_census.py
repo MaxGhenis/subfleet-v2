@@ -38,7 +38,7 @@ import time
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
-from subfleet import guardian as guardian_module, procs
+from subfleet import daemon as daemon_module, guardian as guardian_module, procs
 from subfleet.contracts import START_GRACE_S
 from subfleet.daemon import Daemon
 from tests.kill4_world import BOOT, World
@@ -215,20 +215,29 @@ PIDS = {"stranger-a": 7000, "stranger-b": 7001, "guardian": GUARDIAN}
 @example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "identity"}, named=True, bare=False)
 @example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "process"}, named=True, bare=False)
 @example(stopped=False, member=False, elapsed=1.0, errors={"stranger-a", "enumeration"}, named=True, bare=False)
+# Review r1 of #276: D4's shape just inside the bound, at it and just past it (as P3-3 pinned the
+# extension property of `test_kill4_fix2b.py`).
+@example(stopped=False, member=False, elapsed=MAX_S - 1e-6, errors={"stranger-a"}, named=True, bare=False)
+@example(stopped=False, member=False, elapsed=MAX_S, errors={"stranger-a"}, named=True, bare=False)
+@example(stopped=False, member=False, elapsed=MAX_S + 1e-6, errors={"stranger-a"}, named=True, bare=False)
 def test_extension_is_granted_exactly_while_every_condition_holds_whatever_the_census_could_not_read(
         daemon, stopped, member, elapsed, errors, named, bare):
     """Invariant 3, with D4: no extension passes `START_GRACE_MAX_S`; a stopped guardian,
     another member, or an unverifiable census never extends, unless its only errors are
     failed marker reads of other processes, named as such (`named`). `bare` is an
     unverifiable census with no error at all, which no census makes. Every error kind
-    that is not a failed marker read is pinned beside a stranger's (#274 review r1's P3-1)."""
+    that is not a failed marker read is pinned beside a stranger's (#274 review r1's P3-1).
+    `elapsed` runs on a fake clock, so an example lands on the bound exactly, and the answer
+    is asserted for every draw (review r1 of #276: a ±0.05 s band went unasserted)."""
     world = World(ATTEMPT, str(daemon.root))
     with pytest.MonkeyPatch.context() as patch:
         world.install(patch)
         world.add(GUARDIAN, 1, GUARDIAN, start=STARTED, marked=True, stopped=stopped)
         daemon.store.update_attempt(ATTEMPT, state="starting", child_pid=None)
         daemon.start_grace_s = START_GRACE_S
-        origin = time.monotonic() - elapsed
+        launch = 1000.0                          # the deadline's start
+        now = launch + elapsed
+        patch.setattr(daemon_module.time, "monotonic", lambda: now)
         census = procs.Containment(group_pids=frozenset({GUARDIAN} | ({4250} if member else set())),
                                    identities={GUARDIAN: world.identity(GUARDIAN)},
                                    shapes={GUARDIAN: {"ppid": 1, "pgid": GUARDIAN, "stat": "T" if stopped else "S"}})
@@ -236,14 +245,12 @@ def test_extension_is_granted_exactly_while_every_condition_holds_whatever_the_c
         if errors or bare:
             census = dataclasses.replace(census, unverifiable=True, errors=tuple(ERRORS[name] for name in sorted(errors)),
                                          markers_unread=unread)
-        extends = daemon._start_extends(attempt(daemon), census, origin + START_GRACE_S)
+        extends = daemon._start_extends(attempt(daemon), census, launch + START_GRACE_S)
     only_strangers = bool(errors) and errors <= {"stranger-a", "stranger-b"} and named
-    expected = (not stopped and not member and elapsed < MAX_S - .05
+    # The clock's own reading decides, so a sum that rounds onto the bound is at it.
+    expected = (not stopped and not member and now < launch + MAX_S
                 and (not (errors or bare) or only_strangers))
-    if elapsed < MAX_S - .05 or elapsed > MAX_S + .05:
-        assert extends == expected, (stopped, member, elapsed, errors, named, bare)
-    if elapsed >= MAX_S:
-        assert not extends
+    assert extends == expected, (stopped, member, elapsed, errors, named, bare)
 
 
 # 2b. The guardian's own identity readers.

@@ -231,9 +231,120 @@ def test_case_3_a_boot_that_cannot_be_compared_holds_the_groups_members_never_si
     assert daemon._signal_targets(attempt(daemon), census) == {}
     finished(daemon)
     inline(daemon, monkeypatch)
-    assert daemon.kill(protocol.KillArgs(job_id=JOB))["status"] == "containment requested"
+    # Review r3 of #250, P3-1: no read, verifiable or not, attributes a member only a
+    # leaderless group names, so no protocol runs although the census is unverifiable.
+    answer = daemon.kill(protocol.KillArgs(job_id=JOB))
+    assert answer["status"] == "already finished" and "held, never signalled" in answer["detail"], answer
+    assert "recontainment" not in evidence(daemon) and not world.tried, world.tried
     assert member.alive and member.pid not in world.signalled()
     assert ("pid", member.pid, TERM) not in world.tried and ("pid", member.pid, KILL) not in world.tried
+
+
+def kill_force_release_kill_kill(daemon, monkeypatch) -> tuple[list[dict], list[str]]:
+    """Review r2's sequence on a finished job, each `kill`'s scheduled work run at once;
+    the answers, and the keys of the work scheduled."""
+    daemon.term_grace_s, daemon.kill_settle_s = 2.0, 1.0
+    scheduled: list[str] = []
+    monkeypatch.setattr(daemon, "_schedule", lambda key, fn, *args, **kw: (scheduled.append(key), fn(*args)))
+    answers = [daemon.kill(protocol.KillArgs(job_id=JOB)),
+               daemon.kill(protocol.KillArgs(job_id=JOB, force_release=True)),
+               daemon.kill(protocol.KillArgs(job_id=JOB)),
+               daemon.kill(protocol.KillArgs(job_id=JOB))]
+    return answers, scheduled
+
+
+def kinds(daemon) -> set[str]:
+    return {row["kind"] for row in daemon.store.list_events(JOB)}
+
+
+@pytest.mark.parametrize(("attempt_boot", "now"), [("99", BOOT_A), (BOOT_A, None)],
+                         ids=["legacy-attempt-boot", "unreadable-current-boot"])
+def test_case_3_kill_force_release_kill_kill_on_an_unverifiable_census_runs_no_protocol(
+        daemon, world, monkeypatch, attempt_boot, now):
+    """Review r3 of #250, P3-1, its executed input: case 3's world through review r2's
+    sequence. An absent leader never verifies, so every census of this attempt is
+    unverifiable, and its only member is one a leaderless group names, which no read
+    attributes. Each `kill` answered `containment requested` and ran a full protocol
+    (a TERM grace and the settle window) that could signal nothing, appending a
+    `terminal_containment` round and a `recontainment` result; "the next `kill` reports
+    the last result" never happened."""
+    member = stranger_group(world)
+    daemon.store.update_attempt(ATTEMPT, boot_id=attempt_boot)
+    world.boot = now
+    finished(daemon)
+    answers, scheduled = kill_force_release_kill_kill(daemon, monkeypatch)
+    assert [answer["status"] for answer in answers] == ["already finished"] * 4, answers
+    for answer in (answers[0], answers[2], answers[3]):
+        assert f"pid {member.pid}" in answer["detail"] and "held, never signalled" in answer["detail"], answer
+    assert not scheduled, scheduled
+    after = evidence(daemon)
+    assert "terminal_containment" not in after and "recontainment" not in after, after
+    assert "attempt.recontainment_started" not in kinds(daemon)
+    assert member.alive and not world.tried, world.tried
+    assert attempt(daemon)["state"] == "succeeded"
+
+
+def walk_seed(daemon, world, *, tainted: bool) -> tuple:
+    """A counted seed (5800) with a child (5801): walk members. `tainted`: an unverifiable
+    census first recorded the seed (`unverified_identities`), so no census, verifiable or
+    not, attributes it or anything below it (C-5.4, `_tainted`)."""
+    seed = world.add(5800, 1, 5800)
+    child = world.add(5801, 5800, 5800)
+    record = kept(procs.ProcessIdentity(5800, BOOT_A, seed.start))
+    store(daemon, counted_identities={"5800": record}, **({"unverified_identities": {"5800": record}}
+                                                          if tainted else {}))
+    return seed, child
+
+
+@pytest.mark.parametrize("members", ["listing-failed", "walk-member"])
+def test_an_unverifiable_census_a_later_read_could_attribute_still_runs_the_protocol(daemon, world, monkeypatch,
+                                                                                    members):
+    """The control for review r3's P3-1 fix: an unverifiable census still runs the protocol
+    when a verifiable read could attribute a member. `listing-failed`: the process table
+    could not be read, so the census has no members at all and could have missed any.
+    `walk-member`: a seed's marker read failed once, so the census that found the seed and
+    its child is unverifiable; the protocol's own censuses read it and TERM the seed."""
+    stranger_group(world)
+    if members == "listing-failed":
+        def unavailable():
+            raise procs.InspectionError("process table unavailable")
+        monkeypatch.setattr(procs, "snapshot", unavailable)
+    else:
+        seed, child = walk_seed(daemon, world, tainted=False)
+        world.fail_reads = {5801: world.tables + 1}          # the kill's own census only
+    finished(daemon)
+    daemon.term_grace_s, daemon.kill_settle_s = 0.2, 0.1
+    inline(daemon, monkeypatch)
+    census = daemon._contain(attempt(daemon)) if members == "listing-failed" else None
+    if census is not None:
+        assert census.unverifiable and not census.live_pids and not census.held_pids, census.to_dict()
+    answer = daemon.kill(protocol.KillArgs(job_id=JOB))
+    assert answer["status"] == "containment requested", answer
+    assert "attempt.recontainment_started" in kinds(daemon)
+    assert evidence(daemon)["recontainment"], evidence(daemon)
+    if members == "walk-member":
+        assert not seed.alive and seed.ended_by == TERM, world.tried
+
+
+def test_an_unverifiable_census_whose_walk_members_are_tainted_runs_no_protocol(daemon, world, monkeypatch):
+    """Review r3's P3-1 rule read as written, "a verifiable read could attribute a member":
+    a walk member an unverifiable census first recorded is tainted, and so is every member
+    below it, so a verifiable read does not attribute it either, and the protocol would
+    spend a TERM grace on every `kill` with nothing it may signal, as in case 3 (a legacy
+    attempt boot: no census of it verifies). A walk or responsibility member whose identity
+    this census could not read still runs the protocol, unless a tainted census parent taints it:
+    `_tainted` matches a member's own record by its identity, but follows parent links without one."""
+    member = stranger_group(world)
+    seed, child = walk_seed(daemon, world, tainted=True)
+    daemon.store.update_attempt(ATTEMPT, boot_id="99")
+    finished(daemon)
+    census = daemon._contain(attempt(daemon))
+    assert census.unverifiable and {5800, 5801} <= census.descendant_pids, census.to_dict()
+    answers, scheduled = kill_force_release_kill_kill(daemon, monkeypatch)
+    assert [answer["status"] for answer in answers] == ["already finished"] * 4, answers
+    assert not scheduled and not world.tried, (scheduled, world.tried)
+    assert "recontainment" not in evidence(daemon)
+    assert member.alive and seed.alive and child.alive
 
 
 # 4. A live process at the guardian pid with the recorded start, after a reboot.
