@@ -1,4 +1,4 @@
-"""Opt-in pytest plugin for the seventeen named D-WALK-FD1 mutations.
+"""Opt-in pytest plugin for the nineteen named D-WALK-FD1 mutations.
 
 Run under the suite hold, for example::
 
@@ -12,6 +12,7 @@ MR retries a released parent, MA ignores registration ownership, ME replaces
 an active exception, and MX discards a cancellation raised by cleanup.
 MAH restores ambient exception inference, MSR the plain size root close, MPO
 the unprotected pop, and MGF implicit walk finalization in record_complete.
+MOC moves read_regular acquisition ahead of owner setup; MES closes empty slots.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from pathlib import Path
 import subprocess
 
 
-MUTANTS = ("M1", "M2", "MO", "ML", "MI", "MP", "MC", "MH", "MD", "MR", "MA", "ME", "MX", "MAH", "MSR", "MPO", "MGF")
+MUTANTS = ("M1", "M2", "MO", "ML", "MI", "MP", "MC", "MH", "MD", "MR", "MA", "ME", "MX", "MAH", "MSR", "MPO", "MGF", "MOC", "MES")
 
 
 def pytest_addoption(parser):
@@ -74,10 +75,11 @@ def _plain_root_close(source: str) -> str:
     start, end = _definition(source, "AttemptTemp.size")
     node = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.With)
                 and start < node.lineno <= end
-                and ast.get_source_segment(source, node.items[0].context_expr) == "rfs._cleanup((fd,))")
+                and ast.get_source_segment(source, node.items[0].context_expr) == "rfs._cleanup([None])")
     indent = " " * node.col_offset
-    lines[node.lineno - 1:node.end_lineno] = ([indent + "try:\n"]
-        + lines[node.lineno:node.end_lineno]
+    acquisition = lines[node.lineno].replace("owner.resources[0] = ", "fd = ", 1)[4:]
+    lines[node.lineno - 1:node.end_lineno] = ([acquisition, indent + "try:\n"]
+        + lines[node.lineno + 2:node.end_lineno]
         + [indent + "finally:\n", indent + "    os.close(fd)\n"])
     return "".join(lines)
 
@@ -120,7 +122,7 @@ def pytest_configure(config):
         original = ("def _close_all(descriptors: Iterable[Any], pending: BaseException | None, *,\n"
                     "               close: Callable[[Any], Any] | None = None) -> None:\n"
                     "    if close is None:\n        close = os.close\n"
-                    "    for fd in descriptors:\n        close(fd)\n")
+                    "    for fd in descriptors:\n        if fd is None:\n            continue\n        close(fd)\n")
         source = _replace_definition(source, "_close_all", original)
     elif mutant == "MR":
         source = _replace_once(
@@ -174,6 +176,10 @@ def pytest_configure(config):
             "                stack.pop()\n"
             "                if fd != root_fd:\n                    os.close(fd)\n",
         )
+    elif mutant == "MOC":
+        source = _replace_definition(source, "read_regular", _at_revision("9b1a9d462"))
+    elif mutant == "MES":
+        source = _replace_once(source, "        if fd is None:\n            continue\n", "")
     elif mutant == "MGF":
         source = _unwrap_owner(source, "record_complete", "iterator")
     exec(compile(source, f"<retention descriptor mutant {mutant}>", "exec"), rfs.__dict__)
