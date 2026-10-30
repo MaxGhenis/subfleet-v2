@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:50:41Z slot A load 
+START retention_alternates 2026-10-30T19:50:44.033881+00:00 load=(51.9580078125, 46.869140625, 47.17431640625)
+.......................                                                  [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects:
+
+  - during generate phase (124.59 seconds):
+    - Typical runtimes: ~ 559-2266 ms, of which ~ 0-16 ms in data generation
+    - 100 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=100
+
+
+23 passed in 153.46s (0:02:33)

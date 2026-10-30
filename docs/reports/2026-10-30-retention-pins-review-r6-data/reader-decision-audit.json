@@ -1,0 +1,60 @@
+{
+  "age": "unchanged by fix round r5",
+  "rows": [
+    {
+      "reader": "gitfile_admin",
+      "line": 131,
+      "retention_decision": "Selects the archive registration; may miss the real whitespace target or select a stripped twin.",
+      "evidence": "reader-admin-space.json"
+    },
+    {
+      "reader": "registration",
+      "line": 169,
+      "retention_decision": "Checks backlink and direct common parent after stripping; a whitespace common alias can defer an otherwise usable checkout.",
+      "evidence": "reader-common-space.json"
+    },
+    {
+      "reader": "backlink",
+      "line": 201,
+      "retention_decision": "Feeds identity, claimed-tree and rollback checks; a mismatched target defers identity checks, while normal absolute backlinks end in .git.",
+      "evidence": "reader-source-audit.json"
+    },
+    {
+      "reader": "registration_in",
+      "line": 228,
+      "retention_decision": "Finds a registration for a missing tree; compares a stripped backlink before choosing it.",
+      "evidence": "reader-source-audit.json"
+    },
+    {
+      "reader": "moved_tree",
+      "line": 252,
+      "retention_decision": "Returns a keep/defer reason only after bidirectional registration checks, which share the stripping behavior.",
+      "evidence": "reader-source-audit.json"
+    },
+    {
+      "reader": "discard_registration",
+      "line": 328,
+      "retention_decision": "Can remove a stripped common twin's registration, even while the actual whitespace common has another one.",
+      "evidence": "reader-discard-registration.json"
+    },
+    {
+      "reader": "verify_bundle",
+      "line": 872,
+      "retention_decision": "Writes stripped common/objects as an alternate. A complete pack still verifies; hash and prerequisite checks remain.",
+      "evidence": "reader-verify-bundle.json"
+    },
+    {
+      "reader": "_into_admin",
+      "line": 322,
+      "retention_decision": "The survey treats an outside whitespace-suffixed admin as inside after stripping.",
+      "evidence": "nested-' '.json"
+    },
+    {
+      "reader": "_nested_gitfile",
+      "line": 1780,
+      "retention_decision": "The archive builder makes the same inside/outside decision and permits retirement in that fixture.",
+      "evidence": "nested-' '.json"
+    }
+  ],
+  "verdict_effect": "Listed differences: older and below P2 in executed fixtures; no running borrower loses a retired tree in these reader probes."
+}

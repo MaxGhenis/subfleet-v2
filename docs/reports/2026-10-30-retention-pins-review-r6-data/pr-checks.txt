@@ -1,0 +1,10 @@
+Python 3.12 on macOS, shard 1/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248593677	
+Python 3.12 on macOS, shard 2/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592669	
+Python 3.12 on macOS, shard 3/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592804	
+Python 3.12 on macOS, shard 4/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592763	
+Python 3.12 on macOS, shard 5/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592827	
+Python 3.14 on macOS, shard 1/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592744	
+Python 3.14 on macOS, shard 2/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592904	
+Python 3.14 on macOS, shard 3/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592816	
+Python 3.14 on macOS, shard 4/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592581	
+Python 3.14 on macOS, shard 5/5	pending	0	https://github.com/MaxGhenis/subfleet-v2/actions/runs/41109590133/job/124248592739	

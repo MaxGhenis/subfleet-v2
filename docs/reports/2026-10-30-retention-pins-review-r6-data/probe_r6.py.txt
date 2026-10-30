@@ -1,0 +1,29 @@
+import os
+import pytest
+from subfleet import dependencies, folders
+from tests.fake.test_retention_dependency_review_r2 import world, reader, maintain
+from tests.fake.test_retention_dependency_review_r5 import source
+from tests.unit.test_retention_dependency_units import repo
+from tests.unit.retention_world import git
+
+@pytest.mark.parametrize("ending", [None,b"",b"\n",b"\r\n"])
+def test_named_own_store(world, ending):
+    tree = world.job("owner")
+    owner, commit = source(world, tree)
+    outside = repo(world.base / "outside")
+    admin = world.base / "container" / "worktrees" / "slot"
+    admin.parent.mkdir(parents=True)
+    (outside / ".git").rename(admin)
+    (outside / ".git").write_text(f"gitdir: {admin}\n")
+    (admin / "objects").rename(world.base / "unused-objects")
+    (admin / "objects").symlink_to(owner / ".git" / "objects", target_is_directory=True)
+    if ending is not None: (admin / "commondir").write_bytes(ending)
+    if ending == b"":
+        assert git(outside, "show", commit + ":owner-only.txt", check=False) == ""
+        return
+    assert git(outside, "show", commit + ":owner-only.txt") == "R5 owner-only storage"
+    recorded = dependencies.record(str(outside))
+    reader(world, recorded)
+    result = maintain(world)
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded,result)
+    assert git(outside, "show", commit + ":owner-only.txt") == "R5 owner-only storage"

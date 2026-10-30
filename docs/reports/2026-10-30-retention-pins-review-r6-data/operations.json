@@ -1,0 +1,58 @@
+{
+  "start_utc": "2026-10-30T18:47:51Z",
+  "new_hold_cutoff_utc": "2026-10-30T22:47:00Z",
+  "wall_utc": "2026-10-31T00:47:51Z",
+  "scratch": "/private/tmp/sf-r272r6",
+  "Darwin_scratch_refused": true,
+  "queue_rebalance": {
+    "original_session": 87030,
+    "utc": "2026-10-30T19:44:15Z",
+    "queued_label": "turn_retention_job_properties",
+    "test_started": false,
+    "replacement_plans": [
+      "ordinary-a.json",
+      "ordinary-b.json"
+    ]
+  },
+  "outside_lock_fallbacks": [
+    {
+      "label": "retention_salvage_properties-part2",
+      "queued_utc": "2026-10-30T20:40:19.055202Z",
+      "cancelled_utc": "2026-10-30T21:10:28.229853Z",
+      "wait_seconds": 1809.174651,
+      "reason": "No shared lock admission within30 minutes; stopped only owned queued waiter.",
+      "start_utc": "2026-10-30T21:11:50.122812+00:00",
+      "loads": [
+        43.06640625,
+        46.2236328125,
+        44.57861328125
+      ],
+      "seconds": 223.31283129200165,
+      "exit": 0
+    }
+  ],
+  "guard_group_plan": [
+    [
+      "contract-guards",
+      [
+        "tests/fake/test_state_contract.py",
+        "tests/unit/test_test_module_names.py",
+        "tests/unit/test_invariants_index.py"
+      ]
+    ]
+  ],
+  "sweep_interrupted_attempts": [
+    {
+      "label": "retention_sweep_race-part3",
+      "seconds": 576.5825760829903,
+      "exit": 2
+    },
+    {
+      "label": "retention_sweep_race-part3-retry",
+      "seconds": 575.8215376669978,
+      "exit": 2
+    }
+  ],
+  "sweep_phase_split": "15 explicit examples and40 valid generated examples passed in separate holds; max_examples40 and assertions unchanged.",
+  "all_test_runs_finished": true
+}

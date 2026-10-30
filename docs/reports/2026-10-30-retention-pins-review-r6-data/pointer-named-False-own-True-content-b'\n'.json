@@ -1,0 +1,13 @@
+{
+  "label": "named-False-own-True-content-b'\\n'",
+  "git_rc": 0,
+  "git_stdout": "own-store blob\n",
+  "git_stderr": "",
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__n_True_Fals0/checkout/.git",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__n_True_Fals0/owner.git/objects"
+    ]
+  },
+  "actual_storage_covered": true
+}

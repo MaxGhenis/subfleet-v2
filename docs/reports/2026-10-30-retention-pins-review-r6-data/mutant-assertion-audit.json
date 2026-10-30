@@ -1,0 +1,156 @@
+[
+  {
+    "mutant": "mutant-r2-post-read-identity-check-dropped",
+    "failure_sites": [
+      ">       assert \"owner\" not in result[\"pruned\"], (recorded, result)"
+    ],
+    "errors": [
+      "E       AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-70955/pytest/test_c8_4_changed_alternates_d0/outside/.git', '/private/tmp/sf-r...ternates_d0/outside/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47985, 'bytes_after': 0, ...})",
+      "E       assert 'owner' not in ['owner']"
+    ]
+  },
+  {
+    "mutant": "mutant-r2-terminal-legacy-incomplete-dropped",
+    "failure_sites": [
+      ">           assert \"borrower\" in places.incomplete"
+    ],
+    "errors": [
+      "E           AssertionError: assert 'borrower' in {}",
+      "E            +  where {} = {'borrower': {'/outside/result'}}.incomplete"
+    ]
+  },
+  {
+    "mutant": "mutant-r3-census-moved-after-recovery",
+    "failure_sites": [
+      ">       assert observations == [True], (observations, result)"
+    ],
+    "errors": [
+      "E       AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})",
+      "E       assert [False] == [True]",
+      "E"
+    ]
+  },
+  {
+    "mutant": "mutant-r3-final-path-check-dropped",
+    "failure_sites": [
+      ">       assert changed and recorded.get('incomplete'), recorded"
+    ],
+    "errors": [
+      "E       AssertionError: {'git': ['/private/tmp/sf-r272r6/cases-51943/pytest/test_changes_symlink_info_runn0/outside/.git', '/private/tmp/sf-r272r6/cases-51943/pytest/test_changes_symlink_info_runn0/outside/.git/objects']}",
+      "E       assert ([True] and None)",
+      "E        +  where None = <built-in method get of dict object at 0x109b13440>('incomplete')"
+    ]
+  },
+  {
+    "mutant": "mutant-r3-post-traversal-alias-check-dropped",
+    "failure_sites": [
+      ">       assert \"owner\" not in result[\"pruned\"], (recorded, result)"
+    ],
+    "errors": [
+      "E       AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-75980/pytest/test_c8_4_git_parent_symlink_s0/old/.git', '/private/tmp/sf-r272r...rent_symlink_s0/old/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48640, 'bytes_after': 0, ...})",
+      "E       assert 'owner' not in ['owner']"
+    ]
+  },
+  {
+    "mutant": "mutant-r3-terminal-census-live-only",
+    "failure_sites": [
+      ">           assert \"owner\" not in result[\"pruned\"], result"
+    ],
+    "errors": [
+      "E           AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 20026, 'bytes_after': 0, ...}",
+      "E           assert 'owner' not in ['owner']"
+    ]
+  },
+  {
+    "mutant": "mutant-r3-write-metadata-check-dropped",
+    "failure_sites": [
+      ">       assert changed and recorded.get('incomplete'), recorded"
+    ],
+    "errors": [
+      "E       AssertionError: {'git': ['/private/tmp/sf-r272r6/cases-50047/pytest/test_changes_same_size_running0/outside/.git', '/private/tmp/sf-r272r6/cases-50047/pytest/test_changes_same_size_running0/outside/.git/objects']}",
+      "E       assert ([True] and None)",
+      "E        +  where None = <built-in method get of dict object at 0x10c478700>('incomplete')"
+    ]
+  },
+  {
+    "mutant": "mutant-r4-initial-objects-recording-dropped",
+    "failure_sites": [
+      ">           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "errors": [
+      "E           AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-27595/pytest/test_stable_objects_alias_keep0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48600, 'bytes_after': 0, ...})",
+      "E           assert ('owner' not in ['owner'])"
+    ]
+  },
+  {
+    "mutant": "mutant-r4-initial-objects-revalidation-dropped",
+    "failure_sites": [
+      ">       assert not result[\"pruned\"], (recorded, result)"
+    ],
+    "errors": [
+      "E       AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-8151/pytest/test_objects_parent_swap_keeps0/outside/.git', '/private/tmp/sf-r2..._keeps0/old-objects']}, {'pruned': ['owner-a', 'owner-b'], 'errors': [], 'bytes_before': 68685, 'bytes_after': 0, ...})",
+      "E       assert not ['owner-a', 'owner-b']"
+    ]
+  },
+  {
+    "mutant": "mutant-r5-commondir-whitespace-stripping-restored",
+    "failure_sites": [
+      ">           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "errors": [
+      "E           AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-14811/pytest/test_pointer_path_whitespace_k0/outside/.git', '/private/tmp/sf-r...h_whitespace_k0/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48628, 'bytes_after': 0, ...})",
+      "E           assert ('owner' not in ['owner'])"
+    ]
+  },
+  {
+    "mutant": "mutant-r5-gitfile-colon-without-space-accepted",
+    "failure_sites": [
+      ">           assert not recorded.get(\"git\"), recorded"
+    ],
+    "errors": [
+      "E           AssertionError: {'git': ['/private/tmp/sf-r272r6/cases-24794/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r6/cases-24794/pytest/test_pointer_syntax_and_whites0/owner.git/objects']}",
+      "E           assert not ['/private/tmp/sf-r272r6/cases-24794/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r6/cases-24794/pytest/test_pointer_syntax_and_whites0/owner.git/objects']",
+      "E            +  where ['/private/tmp/sf-r272r6/cases-24794/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r6/cases-24794/pytest/test_pointer_syntax_and_whites0/owner.git/objects'] = <built-in method get of dict object at 0x10bf3ed40>('git')"
+    ]
+  },
+  {
+    "mutant": "mutant-r5-gitfile-whitespace-stripping-restored",
+    "failure_sites": [
+      ">           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "errors": [
+      "E           AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-19430/pytest/test_pointer_path_whitespace_k0/outside/metadata', '/private/tmp/...pace_k0/outside/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48628, 'bytes_after': 0, ...})",
+      "E           assert ('owner' not in ['owner'])"
+    ]
+  },
+  {
+    "mutant": "mutant-r6-empty-common-initial-objects-not-recorded",
+    "failure_sites": [
+      ">           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "errors": [
+      "E           AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-27481/pytest/test_empty_common_target_keeps0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48940, 'bytes_after': 0, ...})",
+      "E           assert ('owner' not in ['owner'])"
+    ]
+  },
+  {
+    "mutant": "mutant-r6-parent-common-fallback-restored",
+    "failure_sites": [
+      ">           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "errors": [
+      "E           AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-23269/pytest/test_empty_common_target_keeps0/container/worktrees/slot', '/priv..._target_keeps0/container/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48940, 'bytes_after': 0, ...})",
+      "E           assert ('owner' not in ['owner'])"
+    ]
+  },
+  {
+    "mutant": "mutant-r6-pointer-read-failure-evidence-dropped",
+    "failure_sites": [
+      ">       assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "errors": [
+      "E       AssertionError: ({}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48940, 'bytes_after': 0, ...})",
+      "E       assert ('owner' not in ['owner'])"
+    ]
+  }
+]

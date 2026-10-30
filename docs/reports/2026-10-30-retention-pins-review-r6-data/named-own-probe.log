@@ -1,0 +1,97 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:50:40Z slot A load 
+START named-own-probe 2026-10-30T18:50:45.352877+00:00 load=(41.1181640625, 47.39208984375, 49.50048828125)
+F.FF                                                                     [100%]
+=================================== FAILURES ===================================
+__________________________ test_named_own_store[None] __________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r6/cases-29802/pytest/test_named_own_store_None_0'), trusted=True, remote=Po...p/sf-r272r6/cases-29802/pytest/test_named_own_store_None_0/state'), store=<subfleet.store.Store object at 0x10b824830>)
+ending = None
+
+    @pytest.mark.parametrize("ending", [None,b"",b"\n",b"\r\n"])
+    def test_named_own_store(world, ending):
+        tree = world.job("owner")
+        owner, commit = source(world, tree)
+        outside = repo(world.base / "outside")
+        admin = world.base / "container" / "worktrees" / "slot"
+        admin.parent.mkdir(parents=True)
+        (outside / ".git").rename(admin)
+        (outside / ".git").write_text(f"gitdir: {admin}\n")
+        (admin / "objects").rename(world.base / "unused-objects")
+        (admin / "objects").symlink_to(owner / ".git" / "objects", target_is_directory=True)
+        if ending is not None: (admin / "commondir").write_bytes(ending)
+        if ending == b"":
+            assert git(outside, "show", commit + ":owner-only.txt", check=False) == ""
+            return
+        assert git(outside, "show", commit + ":owner-only.txt") == "R5 owner-only storage"
+        recorded = dependencies.record(str(outside))
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"] and tree.is_dir(), (recorded,result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-29802/pytest/test_named_own_store_None_0/container/worktrees/slot', '/private/...n_store_None_0/container/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48626, 'bytes_after': 0, ...})
+E       assert ('owner' not in ['owner'])
+
+/private/tmp/sf-r272r6/probe_r6.py:28: AssertionError
+___________________________ test_named_own_store[\n] ___________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r6/cases-29802/pytest/test_named_own_store__n_0'), trusted=True, remote=Posi...tmp/sf-r272r6/cases-29802/pytest/test_named_own_store__n_0/state'), store=<subfleet.store.Store object at 0x10bac3250>)
+ending = b'\n'
+
+    @pytest.mark.parametrize("ending", [None,b"",b"\n",b"\r\n"])
+    def test_named_own_store(world, ending):
+        tree = world.job("owner")
+        owner, commit = source(world, tree)
+        outside = repo(world.base / "outside")
+        admin = world.base / "container" / "worktrees" / "slot"
+        admin.parent.mkdir(parents=True)
+        (outside / ".git").rename(admin)
+        (outside / ".git").write_text(f"gitdir: {admin}\n")
+        (admin / "objects").rename(world.base / "unused-objects")
+        (admin / "objects").symlink_to(owner / ".git" / "objects", target_is_directory=True)
+        if ending is not None: (admin / "commondir").write_bytes(ending)
+        if ending == b"":
+            assert git(outside, "show", commit + ":owner-only.txt", check=False) == ""
+            return
+        assert git(outside, "show", commit + ":owner-only.txt") == "R5 owner-only storage"
+        recorded = dependencies.record(str(outside))
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"] and tree.is_dir(), (recorded,result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-29802/pytest/test_named_own_store__n_0/container/worktrees/slot', '/private/tm...own_store__n_0/container/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48623, 'bytes_after': 0, ...})
+E       assert ('owner' not in ['owner'])
+
+/private/tmp/sf-r272r6/probe_r6.py:28: AssertionError
+__________________________ test_named_own_store[\r\n] __________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r6/cases-29802/pytest/test_named_own_store__r_n_0'), trusted=True, remote=Po...p/sf-r272r6/cases-29802/pytest/test_named_own_store__r_n_0/state'), store=<subfleet.store.Store object at 0x10ba775c0>)
+ending = b'\r\n'
+
+    @pytest.mark.parametrize("ending", [None,b"",b"\n",b"\r\n"])
+    def test_named_own_store(world, ending):
+        tree = world.job("owner")
+        owner, commit = source(world, tree)
+        outside = repo(world.base / "outside")
+        admin = world.base / "container" / "worktrees" / "slot"
+        admin.parent.mkdir(parents=True)
+        (outside / ".git").rename(admin)
+        (outside / ".git").write_text(f"gitdir: {admin}\n")
+        (admin / "objects").rename(world.base / "unused-objects")
+        (admin / "objects").symlink_to(owner / ".git" / "objects", target_is_directory=True)
+        if ending is not None: (admin / "commondir").write_bytes(ending)
+        if ending == b"":
+            assert git(outside, "show", commit + ":owner-only.txt", check=False) == ""
+            return
+        assert git(outside, "show", commit + ":owner-only.txt") == "R5 owner-only storage"
+        recorded = dependencies.record(str(outside))
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"] and tree.is_dir(), (recorded,result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-29802/pytest/test_named_own_store__r_n_0/container/worktrees/slot', '/private/...n_store__r_n_0/container/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48624, 'bytes_after': 0, ...})
+E       assert ('owner' not in ['owner'])
+
+/private/tmp/sf-r272r6/probe_r6.py:28: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../private/tmp/sf-r272r6/probe_r6.py::test_named_own_store[None]
+FAILED ../../../../../private/tmp/sf-r272r6/probe_r6.py::test_named_own_store[\n]
+FAILED ../../../../../private/tmp/sf-r272r6/probe_r6.py::test_named_own_store[\r\n]
+3 failed, 1 passed in 21.62s

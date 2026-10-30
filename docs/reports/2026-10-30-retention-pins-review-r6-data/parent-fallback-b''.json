@@ -1,0 +1,71 @@
+{
+  "marker": "b''",
+  "git_rc": 128,
+  "git_stdout": "",
+  "git_stderr": "fatal: failed to read /private/tmp/sf-r272r6/cases-23059/pytest/test_rejected_child_with_valid2/outside/child/.git/commondir: No such file or directory\n",
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_rejected_child_with_valid2/outside/child/.git",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_rejected_child_with_valid2/outside/child/.git/objects",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_rejected_child_with_valid2/outside/.git",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_rejected_child_with_valid2/state/worktrees/owner/source/.git/objects"
+    ]
+  },
+  "maintenance": {
+    "pruned": [],
+    "errors": [],
+    "bytes_before": 48628,
+    "bytes_after": 48628,
+    "deferred": {},
+    "in_flight": [],
+    "reclaimed": [],
+    "conflicts": [],
+    "progressed": true,
+    "holder_scan_failed": false,
+    "tmpdir_left": [],
+    "freed_bytes": 0,
+    "freed_disk_bytes": 0,
+    "archived_bytes": 0,
+    "added_bytes": 0,
+    "pools": {
+      "detached": {
+        "jobs_before": 2,
+        "bytes_before": 48628,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 0,
+        "max_bytes": 0,
+        "jobs_after": 2,
+        "bytes_after": 48628,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      },
+      "turn": {
+        "jobs_before": 0,
+        "bytes_before": 0,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 2000,
+        "max_bytes": 4294967296,
+        "jobs_after": 0,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      }
+    },
+    "protected": [
+      "borrower",
+      "owner"
+    ],
+    "jobs_after": 2,
+    "more": false,
+    "pin_reasons": {
+      "borrower": "active",
+      "owner": "worktree-in-use"
+    }
+  }
+}

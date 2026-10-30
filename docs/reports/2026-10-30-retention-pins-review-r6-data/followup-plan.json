@@ -1,0 +1,25 @@
+[
+  [
+    "review-r6-complete",
+    [
+      "tests/fake/test_retention_dependency_review_r6.py"
+    ]
+  ],
+  [
+    "matrix-correction",
+    [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-r272r6",
+      "/private/tmp/sf-r272r6/pointer_matrix.py::test_empty_common[-True-False]",
+      "-s"
+    ]
+  ],
+  [
+    "mutant-r6-pointer-read-failure-evidence-dropped",
+    [
+      "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "--runxfail"
+    ]
+  ]
+]

@@ -1,0 +1,137 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:55:26Z slot B load 
+START retention_sweep_race-generated 2026-10-30T20:55:30.478999+00:00 load=(36.49853515625, 37.83642578125, 37.70361328125)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'lock': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'final-check': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'reclaim': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'final-check': 'back', 'reclaim': 'away', 'moved-tree': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'archive': 'back', 'begin': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'away', 'publish': 'away', 'begin': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine-away-check': 'back', 'begin': 'back', 'lookup': 'back', 'publish': 'away', 'archive': 'away', 'moving-in': 'back', 'final-away-check': 'away', 'quarantine': 'away', 'backlink': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'final-check': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'back', 'publish': 'away', 'lock': 'away', 'begin': 'back', 'commit': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'back', 'publish': 'away', 'lock': 'away', 'begin': 'back', 'moved-tree': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'back', 'begin': 'back', 'quarantine': 'away', 'gone-check': 'back', 'lock': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'back', 'begin': 'back', 'quarantine': 'away', 'gone-check': 'back', 'lock': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'back', 'begin': 'back', 'quarantine': 'back', 'gone-check': 'back', 'lock': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'back', 'begin': 'back', 'gone-check': 'back', 'lookup': 'back', 'quarantine': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'reclaim': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'moving-in': 'away', 'backlink': 'away', 'publish': 'away', 'archive': 'back', 'lock': 'away', 'quarantine-away-check': 'back', 'final-away-check': 'back', 'reclaim': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'moving-in': 'away', 'backlink': 'away', 'publish': 'away', 'archive': 'away', 'lock': 'away', 'quarantine-away-check': 'back', 'final-away-check': 'back', 'reclaim': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'moving-in': 'away', 'moved-tree': 'away', 'publish': 'away', 'archive': 'away', 'lock': 'away', 'quarantine-away-check': 'back', 'final-away-check': 'back', 'reclaim': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'moving-in': 'away', 'moved-tree': 'away', 'publish': 'away', 'lock': 'away', 'quarantine': 'away', 'archive': 'back', 'final-away-check': 'back', 'reclaim': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'moving-in': 'away', 'moved-tree': 'back', 'publish': 'away', 'lock': 'away', 'quarantine': 'away', 'archive': 'back', 'final-away-check': 'back', 'reclaim': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'moving-in': 'away', 'moved-tree': 'back', 'publish': 'back', 'lock': 'away', 'quarantine': 'away', 'archive': 'back', 'final-away-check': 'back', 'reclaim': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'back', 'backlink': 'back', 'quarantine': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'back', 'gone-check': 'back', 'quarantine': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'final-away-check': 'away', 'archive': 'away', 'lookup': 'away', 'backlink': 'away', 'quarantine-away-check': 'back', 'commit': 'away', 'reclaim': 'away', 'final-check': 'away', 'lock': 'back', 'moved-tree': 'back', 'gone-lookup': 'away', 'publish': 'back', 'quarantine': 'back', 'begin': 'away', 'moving-in': 'away', 'gone-check': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'final-away-check': 'away', 'archive': 'away', 'lookup': 'away', 'backlink': 'away', 'quarantine-away-check': 'back', 'commit': 'away', 'reclaim': 'away', 'final-check': 'away', 'lock': 'back', 'moved-tree': 'back', 'gone-lookup': 'away', 'publish': 'back', 'begin': 'away', 'gone-check': 'away', 'moving-in': 'away', 'quarantine': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'final-check': 'away', 'backlink': 'away', 'gone-lookup': 'away', 'archive': 'back', 'commit': 'away', 'reclaim': 'away', 'final-away-check': 'away', 'quarantine': 'back', 'lock': 'back', 'moved-tree': 'away', 'publish': 'back', 'gone-check': 'away', 'lookup': 'away', 'quarantine-away-check': 'away', 'moving-in': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'final-check': 'away', 'backlink': 'away', 'gone-lookup': 'away', 'archive': 'back', 'commit': 'away', 'reclaim': 'away', 'final-away-check': 'away', 'quarantine': 'back', 'lock': 'back', 'moved-tree': 'away', 'gone-check': 'away', 'lookup': 'away', 'moving-in': 'away', 'publish': 'away', 'quarantine-away-check': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'final-check': 'away', 'backlink': 'away', 'gone-lookup': 'away', 'archive': 'back', 'commit': 'away', 'lock': 'back', 'publish': 'away', 'moving-in': 'back', 'quarantine': 'back', 'moved-tree': 'away', 'gone-check': 'away', 'lookup': 'away', 'quarantine-away-check': 'away', 'reclaim': 'away', 'final-away-check': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'final-check': 'away', 'backlink': 'away', 'gone-lookup': 'away', 'archive': 'back', 'commit': 'away', 'lock': 'back', 'publish': 'away', 'gone-check': 'away', 'moving-in': 'back', 'quarantine': 'away', 'lookup': 'away', 'moved-tree': 'away', 'quarantine-away-check': 'away', 'reclaim': 'away', 'final-away-check': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'final-check': 'away', 'backlink': 'away', 'gone-lookup': 'away', 'archive': 'back', 'commit': 'away', 'lock': 'back', 'publish': 'away', 'gone-check': 'away', 'moving-in': 'back', 'quarantine': 'away', 'lookup': 'away', 'moved-tree': 'back', 'quarantine-away-check': 'away', 'reclaim': 'away', 'final-away-check': 'away'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine': 'away', 'reclaim': 'back', 'begin': 'back', 'final-away-check': 'back', 'backlink': 'away', 'gone-lookup': 'back', 'lock': 'away', 'moved-tree': 'back', 'gone-check': 'back', 'archive': 'away', 'commit': 'away', 'quarantine-away-check': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine': 'away', 'reclaim': 'back', 'begin': 'back', 'final-away-check': 'back', 'backlink': 'away', 'gone-lookup': 'back', 'lock': 'away', 'moved-tree': 'back', 'gone-check': 'back', 'archive': 'away', 'commit': 'back', 'quarantine-away-check': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine': 'away', 'reclaim': 'back', 'begin': 'away', 'final-away-check': 'back', 'backlink': 'away', 'gone-lookup': 'back', 'lock': 'away', 'moved-tree': 'back', 'gone-check': 'back', 'archive': 'away', 'commit': 'back', 'quarantine-away-check': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine': 'away', 'reclaim': 'back', 'begin': 'away', 'final-away-check': 'back', 'backlink': 'away', 'gone-lookup': 'back', 'lock': 'back', 'moved-tree': 'back', 'gone-check': 'back', 'archive': 'away', 'commit': 'back', 'quarantine-away-check': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine': 'away', 'reclaim': 'back', 'begin': 'away', 'final-away-check': 'back', 'backlink': 'away', 'gone-lookup': 'back', 'lock': 'back', 'moved-tree': 'back', 'gone-check': 'back', 'archive': 'back', 'commit': 'back', 'quarantine-away-check': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine': 'away', 'reclaim': 'back', 'begin': 'away', 'final-away-check': 'back', 'backlink': 'away', 'gone-lookup': 'back', 'lock': 'back', 'moved-tree': 'back', 'gone-check': 'back'},
+)
+Test case: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine': 'back', 'reclaim': 'back', 'begin': 'away', 'final-away-check': 'back', 'backlink': 'away', 'gone-lookup': 'back', 'lock': 'back', 'moved-tree': 'back', 'gone-check': 'back'},
+)
+.
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree:
+
+  - during generate phase (409.36 seconds):
+    - Typical runtimes: ~ 1-25805 ms, of which ~ 0-4 ms in data generation
+    - 40 passing, 0 failing, and 6 invalid test cases
+
+  - Stopped because settings.max_examples=40
+
+
+1 passed in 431.97s (0:07:11)

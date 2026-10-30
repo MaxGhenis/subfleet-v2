@@ -1,0 +1,51 @@
+{
+  "label": "retention_shared_folders-part3",
+  "start": "2026-10-30T20:04:39.636211+00:00",
+  "loads": [
+    61.29833984375,
+    53.92529296875,
+    51.736328125
+  ],
+  "seconds": 145.06225858299877,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 131.3916419169982
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": {
+      "max_examples": 40,
+      "derandomize": true,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 9
+    }
+  },
+  "loaded": [],
+  "rss": 121372672
+}

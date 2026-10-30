@@ -1,0 +1,41 @@
+{
+  "label": "retention_sweep_race-part3-retry",
+  "start": "2026-10-30T20:40:26.962441+00:00",
+  "loads": [
+    25.728515625,
+    31.19287109375,
+    36.33447265625
+  ],
+  "seconds": 575.8215376669978,
+  "exit": 2,
+  "locked": true,
+  "tests": [],
+  "nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "phases": {
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree": {
+      "setup": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree": {
+      "max_examples": 40,
+      "derandomize": false,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 15
+    }
+  },
+  "loaded": [],
+  "rss": 143392768
+}
