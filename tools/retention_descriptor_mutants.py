@@ -1,4 +1,4 @@
-"""Opt-in pytest plugin for the thirteen named D-WALK-FD1 mutations.
+"""Opt-in pytest plugin for the seventeen named D-WALK-FD1 mutations.
 
 Run under the suite hold, for example::
 
@@ -10,6 +10,8 @@ M1/M2/MO/ML/MI/MP/MC repeat the build/review mutants. MH drops the two
 handoff protections, and MD makes the shared cleanup drain stop on an error.
 MR retries a released parent, MA ignores registration ownership, ME replaces
 an active exception, and MX discards a cancellation raised by cleanup.
+MAH restores ambient exception inference, MSR the plain size root close, MPO
+the unprotected pop, and MGF implicit walk finalization in record_complete.
 """
 from __future__ import annotations
 
@@ -18,7 +20,7 @@ from pathlib import Path
 import subprocess
 
 
-MUTANTS = ("M1", "M2", "MO", "ML", "MI", "MP", "MC", "MH", "MD", "MR", "MA", "ME", "MX")
+MUTANTS = ("M1", "M2", "MO", "ML", "MI", "MP", "MC", "MH", "MD", "MR", "MA", "ME", "MX", "MAH", "MSR", "MPO", "MGF")
 
 
 def pytest_addoption(parser):
@@ -54,6 +56,32 @@ def _at_revision(revision: str) -> str:
     ).stdout
 
 
+def _unwrap_owner(source: str, definition: str, resource: str) -> str:
+    """Drop only the specified production ownership context."""
+    lines = source.splitlines(keepends=True)
+    start, end = _definition(source, definition)
+    node = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.With)
+                and start < node.lineno <= end
+                and any(isinstance(item.context_expr, ast.Call)
+                        and ast.get_source_segment(source, item.context_expr.args[0]) == f"({resource},)"
+                        for item in node.items))
+    lines[node.lineno - 1:node.end_lineno] = [line[4:] for line in lines[node.lineno:node.end_lineno]]
+    return "".join(lines)
+
+
+def _plain_root_close(source: str) -> str:
+    lines = source.splitlines(keepends=True)
+    start, end = _definition(source, "AttemptTemp.size")
+    node = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.With)
+                and start < node.lineno <= end
+                and ast.get_source_segment(source, node.items[0].context_expr) == "rfs._cleanup((fd,))")
+    indent = " " * node.col_offset
+    lines[node.lineno - 1:node.end_lineno] = ([indent + "try:\n"]
+        + lines[node.lineno:node.end_lineno]
+        + [indent + "finally:\n", indent + "    os.close(fd)\n"])
+    return "".join(lines)
+
+
 def pytest_configure(config):
     mutant = config.getoption("--retention-descriptor-mutant")
     if mutant is None:
@@ -64,9 +92,9 @@ def pytest_configure(config):
     if mutant == "M1":
         source = _replace_once(
             source,
-            "                except BaseException:\n"
+            "                except BaseException as exc:\n"
             "                    if not stack or stack[-1][0] != child:\n"
-            "                        _close_all((child,))\n                    raise\n",
+            "                        _close_all((child,), exc)\n                    raise\n",
             "                except BaseException:\n                    raise\n",
         )
     elif mutant == "M2":
@@ -78,19 +106,21 @@ def pytest_configure(config):
     elif mutant == "MI":
         source = _replace_once(
             source,
-            "                try:\n                    opened.append(fd)\n"
-            "                except BaseException:\n"
-            "                    if not opened or opened[-1] != fd:\n"
-            "                        _close_all((fd,))\n                    raise\n",
-            "                opened.append(fd)\n",
+            "                    try:\n                        opened.append(fd)\n"
+            "                    except BaseException as exc:\n"
+            "                        if not opened or opened[-1] != fd:\n"
+            "                            _close_all((fd,), exc)\n                        raise\n",
+            "                    opened.append(fd)\n",
         )
     elif mutant == "MH":
         original = _at_revision("b1996dcf6bed")
         for name in ("_open_path", "Reclaim._conflict_dir"):
             source = _replace_definition(source, name, original)
     elif mutant == "MD":
-        original = ("def _close_all(descriptors: Iterable[int]) -> None:\n"
-                    "    for fd in descriptors:\n        os.close(fd)\n")
+        original = ("def _close_all(descriptors: Iterable[Any], pending: BaseException | None, *,\n"
+                    "               close: Callable[[Any], Any] | None = None) -> None:\n"
+                    "    if close is None:\n        close = os.close\n"
+                    "    for fd in descriptors:\n        close(fd)\n")
         source = _replace_definition(source, "_close_all", original)
     elif mutant == "MR":
         source = _replace_once(
@@ -100,11 +130,11 @@ def pytest_configure(config):
             "                except BaseException:\n                    os.close(parent)\n                    raise\n",
         )
     elif mutant == "MA":
-        for guard, descriptor in (("not stack or stack[-1][0] != child", "child"),
-                                  ("not opened or opened[-1] != fd", "fd")):
+        for guard, descriptor, indent in (("not stack or stack[-1][0] != child", "child", " " * 20),
+                                          ("not opened or opened[-1] != fd", "fd", " " * 24)):
             source = _replace_once(
-                source, f"                    if {guard}:\n                        _close_all(({descriptor},))\n",
-                f"                    _close_all(({descriptor},))\n",
+                source, f"{indent}if {guard}:\n{indent}    _close_all(({descriptor},), exc)\n",
+                f"{indent}_close_all(({descriptor},), exc)\n",
             )
     elif mutant == "ME":
         source = _replace_once(
@@ -120,4 +150,40 @@ def pytest_configure(config):
             "    elif isinstance(pending, (Exception, GeneratorExit)) and cancelled is not None:\n"
             "        raise cancelled\n", "",
         )
+    elif mutant == "MAH":
+        source = _replace_once(
+            source, "    if close is None:\n        close = os.close\n",
+            "    pending = __import__('sys').exception()\n"
+            "    if close is None:\n        close = os.close\n",
+        )
+    elif mutant == "MPO":
+        source = _replace_once(
+            source,
+            "                close_attempted = False\n"
+            "                try:\n"
+            "                    stack.pop()\n"
+            "                    if fd != root_fd:\n"
+            "                        # Transfer from the stack to one close attempt. Python\n"
+            "                        # cannot make this marker and the call below atomic.\n"
+            "                        close_attempted = True\n"
+            "                        os.close(fd)\n"
+            "                except BaseException as exc:\n"
+            "                    if not close_attempted and fd != root_fd and (not stack or stack[-1][0] != fd):\n"
+            "                        _close_all((fd,), exc)\n"
+            "                    raise\n",
+            "                stack.pop()\n"
+            "                if fd != root_fd:\n                    os.close(fd)\n",
+        )
+    elif mutant == "MGF":
+        source = _unwrap_owner(source, "record_complete", "iterator")
     exec(compile(source, f"<retention descriptor mutant {mutant}>", "exec"), rfs.__dict__)
+    if mutant == "MSR":
+        from subfleet import attempt_tmp
+        source = _plain_root_close(Path(attempt_tmp.__file__).read_text())
+        # Replace just this production method, preserving the imported module.
+        start, end = _definition(source, "AttemptTemp.size")
+        import textwrap
+        namespace = dict(attempt_tmp.__dict__)
+        exec(compile(textwrap.dedent("".join(source.splitlines(keepends=True)[start:end])),
+                     "<retention descriptor mutant MSR>", "exec"), namespace)
+        attempt_tmp.AttemptTemp.size = namespace["size"]
