@@ -1997,6 +1997,194 @@ whose edit is a line the fence itself undoes: r1's and r2's root edits (`new-roo
 - Outside the lock, all probes: the candidate and over-block probes, the recount (r9, decision 1 alone, this head and
   the installed hook over 1,677 pairs), the shell probes and the timing rows. Every test and mutant ran under the lock.
 
+## r11: review r10's findings closed (2026-10-30)
+
+The hub's review r10 (REQUEST_CHANGES at `0117418c5`) found one P2 and five P3s. The hub committed its test as
+`15fb54b04` (`test_review_r10_pins_r10s_unpinned_readings`) and merged `release/217` at `a093fb4b6` (`ab9ed1b0e`), and
+r11 builds on that. Every pin is review r10's input or this round's probe, judged through the whole hook in the fixture
+(`test_r11_*`). Each command pin and control also runs in real `/bin/zsh -f` and `/bin/bash` 3.2 over the fixture with
+r6's stubs and the fixture's HOME (`test_r11_command_pins_agree_with_real_shells`). Below, `Ls` is `for d in src; do :;
+done`, `L` is `for d in ~/.subfleet/*; do :; done` and `R` is `rg foo "$d"`.
+
+**Decisions as built.**
+
+1. **Loop-variable words cost steps of the shared budget** (review r10's P2-1, its V4).
+   - *Before:* a searcher operand read through a loop variable (`:2023` at r10) became every word `LVAR` held, and
+     nothing charged them. r10's joins fed `LVAR` by new routes, so review r10's 7.9 KB command ran past the hook's
+     60 s timeout, and r6's route cost 26 s at 6.3 KB.
+   - *Now (V1):* each word the operand is read as costs a step of the one 20,000-step budget the prep shares (`pst`).
+     Past it the prep stops and the command is too complex to judge. No second budget.
+   - *Deviation, smallest change:* a count of words alone let one long word through. `for d in /<4,000 a>; do :; done;`
+     followed by 2,000 `rg x "$d";` (26 KB) is charged 2,000 steps, and V1 took 25 s of CPU on it (40 s of wall at load
+     25) before allowing it; 1,000 searches took 10 s. Each 16 bytes of the words is a step too, so every 16 bytes the
+     prep copies into the command is counted. The row is now denied as too complex in 0.15 s. At 64 bytes a step, 100
+     words of 64 bytes read 100 times were still allowed after 2.45 s; at 16 the same command is too complex.
+   - *Now (V4):* the path-word judgment lists and judges each distinct path word once, at its first place. `FK` keeps that
+     place by everything `pw_word` reads (context, quoting, cd reading, form and text), and every later place takes its
+     verdict. Without it, 100 path words read 99 times cost 8.1 s of CPU; with it, 0.42-0.48 s.
+   - The "too complex" message names loop variables ("… or loop variables standing for more text, than the guard
+     reads").
+   - Every row of review r10's cost table, and the long word, is denied as too complex in at most 1 s of child CPU
+     (`R11_COST`, bound `R11_COST_CPU_S`). In H3, at load 15, the eight rows took 0.11-0.15 s; the installed hook took
+     0.10-0.16 s on them. Review r10 measured r10 at more than 75 s on the first and 9.4-25.9 s on its other rows.
+   - The budget's edges are exact (`R11_STEP_EDGE`): 100 words `a` (199 bytes, 112 steps a search) read 178 times are
+     19,936 steps, read, and 179 times 20,048, too complex; one 1,600-byte word (101 steps) read 198 times is 19,998
+     steps, and 199 times 20,099.
+   - *Worst under the budget this round found:* 100 path words of 15 bytes read 99 times on one line, 0.77-1.10 s of
+     CPU; the same a line each, 0.42-0.48 s; 63 words of 63 bytes read 63 times, 0.69-1.04 s (`R11_UNDER`, each allowed
+     in at most 3 s; H3 at load 15 and probes at load 18-21). One 4,000-byte word read 79 times, at the byte edge, cost
+     0.9 s.
+   - *Trade-off, listed "stricter":* review r10's batch script, `bash <<'EOF2'` with `Ls` and lines of `d=src/mN; rg -n
+     foo "$d"`, is too complex from 162 lines (161 are read; review r10 measured V1 alone at 200). Each value joins the
+     loop's words in the nested script, so each search reads all of them. Neither shell walks a root.
+   - *The whole test file on this build* (H1-H5b): 153 passed and S4's 2 skipped. No earlier test moves.
+2. **A function body's value joins a piped `while read` loop** (review r10's P3-1, its V2, one line).
+   - The `read` reading joins `FA` as the `for` reading does. The hook denies review r10's input,
+     `f() { d=/; }; echo src | while read d; do :; done; f; R`, and four spellings (`function f`, a `~/.subfleet` value,
+     an `if` in the body, `read -r`; `R11_READ_FUNCTION_DENIED`). r10 and the installed hook allow each, and both
+     shells walk the root.
+   - Controls stay allowed: a scoped value in the body and a root assigned to another name (`R11_READ_FUNCTION_ALLOWED`).
+   - *Over-block, listed "stricter":* `f() { d=/; }; echo src | while read d; do f; done; R`, of the listed kind (bash
+     runs the loop in a subshell, and zsh's `read` replaces the value at the end of its input).
+3. **An inner-scope loop joins an earlier loop's words** (review r10's P3-4, its V3).
+   - A `for` loop read where the reset would not apply (`st["ka"] || ld > 1 || !st["vt"] || FN`: `ld` counts the loop
+     itself) joins the words its variable stood for, and every `read` joins.
+   - The hook denies review r10's seven inputs (`R11_INNER_DENIED`): after `L`, a loop over `src` in a `bash -c` script,
+     an `x=$(…)`, a `<(…)`, a function body, a subshell, a quoted `$(…)` that searches, and a piped `while read`, each
+     before `R`. r10 and the installed hook allow each (review r10: r9 and r8 too). Both shells walk ~/.subfleet's
+     children in the first six, and bash in the seventh.
+   - Two forms read by one term alone are pinned too (`R11_INNER_TERMS_DENIED`): a brace group a pipe runs in a subshell
+     (`ld > 1`; both shells walk) and zsh's `coproc for …` (`st["ka"]`; zsh walks, and bash 3.2 has no `coproc`).
+   - A loop at the top of the command still replaces the words, and scoped loops stay allowed (`R11_INNER_ALLOWED`, 8).
+   - *Deviation, smallest change:* the words a function body assigned (`FA`) join once, where the variable is first
+     read, not again at each joining loop. `FA` stops growing once a loop reads the name, so the words are the same.
+     Review r10's form copied `FA` into every later loop: 3.2 s of CPU against 0.75 s (r10: 0.79 s) on a 50 KB command
+     with 1,000 loops after a 3,000-value body. The reading adds no local, since `simple()` is at the awk's limit of 50
+     arguments and locals (a 51st made the prep fail).
+   - *Over-blocks, listed "stricter":* review r10 counted five; this round's probes found 13 of two kinds, each denied,
+     and neither shell walks a root (`R11_STRICTER`):
+     - a search in an inner scope that reuses a root loop's name (seven): `for d in ~/.subfleet/*; do echo "$d"; done;
+       ls src | while read d; do R; done`, and the same with the inner loop in a `bash -c` script, a subshell, an
+       `x=$(…)`, a quoted `$(…)`, a function body or a `<(…)`;
+     - a loop the shells run in place where the prep reads it as joining (six): `L; if true; then Ls; fi; R`, and the
+       loop after `!` or `time`, in a brace group, nested in another loop, or in a command that defines a function.
+   - *Cost, inside decision 1's budget:* every join is read only through a substitution, which decision 1 charges.
+     Joins that no search reads cost what r10's did: a loop over 9,000 words in four nested quoted `$(…)`, 4.4 s of CPU
+     against r10's 3.6 s; 2,000 loops in three, 2.5 s against 2.5 s; 2,500 loops in `bash -c`, 1.9 s against 1.8 s.
+4. **P3-5, listed, not modeled.** A search in a function body written before its loop, `f() { R; }; for d in
+   ~/.subfleet/*; do f; done` and `f() { R; }; Ls; d=/; f`, is under "let through" in the overlay doc and pinned open in
+   `R11_KNOWN_OPEN`. Every hook allows both, and both shells walk the root. The prep reads in textual order; modeling
+   it needs a second reading of a command that defines a function, which the hub records as a follow-up.
+   - *Found this round, listed, not modeled:* a loop a pipe or `&` runs in a subshell, over an earlier root loop's
+     name: `L; Ls | cat; R` and `L; Ls & wait; R`. Every hook allows both, and both shells walk the root. The loop sits at
+     the top of the command, where V3's reading replaces. Pinned open in `R11_KNOWN_OPEN`, and under "let through".
+5. **Mutants.**
+   - Review r10's two, killed by its committed test: `rv10-fa-ld-dropped` (the `ld` term of r10's `FA` gate) and
+     `rv10-depth-reset` (the reset applying at depth).
+   - One per term: decision 1's word charge, byte charge, judging each path word once and the message
+     (`r11-word-charge-dropped`, `r11-byte-charge-dropped`, `r11-judged-at-each-place`, `r11-message-loop-unnamed`);
+     decision 2's join (`r11-read-function-join-dropped`); decision 3's four terms and `read`'s join
+     (`r11-join-ka-dropped`, `-ld-`, `-vt-`, `-fn-`, `r11-read-join-dropped`). `r11-join-fn-dropped` is killed by the
+     doc-pin test's stricter form: the term reads no form the shells walk that another term misses, only the
+     over-block of a loop in a command that defines a function.
+   - Retargeted: `r6-loop-words-dropped` drops the substitution line, now after the charge, and
+     `r10-function-body-join-dropped` drops `FA` from the `for` reading's replacing branch.
+   - The driver holds 117 mutants, and each of its 109 edits matches its file exactly once.
+6. **The text** (review r10's P3-3). The overlay doc's eval sentence is review r10's corrected one: "of `eval`, a prefix
+   assignment, a builtin it runs, or a `+=` or substitution value it assigns passes, since r10 decision 1 reads `eval
+   d=/` as a nested script", with its three forms pinned open (`R11_KNOWN_OPEN`). An r11 paragraph covers decisions
+   1-3, "let through" names P3-5 and the pipe and `&` form, and "stricter" names decision 1's batch script and
+   decisions 2 and 3's over-blocks. `test_r11_known_differences_name_the_over_blocks_and_what_is_let_through` holds each
+   named form to its verdict and to the doc's text.
+7. **TRUST and the hashes.** TRUST changes only `hook_sha256`, to the r11 hook's `7bba4822…e102`; TRUST is
+   `4e270e5b…14f8`. The new pair goes into TRUST, the overlay doc's table, install steps 0 and 2 and this report. The
+   pins that check those carry it too: the overlay test, the subfleet-root test's `NEW_HOOK_SHA256` and the mutant
+   driver's. The rollback stays `a60d1c51…`/`b3193b97…`.
+
+**The recount at this head** (outside the lock, from the scoped cwd): over the 977 commands that name a searcher in every
+R2-R10 and review R2-R10 list constant of the test, r10 (`c42f05ef…`) and this head give the same verdict on each. Over
+r11's 46 pinned commands, 29 are newly denied (decision 2's five, decision 3's nine and the 15 stricter forms) and none
+is newly allowed. S1: the installed hook denies 119 of 779 commands and this head 313, as at r10 (H1).
+
+**The real shells.** r11 runs 47 commands (H3): the hook denies 29; zsh walked a root in 20 and bash in 20 (both in 19),
+and neither walked in 26.
+- Every run agrees but the 15 stricter forms (denied, walked by neither) and the seven open forms (allowed, walked by
+  both).
+- Both shells walk decision 2's five inputs and the first six of decision 3's.
+- Earlier rounds' shell tests agree as before (H3, H4).
+
+**Holds** (one pytest or driver each, `-k` selections of `test_guard_subfleet_root.py` unless named, home
+`/Users/tester`). Every hold ran under the lock; H1 was admitted 57 s after being queued, H4 124 s and H5a 196 s, and
+every other hold within 21 s. H1 ran at `ce688792c`, whose hook bytes and S1 test are this head's; every other hold ran
+at `446a307ef`, whose tests and hook are this head's.
+
+| Hold | Admitted (slot, load) | Selection | Result, time |
+| --- | --- | --- | --- |
+| H1 | 14:41:24Z (A, 18.4) | S1 | 1 passed, 223 s |
+| H2 | 14:58:50Z (B, 13.4) | everything outside S1 and the rounds | 25 passed, 2 skipped (S4), 352 s |
+| H3 | 14:56:58Z (A, 28.1) | `test_r7_*` to `test_r11_*`, reviews r7 to r10 | 34 passed, 102 s |
+| H4 | 15:07:31Z (B, 15.2) | r4's to r6's tests, reviews r4 to r6 | 40 passed, 224 s |
+| H5a | 15:15:01Z (B, 35.7) | r3's tests | 27 passed, 356 s |
+| H5b | 15:21:33Z (B, 20.8) | r3b's and r3c's tests | 26 passed, 235 s |
+| HA | 15:25:38Z (B, 27.9) | `test_guard_overlay.py`, `test_guard_trust.py` | 127 passed, 79 s |
+| HB | 15:27:00Z (A, 25.4) | the three guards | 63 passed, 34 s |
+| M1-M14 | 15:28:03Z to 16:16:24Z (A, 19.6-38.7) | the 117 mutants | below |
+
+H1 to H5b cover all 155 items of `test_guard_subfleet_root.py` exactly once (checked against `--collect-only`): 153
+passed and S4's 2 skipped.
+
+**Timing** (the 300-path command, child CPU in seconds, three runs of five interleaved pairs with the installed hook,
+outside the lock, 16:18:57-19:11Z):
+
+| Run | Load | This head | Installed | Median ratio |
+| --- | --- | --- | --- | --- |
+| 1 | 23.3 | 0.229-0.353 | 0.157-0.210 | 1.52× |
+| 2 | 22.8 | 0.255-0.305 | 0.175-0.218 | 1.40× |
+| 3 | 22.4 | 0.184-0.355 | 0.118-0.224 | 1.75× |
+
+Both hooks allow the command. The 300-path test itself (`test_r4_absolute_paths_cost_at_most_twice_the_installed_hook`,
+H4, load 25.6) gave a median of 0.279 s against 0.175 s, **1.59×**. The cost pins are decision 1's above.
+
+**Mutants** (`tools/guard_subfleet_root_mutations.py`, one `git archive` of HEAD each, the named test and the fence,
+all under the lock; each batch's control passed every named test and the fence):
+
+| Mutants | Killing test | Batch (admitted, slot, load) |
+| --- | --- | --- |
+| `rv10-fa-ld-dropped`, `rv10-depth-reset` | `test_review_r10_pins_r10s_unpinned_readings` | M1 (15:28:03Z, A, 25.0) |
+| `r11-word-charge-dropped`, `r11-byte-charge-dropped`, `r11-message-loop-unnamed` | `test_r11_loop_variable_words_cost_steps_of_the_shared_budget` | M1 |
+| `r11-judged-at-each-place` | `test_r11_each_path_word_is_judged_once` | M1 |
+| `r11-read-function-join-dropped` | `test_r11_a_function_body_joins_a_piped_while_read_loop` | M1 |
+| `r11-join-ka-dropped`, `-ld-`, `-vt-`, `r11-read-join-dropped` | `test_r11_a_loop_in_an_inner_scope_joins_an_earlier_loops_words` | M1 |
+| `r11-join-fn-dropped` | `test_r11_known_differences_name_the_over_blocks_and_what_is_let_through` | M1 (12 killed) |
+| r10's two (`r10-function-body-join-dropped` retargeted), review r9's, review r8's three, r9's two, review r7's, r8's first three | each one's named test | M2 (15:33:57Z, A, 23.5; 12 killed) |
+| r8's other seven, r7's first | each one's named test | M3 (15:42:55Z, A, 38.7; 8 killed) |
+| r7's other five, review r6's, review r5's two | each one's named test | M4 (15:48:42Z, A, 31.0; 8 killed) |
+| r6's first eight | each one's named test | M5 (15:51:38Z, A, 26.0; 8 killed) |
+| r6's other four (`r6-loop-words-dropped` retargeted), r5's first four | each one's named test | M6 (15:53:45Z, A, 31.7; 8 killed) |
+| r5's next seven, review r4's first | each one's named test | M7 (15:57:52Z, A, 38.4; 8 killed) |
+| review r4's other three, r5's last, r4's first four | each one's named test | M8 (15:59:48Z, A, 26.1; 8 killed) |
+| r4's other five, r3c's first three | each one's named test | M9 (16:01:54Z, A, 25.1; 8 killed) |
+| r3c's next eight | each one's named test | M10 (16:05:42Z, A, 29.3; 8 killed) |
+| r3c's last, r3b's first seven | each one's named test | M11 (16:08:01Z, A, 21.1; 8 killed) |
+| r3b's other four, r3's first four | each one's named test | M12 (16:10:39Z, A, 19.6; 7 killed, 1 survived) |
+| r3's other six, r1's first two | each one's named test | M13 (16:12:44Z, A, 20.4; 8 killed) |
+| r1's other two, the two TRUST mutants, r2's | each one's named test | M14 (16:16:24Z, A, 26.6; 5 killed) |
+
+The tests kill 116 of the 117. `stall-mount-listed` (r3b) survives, as it has since r3c, where it became equivalent;
+r11 doesn't touch its code. The fence fails, as designed, on the six mutants whose edit is a line the fence itself
+undoes (r1's and r2's five root edits and `r6-span-backtick-dropped`), and passes on the other 111 and on every
+control. A kill counts only the named test.
+
+**Unrun at this head:**
+- S4's two items, which need the operator's Claude hook, so they skip here;
+- `tests/frontend/test_core_live.py`, which can't run on a lane. CI runs both.
+
+**Disclosures.**
+- Outside the lock, all probes: the cost and edge probes, the variant hooks (V1 by words alone, three byte
+  granularities, judging at each place, review r10's V3 form), the shell and over-block probes, the recount (r10 and
+  this head over 977 list commands and 46 pins) and the timing rows. Every test and mutant ran under the lock.
+- No Bash call moved to the background, and no process of mine outlived its run.
+
 ## Invariants and how they were checked
 
 `tests/unit/test_guard_subfleet_root.py` states each in its docstring and checks it.
