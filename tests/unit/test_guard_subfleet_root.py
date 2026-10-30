@@ -6193,3 +6193,100 @@ def test_review_r10_pins_r10s_unpinned_readings(tmp_path):
              for c in denied + REVIEW_R10_STRICTER + REVIEW_R10_ALLOWED}
     assert ([c for c in denied if not all(walks[c])],
             [c for c in REVIEW_R10_STRICTER + REVIEW_R10_ALLOWED if any(walks[c])]) == ([], [])
+
+
+# ---------------------------------------------------------------- r11: review r10's findings
+
+# Round r11 (2026-10-30) builds the hub's decisions on review r10 (REQUEST_CHANGES at 0117418c5: one P2, five P3s).
+# Below, R9_LS is a scoped loop, R7V_L a loop over ~/.subfleet's children and R7V_R the search of its variable:
+#   1. P2-1: each word a searcher operand is read as through a loop variable, and each 16 bytes of them, costs a step
+#      of the shared 20,000-step budget, and the path-word judgment judges each distinct word once;
+#   2. P3-1: a function body's value joins a piped while-read loop's words, as it does a for loop's;
+#   3. P3-4: a loop read where the reset would not apply joins the words its variable stood for, and read always joins;
+#   4. P3-5: a search in a function body written before its loop is listed as let through.
+
+
+def r11_subst(n: int, wrap: str) -> str:
+    """Review r10's P2-1 shape: after a scoped loop, n plain values of d and n searches of it, in wrap."""
+    body = R9_LS + "; " + "; ".join(f"d=a{i}" for i in range(n)) + "; " + "; ".join(['rg x "$d"'] * n)
+    return wrap.replace("BODY", body)
+
+
+def r11_loop(words, searches: int, sep: str = "; ") -> str:
+    """A loop over ``words``, then ``searches`` searches of its variable joined by ``sep``."""
+    return "for d in " + " ".join(words) + "; do :; done" + sep + sep.join([R7V_R] * searches)
+
+
+#: Decision 1: review r10's cost table, each row denied as too complex in at most R11_COST_CPU_S of child CPU (r10
+#: took more than 75 s on the first, and 9.4-25.9 s on the others; review r10 measured V1 and V4 at 0.10-0.15 s) ...
+R11_COST = {
+    "420 values in a quoted $(...), 7.9 KB": r11_subst(420, 'echo "$(BODY)"'),
+    "300 values in a quoted $(...)": r11_subst(300, 'echo "$(BODY)"'),
+    "300 values in bash -c": r11_subst(300, "bash -c 'BODY'"),
+    "300 values in a function body": ("f() { " + "; ".join(f"d=a{i}" for i in range(300)) + "; }; " + R9_LS
+                                      + "; f; " + "; ".join([R7V_R] * 300)),
+    "300 values in an if (r9's route)": (R9_LS + "; if true; then " + "; ".join(f"d=a{i}" for i in range(300))
+                                         + "; fi; " + "; ".join([R7V_R] * 300)),
+    "400 words x 400 searches, one line (r6's route)": r11_loop([f"a{i}" for i in range(400)], 400),
+    "200 path words x 200 searches, a line each": r11_loop([f"{S_}/src/p{i}" for i in range(200)], 200, "\n"),
+    #: ... and this round's: one long word read in many places, which a count of words alone let through (25 s of
+    #: CPU, 40 s of wall time at load 25, on the word count alone)
+    "a 4,000-byte word x 2,000 searches": "for d in /" + "a" * 4000 + "; do :; done; " + 'rg x "$d"; ' * 2000,
+}
+R11_COST_CPU_S = 1.0
+#: ... and the budget's edges, exact: a loop over 100 words "a" (199 bytes: 100 + 12 steps a search) read 178 times is
+#: 19,936 steps, read, and 179 times 20,048, too complex; one word of 1,600 bytes (1 + 100 steps) read 198 times is
+#: 19,998, and 199 times 20,099. Nothing else in these commands costs a step.
+R11_STEP_EDGE = {
+    "read": [r11_loop(["a"] * 100, 178), r11_loop(["b" * 1600], 198)],
+    "unread": [r11_loop(["a"] * 100, 179), r11_loop(["b" * 1600], 199)],
+}
+#: ... and, under the budget, the worst this round found: 100 path words of 15 bytes, read 99 times, a line each and
+#: on one line (each path word judged once: 8.1-8.2 s of CPU when each place is judged), and 63 words of 63 bytes read
+#: 63 times. Each is allowed, in at most R11_UNDER_CPU_S of child CPU (0.4-1.1 s at load 21).
+R11_UNDER = {
+    "100 path words x 99, a line each": r11_loop([f"/u/aaaaaaa/p{i:03d}" for i in range(100)], 99, "\n"),
+    "100 path words x 99, one line": r11_loop([f"/u/aaaaaaa/p{i:03d}" for i in range(100)], 99),
+    "63 words of 63 bytes x 63": r11_loop([f"/u/{i:03d}" + "c" * 56 for i in range(63)], 63),
+}
+R11_UNDER_CPU_S = 3.0
+#: The text the "too complex" message names loop variables by.
+R11_COMPLEX_LOOP = "or loop variables standing for more text"
+
+
+def test_r11_loop_variable_words_cost_steps_of_the_shared_budget(hooks):
+    """Decision 1: each row of review r10's cost table, and one long word read in many places, is denied as too complex
+    to judge in at most R11_COST_CPU_S of child CPU, and the message names loop variables (one run each; the installed
+    hook's CPU and the load reported); the budget's word and byte edges are exact."""
+    rows = {}
+    for name, command in R11_COST.items():
+        cpu, wall, out = hook_cpu(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "too complex to judge" in reason and R11_COMPLEX_LOOP in reason, name
+        old_cpu, old_wall, _ = hook_cpu(hooks["old"], command)
+        rows[name] = {"cpu": [round(cpu, 2), round(old_cpu, 2)], "wall": [round(wall, 2), round(old_wall, 2)],
+                      "load": round(os.getloadavg()[0], 1)}
+        assert cpu <= R11_COST_CPU_S, (name, rows[name])
+    report("cost-r11", rows)
+    outs = judged(HOOK, R11_STEP_EDGE["read"] + R11_STEP_EDGE["unread"], S_)
+    assert [c[:40] for c in R11_STEP_EDGE["read"] if rule(outs[c]) is not None] == []
+    for c in R11_STEP_EDGE["unread"]:
+        assert rule(outs[c]) == "unscoped-search", c[:40]
+        assert R11_COMPLEX_LOOP in json.loads(outs[c])["hookSpecificOutput"]["permissionDecisionReason"], c[:40]
+
+
+def test_r11_each_path_word_is_judged_once():
+    """Decision 1 (V4): under the budget, the worst rows this round found are allowed in at most R11_UNDER_CPU_S of
+    child CPU (one run each, reported); a root among repeated scoped words, in any place, is still denied."""
+    rows = {}
+    for name, command in R11_UNDER.items():
+        cpu, wall, out = hook_cpu(HOOK, command)
+        assert rule(out) is None, name
+        rows[name] = {"cpu": round(cpu, 2), "wall": round(wall, 2), "load": round(os.getloadavg()[0], 1)}
+        assert cpu <= R11_UNDER_CPU_S, (name, rows[name])
+    report("under-r11", rows)
+    scoped = " ".join([f"{S_}/src"] * 50)
+    assert r5_denied([(c, S_) for c in (f"rg foo {scoped} ~/.subfleet", f"rg foo ~/.subfleet {scoped} ~/.subfleet",
+                                        f"rg foo {scoped}; rg foo {scoped} /", f"rg foo / {scoped}; rg foo /")]) == []
+    assert r5_allowed([(f"rg foo {scoped}; rg foo {scoped}", S_)]) == []

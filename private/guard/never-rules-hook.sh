@@ -2005,7 +2005,10 @@ pw_prep_awk="$pw_lib_awk"'
     if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }
     # r6 decision 9: a for loop variable stands for its words, and a variable a piped while-read reads for the roots
     # of what the pipe carries (find: its roots; any other command: its words), as {} does for -exec; a searcher
-    # operand that is only $V, "$V", ${V} or "${V}" is read as them (LVAR)
+    # operand that is only $V, "$V", ${V} or "${V}" is read as them (LVAR). r11 decision 1: each word an operand is
+    # read as costs a step of the shared budget (pst), and so does each 16 bytes of them (one long word read in many
+    # places costs as much as many words), so a loop variable standing for more than the budget holds makes the
+    # command too complex to judge
     if (mode == "prep" && t <= nt) {
       if (val[t] == "for" && t + 2 <= nt && val[t + 2] == "in" && val[t + 1] ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
         w = ""; for (k = t + 3; k <= nt; k++) if (!rd[k]) w = w (w == "" ? "" : " ") tk[k]
@@ -2020,7 +2023,10 @@ pw_prep_awk="$pw_lib_awk"'
         for (k = t + 1; k <= nt; k++) {
           if (rd[k] || tk[k] !~ /^"?\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)"?$/) continue
           w = tk[k]; gsub(/["${}]/, "", w)
-          if (w in LVAR) { tk[k] = LVAR[w]; val[k] = value(tk[k]); qd[k] = (tk[k] ~ /["\047\\]/) }
+          if (w in LVAR) {
+            if (cplx || (pst += gsub(/[^[:space:]]+/, "&", LVAR[w]) + int(length(LVAR[w]) / 16)) > 20000) { cplx = 1; continue }
+            tk[k] = LVAR[w]; val[k] = value(tk[k]); qd[k] = (tk[k] ~ /["\047\\]/)
+          }
         }
       }
     }
@@ -2425,8 +2431,9 @@ if pw_named "$command"; then
   [ "$pw_many" = 0 ] || block "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one of \$, #, \\, ', \" or \` and names a searcher (find, rg or grep), so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth."
   pw_cmd=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' -v mode=prep "$pw_prep_awk" 2>/dev/null) || pw_cmd=""
   # r6 decisions 4, 5 and 9: a command whose $(...), $((...)), ((...)), <(...) and heredoc forms take the prep past
-  # its step budget (parend, shared) is too complex to judge; the prep stops there and ends with \003C\003
-  case "$pw_cmd" in *$'\003C\003') block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more nested \$(...), \$((...)), <(...) and heredoc forms than the guard reads, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth." ;; esac
+  # its step budget (parend, shared) is too complex to judge; the prep stops there and ends with \003C\003. r11
+  # decision 1: so is one whose loop variables stand for more than the budget holds, and the message names them
+  case "$pw_cmd" in *$'\003C\003') block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more nested \$(...), \$((...)), <(...) and heredoc forms, or loop variables standing for more text, than the guard reads, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth." ;; esac
   [ -n "$pw_cmd" ] || pw_cmd=$command
   # r6 decision 2: the xargs rule below also judges xargs running a shell whose -c script names a searcher
   case "$pw_cmd" in *$'\n\003X\003'*) pw_xsh=1 ;; esac
@@ -2562,7 +2569,7 @@ if [ -n "$searcher" ]; then
       }
       return out
     }
-    function walk(s, ctx,   out, run, orun, b, sf, qc, rest, piece, q, inner, nctx, gap, g, first, cd, cdp, val, st, role, rdn) {
+    function walk(s, ctx,   out, run, orun, b, sf, qc, rest, piece, q, inner, nctx, gap, g, first, cd, cdp, val, st, role, rdn, key) {
       out = ""; first = 1; cd = 0; cdp = 0; st["s"] = 0
       while (match(s, /(\$\047([^\047\\]|\\.)*\047|\\.|[^[:space:]|;&()<>"\047\\]|"([^"\\]|\\.)*"|\047[^\047]*\047|\(([^[:space:]()<>;&"\047\\]|\\.)*\))+/)) {
         gap = substr(s, 1, RSTART - 1)
@@ -2578,13 +2585,16 @@ if [ -n "$searcher" ]; then
         sf = sform(run, 1)
         # (r5: a root spelling right before a brace group is a path word too, decision 9, and so is ~ followed
         # by $ or a backtick, decision 10)
+        # (r11 decision 1: a path word is listed and judged once, at its first place, FK keeping that place by all
+        # the judgment reads, its context, quoting, cd reading, form and text; every later place takes its verdict)
         if (sf ~ /^(~[A-Za-z0-9._-]*|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$|\{)/ || sf ~ /^~[$`]/ || sf ~ /^\// || (sf ~ /^\{/ && sf ~ /,|\.\./)) {
-          k++
-          if (pass == 1) printf "%d\t%s\t%s\t%s\t%s\t%s\n", k, ctx, (run == sf) ? "u" : "q", (cd && !cdp) ? "c" : "p", sf, b
-          else if (k in tok) {
+          k++; key = ctx SUBSEP ((run == sf) ? "u" : "q") SUBSEP ((cd && !cdp) ? "c" : "p") SUBSEP sf SUBSEP b
+          if (!(key in FK)) FK[key] = k
+          if (pass == 1) { if (FK[key] == k) printf "%d\t%s\t%s\t%s\t%s\t%s\n", k, ctx, (run == sf) ? "u" : "q", (cd && !cdp) ? "c" : "p", sf, b }
+          else if (FK[key] in tok) {
             qc = ""
             if (match(run, /["\047]/)) qc = substr(run, RSTART, 1)
-            run = qc tok[k] qc
+            run = qc tok[FK[key]] qc
           }
           out = out run
         } else {
