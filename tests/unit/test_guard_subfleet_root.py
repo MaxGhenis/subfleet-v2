@@ -5992,3 +5992,81 @@ def test_r10_a_function_body_written_before_its_loop_joins():
     allowed."""
     assert r5_denied([(c, S_) for c in R10_FUNCTION_DENIED + R10_FUNCTION_BOUND_DENIED]) == []
     assert r5_allowed([(c, S_) for c in R10_FUNCTION_ALLOWED]) == []
+#: The over-blocks, listed "stricter" (decision 3): each is denied, and neither shell walks a root. Decision 1's: a root
+#: assigned only in a nested script or a substitution, which never reaches the search after it; decision 2's: a root a
+#: function body assigns where no shell runs it (the function is never called, beside r9's never-run assignment) or a
+#: root assigned before the loop, which the loop replaces. Each with the text "Known differences" names it by.
+R10_STRICTER = {
+    R9_LS + "; bash -c 'd=/'; " + R7V_R: R9_LS + "; bash -c 'd=/'; " + R7V_R,
+    R9_LS + '; echo "$(d=/; rg foo src)"; ' + R7V_R: R9_LS + '; echo "$(d=/; rg foo src)"; ' + R7V_R,
+    "f() { d=/; }; " + R9_LS + "; " + R7V_R: "f() { d=/; }; " + R9_LS + "; " + R7V_R,
+    "f() { :; }; if true; then d=/; fi; " + R9_LS + "; " + R7V_R: "f() { :; }; if true; then d=/; fi; " + R9_LS,
+}
+#: Review r9's five over-blocks of r9's join (REVIEW_R9_STRICTER, pinned there), each by the text that names it.
+R10_REVIEW_R9_STRICTER_NAMED = {
+    REVIEW_R9_STRICTER[0]: '(d=/); rg foo "$d"',
+    REVIEW_R9_STRICTER[1]: '( d=/ ) && rg foo "$d"',
+    REVIEW_R9_STRICTER[2]: "if true; then d=/ d=src; fi",
+    REVIEW_R9_STRICTER[3]: "f() { :; }; for d in src; do :; done; d=/; d=src",
+    REVIEW_R9_STRICTER[4]: 'f() { d=/; }; rg foo "$d"',
+}
+#: What the prep does not read, named under "let through" (decision 3): after a scoped loop, a root assigned by +=, by
+#: a builtin or by a command substitution's output. Each is allowed, and a real shell walks the root. Of eval, only a
+#: prefix assignment is let through (R10_EVAL_DENIED: decision 1 reads eval d=/ itself). Modeling these is a
+#: follow-up of its own; a change that closes one has to move its pin.
+R10_BUILTINS = "`export`, `declare`, `typeset`, `readonly`, `local`, `eval`, `printf -v`, `read`"
+R10_KNOWN_OPEN = {
+    "for d in /U; do :; done; d+=sers; " + R7V_R: "by `+=`",
+    R9_LS + "; d=; d+=/; " + R7V_R: "by `+=`",
+    R9_LS + "; export d=/; " + R7V_R: R10_BUILTINS,
+    R9_LS + "; declare d=/; " + R7V_R: R10_BUILTINS,
+    R9_LS + "; typeset d=/; " + R7V_R: R10_BUILTINS,
+    R9_LS + "; readonly d=/; " + R7V_R: R10_BUILTINS,
+    R9_LS + "; eval export d=/; " + R7V_R: R10_BUILTINS,
+    R9_LS + "; printf -v d /; " + R7V_R: R10_BUILTINS,
+    R9_LS + "; read d <<< /; " + R7V_R: R10_BUILTINS,
+    R9_LS + "; f() { local d=/; " + R7V_R + "; }; f": R10_BUILTINS,
+    R9_LS + "; d=/ eval '" + R7V_R + "'": R10_BUILTINS,
+    R9_LS + "; d=$(echo /); " + R7V_R: "a value a command substitution writes",
+}
+#: Every r10 command pin and control a shell can run, from the scoped cwd: the stricter forms are denied though no
+#: shell walks, and the open forms allowed though one does.
+R10_SHELL_COMMANDS = [(c, S_) for c in (R10_NESTED_DENIED + R10_EVAL_DENIED + R10_NESTED_BOUND_DENIED
+                                        + R10_NESTED_ALLOWED + R10_FUNCTION_DENIED + R10_FUNCTION_BOUND_DENIED
+                                        + R10_FUNCTION_ALLOWED + list(R10_STRICTER) + list(R10_KNOWN_OPEN))]
+
+
+def test_r10_command_pins_agree_with_real_shells(tmp_path):
+    """Each r10 command pin and control, run by /bin/zsh -f and /bin/bash over the fixture with r6's stubs and the
+    fixture's HOME: the hook denies it exactly when either shell's run would have walked a root, but for the listed
+    stricter forms (denied, no shell walks) and open forms (allowed, a shell walks). Both shells walk the root in each
+    of review r9's eleven inputs and in each eval of a plain assignment."""
+    outs = judge_all(HOOK, R10_SHELL_COMMANDS)
+    rows, differ = [], []
+    for command, cwd in R10_SHELL_COMMANDS:
+        denied = rule(outs[(command, cwd)]) == "unscoped-search"
+        shells = {sh: r6_shell_walks(sh, command, cwd, tmp_path) for sh in ("zsh", "bash")}
+        rows.append((command, cwd, denied, shells))
+        if command in R10_STRICTER:
+            if not denied or any(shells.values()):
+                differ.append(("stricter", command, denied, shells))
+        elif command in R10_KNOWN_OPEN:
+            if denied or not any(shells.values()):
+                differ.append(("open", command, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((command[:200], cwd, denied, shells))
+    report("shells-r10", {"cases": len(rows), "denied": sum(r[2] for r in rows),
+                          "zsh": sum(r[3]["zsh"] for r in rows), "bash": sum(r[3]["bash"] for r in rows),
+                          "both": sum(r[3]["zsh"] and r[3]["bash"] for r in rows),
+                          "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
+                          "rows": [(c[:120], d, s) for c, _, d, s in rows]})
+    assert differ == [], differ[:10]
+    assert [c for c, _, _, s in rows if c in R10_NESTED_DENIED + R10_EVAL_DENIED + R10_FUNCTION_DENIED
+            and not all(s.values())] == []
+
+
+def test_r10_scoped_searches_stay_allowed():
+    """r10's controls (an assignment in a quoted $(...) that names no searcher, a scoped value in a nested script or a
+    function body, a root assigned before a function's definition and replaced by the loop) beside review r9's
+    controls; r8's and r9's must-allow tests still hold every earlier list."""
+    assert r5_allowed([(c, S_) for c in R10_NESTED_ALLOWED + R10_FUNCTION_ALLOWED + REVIEW_R9_ALLOWED]) == []
