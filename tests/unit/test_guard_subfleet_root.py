@@ -6088,3 +6088,108 @@ def test_r10_scoped_searches_stay_allowed():
     function body, a root assigned before a function's definition and replaced by the loop) beside review r9's
     controls; r8's and r9's must-allow tests still hold every earlier list."""
     assert r5_allowed([(c, S_) for c in R10_NESTED_ALLOWED + R10_FUNCTION_ALLOWED + REVIEW_R9_ALLOWED]) == []
+
+
+# ---------------------------------------------------------------- review r10: r10's unpinned readings
+
+#: Review r10 (at 0117418c5) pins r10 readings no r10 test holds. Decision 1's join, through the places it reaches
+#: beyond r10's pins: sh -c and zsh -c, a double-quoted bash -c or eval script, a heredoc script into sh or piped into
+#: bash, a nested substitution, a script inside a script, a search inside the nested script, a ~/.subfleet value, a
+#: root after a scoped value, eval of a substitution's output, and the eval spellings decision 1 reads. r9 allowed each,
+#: and both shells walk the root in each (r6's stubs, the fixture's HOME).
+REVIEW_R10_NESTED_DENIED = [
+    "sh -c '" + R9_LS + "; d=/; " + R7V_R + "'",
+    "zsh -c '" + R9_LS + "; d=/; " + R7V_R + "'",
+    'bash -c "' + R9_LS + '; d=/; rg foo \\"\\$d\\""',
+    'eval "' + R9_LS + '; d=/; rg foo \\"\\$d\\""',
+    "sh <<'EOF'\n" + R9_LS + "\nd=/\n" + R7V_R + "\nEOF",
+    "cat <<'EOF' | bash\n" + R9_LS + "\nd=/\n" + R7V_R + "\nEOF",
+    'echo "$(echo "$(' + R9_LS + '; d=/; ' + R7V_R + ')")"',
+    "bash -c 'bash -c '\"'\"'" + R9_LS + "; d=/; " + R7V_R + "'\"'\"''",
+    R9_LS + "; bash -c 'd=/; " + R7V_R + "'",
+    'echo "$(' + R9_LS + '; d=~/.subfleet; ' + R7V_R + ')"',
+    'echo "$(' + R9_LS + '; d=src; d=/; ' + R7V_R + ')"',
+    "eval \"$(echo '" + R9_LS + "; d=/; " + R7V_R + "')\"",
+    R9_LS + '; echo "$(d=/; ' + R7V_R + ')"; d=lib; ' + R7V_R,
+    R9_LS + '; eval "d=/"; ' + R7V_R,
+    R9_LS + "; eval eval d=/; " + R7V_R,
+    R9_LS + "; builtin eval d=/; " + R7V_R,
+    R9_LS + "; eval -- d=/; " + R7V_R,
+    R9_LS + '; eval "$(echo d=/)"; ' + R7V_R,
+    R9_LS + "; eval `echo d=/`; " + R7V_R,
+    R9_LS + "; eval 'd=src; d=/'; " + R7V_R,
+    R9_LS + "; eval 'if true; then d=/; fi'; " + R7V_R,
+]
+#: ... decision 2's, beyond r10's pins: a body called twice, a body whose last value is the root, a function a body
+#: defines, `function f()`, a body another function calls, bodies over several lines, a body called inside the loop
+#: (after it or before the search), and the same forms inside a nested script or a substitution ...
+REVIEW_R10_FUNCTION_DENIED = [
+    "f() { d=/; }; " + R9_LS + "; f; f; " + R7V_R,
+    "f() { d=src; d=/; }; " + R9_LS + "; f; " + R7V_R,
+    "f() { g() { d=/; }; }; " + R9_LS + "; f; g; " + R7V_R,
+    "function f() { d=/; }; " + R9_LS + "; f; " + R7V_R,
+    "f() { d=/; }; g() { f; }; " + R9_LS + "; g; " + R7V_R,
+    "f() { d=/; }\n" + R9_LS + "\nf\n" + R7V_R,
+    "f() {\n  d=/\n}\n" + R9_LS + "\nf\n" + R7V_R,
+    "f() { d=/; }; for d in src; do f; done; " + R7V_R,
+    "f() { d=/; }; for d in src; do f; " + R7V_R + "; done",
+    "bash -c 'f() { d=/; }; " + R9_LS + "; f; " + R7V_R + "'",
+    'echo "$(f() { d=/; }; ' + R9_LS + '; f; ' + R7V_R + ')"',
+]
+#: ... and the loop's root words kept through an assignment in an inner scope (r10 decision 1 joins there rather than
+#: replaces): after a loop over ~/.subfleet's children, a scoped value assigned in a nested script, a quoted $(...) that
+#: names no searcher, an unquoted $(...), a subshell or a function body leaves the shell's own variable at the loop's
+#: last root. Every hook since r8 denies each, and both shells walk the root.
+REVIEW_R10_KEPT_DENIED = [
+    R7V_L + "; bash -c 'd=src'; " + R7V_R,
+    R7V_L + '; echo "$(d=src)"; ' + R7V_R,
+    R7V_L + "; x=$(d=src; echo); " + R7V_R,
+    R7V_L + "; bash -c 'd=src; " + R7V_R + "'; " + R7V_R,
+    R7V_L + "; (d=src); " + R7V_R,
+    R7V_L + "; f() { d=src; }; " + R7V_R,
+    "f() { d=src; }; " + R7V_L + "; " + R7V_R,
+]
+#: The over-blocks of r10's joins, each of a kind "Known differences" lists under "stricter" (a value replaced later, a
+#: root the loop replaces, a function body never called, a subshell's assignment): each is denied, and neither shell
+#: walks a root.
+REVIEW_R10_STRICTER = [
+    'echo "$(' + R9_LS + '; d=/; d=src; ' + R7V_R + ')"',
+    "f() { d=/; }; f; " + R9_LS + "; " + R7V_R,
+    "f() { d=/; d=src; }; " + R9_LS + "; f; " + R7V_R,
+    "f() { g() { d=/; }; }; " + R9_LS + "; f; " + R7V_R,
+    "f() ( d=/ ); " + R9_LS + "; f; " + R7V_R,
+    "f() { d=/; }; bash -c '" + R9_LS + "; " + R7V_R + "'",
+    "f() { d=/; }; " + R9_LS + "; f; d=src; " + R7V_R,
+    R9_LS + "; eval d=/ d=src; " + R7V_R,
+    "echo '()'; if true; then d=/; fi; " + R9_LS + "; " + R7V_R,
+    R7V_L + "; eval 'd=src'; " + R7V_R,
+]
+#: ... and controls that stay allowed, none walked: an assignment in a quoted $(...) that names no searcher inside a
+#: substitution, a prefix assignment in a nested script and through eval, a scoped value after a nested root, a body
+#: assigning another name or an empty value, and lane-style uses of a scoped value in a nested script, a substitution, a
+#: function's local loop and a body before the loop.
+REVIEW_R10_ALLOWED = [
+    'echo "$(' + R9_LS + '; echo "$(d=/)"; ' + R7V_R + ')"',
+    "bash -c '" + R9_LS + "; d=/ :; " + R7V_R + "'",
+    R9_LS + "; eval 'd=/ :'; " + R7V_R,
+    R9_LS + "; bash -c 'd=/'; d=src; " + R7V_R,
+    "f() { e=/; }; " + R9_LS + "; f; " + R7V_R,
+    "f() { d=; }; " + R9_LS + "; f; " + R7V_R,
+    R9_LS + '; echo "$(d=lib; ' + R7V_R + ')"; ' + R7V_R,
+    R9_LS + "; bash -c 'd=lib; " + R7V_R + "'; " + R7V_R,
+    'main() { local d; for d in src lib; do ' + R7V_R + '; done; }; main',
+    "f() { d=src; }; for d in lib; do :; done; f; " + R7V_R,
+]
+
+
+def test_review_r10_pins_r10s_unpinned_readings(tmp_path):
+    """Each reading's own input: the denied forms are denied and walk a root in both /bin/zsh -f and /bin/bash over
+    the fixture (r6's stubs, the fixture's HOME); the stricter forms are denied and walk none; the controls are allowed
+    and walk none."""
+    denied = REVIEW_R10_NESTED_DENIED + REVIEW_R10_FUNCTION_DENIED + REVIEW_R10_KEPT_DENIED
+    assert r5_denied([(c, S_) for c in denied + REVIEW_R10_STRICTER]) == []
+    assert r5_allowed([(c, S_) for c in REVIEW_R10_ALLOWED]) == []
+    walks = {c: [r6_shell_walks(sh, c, S_, tmp_path) for sh in ("zsh", "bash")]
+             for c in denied + REVIEW_R10_STRICTER + REVIEW_R10_ALLOWED}
+    assert ([c for c in denied if not all(walks[c])],
+            [c for c in REVIEW_R10_STRICTER + REVIEW_R10_ALLOWED if any(walks[c])]) == ([], [])
