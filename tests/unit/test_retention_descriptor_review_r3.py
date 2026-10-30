@@ -14,12 +14,9 @@ from tests.unit.test_retention_walk_descriptors import DEEP, open_descriptors, t
 
 
 @pytest.mark.parametrize("ambient_kind,close_kind", [
-    pytest.param("runtime", "os", marks=pytest.mark.xfail(
-        strict=True, reason="P2-4 (review r3): a handled caller exception suppresses a normal close failure")),
-    pytest.param("keyboard", "os", marks=pytest.mark.xfail(
-        strict=True, reason="P2-4 (review r3): a handled caller cancellation suppresses a normal close failure")),
-    pytest.param("keyboard", "keyboard", marks=pytest.mark.xfail(
-        strict=True, reason="P2-4 (review r3): a handled caller cancellation drops a new cleanup cancellation")),
+    ("runtime", "os"),
+    ("keyboard", "os"),
+    ("keyboard", "keyboard"),
     ("runtime", "keyboard"),
 ])
 def test_normal_read_close_failure_is_not_suppressed_by_handled_caller_exception(

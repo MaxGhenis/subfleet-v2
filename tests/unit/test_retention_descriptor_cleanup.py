@@ -41,7 +41,7 @@ def test_close_all_exception_precedence_and_drain(monkeypatch, body, cleanup):
                 if primary is not None:
                     raise primary
             finally:
-                rfs._close_all([101, 102, 103])
+                rfs._close_all([101, 102, 103], primary)
         except BaseException as caught:
             expected = secondary if primary is None or (cancellation(secondary) and not cancellation(primary)) else primary
             assert caught is expected
@@ -62,7 +62,7 @@ def test_close_all_without_body_raises_first_close_error(monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(os, "close", close)
         with pytest.raises(OSError) as caught:
-            rfs._close_all([101, 102, 103])
+            rfs._close_all([101, 102, 103], None)
     assert caught.value is errors[0]
     assert attempted == [101, 102, 103]
 
