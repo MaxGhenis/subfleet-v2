@@ -1,0 +1,56 @@
+{
+  "label": "ordinary-comparison-final",
+  "start": "2026-10-30T14:52:16.526678+00:00",
+  "loads": [
+    20.98779296875,
+    20.1279296875,
+    19.2958984375
+  ],
+  "seconds": 9.501274958005524,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.3622264590085251
+    },
+    {
+      "nodeid": "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[succeeded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.16317579199676402
+    }
+  ],
+  "nodes": [
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[running]",
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[succeeded]"
+  ],
+  "all_nodes": [
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[running]",
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[succeeded]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-leading]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-trailing]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-commondir]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-leading]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-trailing]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-commondir]"
+  ],
+  "phases": {
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 115310592
+}

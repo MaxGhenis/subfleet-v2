@@ -1,0 +1,50 @@
+{
+  "label": "recovery-census",
+  "start": "2026-10-30T14:11:42.146795+00:00",
+  "loads": [
+    15.125,
+    10.125,
+    8.5146484375
+  ],
+  "seconds": 3.2182449590036413,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.05667195799469482
+    },
+    {
+      "nodeid": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0023703339975327253
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+    "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+    "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census"
+  ],
+  "phases": {
+    "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 118095872
+}

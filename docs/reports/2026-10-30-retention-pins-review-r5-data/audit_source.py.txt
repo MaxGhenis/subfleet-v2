@@ -1,0 +1,37 @@
+import ast, collections, difflib, hashlib, json, re, subprocess
+from pathlib import Path
+root=Path('/private/tmp/sf-r272r5')
+def show(ref,path): return subprocess.check_output(['git','show',ref+':'+path],text=True)
+report={}
+merges=[]
+for merge in ['5b94fd32a','c1dfadceb']:
+    left,right=merge+'^1',merge+'^2'
+    base=subprocess.check_output(['git','merge-base',left,right],text=True).strip()
+    texts={ref:show(ref,'docs/acceptance-contract.md') for ref in [left,right,merge,base]}
+    rows={ref:[s for s in text.splitlines() if re.match(r'^- \*\*(C-\d+\.\d+)',s)] for ref,text in texts.items()}
+    child=set(texts[merge].splitlines()); baseline=set(texts[base].splitlines())
+    missing={ref:[s for s in texts[ref].splitlines() if s.strip() and s not in child] for ref in (left,right)}
+    joint=[s for ref,lines in missing.items() for s in lines if s not in baseline]
+    assert all(s.startswith('- **C-6.11**') for s in joint),joint
+    count=lambda ref:collections.Counter(re.match(r'^- \*\*(C-\d+\.\d+)',s)[1] for s in rows[ref])
+    assert count(merge)==count(left)|count(right)
+    combined=[s for s in rows[merge] if s not in rows[left] and s not in rows[right]]
+    assert len(combined)==(1 if merge=='5b94fd32a' else 0)
+    if combined:
+        line=combined[0]
+        assert 'task-held' in line and 'dependencies.key' in line and 'git-storage' in line
+        release_line=next(s for s in rows[right] if s.startswith('- **C-6.11**'))
+        assert all(tag in ('equal','insert') for tag,*_ in difflib.SequenceMatcher(None,release_line,line,autojunk=False).get_opcodes())
+    merges.append({'merge':merge,'base':base,'clause_counts':{ref:len(rows[ref]) for ref in (left,right,merge)},'duplicates':{key:n for key,n in count(merge).items() if n>1},'unique_parent_edits_without_verbatim_child':['C-6.11'] if joint else [],'parent_lines_not_in_child':{ref:[s[:80] for s in lines] for ref,lines in missing.items()},'all_parent_edits_preserved':True})
+report['merges']=merges
+path='tests/fake/test_retention_dependency_review_r4.py'
+base=show('5b94fd32a',path)
+expected=base.replace('@pytest.mark.xfail(strict=True, reason="R4-F1: initial objects directory aliases are neither recorded nor revalidated")\n','').replace('    pytest.param("running", marks=pytest.mark.xfail(\n        strict=True, reason="R4-F1: initial objects directory target is not recorded"), id="live"),','    pytest.param("running", id="live"),')
+assert expected==Path(path).read_text()
+report['r4_marks']={'only_authorized_marks_removed':True,'case_count':5}
+paths=['subfleet/dependencies.py','subfleet/daemon.py','subfleet/retention.py','subfleet/retention_archive.py',path,'tests/fake/test_retention_dependency_review_r5.py']
+report['source_sha256']={s:hashlib.sha256(Path(s).read_bytes()).hexdigest() for s in paths}
+path='tests/fake/test_turn_retention_job_properties.py'
+report['T2_unchanged_from_release']=show('a093fb4b6',path)==Path(path).read_text()
+(root/'source-audit.json').write_text(json.dumps(report,indent=2)+'\n')
+print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'},indent=2))
