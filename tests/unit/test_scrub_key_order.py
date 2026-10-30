@@ -22,6 +22,8 @@ import pytest
 from subfleet import refusals
 from subfleet.sessions import handoff, scrub_release
 from subfleet.sessions.handoff import scrub_bounded, scrub_secrets
+from tests.cpu_scaling import COUNT_GROWTH_MAX, counts_instructions
+from tests.scrub_work import scrub_work
 from tests.unit import scrub_release217 as release217
 from tests.unit.test_sessions_handoff import _scrubber_probe
 
@@ -526,21 +528,100 @@ def test_the_head_leaks_nothing_release_217_keeps_out_and_no_bearer_header_or_cr
     assert [triple for triple in head if _kind(texts[triple[0]][0], triple[2]) != "other"] == []
 
 
-# --- the lookahead's work ------------------------------------------------------------
+# --- the Bearer rule's work ----------------------------------------------------------
 
-@pytest.mark.parametrize("token", ["a_", "token", "secret_", "--a", "x."])
-def test_the_bearer_rule_keeps_scrubbing_linear(token):
-    """C-23.14 / C-25.5: `_bearer_refusal` reads a run's end once; four times the input
-    must not take quadratic CPU (D-SCR1's `_SENSITIVE_KEY` lookahead would have)."""
-    measured = _scrubber_probe(f"token = {token!r}\n" + '''
-import json, time
-samples = {}
+#: The most a scrub of the texts below may read a character, every regex call of both
+#: pipelines counted (`tests.scrub_work`): the scrub reads at most 66 (#266 round 4).
+#: A call past it is stopped before `re` runs it, so a catastrophic lookahead fails
+#: here in seconds.
+READS_PER_CHAR_MAX = 256
+#: The long Bearer runs the rule reads: a token repeated, and the same run ending in a
+#: credential word and its separator, or glued to a credential flag, which
+#: `_bearer_refusal` refuses (each reaches it once, with the whole run).
+BEARER_RUNS = [pytest.param(token, "", id=token) for token in ("a_", "token", "secret_", "--a", "x.")] + [
+    pytest.param("a_", "_token: SECRET7value", id="a_+word"),
+    pytest.param("a_", "--api-key SECRET7value", id="a_+flag")]
+#: The instruction count where the CPU's counter is exposed to the kernel: not in a
+#: virtual machine that hides it, as CI's `macos-15` runners do (runs 40399635625 and
+#: 40416019815 skipped the instruction test on both interpreters).
+INSTRUCTIONS = pytest.mark.skipif(not counts_instructions(), reason="no CPU instruction counter here")
+
+
+@pytest.mark.parametrize(("token", "suffix"), BEARER_RUNS)
+def test_the_bearer_rule_keeps_scrubbing_linear(token, suffix):
+    """C-23.14 / C-25.5: `_bearer_refusal` reads a run's end once, and release/217's lazy
+    lookahead (`scrub_release._BEARER_RE`, whose pipeline every mode runs first) reads a
+    token once per position; four times the input must not do quadratic work (D-SCR1's
+    `_SENSITIVE_KEY` in the lookahead would, and so would a refusal that tried every
+    prefix of the run). Counted, not timed (D-SCRUB-LINEAR: the CPU ratio failed shared
+    runners at about 9x on code no PR had touched): what each regex call of both
+    pipelines reads, and the lines of `subfleet` it runs, are the same on every run.
+    They miss C-level `str` work and a regex call C code makes on a pattern no stand-in
+    holds (`tests.scrub_work`); the instruction test below sees those. Once the Bearer
+    rule redacts a plain run, the later passes read `Bearer [REDACTED]`, so its lines
+    stay flat but for `x.`; a refused run is left to the named-value and flag rules,
+    whose lines grow with it (3.7x and 3.4x). Neither test sees growth like n log n
+    (about 4.7x here) or shapes other than these runs."""
+    measured = _scrubber_probe(f"token, suffix = {token!r}, {suffix!r}\nreads_per_char = {READS_PER_CHAR_MAX}\n" + '''
+import json, sys
+from tests.scrub_work import scrub_work
+sys.setrecursionlimit(100_000)          # the emulator nests a generator per group repeat
+work = {}
 for size in (2048, 8192):
-    text = "Bearer " + token * (size // len(token))
-    start = time.thread_time()
-    for _ in range(8):
-        scrub_secrets(text)
-    samples[size] = (time.thread_time() - start) / 8
-print(json.dumps(samples))
+    work[size] = scrub_work("Bearer " + token * (size // len(token)) + suffix, reads_per_char=reads_per_char)
+    if work[size]["over"]:
+        break
+print(json.dumps(work))
 ''')
-    assert measured["8192"] < max(measured["2048"], 0.0001) * 8, measured
+    assert [size["over"] for size in measured.values()] == [None, None], measured
+    assert [size["same"] for size in measured.values()] == [True, True], measured
+    assert [size["uncounted"] for size in measured.values()] == [[], []], measured
+    small, large = measured["2048"], measured["8192"]
+    assert small["lines"] > 0, measured                     # the trace saw the scrubber
+    for count in ("reads", "lines"):
+        assert large[count] < small[count] * COUNT_GROWTH_MAX, (count, measured)
+
+
+@INSTRUCTIONS
+@pytest.mark.parametrize(("token", "suffix"), BEARER_RUNS)
+def test_the_bearer_scrub_retires_linear_instructions(token, suffix):
+    """C-23.14 / C-25.5, what the counts above cannot see (#266 review r1, P2-1): C-level
+    `str` work, and a regex call C code makes on a pattern no stand-in holds. The
+    instructions the CPU retires for the plain scrub count both, and grow as the counts
+    do. Unlike CPU time they barely move with the runner's load. A cheap quadratic
+    hides under the scrub's linear work at the smaller sizes and shows as they grow: a
+    slice per identifier grows 4.3x, 5.4x and 8.4x over the steps from 2,048 to 131,072
+    since #239 put release's pipeline before the head's (4.6x and 6.1x over the first
+    two before; #266 review r2, P3-2, and round 4). So the test goes on to the next size
+    after each linear pair, and stops at the first pair past the bound, before a
+    catastrophic scrub outruns the probe's timeout; at 131,072 the four calls
+    `fewest_instructions` makes of the linear scrub took 0.08 to 0.42 s of CPU, and up
+    to 1.6 s of wall time, on the lanes' host (#266 review r4). CI's virtual machines
+    hide the counter, so CI skips this test: there only the counts above run."""
+    measured = _scrubber_probe(f"token, suffix = {token!r}, {suffix!r}\n" + '''
+import json
+from tests.cpu_scaling import COUNT_GROWTH_MAX, fewest_instructions
+counts = {}
+for size in (2048, 8192, 32768, 131072):
+    counts[size] = fewest_instructions(lambda text="Bearer " + token * (size // len(token)) + suffix: scrub_secrets(text))
+    if size // 4 in counts and counts[size] >= counts[size // 4] * COUNT_GROWTH_MAX:
+        break
+print(json.dumps(counts))
+''')
+    counts = list(measured.values())
+    ratios = [large / small for small, large in zip(counts, counts[1:])]
+    assert all(ratio < COUNT_GROWTH_MAX for ratio in ratios), ([round(ratio, 2) for ratio in ratios], measured)
+    assert len(counts) == 4, measured
+
+
+@CI
+@given(text=st.one_of(TEXTS, st.randoms(use_true_random=False).map(lambda rng: _fuzz_text(rng)[0])))
+def test_the_counted_scrub_is_the_scrub(text):
+    """The count above changes nothing it counts (a differential, `tests.scrub_work`):
+    over the key-order grammar and the seeded fuzz, the counted scrub gives the plain
+    scrub's output, each call's matches `re`'s own, and the profile names no regex call
+    made from Python past the count, nor any call to `re`'s API. The budget only bounds
+    the run: through both pipelines these short texts read up to about 220 a character
+    (221 for `aaaaaa`), where each pass's fixed reads outweigh the text (#266 review r4)."""
+    work = scrub_work(text, reads_per_char=4096)
+    assert (work["over"], work["same"], work["uncounted"]) == (None, True, []), (text, work)
