@@ -26,8 +26,8 @@ import re
 import socket
 import stat
 import struct
+import sys
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -134,7 +134,7 @@ def still_archived(entry: dict[str, Any], st: os.stat_result, parent_fd: int, na
             return False
         return digest == entry["sha256"] and same_content_signature(before, os.fstat(fd))
     finally:
-        os.close(fd)
+        _close_all((fd,))
 
 
 def same_content_signature(a: os.stat_result, b: os.stat_result) -> bool:
@@ -167,22 +167,29 @@ def open_dir(name: str | os.PathLike, *, dir_fd: int | None = None,
             if (st.st_dev, st.st_ino) != (expect.st_dev, expect.st_ino):
                 raise TreeError("swapped", f"{name} changed while it was opened")
     except BaseException:
-        os.close(fd)
+        _close_all((fd,))
         raise
     return fd
 
 
 def _close_all(descriptors: Iterable[int]) -> None:
-    """Close every owned descriptor, then propagate the first closing error."""
+    """Close each owned descriptor once, preserving an active exception or cancellation."""
+    pending = sys.exception()
     first: BaseException | None = None
+    cancelled: BaseException | None = None
     for fd in descriptors:
         try:
             os.close(fd)
         except BaseException as exc:
             if first is None:
                 first = exc
-    if first is not None:
-        raise first
+            if cancelled is None and not isinstance(exc, (Exception, GeneratorExit)):
+                cancelled = exc
+    if pending is None:
+        if first is not None:
+            raise first
+    elif isinstance(pending, (Exception, GeneratorExit)) and cancelled is not None:
+        raise cancelled
 
 
 def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.stat_result, int, str | None]]:
@@ -233,7 +240,7 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
                     stack.append((child, path, child_names))
                 except BaseException:
                     if not stack or stack[-1][0] != child:
-                        os.close(child)
+                        _close_all((child,))
                     raise
     finally:
         _close_all(fd for fd, _, _ in stack if fd != root_fd)
@@ -258,7 +265,7 @@ def tree_bytes(path: Path, check: Check | None = None) -> int:
         return sum(st.st_size for rel, st, _, _ in walk(fd, check)
                    if rel and not stat.S_ISDIR(st.st_mode))
     finally:
-        os.close(fd)
+        _close_all((fd,))
 
 
 # --- reading, hashing, cloning ---------------------------------------------------
@@ -339,7 +346,7 @@ def clone_or_copy(src_fd: int, dst_dir_fd: int, name: str, check: Check | None =
             offset += len(chunk)
         fullsync(out)
     finally:
-        os.close(out)
+        _close_all((out,))
     return "copy"
 
 
@@ -505,10 +512,10 @@ def _package_or_scope(parent_fd: int, name: str, st: os.stat_result) -> bool:
                 if not _regular(inner, "package.json"):
                     return False
             finally:
-                os.close(inner)
+                _close_all((inner,))
         return bool(names)
     finally:
-        os.close(fd)
+        _close_all((fd,))
 
 
 _VENV = _Layout("venv", {
@@ -587,7 +594,7 @@ def _layout(parent_fd: int, name: str, st: os.stat_result, layout: _Layout) -> R
             else:
                 extra.append(child)
     finally:
-        os.close(fd)
+        _close_all((fd,))
     return Regenerable(layout.kind, children, tuple(extra)) if children else None
 
 
@@ -632,7 +639,7 @@ def bytecode(parent_fd: int, name: str, st: os.stat_result) -> bool:
     except OSError:
         return False
     finally:
-        os.close(fd)
+        _close_all((fd,))
     return (now.st_dev, now.st_ino) == (st.st_dev, st.st_ino) and len(head) == 4 and head[2:] == b"\r\n"
 
 
@@ -666,7 +673,7 @@ def installed_files(venv_fd: int, limit: int = 64 << 20) -> dict[str, tuple[str,
                         continue
                     record = _small(fd, "RECORD", limit)
                 finally:
-                    os.close(fd)
+                    _close_all((fd,))
                 if record is None:
                     continue
                 found[f"{base}/{dist}/RECORD"] = (RECORD_SELF, None)
@@ -684,7 +691,7 @@ def installed_files(venv_fd: int, limit: int = 64 << 20) -> dict[str, tuple[str,
                     vouched = (digest, size)
                     found[path] = vouched if found.get(path, vouched) == vouched else None
         finally:
-            os.close(sp)
+            _close_all((sp,))
     return {path: v for path, v in found.items() if v is not None}
 
 
@@ -709,7 +716,7 @@ def record_complete(dist_fd: int, installed: dict[str, tuple[str, int | None]], 
             try:
                 digest, _ = read_hashes(fd, os.fstat(fd).st_size, None)
             finally:
-                os.close(fd)
+                _close_all((fd,))
             if digest != vouched[0]:
                 return False
     except (OSError, TreeError):
@@ -740,11 +747,11 @@ def _site_packages(venv_fd: int) -> list[str]:
                         if _is_dir(inner, "site-packages"):
                             out.append(f"{lib}/{name}/site-packages")
                     finally:
-                        os.close(inner)
+                        _close_all((inner,))
         except (OSError, TreeError):
             continue
         finally:
-            os.close(fd)
+            _close_all((fd,))
     return out
 
 
@@ -941,7 +948,7 @@ class RegenerableWalk:
                 return _Rule(kind_, rel, installed=installed_files(fd))
             return _Rule(kind_, rel)
         finally:
-            os.close(fd)
+            _close_all((fd,))
 
     def _start(self, rel: str, record: dict[str, Any], rule: _Rule, st: os.stat_result, parent: int,
                name: str) -> bool:
@@ -954,7 +961,7 @@ class RegenerableWalk:
                 try:
                     self._rule = _Rule("venv", rel, installed=installed_files(fd))
                 finally:
-                    os.close(fd)
+                    _close_all((fd,))
             except (OSError, TreeError):
                 self._rule = _Rule("tox", rel)
         dropped = self._judge(rel, st, parent, name)     # a directory is only noted, for `finish`
@@ -1023,7 +1030,7 @@ class RegenerableWalk:
                 try:
                     self._wholes[key] = record_complete(fd, rule.installed or {}, f"{info}/RECORD")
                 finally:
-                    os.close(fd)
+                    _close_all((fd,))
         return self._wholes[key]
 
     def _drop(self, record: dict[str, Any], st: os.stat_result, parent: int, name: str) -> None:
@@ -1043,7 +1050,7 @@ class RegenerableWalk:
                     opened.append(fd)
                 except BaseException:
                     if not opened or opened[-1] != fd:
-                        os.close(fd)
+                        _close_all((fd,))
                     raise
                 if _exists(".git", fd):
                     return True
@@ -1072,9 +1079,8 @@ def _open_path(dir_fd: int, path: str) -> int:
         return fd
     except BaseException:
         # Only fd is still owned; never retry the previous descriptor's close.
-        with suppress(BaseException):
-            if fd != dir_fd:
-                os.close(fd)
+        if fd != dir_fd:
+            _close_all((fd,))
         raise
 
 
@@ -1093,7 +1099,7 @@ def _small(dir_fd: int, name: str, limit: int) -> bytes | None:
             chunks.append(chunk)
         return b"".join(chunks)
     finally:
-        os.close(fd)
+        _close_all((fd,))
 
 
 def _regular(dir_fd: int, name: str) -> bool:
@@ -1116,9 +1122,9 @@ def _marker(parent_fd: int, directory: str, st: os.stat_result, name: str, limit
                 return None
             return os.read(handle, limit)
         finally:
-            os.close(handle)
+            _close_all((handle,))
     finally:
-        os.close(fd)
+        _close_all((fd,))
 
 
 # --- durability ------------------------------------------------------------------
@@ -1136,7 +1142,7 @@ def sync_path(path: Path) -> None:
     try:
         fullsync(fd)
     finally:
-        os.close(fd)
+        _close_all((fd,))
 
 
 def write_atomic(path: Path, data: bytes, mode: int = 0o600) -> None:
@@ -1153,7 +1159,7 @@ def write_atomic(path: Path, data: bytes, mode: int = 0o600) -> None:
             view = view[os.write(fd, view):]
         fullsync(fd)
     finally:
-        os.close(fd)
+        _close_all((fd,))
     os.replace(temporary, path)
     sync_path(path.parent)
 
@@ -1173,7 +1179,7 @@ def read_regular(path: Path, limit: int = 1 << 30) -> bytes:
                 raise OSError(errno.EFBIG, "file too large", str(path))
             chunks.append(chunk)
     finally:
-        os.close(fd)
+        _close_all((fd,))
 
 
 def remove_own_tree(path: Path) -> None:
@@ -1186,7 +1192,7 @@ def remove_own_tree(path: Path) -> None:
     try:
         _remove_children(fd)
     finally:
-        os.close(fd)
+        _close_all((fd,))
     os.rmdir(path)
 
 
@@ -1199,7 +1205,7 @@ def _remove_children(fd: int) -> None:
             try:
                 _remove_children(child)
             finally:
-                os.close(child)
+                _close_all((child,))
             os.rmdir(name, dir_fd=fd)
         else:
             os.unlink(name, dir_fd=fd)
@@ -1245,7 +1251,7 @@ class Reclaim:
         try:
             self._empty(fd, "")
         finally:
-            os.close(fd)
+            _close_all((fd,))
         try:
             os.rmdir(root)
         except OSError as exc:
@@ -1292,7 +1298,7 @@ class Reclaim:
                     os.fchmod(child, mode | 0o700)     # 0555 module caches (design 5.7)
                 self._empty(child, path)
             finally:
-                os.close(child)
+                _close_all((child,))
             try:
                 os.rmdir(name, dir_fd=fd)
             except OSError as exc:
@@ -1343,8 +1349,7 @@ class Reclaim:
                 os.close(parent)
             return fd
         except BaseException:
-            with suppress(BaseException):
-                os.close(fd)
+            _close_all((fd,))
             raise
 
     def _set_aside_fd(self, fd: int, name: str, path: str, reason: str) -> None:
@@ -1367,14 +1372,14 @@ class Reclaim:
             self.errors.append({"path": path, "error": exc.strerror or str(exc)})
             self.kept.append({"path": path, "reason": reason, "where": "in place"})
         finally:
-            os.close(target)
+            _close_all((target,))
 
     def _set_aside(self, parent: Path, name: str, path: str, reason: str) -> None:
         fd = open_dir(parent)
         try:
             self._set_aside_fd(fd, name, path, reason)
         finally:
-            os.close(fd)
+            _close_all((fd,))
 
 
 def _exists(name: str, dir_fd: int) -> bool:
