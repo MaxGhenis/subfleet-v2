@@ -1972,8 +1972,9 @@ pw_prep_awk="$pw_lib_awk"'
     # words of the loop, so neither the roots of the loop nor those of the value are lost. r9 decision 1: where
     # that reset does not apply (vrp: a compound command open, a keyword before it, an assignment that may not
     # last, or a command that defines a function), the value joins the words of the loop too, since the shell may
-    # hold it when the loop variable is read
-    if (mode == "prep" && !depth && t > nt) {
+    # hold it when the loop variable is read. r10 decision 1: inside a substitution or a nested script too (depth),
+    # where st["vt"] is 0, so there the value always joins
+    if (mode == "prep" && t > nt) {
       vrp = (!st["ka"] && !ld && st["vt"] && !FN)
       for (k = 1; k <= nt; k++) {
         if (rd[k] || !match(tk[k], /^[A-Za-z_][A-Za-z0-9_]*=/)) continue

@@ -5922,3 +5922,48 @@ def test_review_r9_pins_r9s_unpinned_readings(tmp_path):
             [c for c in REVIEW_R9_STRICTER + REVIEW_R9_ALLOWED if walks[c]]) == ([], [])
     out = judged(HOOK, [R9_DQ_DENIED[0]], S_)[R9_DQ_DENIED[0]]
     assert REVIEW_R9_CAP_MESSAGE in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+# ---------------------------------------------------------------- r10: review r9's findings
+
+# Round r10 (2026-10-30) builds the hub's decisions on review r9 (REQUEST_CHANGES at b229383fc, all P3). Each pin is
+# review r9's input or this round's probe, judged through the whole hook in the fixture:
+#   1. the join reaches inside a substitution or a nested script: there a value assigned to a loop variable joins the
+#      loop's words too (P3-1, the depth gate dropped);
+#   2. in a command that defines a function, a value a function body assigns before the loop joins the words of a
+#      later loop over that name (P3-2);
+#   3. the doc says where the value joins and lists the over-blocks (P3-3).
+#: Decision 1: review r9's seven P3-1 inputs: after a scoped loop, a root assigned inside a quoted $(...), a bash -c
+#: or eval script, a heredoc script, or after a loop inside a substitution. r9, r8, r7 and the installed hook allow
+#: each, and both shells walk / in each ...
+R10_NESTED_DENIED = [
+    'echo "$(' + R9_LS + '; d=/; ' + R7V_R + ')"',
+    'echo "$(' + R9_LS + '; if true; then d=/; fi; ' + R7V_R + ')"',
+    R9_LS + '; echo "$(d=/; ' + R7V_R + ')"',
+    "bash -c '" + R9_LS + "; d=/; " + R7V_R + "'",
+    "eval '" + R9_LS + "; d=/; " + R7V_R + "'",
+    "bash <<'EOF'\n" + R9_LS + "\nd=/\n" + R7V_R + "\nEOF",
+    'echo "$(for e in x; do ' + R9_LS + '; done; d=/; ' + R7V_R + ')"',
+]
+#: ... and, this round's probes found, an eval of a plain assignment, whose argument the prep reads as a nested
+#: script: r9, r8, r7 and the installed hook allow each, and both shells walk the root (eval runs it in the shell
+#: itself) ...
+R10_EVAL_DENIED = [R9_LS + "; eval d=/; " + R7V_R, R9_LS + "; eval 'd=/'; " + R7V_R,
+                   R9_LS + "; eval d=~/.subfleet; " + R7V_R]
+#: ... a depth bound that joins there disarms nothing (it never runs, so both shells walk the loop's root) ...
+R10_NESTED_BOUND_DENIED = ['echo "$(' + R7V_L + '; false && d=--max-depth=1; ' + R7V_R + ')"']
+#: ... while an assignment in a quoted $(...) that names no searcher stays allowed (the hub's control: the subshell
+#: keeps the value, and neither shell walks a root), and so does a scoped value assigned in a nested script.
+R10_NESTED_ALLOWED = [
+    R9_LS + '; echo "$(d=/)"; ' + R7V_R,
+    'echo "$(' + R9_LS + '; d=src; ' + R7V_R + ')"',
+    "bash -c '" + R9_LS + "; d=lib; " + R7V_R + "'",
+]
+
+
+def test_r10_a_value_joins_inside_a_substitution_or_a_nested_script():
+    """Decision 1: review r9's seven P3-1 inputs, an eval of a plain assignment and a joined depth bound in a
+    substitution are denied; an assignment in a quoted $(...) that names no searcher, and a scoped value in a nested
+    script, stay allowed."""
+    assert r5_denied([(c, S_) for c in R10_NESTED_DENIED + R10_EVAL_DENIED + R10_NESTED_BOUND_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R10_NESTED_ALLOWED]) == []
