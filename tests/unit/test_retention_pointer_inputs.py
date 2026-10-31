@@ -40,6 +40,7 @@ def case(**changes):
 
 
 def check_input(base, data):
+    base = base.resolve()
     owner = repo(base / "owner")
     commit = git("-C", owner, "rev-parse", "HEAD").stdout.rstrip(b"\n")
     checkout = base / "checkout"
@@ -194,11 +195,11 @@ def check_named_own_input(base, data):
     # These inputs deliberately all describe repositories Git actually reads.
     assert store.returncode == read.returncode == 0
     assert read.stdout == b"owner"
+    assert not recorded.get("incomplete"), recorded
     actual = folders.canonical(checkout / os.fsdecode(store.stdout.rstrip(b"\n")))
-    assert actual in recorded.get("git", []) or recorded.get("incomplete"), recorded
+    assert actual in recorded.get("git", []), recorded
     if data["own"] != "plain":
-        assert (folders.canonical(owner_objects) in recorded.get("git", [])
-                or recorded.get("incomplete")), recorded
+        assert folders.canonical(owner_objects) in recorded.get("git", []), recorded
     return dict(input=data, git_path_rc=store.returncode, read_rc=read.returncode,
                 git_path=os.fsdecode(store.stdout.rstrip(b"\n")), outcome="reads-owner",
                 incomplete=bool(recorded.get("incomplete")))
