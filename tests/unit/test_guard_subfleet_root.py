@@ -6732,7 +6732,10 @@ def test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget(hooks
 # Round r12d (2026-10-31) builds the hub's decision on the door round r12 named and left unexecuted: a shell xargs runs
 # with -c and no script, or with a -c script that only runs its arguments ("$@"), runs what xargs reads, the text every
 # earlier stage of the pipe writes, and that text now costs steps of the shared budget (spend), as text piped into a
-# shell has since r12. (The hub read every other script( site: each reads the command's own text or already spends.)
+# shell has since r12. (The hub read the seven script( sites in simple() and execs, and review r12 read the other four,
+# in spans() and prep(). Each reads the command's own text, already spends, or reads what a substitution's commands
+# write (subout). The prep reads that text with no script door open, so it is bounded by the substitution's own text
+# and printf's charged rounds.)
 
 
 def r12d_xargs(nbytes: int, n: int, form: str = " | xargs -0 bash -c") -> str:

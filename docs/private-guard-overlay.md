@@ -295,7 +295,7 @@ through".
 Its r12 (2026-10-30) closes the findings of the hub's review r11. What find's `-exec` `{}` stands for
 costs steps of the shared 20,000-step budget as a loop variable's words do, a step for each word and
 for each 16 bytes (decision 1): r11 charged nothing for it, so 300 roots and 300 `{}` (2.3 KB) cost
-26 s of CPU and 400 of each ran past 120 s, and both are now too complex to judge in about 0.2 s;
+26 s of CPU and 400 of each ran past 120 s, and both are now too complex to judge in 0.10–0.20 s;
 100 of each are still read. The same charge now applies to each round of a `printf` format after the
 first, to the script `eval` or `source` runs, and to the script a shell runs from a pipe, a
 substitution or its arguments (decision 2). Before it, a 16 KB format repeated for 64 words and piped
@@ -310,9 +310,12 @@ shell xargs runs has `-c` and no script, or a `-c` script that only runs its arg
 -c '"$@"' _`. Before it, the hook took 51 s to read 8 KB echoed through 1,000 `| xargs -0 bash -c`
 stages and ran past 75 s on 32 KB through 1,500, where its timeout is 60 s (the hub's runs at
 `307e2373c`); it now denies those rows, and 1 KB through 100 such stages, as too complex to judge in
-under 0.7 s of CPU. It still reads 1 KB through 10, and still allows `echo 'rg -n foo src' | xargs -0
-bash -c`. The message's "piped into a shell" covers this text. The hub read every other place where
-the prep reads a script: each reads the command's own text or already spends.
+under 1 s of CPU (0.37–0.79 s across r12d's and review r12's runs). It still reads 1 KB through 10, and still allows `echo 'rg -n foo src' | xargs -0
+bash -c`. The message's "piped into a shell" covers this text. The hub read the seven places in
+`simple()` and `execs` where the prep reads a script, and review r12 read the other four, in
+`spans()` and `prep()`. Each one reads the command's own text, already spends, or reads what a
+substitution's commands write (`subout`). The prep reads that text with no script door open, so it
+is bounded by the substitution's own text and printf's charged rounds.
 
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
@@ -410,6 +413,10 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     `find 2>&1 / -name x`, `rg --files 2>/dev/null ~/.subfleet`, `rg --files &>/dev/null ~/.subfleet`,
     `rg --files <<EOF ~/.subfleet⏎x⏎EOF` and `rg --files $((1<<2)) ~/.subfleet` pass, and both shells
     walk the root; the installed hook lets them through too (`REVIEW_R11_OPEN`).
+  - A raw 0x01 byte in the text a pipe gives a shell (review r12; older than r12): `echo '<0x01>; rg
+    --files ~/.subfleet' | bash`, the same through `| xargs -0 bash -c`, and `printf '<0x01>; %s\n'
+    'rg --files ~/.subfleet' | bash` pass, and both shells walk the root. The same byte in `eval '…'`,
+    in `bash -c '…'` and at the top of the command is denied. No lane writes this byte.
   - Loop shapes other than a `for` list or a piped `while read` whose variable is a searcher's whole
     operand: `while read d; do …; done < list`, `until`, `select`, a loop variable in a nested
     script, `for d in $(…)` (the prep splits the word at its `(`), and `xargs -a <(…)` or a `>(…)`;

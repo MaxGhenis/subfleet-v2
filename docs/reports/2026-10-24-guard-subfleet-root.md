@@ -2529,6 +2529,17 @@ All nine were killed, and the fence passed on each. The earlier 119 mutants didn
 - R ran in the foreground. HT, H1, HY, MB, HX's waiter, its first direct try and the HX1-HX3 chain ran in the tool's
   background mode, each polled to completion in the foreground, and no process of mine outlived its run.
 
+### Review r12 and the text round (2026-10-31)
+
+Review r12 (lane job 20261031-025509-pr257-review-r12, at `d62106699`) judged rounds r12 and r12d together and found no P1 or P2. Its holds: this file 158 passed and 2 skipped (S4); the overlay and TRUST tests 127 passed; the three guards 63 passed. All 13 mutants it ran were killed, the recounts reproduce against r11 and r12, and interleaved runs gave 1.45–1.52× (1.48× in the test).
+
+It requested changes for two P3s in r12d's text. The hub applied its corrected lines and changed neither the hook nor TRUST:
+
+- **The audit sentence.** r12d said the hub read every other place where the prep reads a script, and that each reads the command's own text or already spends. The hub read seven; review r12 read the other four, in `spans()` and `prep()`. `:1812` and `:2343` read the command's own text. `:1811` and `:2348` read what a substitution's commands write (`subout`). `subout` calls `prep` with `noext` set, which closes the script doors, so the substitution's own text and printf's charged rounds bound that output.
+- **The overlay doc's "under 0.7 s".** r12d's HX2 run measured 0.79 s on 32 KB through 1,500 stages. The doc now reads "under 1 s of CPU (0.37–0.79 s across r12d's and review r12's runs)".
+
+**Listed difference, older than r12:** a raw 0x01 byte in the text a pipe gives a shell. `echo '<0x01>; rg --files ~/.subfleet' | bash`, the same through `| xargs -0 bash -c`, and `printf '<0x01>; %s\n' 'rg --files ~/.subfleet' | bash` pass at head, r12 and r11, and both shells walk the root. The same byte in `eval '…'`, in `bash -c '…'` and at the top of the command is denied. No lane writes this byte. The overlay doc lists it.
+
 ## Invariants and how they were checked
 
 `tests/unit/test_guard_subfleet_root.py` states each in its docstring and checks it.
