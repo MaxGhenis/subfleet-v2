@@ -1,0 +1,13 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 04:16:06Z slot A load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing] _
+tests/fake/test_retention_dependency_review_r5.py:310: in test_pointer_path_whitespace_keeps_the_storage_git_reads
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r5-commondir-whitespace-stripping-restored/pytest-of-maxghenis/pytest-...h_whitespace_k0/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48697, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]
+1 failed in 5.45s
+{"name": "mutant-r5-commondir-whitespace-stripping-restored", "start": "2026-10-31T04:16:06.924313+00:00", "load": [26.62646484375, 31.837890625, 34.8203125], "seconds": 6.368323749999945, "exit": 1}

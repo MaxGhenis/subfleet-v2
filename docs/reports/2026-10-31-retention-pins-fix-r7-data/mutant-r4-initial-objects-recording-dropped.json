@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r4-initial-objects-recording-dropped",
+  "start": "2026-10-31T04:15:59.695591+00:00",
+  "load": [
+    26.91455078125,
+    32.07080078125,
+    34.93701171875
+  ],
+  "args": [
+    "--mutant",
+    "r4-initial-objects-recording-dropped",
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.538691958000527,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.2346891669994875,
+      "failure": "tests/fake/test_retention_dependency_review_r4.py:250: in test_stable_objects_alias_keeps_the_tree_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r4-initial-objects-recording-dropped/pytest-of-maxghenis/pytest-0/test...objects_alias_keep0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48662, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0023318339999605087,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "c4d512dceaa4af5e1fc9544b74b2df1b1e1d1ceaa7ddc9b3a0877c4ff717301e"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ],
+  "end": "2026-10-31T04:16:05.571695+00:00",
+  "seconds": 5.875793791999968,
+  "peak_rss_mib": 113.390625,
+  "exit": 1
+}

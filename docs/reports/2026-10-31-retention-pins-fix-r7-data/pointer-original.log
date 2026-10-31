@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 02:35:54Z slot B load 
+.                                                                        [100%]
+1 passed in 98.10s (0:01:38)
+{"name": "pointer-original", "start": "2026-10-31T02:35:56.597525+00:00", "load": [27.2900390625, 19.6044921875, 11.5087890625], "seconds": 100.52672525000003, "exit": 0}

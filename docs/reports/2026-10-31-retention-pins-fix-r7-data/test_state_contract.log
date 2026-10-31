@@ -1,0 +1,35 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 03:41:17Z slot A load 
+...............................................................          [100%]
+63 passed in 54.34s
+{"name": "test_state_contract", "start": "2026-10-31T03:41:24.624475+00:00", "load": [43.732421875, 40.7998046875, 42.333984375], "seconds": 58.53120520899938, "exit": 0}

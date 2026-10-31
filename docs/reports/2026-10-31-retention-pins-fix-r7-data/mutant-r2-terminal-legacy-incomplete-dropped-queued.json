@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T02:56:11.851772+00:00",
+  "args": [
+    "--mutant",
+    "r2-terminal-legacy-incomplete-dropped",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ]
+}

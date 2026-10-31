@@ -1,0 +1,46 @@
+{
+  "name": "dependency-properties-1",
+  "start": "2026-10-31T04:21:08.658783+00:00",
+  "load": [
+    33.82080078125,
+    32.841796875,
+    34.32958984375
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "python_pins_and_transaction"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.12103370899967558,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 50.00736216699988,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004754999999931897,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "end": "2026-10-31T04:22:08.086483+00:00",
+  "seconds": 59.46415787499973,
+  "peak_rss_mib": 125.984375,
+  "exit": 0
+}

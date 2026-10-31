@@ -113,12 +113,13 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
     or names, that directory's common directory, and the object directories its
     alternates name, each spelled once (`folders.canonical`).
 
-    Read from the files git reads, without running git, so it costs a few stats
-    and no process, and a `.git` file that names a directory no longer there
-    still names it: a linked checkout's `gitdir:` (relative to the folder that
+    Read checkout metadata and conservative storage hints without running git.
+    A `.git` file that names a directory no longer there still names it: a
+    linked checkout's `gitdir:` (relative to the folder that
     holds it), its admin directory's `commondir` (relative to that directory;
     with absent or CR/LF-only `commondir`, a named admin under `worktrees/`
-    keeps both its own store and the inferred repository two levels up), and
+    keeps its own store plus a hint two levels up: that parent's folder,
+    resolved objects and alternates, without reading its pointers), and
     `objects/info/alternates` (relative to the objects directory), followed five
     levels deep as git follows them. Empty outside a checkout. What this cannot
     read is left out: environment variables (`GIT_DIR`, `GIT_COMMON_DIR`) and
@@ -234,8 +235,9 @@ def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | Non
     if pointer:
         common = aliases.resolve(os.path.join(gitdir, pointer))
     elif named and os.path.basename(os.path.dirname(gitdir)) == "worktrees":
-        # The parent hint protects a linked admin that lost its registration;
-        # Git can also use a complete repository at this very pathname.
+        # Git can use a complete repository at the named admin pathname.
+        # The parent hint protects a linked admin that lost its registration:
+        # keep its folder, objects and alternates without probing its pointers.
         inferred = os.path.dirname(os.path.dirname(gitdir))
         own_objects = os.path.join(gitdir, "objects")
         own = aliases.resolve(own_objects)

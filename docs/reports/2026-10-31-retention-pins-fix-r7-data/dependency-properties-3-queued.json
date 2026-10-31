@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T04:24:08.375140+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "submitted_dependencies_wait"
+  ]
+}

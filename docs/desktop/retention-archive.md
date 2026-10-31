@@ -632,12 +632,15 @@ their targets and `commondir` targets lose only trailing CR and LF, preserving
 all other pathname bytes, including leading/trailing spaces and tabs.
 If `commondir` is absent or blank after CR/LF removal and a named admin sits
 under `worktrees/<id>`, discovery records both its own objects/alternates and
-the inferred parent's storage. Both stores' original spellings are resolved
-and revalidated. Pointer reads keep a 64 KiB bound: oversized files and every
-other nonmissing `OSError` or `ValueError` report incomplete evidence. Only
+the inferred parent's folder, resolved objects and alternates. The parent is
+a hint: discovery does not read its pointers. Both object stores' original
+spellings are resolved and revalidated. Pointer reads keep a 64 KiB bound:
+oversized files and every other nonmissing `OSError` or `ValueError` report incomplete evidence. Only
 `FileNotFoundError` on a path that does not lexically exist, or
-`NotADirectoryError`, counts as missing. A dangling link is incomplete; a stale
-gitfile whose target vanished remains routine and does not globally pin trees.
+`NotADirectoryError`, counts as missing. A dangling pointer link is incomplete.
+A vanished gitfile target alone remains routine, including when its unused
+parent has an unrelated `commondir` directory. Failures reading the parent's
+alternates can still globally pin trees (D-R7-1 below).
 Alternates files are streamed to their end with
 no whole-file cap and a 1 MiB per-line bound (256 times a 4096-byte PATH_MAX).
 Read errors, overlong lines, invalid quotes and detected changes during discovery
@@ -702,12 +705,19 @@ with it.
 
 ### Listed differences
 
-Review r6 executed these older readers outside dependency discovery; they remain unchanged.
+Review r6 executed D-R6-1 through D-R6-4 in older readers outside dependency
+discovery; those readers remain unchanged. Fix round r7 also records D-R7-1
+within discovery.
 
 - **D-R6-1:** Outside discovery, archive and survey retain legacy whitespace parsing: some valid spaced admin/common pointer spellings are missed or select a trimmed twin.
 - **D-R6-2:** Nested gitfile classification still strips target bytes and can treat a whitespace-suffixed external admin as internal.
 - **D-R6-3:** Registration cleanup still strips common-directory output and can act on a whitespace target's trimmed twin.
 - **D-R6-4:** Bundle verification still strips common targets when constructing its alternate; a complete pack can verify without using that alternate.
+- **D-R7-1:** An unused inferred parent's alternates still report read failures.
+  A 1,048,577-byte line exceeds the 1 MiB bound and globally pins trees while
+  the borrower is live, even when Git uses only the named admin's own store.
+  This conservative behavior predates fix r6; the parent's pointers are no
+  longer probed, but its alternates remain part of the storage hint.
 
 ## 11. Accounting
 

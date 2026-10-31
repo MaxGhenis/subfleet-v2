@@ -22,7 +22,7 @@ for key in ('layout', 'prefix', 'target', 'common', 'own', 'named', 'padding', '
     before = s['dimensions']['original'].get(key, {})
     after = s['dimensions']['focused'].get(key, {})
     for value in dict.fromkeys([*before, *after]):
-        lines.append(f'| {key} | {value} | {before.get(value, "—")} | {after.get(value, "—")} |')
+        lines.append(f'| {key} | {value} | {before.get(value, 0 if before else "—")} | {after.get(value, 0 if after else "—")} |')
 (DATA / 'dimension-table.md').write_text('\n'.join(lines) + '\n')
 lines = ['| Mutant | Named killer | Killed | Same assertion as r6 |', '|---|---|---|---|']
 for m in s['mutants']:

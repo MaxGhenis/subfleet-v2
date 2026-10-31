@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r3-post-traversal-alias-check-dropped",
+  "start": "2026-10-31T03:14:20.887286+00:00",
+  "load": [
+    35.107421875,
+    39.81201171875,
+    44.42626953125
+  ],
+  "args": [
+    "--mutant",
+    "r3-post-traversal-alias-check-dropped",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.299556666999706,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 4.806584625000141,
+      "failure": "tests/fake/test_retention_dependency_review_r3.py:66: in test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree\n    assert \"owner\" not in result[\"pruned\"], (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r3-post-traversal-alias-check-dropped/pytest-of-maxghenis/pytest-0/tes...rent_symlink_s0/old/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48703, 'bytes_after': 0, ...})\nE   assert 'owner' not in ['owner']"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0029619169999932637,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "975ee950301f35b8b5cb31756a10b14c6880a9b971483a744a379629ae3de1a6"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "end": "2026-10-31T03:14:35.848531+00:00",
+  "seconds": 14.960858083000403,
+  "peak_rss_mib": 111.484375,
+  "exit": 1
+}

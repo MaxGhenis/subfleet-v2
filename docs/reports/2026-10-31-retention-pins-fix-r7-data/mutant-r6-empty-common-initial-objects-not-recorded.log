@@ -1,0 +1,97 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 04:24:46Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf] _
+tests/fake/test_retention_dependency_review_r6.py:45: in test_empty_common_target_keeps_the_own_store_git_reads
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r6-empty-common-initial-objects-not-recorded/pytest-of-maxghenis/pytes...ommon_target_keeps0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49077, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]
+1 failed in 6.45s
+{"name": "mutant-r6-empty-common-initial-objects-not-recorded", "start": "2026-10-31T04:24:47.695094+00:00", "load": [26.06298828125, 29.55029296875, 32.59912109375], "seconds": 7.393636499999957, "exit": 1}

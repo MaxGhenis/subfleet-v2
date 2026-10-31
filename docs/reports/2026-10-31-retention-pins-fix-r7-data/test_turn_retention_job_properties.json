@@ -1,0 +1,44 @@
+{
+  "name": "test_turn_retention_job_properties",
+  "start": "2026-10-31T03:39:05.858154+00:00",
+  "load": [
+    39.76220703125,
+    41.150390625,
+    42.83544921875
+  ],
+  "args": [
+    "tests/fake/test_turn_retention_job_properties.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3038566670002183,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 29.25644845899933,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007075840003381018,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "end": "2026-10-31T03:39:51.390071+00:00",
+  "seconds": 45.53072991699992,
+  "peak_rss_mib": 120.40625,
+  "exit": 0
+}

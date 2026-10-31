@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 02:40:14Z slot B load 
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+_________ test_unused_parent_oversized_alternates_still_globally_pins __________
+tests/fake/test_retention_parent_hint.py:44: in test_unused_parent_oversized_alternates_still_globally_pins
+    assert read.stdout == b"owner"
+E   AssertionError: assert b'outside' == b'owner'
+E     
+E     At index 1 diff: b'u' != b'w'
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins
+1 failed, 1 passed in 11.21s
+{"name": "parent-hint", "start": "2026-10-31T02:40:20.397273+00:00", "load": [37.94384765625, 27.78955078125, 17.2685546875], "seconds": 15.333246500000087, "exit": 1}
