@@ -640,14 +640,16 @@ fix r8's executed converse-bound counterexample shows. Missing storage directori
 Locations already inside a recorded place, or directly inside the job's folder
 or one of its ancestors, add no pin. This does not scan an inferred parent or
 its objects; the hint reads only the storage and alternates already described.
-Every returned place uses one spelling: physical file locations and resolved
-scan targets take `folders.canonical`, including Data-volume, letter-case and
-Unicode-normalization aliases the volume accepts. Physical link entries keep
-their canonical parent plus their own name. A place inside a symlink cycle
-that cannot meet these spelling equations is left out, because nothing can be
-read through it. Its physical link entries and any incomplete evidence stay.
-The return list is built before aliases are revalidated, so changes during
-spelling retain the existing alias-changed evidence. The supplied folder is spelled
+On a filesystem that holds still, every returned place uses one spelling:
+physical file locations and resolved scan targets take `folders.canonical`,
+including Data-volume, letter-case and Unicode-normalization aliases the volume
+accepts. Physical link entries keep their canonical parent plus their own name.
+A place that fails these equations and that the kernel refuses to walk with
+`ELOOP` or `ENAMETOOLONG` is left out, because nothing can be read through it.
+Any other place stays, even when its spelling changed during discovery.
+Physical link entries and any incomplete evidence stay. The return list is
+built before the existing alias revalidation of walked targets, identities,
+link chains and pointer contents. The supplied folder is spelled
 before the routine-location comparison with it and its ancestors. This work
 stays outside store transactions. Without checkout metadata, the input walk
 can still record physical symlink entries used to reach the supplied folder.

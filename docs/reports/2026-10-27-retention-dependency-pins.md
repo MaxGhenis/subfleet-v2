@@ -1,6 +1,16 @@
 # Retention dependency pins: review handoff, 2026-10-30
 
-**Fix round r10 repairs R10-F1: every returned discovery place has one spelling, whether or not discovery is complete.** Canonical storage strings and scanned targets must meet both spelling equations at the return boundary. Physical link entries, successful file locations and existing incomplete evidence stay. The returned list is built before alias revalidation. Discovery stays outside transactions. Retention remains dormant pending approving review r11 and completed CI.
+**Fix round r11 repairs R11-F1: a readable place stays when its spelling changes during discovery.** Both return filters omit a failed spelling only when the kernel refuses the walk with `ELOOP` or `ENAMETOOLONG`; every other result keeps the string `475f63278` kept. Existing evidence, alias observations and reader depth are unchanged. One spelling is guaranteed on a filesystem that holds still. Retention remains dormant pending approving review r12 and completed CI.
+
+## Review r11 and fix round r11
+
+Review r11 found **R11-F1 (P2)**: r10's equation-only filter could drop a still-readable place after a case-only rename between canonicalization and filtering. Both healthy Git fixtures kept complete evidence, retired the running borrower's required owner and changed the identical read from 0 to 128. `475f63278` kept the third place and the owner. The hub committed that review unchanged at `39404ea61`; `ced02912b` adds its remeasured CI shard map.
+
+The repair follows the hub's narrow unreadability trial. `_spelled_location` retains its two equations. A shared predicate returns true only when those equations fail and `os.stat` raises `ELOOP` or `ENAMETOOLONG`. Success and every other error keep the original string. Both filters use it. `_target`, `check`, the component walker and the list-before-check order stay unchanged; no new canonical observation or incomplete entry is added.
+
+The dated r10 results below describe its nine stable cycle fixtures. Review r11 corrected the generalization that every rejected string raised `ELOOP` or was unreadable: the old return filter also rejected readable case aliases. The repaired code enforces an `ELOOP`/`ENAMETOOLONG` gate for omitted failed spellings. The original r11 file is red 2 passed / 2 failed at `ced02912b` and green 4 passed after removing only its strict mark. New tests cover real stat outcomes, same-input baseline differentials, long cycles, parent-component and Unicode-normalization renames. C-8.3, C-8.4 and existing listed reader differences are unchanged; R11-F1 adds no listed difference.
+
+[Fix round r11](2026-10-31-retention-pins-fix-r11.md) contains full normal/linked results, input counts, UTC starts and loads, named mutant comparisons, omissions and PR-body lines. Earlier sections below retain their dated results.
 
 ## Review r10 and fix round r10
 
