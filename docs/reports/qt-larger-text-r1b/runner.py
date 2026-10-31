@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,7 @@ def now():
 
 
 def admitted(name, root, args):
+    sys.path.insert(0, root)
     import pytest
 
     start = time.monotonic()
@@ -48,8 +50,14 @@ def admitted(name, root, args):
                 }) + '\n')
 
         def pytest_collection_finish(self, session):
+            nodeids = [item.nodeid for item in session.items]
             write(ARTIFACTS / f'{name}.collection.json',
-                  [item.nodeid for item in session.items])
+                  nodeids)
+            if name == 'repeat-larger':
+                counts = Counter(nodeids)
+                assert len(nodeids) == 20 and len(counts) == 2, counts
+                assert set(counts.values()) == {10}, counts
+                assert all('[larger_text]' in nodeid for nodeid in counts), counts
 
     base = SCRATCH / 'cases' / name
     base.parent.mkdir(exist_ok=True)
@@ -99,6 +107,10 @@ def run(name, root, args):
                 cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT,
                 process_group=0,
             )
+            write(ARTIFACTS / f'{name}.process.json', {
+                'controller_pid': os.getpid(), 'owned_process_group': process.pid,
+                'started': now(), 'outside_lock': direct,
+            })
             try:
                 while process.poll() is None:
                     if start_file.exists() and admitted_at is None:
@@ -121,6 +133,18 @@ def run(name, root, args):
                 except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGKILL)
                     process.wait()
+                write(ARTIFACTS / f'{name}.process-ended.json', {
+                    'at': now(), 'returncode': process.returncode,
+                    'owned_group_terminated_and_waited': True,
+                })
+                end_file = ARTIFACTS / f'{name}.end.json'
+                if admitted_at is not None and not end_file.exists():
+                    write(end_file, {
+                        'end': now(), 'seconds': time.monotonic() - admitted_at,
+                        'returncode': process.returncode,
+                        'max_child_rss_bytes': resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+                        'interrupted': 'controller boundary or interruption; only completed reports count',
+                    })
         if admitted_at is not None or not direct:
             return process.returncode
 

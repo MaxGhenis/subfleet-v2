@@ -1,0 +1,7 @@
+{
+  "reveals": 2,
+  "old_exact_one_assertion": "rejected",
+  "new_permitted_range_assertion": "passed",
+  "old_release_count": 41,
+  "real_release_count": 1
+}
