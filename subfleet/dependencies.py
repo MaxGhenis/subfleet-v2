@@ -239,7 +239,9 @@ def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | Non
         inferred = os.path.dirname(os.path.dirname(gitdir))
         own_objects = os.path.join(gitdir, "objects")
         own = aliases.resolve(own_objects)
-        parent = _storage(inferred, named=False, incomplete=incomplete, aliases=aliases)
+        parent_objects = os.path.join(inferred, "objects")
+        parent = [inferred, aliases.resolve(parent_objects),
+                  *_alternates(parent_objects, incomplete=incomplete, aliases=aliases)]
         alternates = _alternates(own_objects, incomplete=incomplete, aliases=aliases)
         return list(dict.fromkeys([gitdir, *parent, own, *alternates]))
     objects = os.path.join(common, "objects")

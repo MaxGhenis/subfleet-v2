@@ -10,7 +10,6 @@ from tests.unit.test_retention_pointer_whitespace import git
 
 
 @pytest.mark.parametrize("vanished", [False, True], ids=["valid-repository", "vanished-target"])
-@pytest.mark.xfail(strict=True, reason="R7-F1: probing an unused inferred-parent pointer globally pins trees")
 def test_unused_parent_pointer_must_not_globally_pin_trees(world, vanished):
     tree = world.job("owner")
     parent = world.base / "container"
