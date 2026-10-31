@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r6-dangling-pointer-treated-as-missing",
+  "start": "2026-10-31T07:28:54.730084+00:00",
+  "load": [
+    31.20654296875,
+    33.7900390625,
+    33.9130859375
+  ],
+  "args": [
+    "--mutant",
+    "r6-dangling-pointer-treated-as-missing",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.87453008400189,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.04978691599899321,
+      "failure": "tests/fake/test_retention_pointer_failures.py:37: in test_unreadable_common_pointer_keeps_allocated_trees\n    assert any(error[\"file\"] == str(pointer) for error in recorded.get(\"incomplete\", [])), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r6-dangling-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0...-tmp/mutant-r6-dangling-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0/test_unreadable_common_pointer0/gone']}\nE   assert False\nE    +  where False = any(<generator object test_unreadable_common_pointer_keeps_allocated_trees.<locals>.<genexpr> at 0x10c3d86d0>)"
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008780500000284519,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+      "mutated": "07ba97507e25126e3b5805e689b7dd508e334ce71c1b8c25fc0f0d34cf079d06"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+  "end": "2026-10-31T07:29:00.177237+00:00",
+  "seconds": 5.44691020800019,
+  "peak_rss_mib": 112.59375,
+  "exit": 1
+}

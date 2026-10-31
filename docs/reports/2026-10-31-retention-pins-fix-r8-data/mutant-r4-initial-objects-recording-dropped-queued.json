@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:27:26.642725+00:00",
+  "args": [
+    "--mutant",
+    "r4-initial-objects-recording-dropped",
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r4-initial-objects-recording-dropped",
+  "linked": false
+}

@@ -1,0 +1,58 @@
+{
+  "name": "mutant-r3-final-path-check-dropped",
+  "start": "2026-10-31T07:26:55.603712+00:00",
+  "load": [
+    41.65234375,
+    35.0458984375,
+    34.27294921875
+  ],
+  "args": [
+    "--mutant",
+    "r3-final-path-check-dropped",
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r7-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+  ],
+  "phases": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.308375041997351,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.0857582919998094,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0028312089998507872,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+      "mutated": "9e5afd0410bb8215eecd765080b1cbab7106541b6783c9ab9c6862f3a3f40a16"
+    }
+  ],
+  "collected": [
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+  "end": "2026-10-31T07:27:05.511134+00:00",
+  "seconds": 9.907045874999312,
+  "peak_rss_mib": 112.015625,
+  "exit": 0
+}

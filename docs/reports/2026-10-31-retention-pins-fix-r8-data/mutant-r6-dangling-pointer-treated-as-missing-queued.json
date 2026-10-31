@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:28:53.259143+00:00",
+  "args": [
+    "--mutant",
+    "r6-dangling-pointer-treated-as-missing",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r6-dangling-pointer-treated-as-missing",
+  "linked": false
+}

@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:19:04Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live] _
+tests/fake/test_retention_dependency_review_r3.py:66: in test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree
+    assert "owner" not in result["pruned"], (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r3-post-traversal-alias-check-dropped/pytest-of-maxghenis/pytest-0...rent_symlink_s0/old/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48707, 'bytes_after': 0, ...})
+E   assert 'owner' not in ['owner']
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]
+1 failed in 15.94s
+{"name": "mutant-r3-post-traversal-alias-check-dropped", "start": "2026-10-31T07:19:07.595004+00:00", "load": [29.48046875, 32.76220703125, 34.24267578125], "seconds": 18.25738199999978, "exit": 1}

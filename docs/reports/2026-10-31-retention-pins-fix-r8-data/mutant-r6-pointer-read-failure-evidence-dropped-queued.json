@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:28:35.078416+00:00",
+  "args": [
+    "--mutant",
+    "r6-pointer-read-failure-evidence-dropped",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r6-pointer-read-failure-evidence-dropped",
+  "linked": false
+}

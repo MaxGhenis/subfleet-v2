@@ -65,8 +65,9 @@ if sys.argv[1] != '--admitted':
     sys.exit(rc)
 
 _, name, *args = sys.argv[1:]
-os.chdir(ROOT)
-sys.path.insert(0, str(ROOT))
+SOURCE = Path(os.environ.get("SF_R8_SOURCE", str(ROOT)))
+os.chdir(SOURCE)
+sys.path.insert(0, str(SOURCE))
 import pytest
 record = dict(name=name, start=now(), load=os.getloadavg(), args=args, phases=[], observations=[],
               locked=os.environ.get('SF_FIX272R8_DIRECT') != '1')
@@ -76,6 +77,29 @@ start = time.monotonic()
 class Evidence:
     def pytest_collection_finish(self, session):
         record['collected'] = [item.nodeid for item in session.items]
+        module = sys.modules.get('subfleet.dependencies')
+        if module is not None:
+            record['product_file'] = module.__file__
+            record['product_sha256'] = hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
+        if SOURCE != ROOT:
+            record['attempts'] = []
+            for item in session.items:
+                helper = ('check_location_input' if 'location_inputs' in item.nodeid
+                          else 'check_named_own_input')
+                original = getattr(item.module, helper)
+                def observed(base, data, original=original, node=item.nodeid):
+                    attempt = dict(node=node, input=data, outcome='running')
+                    record['attempts'].append(attempt)
+                    try:
+                        result = original(base, data)
+                        attempt['outcome'] = 'passed'
+                        return result
+                    except BaseException as exc:
+                        attempt.update(outcome='failed', error=str(exc))
+                        raise
+                    finally:
+                        (DATA / (name + '.json')).write_text(json.dumps(record, indent=2))
+                setattr(item.module, helper, observed)
         (DATA / (name + '.json')).write_text(json.dumps(record, indent=2))
 
     def pytest_runtest_logreport(self, report):

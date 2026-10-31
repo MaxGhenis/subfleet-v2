@@ -1,0 +1,21 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:28:16Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space] ______
+tests/unit/test_retention_pointer_whitespace.py:72: in test_pointer_syntax_and_whitespace_match_real_git
+    assert not recorded.get("git"), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-...-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_pointer_syntax_and_whites0/owner.git/objects']}
+E   assert not ['/private/tmp/sf-fix272r8/real-tmp/mutant-r5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_p...5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_pointer_syntax_and_whites0/owner.git/objects']
+E    +  where ['/private/tmp/sf-fix272r8/real-tmp/mutant-r5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_p...5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_pointer_syntax_and_whites0/owner.git/objects'] = <built-in method get of dict object at 0x109820240>('git')
+E    +    where <built-in method get of dict object at 0x109820240> = {'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-...-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_pointer_syntax_and_whites0/owner.git/objects']}.get
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]
+1 failed in 6.69s
+{"name": "mutant-r5-gitfile-colon-without-space-accepted", "start": "2026-10-31T07:28:17.298678+00:00", "load": [34.89794921875, 34.69873046875, 34.224609375], "seconds": 7.773145833001763, "exit": 1}
