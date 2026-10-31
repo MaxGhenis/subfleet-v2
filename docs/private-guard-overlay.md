@@ -305,11 +305,20 @@ command itself, read once already (a heredoc's lines cost steps), so it is not c
 message names find's `{}`, printf's repeated format and text piped into a shell. This round looked for
 no other place that turns one word into many.
 
+Its r12d (2026-10-31) charges the one place r12 named and left uncharged: what xargs reads, when the
+shell xargs runs has `-c` and no script, or a `-c` script that only runs its arguments, such as `bash
+-c '"$@"' _`. Before it, the hook took 51 s to read 8 KB echoed through 1,000 `| xargs -0 bash -c`
+stages and ran past 75 s on 32 KB through 1,500, where its timeout is 60 s (the hub's runs at
+`307e2373c`); it now denies each of the hub's xargs rows as too complex to judge in under 0.7 s of
+CPU. It still reads 1 KB through 10 such stages, and still allows `echo 'rg -n foo src' | xargs -0
+bash -c`. The message's "piped into a shell" covers this text. The hub read every other place where
+the prep reads a script: each reads the command's own text or already spends.
+
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
 globs and computed list of folders a glob reads, and the command reading follows its keywords,
 wrapper table, shell options, `eval`, stdin scripts, stdin model and print-and-exit forms. Their
-shared limits are in the report's known limits. Known differences that remain after r12, read from
+shared limits are in the report's known limits. Known differences that remain after r12d, read from
 the code as it stands, with review r5's check 8 forms marked (snapshot-5 read from its frozen
 `.ref`: `for` at `:2179-2187`, `read` at `:2192-2197`, shells at `:2227-2252`):
 
@@ -482,7 +491,8 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     `R11_STRICTER`). Since r12 decisions 1 and 2 the same charge, a step for each word and each 16
     bytes, applies to what find's `{}` stands for, to each round of a `printf` format after the first,
     to the script `eval` or `source` runs, and to the script a shell runs from a pipe, a substitution or
-    its arguments; this round looked for no other place that turns one word into many. So `cat <<'EOF' |
+    its arguments, and since r12d to what xargs reads when a shell under xargs runs it; r12 looked for no
+    other place that turns one word into many, and r12d charged the one it named. So `cat <<'EOF' |
     bash` with 4,000 lines of `rg -n foo src/x` (64 KB) is too complex to judge, though no shell walks a
     root, because the pipe's text costs steps on top of the heredoc's lines (2,500 lines, 40 KB, are
     read, and so is `bash <<'EOF'` with the same 4,000 lines; `R12_PIPED_MOVED`). Under the budget, cost
