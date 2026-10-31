@@ -32,6 +32,31 @@ signal.signal(signal.SIGTERM, stopping)
 
 if sys.argv[1] != '--admitted':
     name, *args = sys.argv[1:]
+    # Two foreground queue drivers may share later selections. Reuse only a
+    # completed receipt for the same named hold; never run it twice or bypass
+    # the suite lock. An exclusive claim also covers their meeting in flight.
+    receipt_path = DATA / (name + '.json')
+    def completed():
+        try:
+            value = json.loads(receipt_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+        return value if 'exit' in value and 'end' in value else None
+    previous = completed()
+    if previous is None:
+        claim = DATA / (name + '.claim')
+        try:
+            with claim.open('x') as stream:
+                stream.write(str(os.getpid()))
+        except FileExistsError:
+            while previous is None:
+                if datetime.datetime.now(datetime.UTC) >= datetime.datetime.fromisoformat('2026-10-31T22:02:38+00:00'):
+                    sys.exit(4)
+                time.sleep(1)
+                previous = completed()
+    if previous is not None:
+        print(name, 'reusing completed receipt, exit', previous['exit'], flush=True)
+        sys.exit(previous['exit'])
     if datetime.datetime.now(datetime.UTC) >= datetime.datetime.fromisoformat('2026-10-31T22:02:38+00:00'):
         (DATA / (name + '-unrun.json')).write_text(json.dumps(dict(args=args, reason='Four-hour hold cutoff')))
         sys.exit(4)

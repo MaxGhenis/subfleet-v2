@@ -95,7 +95,7 @@ def build():
         # setup skips have no call report.
         counts["skipped"] += sum(p["phase"] == "setup" and p["outcome"] == "skipped" for p in r["phases"])
         load = "/".join(f"{v:.2f}" for v in r["load"])
-        lines.append(f'| {r["name"]} | {r["start"]} | {load} | '
+        lines.append(f'| [{r["name"]}]({r["name"]}.json) | {r["start"]} | {load} | '
                      f'{counts["passed"]}/{counts["failed"]}/{counts["skipped"]} | {r["seconds"]:.2f} | {r["exit"]} |')
     (DATA / "hold-table.md").write_text("\n".join(lines) + "\n")
     per_file = ["| File | Unique passed nodes |", "|---|---:|"]

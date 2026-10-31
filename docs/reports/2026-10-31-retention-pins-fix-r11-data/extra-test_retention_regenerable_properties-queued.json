@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T19:17:59.966376+00:00",
+  "args": [
+    "tests/unit/test_retention_regenerable_properties.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/extra-test_retention_regenerable_properties",
+  "linked": false,
+  "driver_pid": 46007,
+  "lock_process_group": 46266
+}

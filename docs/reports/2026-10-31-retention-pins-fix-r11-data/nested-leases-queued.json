@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T18:52:03.302231+00:00",
+  "args": [
+    "tests/unit/test_retention_nested_leases.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/nested-leases",
+  "linked": false,
+  "driver_pid": 7196,
+  "lock_process_group": 7359
+}

@@ -4,7 +4,7 @@
   "base": "ced02912bea6f7ada1626f817bb847a90ae90470",
   "scratch": "/private/tmp/sf-fix272r11",
   "scratch_fallback": "DARWIN_USER_TEMP_DIR denied",
-  "git_metadata": "Shared refs denied; isolated .r11-git with read-only object alternate for bundle delivery",
+  "git_metadata": "Shared refs denied; isolated .git-local with read-only object alternate for bundle delivery",
   "load": [
     67.16845703125,
     55.95068359375,

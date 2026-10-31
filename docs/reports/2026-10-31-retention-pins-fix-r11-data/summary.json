@@ -1,0 +1,413 @@
+{
+  "completed": 98,
+  "ordinary_invocations": 75,
+  "unique_passed": 803,
+  "per_file": {
+    "tests/fake/test_detached_retention_fence.py": 1,
+    "tests/fake/test_retention_dependencies.py": 30,
+    "tests/fake/test_retention_dependency_incomplete.py": 19,
+    "tests/fake/test_retention_dependency_review_r1.py": 18,
+    "tests/fake/test_retention_dependency_review_r10.py": 12,
+    "tests/fake/test_retention_dependency_review_r11.py": 4,
+    "tests/fake/test_retention_dependency_review_r2.py": 21,
+    "tests/fake/test_retention_dependency_review_r3.py": 6,
+    "tests/fake/test_retention_dependency_review_r4.py": 53,
+    "tests/fake/test_retention_dependency_review_r5.py": 60,
+    "tests/fake/test_retention_dependency_review_r6.py": 16,
+    "tests/fake/test_retention_dependency_review_r7.py": 3,
+    "tests/fake/test_retention_dependency_review_r8.py": 2,
+    "tests/fake/test_retention_dependency_review_r9.py": 4,
+    "tests/fake/test_retention_dependency_spelling.py": 16,
+    "tests/fake/test_retention_parent_hint.py": 2,
+    "tests/fake/test_retention_pointer_failures.py": 7,
+    "tests/fake/test_retention_recovery_census.py": 2,
+    "tests/fake/test_state_contract.py": 37,
+    "tests/fake/test_turn_retention_cwd.py": 6,
+    "tests/fake/test_turn_retention_cwd_properties.py": 1,
+    "tests/fake/test_turn_retention_job_directory.py": 2,
+    "tests/fake/test_turn_retention_job_properties.py": 1,
+    "tests/fake/test_turn_retention_quarantine.py": 10,
+    "tests/fake/test_writer_retention_fence.py": 1,
+    "tests/unit/test_invariants_index.py": 25,
+    "tests/unit/test_retention_alternates.py": 23,
+    "tests/unit/test_retention_alternates_review_r2.py": 15,
+    "tests/unit/test_retention_archive.py": 108,
+    "tests/unit/test_retention_dependency_aliases.py": 10,
+    "tests/unit/test_retention_dependency_properties.py": 4,
+    "tests/unit/test_retention_dependency_units.py": 19,
+    "tests/unit/test_retention_folded_pin.py": 38,
+    "tests/unit/test_retention_job_dependencies.py": 12,
+    "tests/unit/test_retention_location_cycles.py": 20,
+    "tests/unit/test_retention_location_inputs.py": 1,
+    "tests/unit/test_retention_location_readable.py": 36,
+    "tests/unit/test_retention_location_spelling.py": 11,
+    "tests/unit/test_retention_locations.py": 22,
+    "tests/unit/test_retention_nested_leases.py": 27,
+    "tests/unit/test_retention_pointer_inputs.py": 2,
+    "tests/unit/test_retention_pointer_whitespace.py": 9,
+    "tests/unit/test_retention_qos.py": 8,
+    "tests/unit/test_retention_regenerable_properties.py": 1,
+    "tests/unit/test_retention_shared_folders.py": 62,
+    "tests/unit/test_retention_worktrees.py": 15,
+    "tests/unit/test_test_module_names.py": 1
+  },
+  "missing_or_unfinished": [],
+  "planned_holds_not_completed": [],
+  "active": [],
+  "locked": true,
+  "longest_seconds": 467.9142571249977,
+  "peak_rss_mib": 134.6875,
+  "differential_comparisons": 496,
+  "new_module_comparisons": 256,
+  "unchanged_strategy_comparisons": {
+    "differential-linked-test_retention_location_inputs": 55,
+    "differential-green-test_retention_location_inputs": 55,
+    "differential-green-test_retention_location_spelling": 65,
+    "differential-linked-test_retention_location_spelling": 65
+  },
+  "mutants": [
+    {
+      "name": "r8-alias-location-recording-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "result": "killed",
+      "assertions": [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ],
+      "start": "2026-10-31T18:28:30.608633+00:00",
+      "load": [
+        70.4912109375,
+        65.76318359375,
+        60.83837890625
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r8-pointer-file-location-recording-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]",
+      "result": "killed",
+      "assertions": [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ],
+      "start": "2026-10-31T18:29:24.554932+00:00",
+      "load": [
+        69.51318359375,
+        66.1513671875,
+        61.2578125
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r8-intermediate-link-walk-dropped",
+      "killer": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "result": "killed",
+      "assertions": [
+        "assert held, recorded"
+      ],
+      "start": "2026-10-31T18:30:20.304812+00:00",
+      "load": [
+        62.85595703125,
+        65.06494140625,
+        61.19580078125
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r8-lexical-dotdot",
+      "killer": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "result": "killed",
+      "assertions": [
+        "assert str(paths[\"admin\"]) in recorded[\"git\"], recorded"
+      ],
+      "start": "2026-10-31T18:30:54.317525+00:00",
+      "load": [
+        61.85693359375,
+        64.6376953125,
+        61.1748046875
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r8-link-location-followed",
+      "killer": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "result": "killed",
+      "assertions": [
+        "assert held, recorded"
+      ],
+      "start": "2026-10-31T18:31:14.694513+00:00",
+      "load": [
+        58.615234375,
+        63.69384765625,
+        60.91455078125
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r8-top-level-links-dropped",
+      "killer": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "result": "killed",
+      "assertions": [
+        "assert held, recorded"
+      ],
+      "start": "2026-10-31T18:31:34.464136+00:00",
+      "load": [
+        58.06201171875,
+        63.22900390625,
+        60.8115234375
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r8-parent-hint-scanned",
+      "killer": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "result": "killed",
+      "assertions": [
+        "assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded"
+      ],
+      "start": "2026-10-31T18:31:54.963605+00:00",
+      "load": [
+        53.1201171875,
+        61.75830078125,
+        60.3388671875
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r8-walk-revalidation-dropped",
+      "killer": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "result": "killed",
+      "assertions": [
+        "assert any(error[\"file\"] == str(alias) for error in errors), errors"
+      ],
+      "start": "2026-10-31T18:32:16.307973+00:00",
+      "load": [
+        54.3310546875,
+        61.27978515625,
+        60.20263671875
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r8-routine-skip-dropped",
+      "killer": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "result": "killed",
+      "assertions": [
+        "assert recorded == expected"
+      ],
+      "start": "2026-10-31T18:32:35.773341+00:00",
+      "load": [
+        56.111328125,
+        61.2685546875,
+        60.224609375
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true,
+      "same_r8_assertion": true
+    },
+    {
+      "name": "r9-text-canonicalization-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "result": "killed",
+      "assertions": [
+        "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)"
+      ],
+      "start": "2026-10-31T18:32:59.419689+00:00",
+      "load": [
+        54.30029296875,
+        60.5341796875,
+        59.98583984375
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true
+    },
+    {
+      "name": "r9-alternates-canonicalization-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "result": "killed",
+      "assertions": [
+        "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)"
+      ],
+      "start": "2026-10-31T18:33:27.353608+00:00",
+      "load": [
+        53.66357421875,
+        59.79443359375,
+        59.73681640625
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true
+    },
+    {
+      "name": "r9-scan-canonicalization-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]",
+      "result": "killed",
+      "assertions": [
+        "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)"
+      ],
+      "start": "2026-10-31T18:34:05.227716+00:00",
+      "load": [
+        53.35400390625,
+        59.10400390625,
+        59.490234375
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true
+    },
+    {
+      "name": "r9-start-spelling-dropped",
+      "killer": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "result": "killed",
+      "assertions": [
+        "assert recorded == expected"
+      ],
+      "start": "2026-10-31T18:34:59.044040+00:00",
+      "load": [
+        62.9130859375,
+        61.21435546875,
+        60.27392578125
+      ],
+      "same_r10_assertion": true,
+      "same_r9_assertion": true
+    },
+    {
+      "name": "r10-found-filter-dropped",
+      "killer": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "result": "killed",
+      "assertions": [
+        "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place"
+      ],
+      "start": "2026-10-31T18:35:43.249825+00:00",
+      "load": [
+        63.791015625,
+        61.65478515625,
+        60.4814453125
+      ],
+      "same_r10_assertion": true
+    },
+    {
+      "name": "r10-entries-filter-dropped",
+      "killer": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "result": "killed",
+      "assertions": [
+        "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place"
+      ],
+      "start": "2026-10-31T18:36:27.465008+00:00",
+      "load": [
+        69.9013671875,
+        63.26953125,
+        61.1171875
+      ],
+      "same_r10_assertion": true
+    },
+    {
+      "name": "r10-check-before-spelling",
+      "killer": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "result": "killed",
+      "assertions": [
+        "assert any(error[\"file\"] == str(entry) and \"alias changed\" in error[\"reason\"]"
+      ],
+      "start": "2026-10-31T18:37:07.746944+00:00",
+      "load": [
+        63.08984375,
+        62.4296875,
+        60.91162109375
+      ],
+      "same_r10_assertion": true
+    },
+    {
+      "name": "r11-stat-gate-dropped",
+      "killer": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "result": "killed",
+      "assertions": [
+        "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)"
+      ],
+      "start": "2026-10-31T18:37:50.046689+00:00",
+      "load": [
+        61.48779296875,
+        62.04248046875,
+        60.8349609375
+      ]
+    },
+    {
+      "name": "r11-any-oserror-drops",
+      "killer": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]",
+      "result": "killed",
+      "assertions": [
+        "assert (place in result) == (outcome not in (\"ELOOP\", \"ENAMETOOLONG\"))"
+      ],
+      "start": "2026-10-31T18:38:43.458157+00:00",
+      "load": [
+        58.74609375,
+        61.04638671875,
+        60.529296875
+      ]
+    },
+    {
+      "name": "r11-enametoolong-kept",
+      "killer": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]",
+      "result": "killed",
+      "assertions": [
+        "assert (place in result) == (outcome not in (\"ELOOP\", \"ENAMETOOLONG\"))"
+      ],
+      "start": "2026-10-31T18:39:23.518650+00:00",
+      "load": [
+        60.59033203125,
+        61.138671875,
+        60.58056640625
+      ]
+    }
+  ],
+  "ordinary_failures": [
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-4",
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "call",
+      "later_passed": true
+    }
+  ],
+  "interrupted": []
+}

@@ -25,3 +25,5 @@ For the table's found route every row injects the final pre-filter spelling;
 controlled_failed_equation identifies the four rows also controlling the equations.
 
 Added two explicit original-input comparisons: restore each identical r11 fixture and replay the same boundary rename against baseline; assert complete record equality, then use that record for the original owner/read check. These add 2 normal and 2 linked passes to the initial 34-node module.
+
+After the nineteen mutants ended, a second foreground driver took the 24 later turn/archive/admission/guard holds. The original queue reuses their completed named receipts; exclusive worktree claim files avoid duplicate in-flight starts. Each actual pytest still goes through suite_hold.sh. Claims are removed at cleanup.

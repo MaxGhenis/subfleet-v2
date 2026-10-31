@@ -1,0 +1,15 @@
+{
+  "queued": "2026-10-31T19:27:17.981835+00:00",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+    "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass"
+  ],
+  "tmpdir": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/sf-fix272r11-fixtures",
+  "linked": false,
+  "driver_pid": 52001,
+  "lock_process_group": 52168
+}
