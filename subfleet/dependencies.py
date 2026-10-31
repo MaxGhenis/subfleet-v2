@@ -186,7 +186,7 @@ def _unreadable_location(place: str) -> bool:
     try:
         os.stat(place)
     except OSError as exc:
-        return exc.errno in (errno.ELOOP, errno.ENAMETOOLONG)
+        return exc.errno == errno.ELOOP
     return False
 
 

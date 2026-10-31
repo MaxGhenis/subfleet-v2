@@ -113,7 +113,6 @@ def test_baseline_keeps_readable_normalization_length(world, monkeypatch, route,
     check_normalization_length(world, monkeypatch, route, baseline_reader(), record_property)
 
 
-@pytest.mark.xfail(strict=True, reason="R12-F1: canonical ENAMETOOLONG drops storage readable by its discovered spelling")
 @pytest.mark.parametrize("route", ["alternates", "scan"])
 def test_filter_keeps_readable_normalization_length(world, monkeypatch, route, record_property):
     check_normalization_length(world, monkeypatch, route, dependencies, record_property)
