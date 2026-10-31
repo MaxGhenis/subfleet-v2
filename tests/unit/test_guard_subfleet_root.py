@@ -6725,3 +6725,79 @@ def test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget(hooks
     assert rule(run_hook(hooks["old"], R12_PIPED_MOVED, S_)) is None
     assert rule(outs[R12_PIPED_ROOT]) == "unscoped-search"
     assert "too complex" not in json.loads(outs[R12_PIPED_ROOT])["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+# ---------------------------------------------------------------- round r12d
+
+# Round r12d (2026-10-31) builds the hub's decision on the door round r12 named and left unexecuted: a shell xargs runs
+# with -c and no script, or with a -c script that only runs its arguments ("$@"), runs what xargs reads, the text every
+# earlier stage of the pipe writes, and that text now costs steps of the shared budget (spend), as text piped into a
+# shell has since r12. (The hub read every other script( site: each reads the command's own text or already spends.)
+
+
+def r12d_xargs(nbytes: int, n: int, form: str = " | xargs -0 bash -c") -> str:
+    """echo of an nbytes script (r12_script), then n stages of form: each shell xargs runs reads what every earlier
+    stage writes."""
+    return "echo '" + r12_script(nbytes) + "'" + form * n
+
+
+#: The second form: a -c script that runs its arguments, _ its name operand.
+R12D_ARGS = " | xargs -0 bash -c '\"$@\"' _"
+#: The door's edges on the 1 KB script, exact (each found between 10 and 100 stages). The k-th shell xargs runs reads
+#: the echo's 1,024 bytes (242 words: 60 rounds of "rg -n foo src/x; ", then "rg -") and, after them, a line for each
+#: earlier stage: its words after its shell, as the reader takes a command to write its words (-c: 1 word, 3 bytes
+#: with the newline; -c "$@" _: 3 words, 10 bytes). So it spends 242 + (k - 1) words and int((1,024 + 3(k - 1)) / 16)
+#: byte steps, or 242 + 3(k - 1) and int((1,024 + 10(k - 1)) / 16). Nothing else in these commands costs a step
+#: (traced), so 58 shells are 19,684 steps, read, and 59 are 20,058; with "$@", 50 are 19,719, read, and 51 are
+#: 20,206. With them, 1 KB through 10 shells stays read and 1 KB through 100 is too complex, and the routine forms
+#: stay allowed ...
+R12D_READ = {
+    "1 KB x 58 (the edge)": r12d_xargs(1024, 58),
+    '1 KB x 50, "$@" (the edge)': r12d_xargs(1024, 50, R12D_ARGS),
+    "1 KB x 10": r12d_xargs(1024, 10),
+    "routine": "echo 'rg -n foo src' | xargs -0 bash -c",
+    'routine, "$@"': "echo 'rg -n foo src' | xargs -0 bash -c '\"$@\"' _",
+}
+R12D_COMPLEX = {
+    "1 KB x 59 (the edge)": r12d_xargs(1024, 59),
+    '1 KB x 51, "$@" (the edge)': r12d_xargs(1024, 51, R12D_ARGS),
+    "1 KB x 100": r12d_xargs(1024, 100),
+}
+#: ... and the rest of the hub's rows (r12-probe/rows_xargs.py; at 307e2373c each xargs row was read, 1 KB through 100
+#: shells in 0.66 s and 8 KB through 1,000 in 51 s of wall time, and the two 32 KB rows went past 75 s, where the
+#: hook's timeout is 60 s) are too complex, each in at most R12_PIPED_CPU_S of child CPU (R12_LONG_CPU_S over 32 KB),
+#: beside the | bash control r12 pinned. A root a shell under xargs reads keeps its scope verdict.
+R12D_XARGS = {
+    "xargs bash -c: 8 KB x 1,000": r12d_xargs(8192, 1000),
+    "xargs bash -c: 32 KB x 1,500": r12d_xargs(32 * 1024, 1500),
+    'xargs bash -c "$@": 8 KB x 900': r12d_xargs(8192, 900, R12D_ARGS),
+    'xargs bash -c "$@": 32 KB x 1,100': r12d_xargs(32 * 1024, 1100, R12D_ARGS),
+    "control, | bash: 8 KB x 1,000": r12_shells(8192, 1000),
+}
+R12D_ROOT = "echo 'rg foo ~/.subfleet' | xargs -0 bash -c"
+
+
+def test_r12d_text_under_xargs_costs_steps_of_the_shared_budget(hooks):
+    """The door's edges are exact in both forms, 1 KB through 10 shells under xargs stays read and through 100 is too
+    complex, and the routine forms stay allowed; each other row of the hub's table is denied as too complex to judge in
+    at most R12_PIPED_CPU_S (R12_LONG_CPU_S over 32 KB) of child CPU, and the message names piped text (one run each;
+    the installed hook's CPU and the load reported); a root under xargs is denied as a root."""
+    outs = judged(HOOK, [*R12D_READ.values(), *R12D_COMPLEX.values(), R12D_ROOT], S_)
+    assert [name for name, c in R12D_READ.items() if rule(outs[c]) is not None] == []
+    reasons = {name: json.loads(outs[c])["hookSpecificOutput"]["permissionDecisionReason"] if rule(outs[c]) else ""
+               for name, c in R12D_COMPLEX.items()}
+    assert [name for name, c in R12D_COMPLEX.items() if rule(outs[c]) != "unscoped-search"
+            or "too complex to judge" not in reasons[name] or R12_COMPLEX_PIPED not in reasons[name]] == []
+    rows = {}
+    for name, command in R12D_XARGS.items():
+        cpu, wall, out = hook_cpu(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "too complex to judge" in reason and R12_COMPLEX_PIPED in reason, name
+        old_cpu, old_wall, _ = hook_cpu(hooks["old"], command)
+        rows[name] = {"cpu": [round(cpu, 2), round(old_cpu, 2)], "wall": [round(wall, 2), round(old_wall, 2)],
+                      "load": round(os.getloadavg()[0], 1)}
+        assert cpu <= (R12_LONG_CPU_S if len(command) > 32768 else R12_PIPED_CPU_S), (name, rows[name])
+    report("xargs-r12d", rows)
+    assert rule(outs[R12D_ROOT]) == "unscoped-search"
+    assert "too complex" not in json.loads(outs[R12D_ROOT])["hookSpecificOutput"]["permissionDecisionReason"]

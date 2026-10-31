@@ -2181,14 +2181,15 @@ pw_prep_awk="$pw_lib_awk"'
       if (t <= nt && (val[t] == "source" || val[t] == ".") && st["ps"] != "" && spend(st["ps"])) script(st["ps"], ctx, depth)
       # r5 decision 11: a -c script that only runs its arguments ("$@", $@, "$1", $*) runs the words after its
       # name operand; under xargs such a script, or a -c with no script, runs what xargs reads
-      # (st["g"]: the script word; st["a"]: xargs runs the shell)
+      # (st["g"]: the script word; st["a"]: xargs runs the shell). r12 decision 2: the words are spent first; r12d:
+      # so is what xargs reads, spent as the last term of its test, so it is charged only when that door runs
       k = st["g"]
       if (k && val[k] ~ /^"?\$\{?[@*1]\}?"?$/) {
         scr = ""; for (k += 2; k <= nt; k++) if (!rd[k]) scr = scr (scr == "" ? "" : " ") tk[k]
         if (scr != "" && spend(scr)) script(scr, sx(st, scr), depth)
       }
       k = st["g"]
-      if (st["a"] && st["s"] && pin != "" && (k ? val[k] ~ /^"?\$\{?[@*1]\}?"?$/ : st["c"])) script(pin, sx(st, pin), depth)
+      if (st["a"] && st["s"] && pin != "" && (k ? val[k] ~ /^"?\$\{?[@*1]\}?"?$/ : st["c"]) && spend(pin)) script(pin, sx(st, pin), depth)
     }
     lastprod = prod; lastps = st["lp"]; lastroots = proots(val[t], fw, prod)
     if (collect) coll = coll "\n" prod
