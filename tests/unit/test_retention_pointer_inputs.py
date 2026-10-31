@@ -143,3 +143,74 @@ def test_pointer_inputs_keep_every_store_real_git_reads(record_property, data):
     record_property("git-input", json.dumps(observation, sort_keys=True))
     event(observation["outcome"])
     event("incomplete=" + str(observation["incomplete"]))
+
+
+NAMED_OWN_INPUTS = st.fixed_dictionaries({
+    "slot": st.integers(min_value=0, max_value=65535),
+    "common": st.sampled_from(["absent", "lf", "crlf"]),
+    "own": st.sampled_from(["plain", "symlink", "alternate"]),
+    "parent": st.sampled_from(["absent", "not-repository", "repository", "unrelated-commondir"]),
+})
+
+
+def check_named_own_input(base, data):
+    owner = repo(base / "owner")
+    commit = git("-C", owner, "rev-parse", "HEAD").stdout.rstrip(b"\n")
+    parent = base / "container"
+    admin = parent / "worktrees" / str(data["slot"])
+    checkout = base / "checkout"
+    checkout.mkdir()
+    # The container necessarily exists to hold worktrees/slot. "absent"
+    # means it supplies no repository metadata or other parent hint input.
+    if data["parent"] == "repository":
+        initialized = git("init", "-q", "--bare", parent)
+        assert initialized.returncode == 0, initialized.stderr
+    elif data["parent"] == "not-repository":
+        parent.mkdir()
+        (parent / "ordinary-file").write_text("unrelated container")
+    elif data["parent"] == "unrelated-commondir":
+        (parent / "commondir").mkdir(parents=True)
+    initialized = git("init", "-q", "--bare", admin)
+    assert initialized.returncode == 0, initialized.stderr
+    (admin / "HEAD").write_bytes(commit + b"\n")
+    (checkout / ".git").write_bytes(b"gitdir: " + os.fsencode(admin) + b"\n")
+    shutil.rmtree(admin / "objects")
+    owner_objects = owner / ".git" / "objects"
+    if data["own"] == "plain":
+        shutil.copytree(owner_objects, admin / "objects")
+    elif data["own"] == "symlink":
+        (admin / "objects").symlink_to(owner_objects, target_is_directory=True)
+    else:
+        info = admin / "objects" / "info"
+        info.mkdir(parents=True)
+        (info / "alternates").write_bytes(os.fsencode(owner_objects) + b"\n")
+    if data["common"] != "absent":
+        (admin / "commondir").write_bytes({"lf": b"\n", "crlf": b"\r\n"}[data["common"]])
+
+    store = git("-C", checkout, "rev-parse", "--git-path", "objects")
+    read = git("-C", checkout, "show", os.fsdecode(commit) + ":f.txt")
+    recorded = dependencies.record(str(checkout))
+    note(dict(input=data, git_error=store.stderr, read_error=read.stderr, recorded=recorded))
+    # These inputs deliberately all describe repositories Git actually reads.
+    assert store.returncode == read.returncode == 0
+    assert read.stdout == b"owner"
+    actual = folders.canonical(checkout / os.fsdecode(store.stdout.rstrip(b"\n")))
+    assert actual in recorded.get("git", []) or recorded.get("incomplete"), recorded
+    if data["own"] != "plain":
+        assert (folders.canonical(owner_objects) in recorded.get("git", [])
+                or recorded.get("incomplete")), recorded
+    return dict(input=data, git_path_rc=store.returncode, read_rc=read.returncode,
+                git_path=os.fsdecode(store.stdout.rstrip(b"\n")), outcome="reads-owner",
+                incomplete=bool(recorded.get("incomplete")))
+
+
+@settings(max_examples=40, deadline=None, database=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(NAMED_OWN_INPUTS)
+def test_named_own_inputs_keep_every_store_real_git_reads(record_property, data):
+    with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as directory:
+        observation = check_named_own_input(Path(directory), data)
+    record_property("named-own-input", json.dumps(observation, sort_keys=True))
+    event("common=" + data["common"])
+    event("own=" + data["own"])
+    event("parent=" + data["parent"])
