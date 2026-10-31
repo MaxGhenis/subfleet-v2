@@ -1,4 +1,6 @@
 """Independent base replay and retained-request mutation for review #284."""
+import json
+
 import pytest
 
 from tests.frontend.conftest import needs_swift
@@ -66,3 +68,46 @@ def test_scripted_growth_control_passes_repeatedly(fix8_view_binary, tmp_path):
         result = resize_schedule(fix8_view_binary, root, "growth", [600, -900, 1300])
         assert_resize_order(result)
         assert_growth_resizes_follow(result)
+
+
+def test_pending_attempt2_capture_needs_geometry_and_keeps_suspension():
+    from tests.frontend.test_review_r219_fix10_view import (
+        assert_replayed_shrink_order, assert_shrink_releases_nothing,
+    )
+
+    result = json.loads((ROOT / "tests/fixtures/qt-flake/pr284-pending-attempt2.json").read_text())
+    steps = {step["step"]: step for step in result["steps"]}
+    assert not any(e["event"] == "marker_appeared"
+                   and steps["shrinking"]["at"] <= e["at"] <= steps["shrunk"]["at"]
+                   for e in result["trace"])
+    assert_replayed_shrink_order(result, steps)
+    assert_shrink_releases_nothing(result, steps)
+    # The missing marker is permitted only while this request remains pending.
+    malformed = json.loads(json.dumps(result))
+    bad_steps = {step["step"]: step for step in malformed["steps"]}
+    bad_steps["shrinking"]["reveal"]["outstanding"] = False
+    with pytest.raises(AssertionError):
+        assert_replayed_shrink_order(malformed, bad_steps)
+
+
+@pytest.mark.parametrize("reveals", [1, 2, 3])
+def test_landed_replay_accepts_each_permitted_reveal_count(monkeypatch, reveals):
+    from tests.frontend import test_review_r219_fix10_view as shrink
+
+    result = json.loads((ROOT / "tests/fixtures/qt-flake/pr284-landed-replay.json").read_text())
+    steps = {step["step"]: step for step in result["steps"]}
+    # Replay a captured landed scene with each count its three-attempt setup permits.
+    steps["landed"]["reveals"] = reveals
+    monkeypatch.setattr(shrink, "shrink_replay", lambda *args: (result, steps, json.dumps(result)))
+    shrink.test_document_shrink_after_a_distant_reveal_lands_releases(None, None, "larger_text")
+
+
+def test_landed_replay_requires_a_reveal(monkeypatch):
+    from tests.frontend import test_review_r219_fix10_view as shrink
+
+    result = json.loads((ROOT / "tests/fixtures/qt-flake/pr284-landed-replay.json").read_text())
+    steps = {step["step"]: step for step in result["steps"]}
+    steps["landed"]["reveals"] = 0
+    monkeypatch.setattr(shrink, "shrink_replay", lambda *args: (result, steps, json.dumps(result)))
+    with pytest.raises(AssertionError):
+        shrink.test_document_shrink_after_a_distant_reveal_lands_releases(None, None, "larger_text")

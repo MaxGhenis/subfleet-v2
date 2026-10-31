@@ -15,7 +15,7 @@ final class ReviewDocument: NSView {
         NSApplication.shared.setActivationPolicy(.prohibited)
         var results: [[String: Any]] = []
         for flipped in [true, false] {
-            for action in ["identity", "pending_identity", "repeat", "coalesce", "person", "abandon", "unrelated_abandon", "own_send", "target_removed", "detach", "guard", "fallback", "threshold", "growth_after_input"] {
+            for action in ["identity", "pending_identity", "queued_identity", "queued_pending_identity", "same_identity", "same_pending_identity", "repeat", "coalesce", "person", "abandon", "unrelated_abandon", "own_send", "target_removed", "detach", "guard", "fallback", "threshold", "growth_after_input"] {
                 if action == "growth_after_input" && !flipped { continue }
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 550), styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
@@ -24,7 +24,7 @@ final class ReviewDocument: NSView {
                 scroll.documentView = document
                 let pin = OpeningPinView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
                 pin.conversationID = "A"
-                let mark = RevealTargetView(frame: NSRect(x: 0, y: action == "pending_identity" ? 100000 : 1000, width: 400, height: 100))
+                let mark = RevealTargetView(frame: NSRect(x: 0, y: action.contains("pending_identity") ? 100000 : 1000, width: 400, height: 100))
                 mark.conversationID = "A"; mark.itemID = "target"
                 document.addSubview(pin); document.addSubview(mark)
                 window.contentView = scroll
@@ -60,6 +60,17 @@ final class ReviewDocument: NSView {
                 case "identity": pin.conversationID = "B"
                 case "pending_identity":
                     pin.conversationID = "B"
+                    mark.setFrameOrigin(NSPoint(x: 0, y: flipped ? 11500 : 0))
+                case "queued_identity":
+                    position(0) // Queue the landed check before changing identity.
+                    pin.conversationID = "B"
+                case "queued_pending_identity":
+                    mark.setFrameOrigin(NSPoint(x: 0, y: flipped ? 11500 : 0))
+                    position(0) // Queue the pending check before changing identity.
+                    pin.conversationID = "B"
+                case "same_identity": pin.conversationID = "A"
+                case "same_pending_identity":
+                    pin.conversationID = "A"
                     mark.setFrameOrigin(NSPoint(x: 0, y: flipped ? 11500 : 0))
                 case "person": NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
                 case "abandon": ConversationOpeningPin.abandonReveal(in: "A", request: request)

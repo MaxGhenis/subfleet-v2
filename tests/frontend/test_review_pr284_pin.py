@@ -25,6 +25,7 @@ def pin_inputs(tmp_path_factory):
     except AssertionError as error:
         raise RuntimeError("pin probe setup failed") from error
     print("REVIEW_PIN_INPUTS " + json.dumps(result, sort_keys=True))
+    (binary.parent / "inputs.json").write_text(json.dumps(result, sort_keys=True))
     return {(r["action"], r["flipped"]): r for r in result}
 
 
@@ -57,8 +58,6 @@ def test_growth_after_person_input_and_a_quiet_send_is_pinned(pin_inputs):
     assert growth["growth_gap"] == 0 and growth["reply_gap"] == 0, growth
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="R284-P3-identity: changing conversationID retains a landed request")
 @pytest.mark.parametrize("flipped", [True, False])
 def test_conversation_change_cancels_the_landed_request(pin_inputs, flipped):
     reused = pin_inputs["identity", flipped]
@@ -73,24 +72,43 @@ def test_production_sources_typecheck_without_view_test_names():
     assert built.returncode == 0, built.stderr[-12000:]
 
 
-def test_resetting_identity_rejects_the_stale_callback(tmp_path):
+def test_identity_reset_mutant_is_rejected(tmp_path):
     source = (ROOT / "app/Sources/ConversationOpeningPin.swift").read_text()
-    old = "    var conversationID: String?\n"
+    old = """    var conversationID: String? {
+        didSet {
+            guard conversationID != oldValue else { return }
+            outstanding = nil
+            landedRequest = nil
+        }
+    }
+"""
     assert source.count(old) == 1
-    source = source.replace(old, "    var conversationID: String? { didSet { if conversationID != oldValue { landedRequest = nil } } }\n")
     path = tmp_path / "ConversationOpeningPin.swift"
-    path.write_text(source)
+    path.write_text(source.replace(old, "    var conversationID: String?\n"))
     binary = tmp_path / "probe"
     built = subprocess.run(["xcrun", "swiftc", "-Xfrontend", "-disable-sandbox", "-parse-as-library", str(path),
                             str(ROOT / "tests/frontend/ReviewPR284PinProbe.swift"), "-o", str(binary)],
                            capture_output=True, text=True, timeout=900)
     assert built.returncode == 0, built.stderr
-    result = run_probe(binary, timeout=60)
-    assert all(r["callbacks"] == 0 for r in result if r["action"] == "identity"), result
+    inputs = {(r["action"], r["flipped"]): r for r in run_probe(binary, timeout=60)}
+    for flipped in [True, False]:
+        for regression in [test_conversation_change_cancels_the_landed_request,
+                           test_conversation_change_cancels_the_pending_request]:
+            with pytest.raises(AssertionError):
+                regression(inputs, flipped)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="Listed-P3-pending-identity: base also retains outstanding requests on identity changes")
+@pytest.mark.parametrize("flipped", [True, False])
+def test_queued_checks_read_the_current_requests(pin_inputs, flipped):
+    for action in ["queued_identity", "queued_pending_identity"]:
+        reused = pin_inputs[action, flipped]
+        assert reused["callbacks"] == 0 and reused["landed_after"] == reused["landed"], reused
+    for action in ["same_identity", "same_pending_identity"]:
+        current = pin_inputs[action, flipped]
+        assert current["landed_after"] == 1 and current["callbacks"] >= 1, current
+        assert current["same_request"], current
+
+
 @pytest.mark.parametrize("flipped", [True, False])
 def test_conversation_change_cancels_the_pending_request(pin_inputs, flipped):
     reused = pin_inputs["pending_identity", flipped]
@@ -172,11 +190,25 @@ def test_quiet_landing_rule_rejects_a_measured_missed_growth(tmp_path):
     raise AssertionError(f"measured missed growth was accepted after compensation: {growth}")
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="Listed-P3-release-counting: releases_after includes already resumed callbacks")
 def test_release_probe_counts_suspension_transitions():
     from tests.frontend.test_review_r219_fix10_view import releases_after
 
     result = {"trace": [{"event": "marker_appeared", "at": 0, "suspended": False},
                         {"event": "reveal_end_visible", "at": 2, "suspended": False}]}
     assert not releases_after(result, 1), "no suspension was released after t=1"
+
+
+@pytest.mark.parametrize("at,expected", [(0, [2, 5]), (1, [2, 5]), (2, [2, 5]), (3, [5]), (6, [])])
+def test_release_probe_keeps_state_across_the_cutoff(at, expected):
+    from tests.frontend.test_review_r219_fix10_view import releases_after
+
+    result = {"trace": [
+        {"event": "marker_appeared", "at": 0, "suspended": False},
+        {"event": "reveal", "at": 1, "suspended": True},
+        {"event": "reveal_check", "at": 1.5},
+        {"event": "reveal_end_visible", "at": 2, "suspended": False},
+        {"event": "reveal_end_visible", "at": 3, "suspended": False},
+        {"event": "reveal", "at": 4, "suspended": True},
+        {"event": "move", "at": 5, "suspended": False},
+    ]}
+    assert [e["at"] for e in releases_after(result, at)] == expected

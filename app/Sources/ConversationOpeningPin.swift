@@ -152,7 +152,13 @@ final class RevealTargetView: NSView {
 }
 
 final class OpeningPinView: NSView {
-    var conversationID: String?
+    var conversationID: String? {
+        didSet {
+            guard conversationID != oldValue else { return }
+            outstanding = nil
+            landedRequest = nil
+        }
+    }
     var onRevealEndVisible: (UUID) -> Void = { _ in }
     var onRevealLanded: (UUID) -> Void = { _ in }
     var onLandedEndVisible: ((UUID) -> Void)?
@@ -182,7 +188,8 @@ final class OpeningPinView: NSView {
     /// The newest reveal whose own row has not yet been presented in the clip.
     private var outstanding: (request: UUID, target: String?)?
     /// Keep observing geometry after landing: a later shrink need not remount
-    /// the lazy end marker. Input, another reveal, or an own send ends this watch.
+    /// the lazy end marker. Input, another reveal, an own send, a conversation
+    /// change, matching abandonment or pin teardown ends this watch.
     private var landedRequest: UUID?
     /// The newest request the view abandoned. Its notice can reach the pin before
     /// the request's own does, so a request already abandoned never becomes outstanding.
@@ -298,12 +305,16 @@ final class OpeningPinView: NSView {
             } else if let request = self.landedRequest, let scroll = self.scroll,
                       let document = scroll.documentView {
                 let clip = scroll.contentView.bounds
-                let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+                let distance = self.distanceFromEnd(in: document, clip: clip)
                 if distance <= Theme.space.column + 1 {
                     (self.onLandedEndVisible ?? self.onRevealEndVisible)(request)
                 }
             }
         }
+    }
+
+    private func distanceFromEnd(in document: NSView, clip: NSRect) -> CGFloat {
+        document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
     }
 
     /// A reveal is outstanding until its own row is presented in the clip. Until
@@ -315,7 +326,7 @@ final class OpeningPinView: NSView {
         guard let scroll, let document = scroll.documentView,
               let pending = outstanding, pending.request == request else { return }
         let clip = scroll.contentView.bounds
-        let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+        let distance = self.distanceFromEnd(in: document, clip: clip)
         let presented = targetPresented(pending.target, in: scroll)
         #if SUBFLEET_VIEW_TEST
         if let conversationID {
@@ -361,7 +372,7 @@ final class OpeningPinView: NSView {
         DispatchQueue.main.async { [weak self] in
             guard let self, let scroll = self.scroll, let document = scroll.documentView else { return }
             let clip = scroll.contentView.bounds
-            let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+            let distance = self.distanceFromEnd(in: document, clip: clip)
             if distance <= Theme.space.column + 1 { self.onRevealEndVisible(request) }
         }
     }
@@ -428,7 +439,7 @@ final class OpeningPinView: NSView {
             // Applying layout can itself grow the document and schedule a new check.
             guard self.ownSendLanding, self.landingRevision == revision else { return }
             let clip = scroll.contentView.bounds
-            let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+            let distance = self.distanceFromEnd(in: document, clip: clip)
             if distance <= Theme.space.column + 1 {
                 self.ownSendLanding = false
                 self.onOwnSendLanded()
