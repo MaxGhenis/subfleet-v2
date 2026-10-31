@@ -6763,10 +6763,10 @@ R12D_COMPLEX = {
     '1 KB x 51, "$@" (the edge)': r12d_xargs(1024, 51, R12D_ARGS),
     "1 KB x 100": r12d_xargs(1024, 100),
 }
-#: ... and the rest of the hub's rows (r12-probe/rows_xargs.py; at 307e2373c each xargs row was read, 1 KB through 100
-#: shells in 0.66 s and 8 KB through 1,000 in 51 s of wall time, and the two 32 KB rows went past 75 s, where the
-#: hook's timeout is 60 s) are too complex, each in at most R12_PIPED_CPU_S of child CPU (R12_LONG_CPU_S over 32 KB),
-#: beside the | bash control r12 pinned. A root a shell under xargs reads keeps its scope verdict.
+#: ... and the rest of the hub's rows (r12-probe/rows_xargs.py; at 307e2373c the hub's run read 1 KB through 100 shells
+#: in 0.66 s, 8 KB through 1,000 in 51 s and 8 KB through 900 with "$@" in 71 s, and the two 32 KB rows went past 75 s,
+#: where the hook's timeout is 60 s) are too complex, each in at most R12_PIPED_CPU_S of child CPU (R12_LONG_CPU_S over
+#: 32 KB), beside the | bash control r12 pinned. A root a shell under xargs reads keeps its scope verdict.
 R12D_XARGS = {
     "xargs bash -c: 8 KB x 1,000": r12d_xargs(8192, 1000),
     "xargs bash -c: 32 KB x 1,500": r12d_xargs(32 * 1024, 1500),
