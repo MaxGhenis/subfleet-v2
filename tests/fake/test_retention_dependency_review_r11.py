@@ -100,7 +100,6 @@ def test_baseline_keeps_readable_store_across_case_rename(world, monkeypatch, ro
     check_case_rename(world, monkeypatch, route, baseline_reader(), record_property)
 
 
-@pytest.mark.xfail(strict=True, reason='R11-F1: return filter drops a readable case alias without incomplete evidence')
 @pytest.mark.parametrize('route', ['alternates', 'scan'])
 def test_return_filter_keeps_readable_store_across_case_rename(world, monkeypatch, route, record_property):
     check_case_rename(world, monkeypatch, route, dependencies, record_property)

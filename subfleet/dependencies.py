@@ -165,7 +165,7 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
             if gitdir is not None:
                 found.extend(_storage(gitdir, named=True, incomplete=incomplete, aliases=aliases))
     spelled = (folders.canonical(each) for each in found)
-    recorded = list(dict.fromkeys(each for each in spelled if _spelled_location(each)))
+    recorded = list(dict.fromkeys(each for each in spelled if not _unreadable_location(each)))
     result = recorded + aliases.locations(start, recorded)
     aliases.check(incomplete)
     return result
@@ -175,6 +175,17 @@ def _spelled_location(place: str) -> bool:
     """Both spelling equations for a place other than a physical link entry."""
     return (os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place
             and folders.canonical(place) == place)
+
+
+def _unreadable_location(place: str) -> bool:
+    """A place that fails an equation and that the kernel refuses to walk."""
+    if _spelled_location(place):
+        return False
+    try:
+        os.stat(place)
+    except OSError as exc:
+        return exc.errno in (errno.ELOOP, errno.ENAMETOOLONG)
+    return False
 
 
 def _text(path: str) -> str | None:
@@ -294,7 +305,7 @@ class _Aliases:
                      if os.path.dirname(place) not in ancestors}
         # A resolved storage target can be a sibling of the checkout. Its
         # parent being an ancestor does not make that target part of the job.
-        entries = {place for place in self.entries if _spelled_location(place)}
+        entries = {place for place in self.entries if not _unreadable_location(place)}
         return sorted(place for place in locations | entries
                       if not any(folders.within(place, each) for each in recorded))
 
