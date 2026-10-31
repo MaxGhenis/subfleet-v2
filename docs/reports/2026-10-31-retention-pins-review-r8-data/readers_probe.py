@@ -1,0 +1,100 @@
+import json, os, shutil
+from pathlib import Path
+import pytest
+from subfleet import dependencies, retention_git as rgit, retention_survey as rsurvey, retention_archive as rarch
+from tests.fake.test_retention_dependency_review_r2 import world, maintain
+from tests.unit.retention_world import git
+
+OUT=Path('docs/reports/2026-10-31-retention-pins-review-r8-data')
+
+@pytest.mark.parametrize('mode',['admin-space','admin-decoy','common-space'])
+def test_archive_and_survey(world,mode):
+    tree=world.job('owner')
+    (tree/'private.txt').write_text('only private HEAD\n')
+    git(tree,'add','private.txt');git(tree,'commit','--quiet','-m','private HEAD')
+    commit=git(tree,'rev-parse','HEAD')
+    old=world.admin('owner'); actual=old
+    if mode.startswith('admin'):
+        actual=old.with_name('owner '); old.rename(actual)
+        (tree/'.git').write_text(f'gitdir: {actual}\n')
+        if mode=='admin-decoy':
+            shutil.copytree(actual,old)
+            (old/'HEAD').write_text(world.head()+'\n')
+            shutil.rmtree(old/'logs',ignore_errors=True)
+    else:
+        alias=world.base/' common '
+        alias.symlink_to(world.repo/'.git',target_is_directory=True)
+        (actual/'commondir').write_text(str(alias)+'\n')
+    assert git(tree,'show',commit+':private.txt')=='only private HEAD'
+    read=rgit.gitfile_admin(tree)
+    reg,why=rgit.registration(tree)
+    recorded=dependencies.record(str(tree))
+    before=rsurvey.survey(world.root,holders=False,sample_throughput=False,budgets={'detached':(0,0),'turn':(0,0)})
+    result=maintain(world)
+    data={'mode':mode,'commit':commit,'gitfile_admin':str(read[0]),'actual_admin':str(actual),'registration':str(reg),'registration_why':why,'recorded':recorded,'survey':before,'maintenance':result,'actual_admin_exists':actual.exists()}
+    if 'owner' in result['pruned']:
+        manifest=json.loads((world.root/'archive'/'owner'/'manifest.json').read_text())
+        data['manifest_git']=manifest.get('git')
+        rarch.restore(world.root,'owner')
+        data['restored_head']=git(tree,'rev-parse','HEAD',check=False)
+        data['restored_object']=git(tree,'show',commit+':private.txt',check=False)
+    (OUT/('reader-'+mode+'.json')).write_text(json.dumps(data,indent=2,default=str)+'\n')
+    print(json.dumps({k:v for k,v in data.items() if k not in ('survey','recorded')},default=str))
+
+@pytest.mark.parametrize('trailing',[' ', '\t'])
+def test_nested_gitfile_reader(world,trailing):
+    tree=world.job('owner')
+    admin=world.admin('owner')
+    nested=tree/'nested';nested.mkdir()
+    target=str(admin)+trailing
+    shutil.copytree(admin,Path(target))
+    (Path(target)/"gitdir").write_text(str(nested/".git")+"\n")
+    # Valid Git can read this external storage, but stripping classifies it as
+    # the enclosing job's own admin directory.
+    (nested/'.git').write_text('gitdir: '+target+'\n')
+    assert git(nested,'rev-parse','HEAD')==world.head()
+    into=rsurvey._into_admin(nested/'.git',str(admin))
+    before=rsurvey.survey(world.root,holders=False,sample_throughput=False,budgets={'detached':(0,0),'turn':(0,0)})
+    result=maintain(world)
+    (OUT/('nested-'+repr(trailing)+'.json')).write_text(json.dumps({'target':target,'survey_into_admin':into,'survey':before,'maintenance':result},indent=2)+'\n')
+
+def test_bundle_verifier_uses_stripped_common(world):
+    tree=world.job('owner')
+    alias=world.base/' common '
+    alias.symlink_to(world.repo/'.git',target_is_directory=True)
+    admin=world.admin('owner');(admin/'commondir').write_text(str(alias)+'\n')
+    commit=git(tree,'rev-parse','HEAD')
+    bundle=world.base/'complete.bundle';git(tree,'bundle','create',str(bundle),'HEAD')
+    error=None
+    try:rgit.verify_bundle(admin,bundle,{'HEAD':commit},'sha1',world.base/'verify.git')
+    except rgit.GitError as exc:error=str(exc)
+    (OUT/'reader-verify-bundle.json').write_text(json.dumps({'real_common':str(alias),'stripped_common':str(alias).strip(),'bundle_self_contained':True,'verification_passed':error is None,'error':error},indent=2)+'\n')
+
+def test_registration_discard_uses_stripped_common_output(world):
+    tree=world.job('owner')
+    actual_common=world.base/'common '
+    (world.repo/'.git').rename(actual_common)
+    (world.repo/'.git').write_text('gitdir: '+str(actual_common)+'\n')
+    (tree/'.git').write_text('gitdir: '+str(actual_common/'worktrees'/'owner')+'\n')
+    assert git(tree,'rev-parse','HEAD')==world.head()
+    trimmed=Path(str(actual_common).strip());shutil.copytree(actual_common,trimmed)
+    actual_admin=actual_common/'worktrees'/'owner';wrong_admin=trimmed/'worktrees'/'owner'
+    removed=rgit.discard_registration(world.repo,tree)
+    data={'actual_common':str(actual_common),'stripped_common':str(trimmed),'removed':str(removed),'actual_admin_exists':actual_admin.is_dir(),'stripped_admin_exists':wrong_admin.exists()}
+    assert removed==wrong_admin and actual_admin.is_dir() and not wrong_admin.exists(),data
+    (OUT/'reader-discard-registration.json').write_text(json.dumps(data,indent=2)+'\n')
+
+def test_physical_common_folder_through_archive_and_survey(world):
+    tree=world.job('owner')
+    actual_common=world.base/' common '
+    (world.repo/'.git').rename(actual_common)
+    (world.repo/'.git').write_text('gitdir: '+str(actual_common)+'\n')
+    (tree/'.git').write_text('gitdir: '+str(actual_common/'worktrees'/'owner')+'\n')
+    commit=git(tree,'rev-parse','HEAD');assert commit==world.head()
+    reg,why=rgit.registration(tree)
+    before=rsurvey.survey(world.root,holders=False,sample_throughput=False,budgets={'detached':(0,0),'turn':(0,0)})
+    result=maintain(world)
+    data={'common':str(actual_common),'registration':str(reg),'registration_why':why,'survey':before,'maintenance':result}
+    if 'owner' in result['pruned']:
+        rarch.restore(world.root,'owner');data['restored_head']=git(tree,'rev-parse','HEAD');assert data['restored_head']==commit
+    (OUT/'reader-physical-common-space.json').write_text(json.dumps(data,indent=2)+'\n')

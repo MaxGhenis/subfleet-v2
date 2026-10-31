@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:44:50.353762+00:00", "loads": [39.43212890625, 37.34130859375, 35.82177734375], "pid": 97663, "args": ["tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"], "fixture_root": "/private/tmp/sf-r272r8"}

@@ -1,0 +1,196 @@
+{
+  "mode": "admin-space",
+  "commit": "d3943d984c0214384f63110c375e43765b9c7b06",
+  "gitfile_admin": "/private/tmp/sf-r272r8/cases-11565/pytest/test_archive_and_survey_admin_0/home/project/.git/worktrees/owner",
+  "actual_admin": "/private/tmp/sf-r272r8/cases-11565/pytest/test_archive_and_survey_admin_0/home/project/.git/worktrees/owner ",
+  "registration": "None",
+  "registration_why": "admin-missing",
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-r272r8/cases-11565/pytest/test_archive_and_survey_admin_0/home/project/.git/worktrees/owner ",
+      "/private/tmp/sf-r272r8/cases-11565/pytest/test_archive_and_survey_admin_0/home/project/.git",
+      "/private/tmp/sf-r272r8/cases-11565/pytest/test_archive_and_survey_admin_0/home/project/.git/objects"
+    ]
+  },
+  "survey": {
+    "state_root": "/private/tmp/sf-r272r8/cases-11565/pytest/test_archive_and_survey_admin_0/state",
+    "read_only": true,
+    "generated_at": "2026-10-31T06:18:55Z",
+    "budgets": {
+      "detached": {
+        "max_jobs": 0,
+        "max_bytes": 0
+      },
+      "turn": {
+        "max_jobs": 0,
+        "max_bytes": 0
+      }
+    },
+    "notes": [
+      "the conversation service's in-memory pins are not visible offline; turn jobs it needs would also be kept"
+    ],
+    "pools": {
+      "detached": {
+        "jobs": 1,
+        "bytes": 20045,
+        "max_jobs": 0,
+        "max_bytes": 0
+      },
+      "turn": {
+        "jobs": 0,
+        "bytes": 0,
+        "max_jobs": 0,
+        "max_bytes": 0
+      }
+    },
+    "would_retire": {
+      "jobs": 1,
+      "with_worktree": 1,
+      "bytes": 20045,
+      "worktree_bytes": 20030,
+      "job_dir_bytes": 15,
+      "omittable_bytes_upper_bound": 0,
+      "archived_bytes": 20045,
+      "scratch_sources": 1,
+      "scratch_reasons": {
+        "temporary directory": 1
+      },
+      "with_unpushed_commits": 0,
+      "bundle_bytes_estimate": 0,
+      "added_bytes_estimate": 8969
+    },
+    "kept": {
+      "jobs_by_reason": {},
+      "worktrees_by_reason": {},
+      "worktree_bytes_by_reason": {}
+    },
+    "holders": {
+      "busy": 0,
+      "scan_seconds": null
+    },
+    "worktree_dirs": {
+      "total": 1,
+      "with_job_rows": 1,
+      "orphans_never_touched": 0,
+      "orphans": []
+    },
+    "estimate": {
+      "hash_read_bytes_per_s": null,
+      "bytes_read": 40090,
+      "read_hours": null,
+      "passes": 1,
+      "batch": 32,
+      "listing_seconds_per_pass": null,
+      "git_hours_assumed": 0.0,
+      "total_hours": null
+    },
+    "candidates": [
+      {
+        "job_id": "owner",
+        "pool": "detached",
+        "created_at": "2026-10-31T06:18:55Z",
+        "state": "succeeded",
+        "kind": "dispatch",
+        "pin": null,
+        "worktree": "/private/tmp/sf-r272r8/cases-11565/pytest/test_archive_and_survey_admin_0/state/worktrees/owner",
+        "worktree_exists": true,
+        "job_dir_bytes": 15,
+        "bytes": 20045,
+        "manifest_bytes": 2569,
+        "git": "admin-missing",
+        "scratch": "temporary directory",
+        "remotes": [
+          "origin"
+        ],
+        "bundle_estimate": 0,
+        "worktree_bytes": 20030,
+        "worktree_files": 6,
+        "omittable_upper": 0,
+        "added_estimate": 8969
+      }
+    ],
+    "kept_detail": [],
+    "elapsed_s": 0.3
+  },
+  "maintenance": {
+    "pruned": [
+      "owner"
+    ],
+    "errors": [],
+    "bytes_before": 20045,
+    "bytes_after": 0,
+    "deferred": {},
+    "in_flight": [],
+    "reclaimed": [
+      "owner"
+    ],
+    "conflicts": [],
+    "progressed": true,
+    "holder_scan_failed": false,
+    "tmpdir_left": [],
+    "freed_bytes": 0,
+    "freed_disk_bytes": 0,
+    "archived_bytes": 20045,
+    "added_bytes": 6185,
+    "pools": {
+      "detached": {
+        "jobs_before": 1,
+        "bytes_before": 20045,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 0,
+        "max_bytes": 0,
+        "jobs_after": 0,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 20045,
+        "added_bytes": 6185
+      },
+      "turn": {
+        "jobs_before": 0,
+        "bytes_before": 0,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 2000,
+        "max_bytes": 4294967296,
+        "jobs_after": 0,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      }
+    },
+    "protected": [],
+    "jobs_after": 0,
+    "more": false,
+    "pin_reasons": {}
+  },
+  "actual_admin_exists": true,
+  "manifest_git": {
+    "admin": null,
+    "anchor": "6e143c958d62c4a5d067a208e771763c56dd2551",
+    "anchor_ref": "refs/subfleet-archive/owner/6e143c958d62c4a5d067a208e771763c56dd2551",
+    "bundle": "commits.bundle",
+    "bundle_bytes": 371,
+    "bundle_heads": {
+      "refs/subfleet-archive/owner/6e143c958d62c4a5d067a208e771763c56dd2551": "6e143c958d62c4a5d067a208e771763c56dd2551"
+    },
+    "common": "/private/tmp/sf-r272r8/cases-11565/pytest/test_archive_and_survey_admin_0/home/project/.git",
+    "held": [
+      "--glob=refs/remotes/origin/*"
+    ],
+    "held_remotes": {
+      "origin": "https://git.example.invalid/project.git"
+    },
+    "object_format": "sha1",
+    "remotes": {
+      "origin": "https://git.example.invalid/project.git"
+    },
+    "salvage_in_anchor": [],
+    "scratch": "temporary directory"
+  },
+  "restored_head": "d3943d984c0214384f63110c375e43765b9c7b06",
+  "restored_object": "only private HEAD"
+}

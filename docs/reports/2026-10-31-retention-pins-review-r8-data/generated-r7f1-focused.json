@@ -1,0 +1,392 @@
+{
+  "label": "generated-r7f1-focused",
+  "start": "2026-10-31T05:43:06.914964+00:00",
+  "loads": [
+    28.82373046875,
+    29.994140625,
+    29.11767578125
+  ],
+  "seconds": 22.966149583000515,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.3739258330006123,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 13.607324000000517,
+      "properties": [
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpfa_5p572/container/worktrees/0/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 0}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpt6y91yla/container/worktrees/23390/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 23390}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpj5y9dmv5/container/worktrees/23390/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 23390}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpy0kb3061/container/worktrees/438/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 438}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmps_nqp5p5/container/worktrees/438/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 438}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp5ad6f2y2/container/worktrees/1276/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 1276}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpaedd9b5a/container/worktrees/1098/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 1098}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpgo5_n_eh/container/worktrees/65535/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 65535}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmphnz7wtpq/container/worktrees/3630/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 3630}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpyauyaw0_/container/worktrees/2055/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 2055}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpdtz36mf6/container/worktrees/162/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 162}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpjjb7bjzb/container/worktrees/27/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 27}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpn11ngpuj/container/worktrees/1055/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"unrelated-commondir\", \"slot\": 1055}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpka1sxnzr/container/worktrees/681/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 681}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpb0up5xct/container/worktrees/1814/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"not-repository\", \"slot\": 1814}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpku35jtzh/container/worktrees/329/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"not-repository\", \"slot\": 329}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpqvf3clbw/container/worktrees/147/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"unrelated-commondir\", \"slot\": 147}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp4jc3xy51/container/worktrees/213/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 213}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpw051z7u0/container/worktrees/143/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 143}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpfyaad04_/container/worktrees/29834/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"repository\", \"slot\": 29834}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp1da93evp/container/worktrees/93/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 93}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpy2b47x1h/container/worktrees/3935/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"unrelated-commondir\", \"slot\": 3935}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmprc9dpdqj/container/worktrees/1403/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 1403}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpn7lpx7l2/container/worktrees/23608/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 23608}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpnaf0e3t1/container/worktrees/1265/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 1265}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpvr_0iiux/container/worktrees/4751/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 4751}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmppq9sw8bu/container/worktrees/513/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"not-repository\", \"slot\": 513}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpkg2cly6a/container/worktrees/392/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 392}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpzcjs_p5m/container/worktrees/291/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 291}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmprswiywyl/container/worktrees/902/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 902}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpvo2s931u/container/worktrees/3096/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 3096}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpvwabfgvu/container/worktrees/157/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 157}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpf9u044tq/container/worktrees/366/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 366}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmput6lk52s/container/worktrees/8148/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"repository\", \"slot\": 8148}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpoasyz7iz/container/worktrees/5016/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"unrelated-commondir\", \"slot\": 5016}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmps_v5l_pu/container/worktrees/5918/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 5918}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp0229jkjp/container/worktrees/65314/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 65314}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpeyxw3_ff/container/worktrees/618/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 618}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp6b9ncd98/container/worktrees/798/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 798}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp6i4389tm/container/worktrees/49233/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 49233}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0010348340001655743,
+      "properties": [
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpfa_5p572/container/worktrees/0/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 0}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpt6y91yla/container/worktrees/23390/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 23390}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpj5y9dmv5/container/worktrees/23390/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 23390}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpy0kb3061/container/worktrees/438/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 438}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmps_nqp5p5/container/worktrees/438/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 438}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp5ad6f2y2/container/worktrees/1276/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 1276}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpaedd9b5a/container/worktrees/1098/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 1098}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpgo5_n_eh/container/worktrees/65535/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 65535}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmphnz7wtpq/container/worktrees/3630/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 3630}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpyauyaw0_/container/worktrees/2055/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 2055}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpdtz36mf6/container/worktrees/162/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 162}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpjjb7bjzb/container/worktrees/27/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 27}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpn11ngpuj/container/worktrees/1055/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"unrelated-commondir\", \"slot\": 1055}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpka1sxnzr/container/worktrees/681/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 681}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpb0up5xct/container/worktrees/1814/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"not-repository\", \"slot\": 1814}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpku35jtzh/container/worktrees/329/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"not-repository\", \"slot\": 329}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpqvf3clbw/container/worktrees/147/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"unrelated-commondir\", \"slot\": 147}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp4jc3xy51/container/worktrees/213/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 213}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpw051z7u0/container/worktrees/143/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 143}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpfyaad04_/container/worktrees/29834/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"repository\", \"slot\": 29834}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp1da93evp/container/worktrees/93/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 93}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpy2b47x1h/container/worktrees/3935/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"unrelated-commondir\", \"slot\": 3935}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmprc9dpdqj/container/worktrees/1403/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 1403}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpn7lpx7l2/container/worktrees/23608/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 23608}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpnaf0e3t1/container/worktrees/1265/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 1265}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpvr_0iiux/container/worktrees/4751/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 4751}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmppq9sw8bu/container/worktrees/513/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"not-repository\", \"slot\": 513}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpkg2cly6a/container/worktrees/392/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 392}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpzcjs_p5m/container/worktrees/291/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 291}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmprswiywyl/container/worktrees/902/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 902}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpvo2s931u/container/worktrees/3096/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 3096}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpvwabfgvu/container/worktrees/157/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 157}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpf9u044tq/container/worktrees/366/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 366}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmput6lk52s/container/worktrees/8148/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"repository\", \"slot\": 8148}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpoasyz7iz/container/worktrees/5016/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"unrelated-commondir\", \"slot\": 5016}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmps_v5l_pu/container/worktrees/5918/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 5918}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp0229jkjp/container/worktrees/65314/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 65314}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmpeyxw3_ff/container/worktrees/618/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 618}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp6b9ncd98/container/worktrees/798/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 798}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ],
+        [
+          "named-own-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-86063/tmp6i4389tm/container/worktrees/49233/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 49233}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+        ]
+      ],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "property_settings": {
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads": {
+      "max_examples": 40,
+      "derandomize": true,
+      "database_none": true,
+      "explicit_examples": 0,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "digest": "bcbd8337cb512b4b0da7ebaae10813647871edfbc0f20e46041a8be2c7f5376f6b5b27966a64c93c8bcb4f7a25e49bbb"
+    }
+  },
+  "loaded": [],
+  "dependency_source": {
+    "file": "/private/tmp/sf-r272r8/generated-r7f1/subfleet/dependencies.py",
+    "sha256": "8a8c7ed75037bcef8fc531a9685e139ad95edea91e04c55bbfb7cfda653ef770"
+  },
+  "rss": 118374400
+}

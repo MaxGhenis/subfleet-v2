@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r3-final-path-check-dropped",
+  "start": "2026-10-31T06:31:06.018276+00:00",
+  "loads": [
+    34.15625,
+    33.64208984375,
+    33.5556640625
+  ],
+  "seconds": 12.812991458000397,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.180963666000025,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.453665416000149,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-54746/pytest/test_changes_symlink_info_runn0'), trusted=True, remot...-r272r8/cases-54746/pytest/test_changes_symlink_info_runn0/state'), store=<subfleet.store.Store object at 0x109e26270>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1099e7360>\nchange = 'symlink-info', state = 'running'\n\n    @pytest.mark.parametrize('state', ['running', 'succeeded'])\n    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])\n    def test_changes(world, monkeypatch, change, state):\n        trees=[world.job('owner-a'), world.job('owner-b')]\n        world.store.update_job('owner-b', worktree=None)\n        source=repo(trees[0]/'source')\n        outside=world.base/'outside'\n        git(world.base, 'init', '--quiet', str(outside))\n        alternate=outside/'.git'/'objects'/'info'/'alternates'\n        new=os.fsencode(source/'.git'/'objects')+b'\\n'\n        old=b'#'+b'x'*(len(new)-2)+b'\\n'\n        alternate.write_bytes(old)\n        if change=='symlink-file':\n            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)\n        if change=='symlink-info':\n            info=alternate.parent\n            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))\n        real=dependencies.open_regular\n        changed=[]\n        @contextmanager\n        def opening(path,*a,**k):\n            with real(path,*a,**k) as stream:\n                if str(path)!=str(alternate):yield stream;return\n                class Changing:\n                    def readline(self,size=-1):\n                        line=stream.readline(size)\n                        if not changed:\n                            changed.append(True)\n                            if change=='unlink':alternate.unlink()\n                            elif change in ('replace','rename-over'):\n                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)\n                                if change=='replace':alternate.unlink()\n                                replacement.rename(alternate)\n                            elif change=='symlink-file':\n                                target=alternate.with_name('new');target.write_bytes(new)\n                                alternate.unlink();alternate.symlink_to(target)\n                            elif change=='symlink-info':\n                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)\n                                alternate.parent.unlink();alternate.parent.symlink_to(target)\n                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\\n')\n                        return line\n                    def __getattr__(self,name):return getattr(stream,name)\n                yield Changing()\n        with monkeypatch.context() as p:\n            p.setattr(dependencies,'open_regular',opening)\n            recorded=dependencies.record(str(outside))\n>       assert changed and recorded.get('incomplete'), recorded\nE       AssertionError: {'git': ['/private/tmp/sf-r272r8/cases-54746/pytest/test_changes_symlink_info_runn0/outside/.git', '/private/tmp/sf-r272r8/cases-54746/pytest/test_changes_symlink_info_runn0/outside/.git/objects']}\nE       assert ([True] and None)\nE        +  where None = <built-in method get of dict object at 0x10a516780>('incomplete')\nE        +    where <built-in method get of dict object at 0x10a516780> = {'git': ['/private/tmp/sf-r272r8/cases-54746/pytest/test_changes_symlink_info_runn0/outside/.git', '/private/tmp/sf-r272r8/cases-54746/pytest/test_changes_symlink_info_runn0/outside/.git/objects']}.get\n\ndocs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py:56: AssertionError"
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003682167000079062,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+  ],
+  "all_nodes": [
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "b44c8b2ce19eff3aebf1bb0dda32c81dd04ca5d3c40bb32fea1d65119574b487"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 118865920
+}

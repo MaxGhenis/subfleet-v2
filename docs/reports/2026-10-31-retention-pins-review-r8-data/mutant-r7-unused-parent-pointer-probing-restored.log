@@ -1,0 +1,82 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:37:15Z slot A load 
+START mutant-r7-unused-parent-pointer-probing-restored 2026-10-31T06:37:17.567709+00:00 load=(37.884765625, 36.25634765625, 34.88623046875)
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___ test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository] ___
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0'), trusted=True, remot...-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/state'), store=<subfleet.store.Store object at 0x10a70a900>)
+vanished = False
+
+    @pytest.mark.parametrize("vanished", [False, True], ids=["valid-repository", "vanished-target"])
+    def test_unused_parent_pointer_must_not_globally_pin_trees(world, vanished):
+        tree = world.job("owner")
+        parent = world.base / "container"
+        (parent / "worktrees").mkdir(parents=True)
+        admin = parent / "worktrees" / "slot"
+        checkout = world.base / "outside"
+        initialized = git("init", "-q", "--separate-git-dir", admin, checkout)
+        assert initialized.returncode == 0, initialized.stderr
+        committed = git("-C", checkout, "-c", "user.name=Review", "-c",
+                        "user.email=review@example.test", "commit", "--allow-empty", "-qm", "own")
+        assert committed.returncode == 0, committed.stderr
+        # Git uses admin's own store. This ordinary container is not a repository,
+        # and its directory named commondir is unrelated to the checkout.
+        (parent / "commondir").mkdir()
+        if vanished:
+            shutil.rmtree(admin)
+        health = git("-C", checkout, "fsck", "--no-dangling")
+        read = git("-C", checkout, "show", "HEAD")
+        assert (health.returncode == 0) == (not vanished), health.stderr
+        assert (read.returncode == 0) == (not vanished), read.stderr
+        recorded = dependencies.record(str(checkout))
+        reader(world, recorded)
+        result = maintain(world)
+>       assert not recorded.get("incomplete"), (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/worktrees/slot', '/priv..._pointer_mus0/container/commondir'"}]}, {'pruned': [], 'errors': [], 'bytes_before': 20026, 'bytes_after': 20026, ...})
+E       assert not [{'file': '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir', 'reason': "... not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir'"}]
+E        +  where [{'file': '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir', 'reason': "... not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir'"}] = <built-in method get of dict object at 0x10abaee40>('incomplete')
+E        +    where <built-in method get of dict object at 0x10abaee40> = {'git': ['/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/worktrees/slot', '/priva...not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir'"}]}.get
+
+tests/fake/test_retention_dependency_review_r7.py:36: AssertionError
+___ test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target] ____
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1'), trusted=True, remot...-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/state'), store=<subfleet.store.Store object at 0x10ab32c10>)
+vanished = True
+
+    @pytest.mark.parametrize("vanished", [False, True], ids=["valid-repository", "vanished-target"])
+    def test_unused_parent_pointer_must_not_globally_pin_trees(world, vanished):
+        tree = world.job("owner")
+        parent = world.base / "container"
+        (parent / "worktrees").mkdir(parents=True)
+        admin = parent / "worktrees" / "slot"
+        checkout = world.base / "outside"
+        initialized = git("init", "-q", "--separate-git-dir", admin, checkout)
+        assert initialized.returncode == 0, initialized.stderr
+        committed = git("-C", checkout, "-c", "user.name=Review", "-c",
+                        "user.email=review@example.test", "commit", "--allow-empty", "-qm", "own")
+        assert committed.returncode == 0, committed.stderr
+        # Git uses admin's own store. This ordinary container is not a repository,
+        # and its directory named commondir is unrelated to the checkout.
+        (parent / "commondir").mkdir()
+        if vanished:
+            shutil.rmtree(admin)
+        health = git("-C", checkout, "fsck", "--no-dangling")
+        read = git("-C", checkout, "show", "HEAD")
+        assert (health.returncode == 0) == (not vanished), health.stderr
+        assert (read.returncode == 0) == (not vanished), read.stderr
+        recorded = dependencies.record(str(checkout))
+        reader(world, recorded)
+        result = maintain(world)
+>       assert not recorded.get("incomplete"), (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/worktrees/slot', '/priv..._pointer_mus1/container/commondir'"}]}, {'pruned': [], 'errors': [], 'bytes_before': 20026, 'bytes_after': 20026, ...})
+E       assert not [{'file': '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir', 'reason': "... not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir'"}]
+E        +  where [{'file': '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir', 'reason': "... not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir'"}] = <built-in method get of dict object at 0x10a1654c0>('incomplete')
+E        +    where <built-in method get of dict object at 0x10a1654c0> = {'git': ['/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/worktrees/slot', '/priva...not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir'"}]}.get
+
+tests/fake/test_retention_dependency_review_r7.py:36: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]
+FAILED tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]
+2 failed in 6.45s

@@ -1,0 +1,80 @@
+[
+  {
+    "label": "r8-strict-xfails",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r8.py"
+    ]
+  },
+  {
+    "label": "r8-red",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r8.py",
+      "--runxfail"
+    ]
+  },
+  {
+    "label": "r8-trial-positive",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r8.py",
+      "--runxfail"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))",
+          "new": "    for pointer in aliases.pointers:\n        found.append(os.path.dirname(aliases.paths[pointer][0]))\n    for alias in aliases.paths:\n        if os.path.islink(alias):\n            found.append(os.path.dirname(os.path.abspath(alias)))\n    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r8-alias-location-recording-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "--runxfail"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))",
+          "new": "    for pointer in aliases.pointers:\n        found.append(os.path.dirname(aliases.paths[pointer][0]))\n    for alias in aliases.paths:\n        if os.path.islink(alias):\n            found.append(os.path.dirname(os.path.abspath(alias)))\n    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))"
+        },
+        {
+          "old": "    for alias in aliases.paths:\n        if os.path.islink(alias):\n            found.append(os.path.dirname(os.path.abspath(alias)))\n",
+          "new": ""
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r8-pointer-file-location-recording-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]",
+      "--runxfail"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))",
+          "new": "    for pointer in aliases.pointers:\n        found.append(os.path.dirname(aliases.paths[pointer][0]))\n    for alias in aliases.paths:\n        if os.path.islink(alias):\n            found.append(os.path.dirname(os.path.abspath(alias)))\n    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))"
+        },
+        {
+          "old": "    for pointer in aliases.pointers:\n        found.append(os.path.dirname(aliases.paths[pointer][0]))\n",
+          "new": ""
+        }
+      ]
+    }
+  },
+  {
+    "label": "dangling-oracle-rerun",
+    "args": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-review-r8-data",
+      "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]"
+    ]
+  }
+]

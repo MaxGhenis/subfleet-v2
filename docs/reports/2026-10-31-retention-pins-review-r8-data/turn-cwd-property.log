@@ -1,0 +1,13 @@
+START turn-cwd-property 2026-10-31T05:55:55.339825+00:00 load=(32.2724609375, 29.56103515625, 29.5458984375)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder:
+
+  - during generate phase (26.16 seconds):
+    - Typical runtimes: ~ 241-1245 ms, of which ~ 0-11 ms in data generation
+    - 40 passing, 0 failing, and 1 invalid test cases
+
+  - Stopped because settings.max_examples=40
+
+
+1 passed in 37.32s

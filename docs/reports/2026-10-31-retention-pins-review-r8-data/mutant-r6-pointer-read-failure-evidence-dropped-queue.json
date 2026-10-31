@@ -1,0 +1,1 @@
+{"label": "mutant-r6-pointer-read-failure-evidence-dropped", "queued": "2026-10-31T06:35:35.026888+00:00", "args": ["tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"], "pid": 76077}

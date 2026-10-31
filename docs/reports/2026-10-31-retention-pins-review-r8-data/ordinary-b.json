@@ -1,0 +1,55 @@
+[
+  {
+    "label": "turn-examples",
+    "args": [
+      "tests/fake/test_turn_retention_cwd.py",
+      "tests/fake/test_turn_retention_job_directory.py",
+      "tests/fake/test_turn_retention_quarantine.py"
+    ]
+  },
+  {
+    "label": "turn-cwd-property",
+    "args": [
+      "tests/fake/test_turn_retention_cwd_properties.py"
+    ]
+  },
+  {
+    "label": "turn-job-property",
+    "args": [
+      "tests/fake/test_turn_retention_job_properties.py"
+    ]
+  },
+  {
+    "label": "r2",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "tests/unit/test_retention_alternates_review_r2.py"
+    ]
+  },
+  {
+    "label": "r1-incomplete",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "tests/fake/test_retention_dependency_incomplete.py"
+    ]
+  },
+  {
+    "label": "dependency-small",
+    "args": [
+      "tests/unit/test_retention_alternates.py",
+      "tests/unit/test_retention_job_dependencies.py",
+      "tests/fake/test_retention_dependencies.py",
+      "tests/fake/test_retention_dependency_spelling.py",
+      "tests/unit/test_retention_dependency_units.py",
+      "tests/unit/test_retention_folded_pin.py"
+    ]
+  },
+  {
+    "label": "guards",
+    "args": [
+      "tests/fake/test_state_contract.py",
+      "tests/unit/test_test_module_names.py",
+      "tests/unit/test_invariants_index.py"
+    ]
+  }
+]
