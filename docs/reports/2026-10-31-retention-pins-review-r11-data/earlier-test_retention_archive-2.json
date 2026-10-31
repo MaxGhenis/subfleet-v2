@@ -1,0 +1,545 @@
+{
+  "name": "earlier-test_retention_archive-2",
+  "start": "2026-10-31T17:04:30.579961+00:00",
+  "load": [
+    42.3759765625,
+    51.8095703125,
+    57.70068359375
+  ],
+  "pytest_pid": 81612,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+    "tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration",
+    "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+    "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+    "tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job",
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+    "tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json",
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it",
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it",
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+    "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside",
+    "tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back",
+    "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle",
+    "tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing",
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.074284000002081,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.296230749998358,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024142909969668835,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6198660419977386,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8479657089992543,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04642495800362667,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.666515500000969,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.92580574999738,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.15270125000097323,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2228436670047813,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.69953908300522,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02387000000453554,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7593400420009857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.0247205839987146,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.015015166994999163,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002413917005469557,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00024570799723733217,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003169170013279654,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7434927079957561,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5959806249957182,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005151375000423286,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7919465829982073,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.422595582997019,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007743166999716777,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.72821279100026,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.3118062499997905,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005673209001543,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.685093041996879,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2225569579968578,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005145915994944517,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.811088334005035,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3864397080033086,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004989582994312514,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7558559579993016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.9440517499970156,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0021078339996165596,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5101457499986282,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 23.545865125001,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.14876150000054622,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.182688250002684,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 16.560536915996636,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09192179200181272,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9595127079956001,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.921477791001962,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024991660029627383,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8821664589995635,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9971773340002983,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0023583330039400607,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6842559580036323,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1260274579981342,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018384590002824552,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6254879170010099,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.155791292003414,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002148207997379359,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5867947089936933,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.465343249998114,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02810391700040782,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0626387079973938,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 11.38722379200044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025341669970657676,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+    "tests/unit/test_retention_archive.py::test_a_prune_during_archiving_cannot_drop_the_registration",
+    "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+    "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+    "tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job",
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+    "tests/unit/test_retention_archive.py::test_a_row_that_changes_before_the_commit_is_in_rows_json",
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it",
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it",
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+    "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside",
+    "tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back",
+    "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle",
+    "tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing",
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:06:37.836493+00:00",
+  "seconds": 127.25498362499638,
+  "peak_rss_mib": 112.921875,
+  "exit": 0
+}

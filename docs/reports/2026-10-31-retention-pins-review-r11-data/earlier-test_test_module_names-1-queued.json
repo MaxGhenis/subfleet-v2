@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T17:41:16.964014+00:00",
+  "args": [
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_test_module_names-1",
+  "linked": false,
+  "driver_pid": 88968,
+  "lock_process_group": 89000
+}

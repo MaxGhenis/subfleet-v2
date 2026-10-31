@@ -1,0 +1,32 @@
+{
+  "start": "2026-10-31T17:45:57.707110+00:00",
+  "roots": [
+    {
+      "path": "/private/tmp/sf-r272r11",
+      "allocated_bytes": 577990656,
+      "logical_bytes": 313853426,
+      "entries": 129041,
+      "permissions_restored": 1,
+      "measured_at": "2026-10-31T17:46:31.252456+00:00",
+      "removed": true
+    },
+    {
+      "path": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/sf-r272r11-fixtures",
+      "allocated_bytes": 3883008,
+      "logical_bytes": 1975972,
+      "entries": 899,
+      "permissions_restored": 0,
+      "measured_at": "2026-10-31T17:49:10.710469+00:00",
+      "removed": true
+    },
+    {
+      "path": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/sf-r272r10-fixtures",
+      "allocated_bytes": 0,
+      "logical_bytes": 0,
+      "entries": 0,
+      "permissions_restored": 0,
+      "measured_at": "2026-10-31T17:49:11.333252+00:00"
+    }
+  ],
+  "end": "2026-10-31T17:49:11.330968+00:00"
+}

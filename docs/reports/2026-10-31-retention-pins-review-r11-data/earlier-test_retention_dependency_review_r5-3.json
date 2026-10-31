@@ -1,0 +1,545 @@
+{
+  "name": "earlier-test_retention_dependency_review_r5-3",
+  "start": "2026-10-31T16:39:17.643998+00:00",
+  "load": [
+    40.93798828125,
+    51.2734375,
+    75.498046875
+  ],
+  "pytest_pid": 94648,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-commondir-trailing]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-leading]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-trailing]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-trailing]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[after-look]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[before-look]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7412776249984745,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.546435999996902,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002004874993872363,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6009257920013624,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5060822090017609,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0015791250043548644,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5325640000010026,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.34131454200542066,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002530292003939394,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.467046499994467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.47844474999874365,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0023176250033429824,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.542847291995713,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.4307431249981164,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0030796249993727542,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4089100420023897,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.1896022080036346,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001992208002775442,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5160622500043246,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.267279583000345,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03425583399803145,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.574507750003249,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 10.787264874998073,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.052848708000965416,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7629347499969299,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8488229590002447,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004076124998391606,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7330863749957643,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8071654579980532,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005133541002578568,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7346270000052755,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5056278339980054,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003996957995695993,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6194772079979884,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7730917500011856,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018906660043285228,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-commondir-trailing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5330976250043022,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-commondir-trailing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.4304205829976127,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-commondir-trailing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002303542001754977,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-leading]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5860116250041756,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-leading]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8130805420005345,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-leading]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0021448749976116233,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-trailing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9113490000017919,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-trailing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.984076875000028,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-trailing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002101457997923717,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6376003749974188,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.47685908299899893,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00372662500012666,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4835872090043267,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.661358334000397,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07650004099559737,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-trailing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6372831250046147,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-trailing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6631576250001672,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-trailing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.05097225000645267,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[after-look]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.743208500003675,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[after-look]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.490980792004848,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[after-look]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0061042920060572214,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[before-look]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.037339417001931,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[before-look]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6041752080054721,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[before-look]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00639029099693289,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[legacy-census-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[exporting-control-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_stable_through_each_entry[live-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-commondir-trailing]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-leading]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[exporting-control-gitfile-trailing]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-trailing]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[after-look]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[before-look]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:40:25.411283+00:00",
+  "seconds": 67.76565454200318,
+  "peak_rss_mib": 119.640625,
+  "exit": 0
+}

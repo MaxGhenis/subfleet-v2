@@ -1,0 +1,14 @@
+{
+  "queued": "2026-10-31T16:52:20.971125+00:00",
+  "args": [
+    "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+    "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+    "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+    "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_invariants_index-2",
+  "linked": false,
+  "driver_pid": 51141,
+  "lock_process_group": 51262
+}

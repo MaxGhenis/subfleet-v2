@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:42:09.420461+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/performance_probe.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/routine-cost-repeat",
+  "linked": false,
+  "driver_pid": 31655,
+  "lock_process_group": 31740
+}

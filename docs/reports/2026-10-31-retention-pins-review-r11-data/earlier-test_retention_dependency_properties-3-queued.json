@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T17:15:48.368793+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_properties-3",
+  "linked": false,
+  "driver_pid": 39788,
+  "lock_process_group": 39858
+}

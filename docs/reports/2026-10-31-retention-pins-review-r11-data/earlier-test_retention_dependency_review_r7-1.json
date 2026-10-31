@@ -1,0 +1,103 @@
+{
+  "name": "earlier-test_retention_dependency_review_r7-1",
+  "start": "2026-10-31T16:40:33.054983+00:00",
+  "load": [
+    40.326171875,
+    48.40380859375,
+    72.2099609375
+  ],
+  "pytest_pid": 11233,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.3341118750031455,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.7121356669958914,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.021343166001315694,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4288767499965616,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.8046733750015846,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.05723458300053608,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7863863750026212,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.9296754999959376,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025907079980242997,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:40:59.669909+00:00",
+  "seconds": 26.614251625003817,
+  "peak_rss_mib": 115.21875,
+  "exit": 0
+}

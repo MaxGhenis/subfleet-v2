@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T16:48:49.482972+00:00",
+  "args": [
+    "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+    "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_recovery_census-1",
+  "linked": false,
+  "driver_pid": 7995,
+  "lock_process_group": 8333
+}

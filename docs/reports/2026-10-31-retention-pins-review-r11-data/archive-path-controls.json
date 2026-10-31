@@ -1,0 +1,181 @@
+{
+  "name": "archive-path-controls",
+  "start": "2026-10-31T17:15:53.052413+00:00",
+  "load": [
+    43.0263671875,
+    46.01708984375,
+    50.35205078125
+  ],
+  "pytest_pid": 39922,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+    "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.460167791999993,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.623624542000471,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.039325332996668294,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8002796669970849,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.025215458997990936,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0032072909962153062,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0985030420051771,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.23984462500084192,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03055158300412586,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7487285829993198,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.7736451669989037,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004423083002620842,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.620091874996433,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.672484624999925,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10399883299396606,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.90868770799716,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 22.28425262500241,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.18785120899701724,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+    "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:16:53.211673+00:00",
+  "seconds": 60.158482791994174,
+  "peak_rss_mib": 116.15625,
+  "exit": 0
+}

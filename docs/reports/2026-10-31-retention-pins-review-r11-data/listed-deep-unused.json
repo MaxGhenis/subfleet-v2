@@ -1,0 +1,89 @@
+{
+  "name": "listed-deep-unused",
+  "start": "2026-10-31T16:41:34.542331+00:00",
+  "load": [
+    37.12060546875,
+    46.263671875,
+    69.80078125
+  ],
+  "pytest_pid": 23385,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/listed_probes.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r11-data/listed_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.3533546659964486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/listed_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.47671824999997625,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/listed_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006491669992101379,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/listed_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023341670021181926,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/listed_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24415454200061504,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/listed_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006363329957821406,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r11-data/listed_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "key": "D-R8-1",
+      "value": "{\"after\": 128, \"before\": 0, \"error\": \"fatal: invalid object name 'HEAD'.\\n\", \"input\": \"refs/heads/main -> owner/branch\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/listed-deep-unused/pytest-of-maxghenis/pytest-0/test_deeper_ref_link_is_the_do0/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/listed-deep-unused/pytest-of-maxghenis/pytest-0/test_deeper_ref_link_is_the_do0/stable/.git/objects\"]}}"
+    },
+    {
+      "node": "review-r11-data/listed_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "key": "converse-bound-counterexample",
+      "value": "{\"after\": 0, \"before\": 0, \"input\": \"stable/.git/unused-entry -> unrelated/unused\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/listed-deep-unused/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/listed-deep-unused/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/listed-deep-unused/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated/unused\"]}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r11-data/listed_probes.py::test_deeper_ref_link_is_the_documented_difference",
+    "review-r11-data/listed_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:41:48.664587+00:00",
+  "seconds": 14.121883665997302,
+  "peak_rss_mib": 111.59375,
+  "exit": 0
+}

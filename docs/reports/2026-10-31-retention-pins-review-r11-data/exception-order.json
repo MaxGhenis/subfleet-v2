@@ -1,0 +1,89 @@
+{
+  "name": "exception-order",
+  "start": "2026-10-31T16:41:55.095652+00:00",
+  "load": [
+    37.45166015625,
+    45.71826171875,
+    69.05615234375
+  ],
+  "pytest_pid": 27578,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/exception_probe.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[baseline]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 5.342799625002954,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[baseline]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3735280420005438,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[baseline]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005782500011264347,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06109558299795026,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.34295858300174586,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008627919960417785,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[baseline]",
+      "key": "exception-check-order",
+      "value": "{\"version\": \"baseline\", \"check_calls\": 1, \"returned_record\": false}"
+    },
+    {
+      "node": "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[head]",
+      "key": "exception-check-order",
+      "value": "{\"version\": \"head\", \"check_calls\": 0, \"returned_record\": false}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[baseline]",
+    "review-r11-data/exception_probe.py::test_spelling_exception_and_check_order[head]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:42:07.010753+00:00",
+  "seconds": 11.914786749999621,
+  "peak_rss_mib": 111.40625,
+  "exit": 0
+}

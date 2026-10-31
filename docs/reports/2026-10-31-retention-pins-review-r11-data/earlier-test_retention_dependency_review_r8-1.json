@@ -1,0 +1,88 @@
+{
+  "name": "earlier-test_retention_dependency_review_r8-1",
+  "start": "2026-10-31T16:47:09.488087+00:00",
+  "load": [
+    60.35888671875,
+    51.47900390625,
+    64.072265625
+  ],
+  "pytest_pid": 85861,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.581886541003769,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0962877909987583,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.030754874998820014,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8012133330048528,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8481418750016019,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.024665042001288384,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "key": "R8-F1",
+      "value": "{\"error_after\": \"\", \"git_after\": 0, \"git_before\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r8-1/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co0/independent-storage/.git\", \"/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r8-1/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co0/independent-storage/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r8-1/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co0/state/worktrees/owner/storage-alias\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48860, \"bytes_before\": 48860, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48860, \"bytes_before\": 48860, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]",
+      "key": "R8-F1",
+      "value": "{\"error_after\": \"\", \"git_after\": 0, \"git_before\": 0, \"layout\": \"gitfile\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r8-1/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co1/independent-storage/.git\", \"/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r8-1/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co1/independent-storage/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r8-1/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co1/state/worktrees/owner/storage-alias\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48868, \"bytes_before\": 48868, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48868, \"bytes_before\": 48868, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:47:54.749228+00:00",
+  "seconds": 45.26005708400044,
+  "peak_rss_mib": 115.734375,
+  "exit": 0
+}

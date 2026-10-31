@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T16:48:20.868251+00:00",
+  "args": [
+    "tests/fake/test_turn_retention_job_directory.py::test_a_turn_submitted_after_the_job_directory_fence_waits_and_keeps_its_cwd",
+    "tests/fake/test_turn_retention_job_directory.py::test_review_retirement_leaves_a_live_readonly_turns_job_directory_in_place"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_turn_retention_job_directory-1",
+  "linked": false,
+  "driver_pid": 3559,
+  "lock_process_group": 3647
+}

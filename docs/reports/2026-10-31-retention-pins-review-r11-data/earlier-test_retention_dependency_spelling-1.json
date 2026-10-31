@@ -1,0 +1,441 @@
+{
+  "name": "earlier-test_retention_dependency_spelling-1",
+  "start": "2026-10-31T16:41:05.189377+00:00",
+  "load": [
+    41.10205078125,
+    47.82080078125,
+    71.1728515625
+  ],
+  "pytest_pid": 17346,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.14684283299720846,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.6927519170058076,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005284170038066804,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030022919963812456,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9806176249985583,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005018340016249567,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002578041996457614,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.677710042000399,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004937499979860149,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0031643749971408397,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7632942920026835,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004292090015951544,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002525916999729816,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.029803167002683,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0076256660031504,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009946166996087413,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5887189580025733,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00044495899783214554,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003715375001775101,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9389003750038682,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004776249988935888,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0035332499974174425,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8233273750010994,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003264580009272322,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002417208001133986,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9996769999997923,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005230000024312176,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005136624997248873,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8996534170000814,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002589590003481135,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0013062920043012127,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9190385409965529,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018321250026929192,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003915790999599267,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7746683750010561,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00047958399954950437,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026514170021982864,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7886106250007288,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004537920030998066,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.017775790998712182,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8951882500041393,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004919170023640618,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002724375000980217,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7103968339943094,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004432499990798533,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0022890839973115362,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8230926250034827,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006104580024839379,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:41:38.834279+00:00",
+  "seconds": 33.64407191700593,
+  "peak_rss_mib": 125.390625,
+  "exit": 0
+}

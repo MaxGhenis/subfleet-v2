@@ -1,0 +1,58 @@
+{
+  "name": "earlier-test_retention_dependency_properties-4",
+  "start": "2026-10-31T17:14:36.000328+00:00",
+  "load": [
+    44.24169921875,
+    46.62451171875,
+    50.92822265625
+  ],
+  "pytest_pid": 19634,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1962100829987321,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 81.70955937499821,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000602916996285785,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "example_progress": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+      "passed": 25,
+      "failures": [],
+      "interrupted": 0
+    }
+  },
+  "end": "2026-10-31T17:16:16.585667+00:00",
+  "seconds": 100.58408079200308,
+  "peak_rss_mib": 126.59375,
+  "exit": 0
+}

@@ -1,0 +1,60 @@
+{
+  "name": "mutant-r8-parent-hint-scanned",
+  "start": "2026-10-31T16:50:44.709236+00:00",
+  "load": [
+    58.80322265625,
+    56.17626953125,
+    63.36328125
+  ],
+  "pytest_pid": 32166,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "--mutant",
+    "r8-parent-hint-scanned",
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.223765249997086,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.1358245410010568,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_locations.py:113: in test_inferred_parent_is_not_scanned\n    assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r11/real-tmp/mutant-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_pa.../real-tmp/mutant-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1', ...]}\nE   assert not True\nE    +  where True = any(<generator object test_inferred_parent_is_not_scanned.<locals>.<genexpr> at 0x10c2dd340>)"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003240830046706833,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+      "mutated": "75a8096c6630f2ab0050b9fa67a1c85ab2230ab2bdb18cc6ce51f9d1a31058f7"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:51:04.512518+00:00",
+  "seconds": 19.831509999996342,
+  "peak_rss_mib": 112.90625,
+  "exit": 1
+}

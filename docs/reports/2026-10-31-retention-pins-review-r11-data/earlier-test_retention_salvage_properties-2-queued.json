@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T17:21:41.769886+00:00",
+  "args": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_salvage_properties-2",
+  "linked": false,
+  "driver_pid": 31352,
+  "lock_process_group": 31393
+}

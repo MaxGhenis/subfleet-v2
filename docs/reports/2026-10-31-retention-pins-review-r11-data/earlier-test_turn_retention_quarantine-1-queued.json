@@ -1,0 +1,19 @@
+{
+  "queued": "2026-10-31T16:49:17.950588+00:00",
+  "args": [
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-holder-rollback]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-holder-rollback]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-holder-rollback]",
+    "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-holder-rollback]",
+    "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-holder-rollback]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_turn_retention_quarantine-1",
+  "linked": false,
+  "driver_pid": 13529,
+  "lock_process_group": 13683
+}

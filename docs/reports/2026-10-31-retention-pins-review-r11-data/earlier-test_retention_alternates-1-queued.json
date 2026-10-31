@@ -1,0 +1,29 @@
+{
+  "queued": "2026-10-31T17:01:58.327263+00:00",
+  "args": [
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+    "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_alternates-1",
+  "linked": false,
+  "driver_pid": 50814,
+  "lock_process_group": 50873
+}

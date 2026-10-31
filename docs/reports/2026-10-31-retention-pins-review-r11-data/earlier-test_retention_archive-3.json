@@ -1,0 +1,545 @@
+{
+  "name": "earlier-test_retention_archive-3",
+  "start": "2026-10-31T17:05:28.873411+00:00",
+  "load": [
+    38.36474609375,
+    48.85595703125,
+    56.18896484375
+  ],
+  "pytest_pid": 92831,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off",
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+    "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+    "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+    "tests/unit/test_retention_archive.py::test_byte_copies_count_as_added",
+    "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+    "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+    "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration",
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 5.252926875000412,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11984349999693222,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020503330015344545,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.47345966700231656,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.490167999996629,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002503832998627331,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.49905924999620765,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2436939580002218,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006106624998210464,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2816643330006627,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.998964749996958,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.2481205830044928,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2189730829995824,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 3.3735169999999925,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:234: in test_blob_only_in_a_local_branch_is_archived_not_omitted\n    assert entries[\"README.md\"].get(\"blob\")            # on origin/main: omitted\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AssertionError: assert None\nE    +  where None = <built-in method get of dict object at 0x10b7a0300>('blob')\nE    +    where <built-in method get of dict object at 0x10b7a0300> = {'p': 'README.md', 'sha256': 'b860af096761758635428053935eb997297662e24e8eea1116c00673dd4ce919', 'sig': {'ctime': 1793466352624012921, 'dev': 16777234, 'ino': 2439087279, 'mode': 384, ...}, 'size': 500, ...}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0610052909978549,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1577925419987878,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.11088008300430374,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:257: in test_borrowed_or_shallow_object_store_is_scratch\n    assert reason in (\"borrows objects (alternates)\", \"shallow clone\")\nE   AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.054949999997916166,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.3450169159987126,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.024523792002582923,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:257: in test_borrowed_or_shallow_object_store_is_scratch\n    assert reason in (\"borrows objects (alternates)\", \"shallow clone\")\nE   AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017470829989179038,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7172582920029527,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.000175166998815,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007345541998802219,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copies_count_as_added",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6613809170012246,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copies_count_as_added",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.5387317079948843,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copies_count_as_added",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00453866599855246,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9840191670009517,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.0682504169963067,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.010518208000576124,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004907083006401081,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.535632791994431,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004858329994021915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6248617499950342,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.4097543749958277,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00471737499901792,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6828658749946044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.554205250002269,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017516250009066425,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5204879159937263,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24839845899987267,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024016250026761554,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5172887079970678,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.947278874999029,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0027908750053029507,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5940927920019021,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.611766207999608,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013484249997418374,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6911976670016884,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4460250830015866,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002306959002453368,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3612800410046475,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.36233970900502754,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001956291998794768,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5420601250007167,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.28181662499991944,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003440334003244061,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6083840830033296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.35543800000596093,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005461542001285125,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off",
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+    "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+    "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+    "tests/unit/test_retention_archive.py::test_byte_copies_count_as_added",
+    "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+    "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+    "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration",
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:06:43.144336+00:00",
+  "seconds": 74.26999074999912,
+  "peak_rss_mib": 114.09375,
+  "exit": 1
+}

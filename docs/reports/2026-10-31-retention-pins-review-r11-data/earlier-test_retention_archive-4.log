@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 17:06:39Z slot A load 
+...............F....                                                     [100%]
+=================================== FAILURES ===================================
+____________________ test_local_path_remote_is_not_a_remote ____________________
+tests/unit/test_retention_archive.py:245: in test_local_path_remote_is_not_a_remote
+    assert manifest["git"]["scratch"] == "no network remote"
+E   AssertionError: assert 'scratch path' == 'no network remote'
+E     
+E     - no network remote
+E     + scratch path
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote
+1 failed, 19 passed in 56.78s
+{"name": "earlier-test_retention_archive-4", "start": "2026-10-31T17:06:42.654936+00:00", "load": [35.48779296875, 45.873046875, 54.48681640625], "seconds": 58.0444474169999, "exit": 1}

@@ -1,0 +1,60 @@
+{
+  "name": "mutant-r8-lexical-dotdot",
+  "start": "2026-10-31T16:49:38.844502+00:00",
+  "load": [
+    61.66455078125,
+    55.57275390625,
+    63.72216796875
+  ],
+  "pytest_pid": 15894,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "--mutant",
+    "r8-lexical-dotdot",
+    "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.4145333330016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.46828891600307543,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_locations.py:37: in test_dotdot_applies_after_the_link_before_it\n    assert str(paths[\"admin\"]) in recorded[\"git\"], recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r11/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_a...1/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']}\nE   assert '/private/tmp/sf-r272r11/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' in ['/private/tmp/sf-r272r11/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the...11/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']\nE    +  where '/private/tmp/sf-r272r11/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' = str(PosixPath('/private/tmp/sf-r272r11/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin'))"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006778330061933957,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+      "mutated": "209aa4e2cf3d8369ec5d463c02e481b8fa6b50703bc786b6429ff37da5520d55"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:50:02.317647+00:00",
+  "seconds": 23.472576542000752,
+  "peak_rss_mib": 115.609375,
+  "exit": 1
+}
