@@ -6651,9 +6651,9 @@ def r12_printf(fbytes: int, tail: str = " | bash") -> str:
 
 
 #: Decision 2: the hub's rows, each denied as too complex in at most R12_PIPED_CPU_S of child CPU, or R12_LONG_CPU_S
-#: for the two 64 KB rows (82df89ded ran each it ran past 40 s of wall time, 29-40 s of CPU when stopped; this round
-#: measured 0.34-0.53 s and 0.65-2.14 s at load 40-52, where reading 64 KB of short words at all costs about 2 s,
-#: review r11's listed difference) ...
+#: for the two 64 KB rows (at 82df89ded each of the four rows the hub ran went past 40 s of wall time, at 29-40 s of
+#: CPU when stopped; this round measured 0.34-0.53 s and 0.65-2.14 s at load 40-52, where reading 64 KB of short words
+#: at all costs about 2 s, review r11's listed difference) ...
 R12_PIPED = {
     "printf: a 16 KB format, 64 rounds, | bash": r12_printf(16384),
     'the same in eval "$(...)"': 'eval "$(' + r12_printf(16384, "") + ')"',
