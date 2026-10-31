@@ -137,11 +137,11 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
     `objects/info/alternates` (relative to the objects directory), followed five
     levels deep as git follows them. Without checkout metadata, discovery may
     still retain physical symlink entries traversed to reach the supplied folder.
-    On a filesystem that holds still, every returned place has one spelling:
-    canonical parent plus entry name for a physical link entry, and
-    `folders.canonical` for every other place. A place that fails these equations
-    and that the kernel refuses to walk with ELOOP or ENAMETOOLONG is left out,
-    because nothing can be read through it. Any other place stays, even when its
+    On a filesystem that holds still, returned strings the kernel can walk have
+    one spelling: canonical parent plus entry name for a physical link entry,
+    and `folders.canonical` for every other place. A place that fails these
+    equations and that the kernel refuses with ELOOP is left out, because its
+    path holds a live cycle. Any other place stays, even when its
     spelling changed during discovery. Physical link entries and any incomplete
     evidence stay. The returned list is built before the existing alias
     revalidation of walked targets, identities, link chains and pointer contents.

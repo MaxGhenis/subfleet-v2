@@ -640,12 +640,12 @@ fix r8's executed converse-bound counterexample shows. Missing storage directori
 Locations already inside a recorded place, or directly inside the job's folder
 or one of its ancestors, add no pin. This does not scan an inferred parent or
 its objects; the hint reads only the storage and alternates already described.
-On a filesystem that holds still, every returned place uses one spelling:
-physical file locations and resolved scan targets take `folders.canonical`,
+On a filesystem that holds still, returned strings the kernel can walk use
+one spelling: physical file locations and resolved scan targets take `folders.canonical`,
 including Data-volume, letter-case and Unicode-normalization aliases the volume
 accepts. Physical link entries keep their canonical parent plus their own name.
-A place that fails these equations and that the kernel refuses to walk with
-`ELOOP` or `ENAMETOOLONG` is left out, because nothing can be read through it.
+A place that fails these equations and that the kernel refuses with `ELOOP`
+is left out, because its path holds a live cycle.
 Any other place stays, even when its spelling changed during discovery.
 Physical link entries and any incomplete evidence stay. The return list is
 built before the existing alias revalidation of walked targets, identities,
@@ -732,6 +732,18 @@ nothing: retention may archive a tree a finished export wrote into, the file
 with it.
 
 ### Listed differences
+
+- **D-R12-1:** A suffix-growing cycle string past `PATH_MAX` stays in the
+  record, unspelled, as at `475f63278`. `ENAMETOOLONG` rejects one spelling
+  without showing that the place is unreadable. Nothing reads through this
+  cycle string; it can add at most an extra pin until the job ends. Executed
+  rows: `tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle`
+  at fixture bases of 371 and 500 bytes. Baseline `gitfile` records have
+  2 places / 4 incomplete and `commondir` 3 / 3; the ELOOP-only filter
+  removes their shorter ELOOP cycle string, giving 1 / 4 and 2 / 3. The
+  ENAMETOOLONG string and full incomplete evidence are retained.
+  Both ordinary and linked-TMPDIR runs are retained in the
+  [fix-r12 evidence](../reports/2026-10-31-retention-pins-fix-r12.md).
 
 - **D-R8-2:** Auxiliary link discovery can retain an unused target or an
   input-folder link outside Git; only a recorded path equal to or inside a

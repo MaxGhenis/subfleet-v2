@@ -1,6 +1,16 @@
 # Retention dependency pins: review handoff, 2026-10-30
 
-**Fix round r11 repairs R11-F1: a readable place stays when its spelling changes during discovery.** Both return filters omit a failed spelling only when the kernel refuses the walk with `ELOOP` or `ENAMETOOLONG`; every other result keeps the string `475f63278` kept. Existing evidence, alias observations and reader depth are unchanged. One spelling is guaranteed on a filesystem that holds still. Retention remains dormant pending approving review r12 and completed CI.
+**Fix round r12 repairs R12-F1: a rejected long spelling keeps its dependency pin.** A place is omitted only when a spelling equation fails and `os.stat` raises `ELOOP`; every other outcome keeps the string `475f63278` kept. The normalization-length alternates and scan fixtures preserve the owner and identical Git read at 0. One spelling is scoped to a filesystem that holds still and strings the kernel can walk. No evidence, observation or reader depth changes. Retention remains dormant pending approving review r13 and completed CI.
+
+## Review r12 and fix round r12
+
+Review r12 reproduced **R12-F1 (P2)** on both alternates and scan routes: a normalization rename leaves a canonical absolute string past `PATH_MAX`, while Git can still read the store through its accepted short spelling. At `92a8635a0` the two-error filter drops that place with no incomplete evidence, retires the owner, and changes the same read from 0 to 128. `475f63278` keeps three places, preserves the owner and reads 0. Review r12 stopped on the provider's content filter with its work kept. Its report is partial and has no completed verdict; the hub committed its partial report, data and test byte for byte.
+
+The repair narrows `_unreadable_location` to `return exc.errno == errno.ELOOP`. Review r12's walked-spelling trial is not used: no second map, observation, walker change or ordering change is introduced. The review file goes from 2 passed / 2 failed with `--runxfail` at the input head to 4 passed normally and 4 through linked TMPDIR. Both routes again record three places, no incomplete entry, and retain the owner and read 0.
+
+`ENAMETOOLONG` rejects one spelling; it does not show that the place is unreadable. D-R12-1 states the accepted cost: a cycle string past `PATH_MAX` stays unspelled as in `475f63278`, adding at most an extra pin until the job ends. The executed gitfile and commondir cycle rows at 371- and 500-byte fixture bases retain the ENAMETOOLONG string and exact ordered incomplete evidence. Decision 4's requested full baseline equality conflicts with decision 1: each baseline also contains a shorter 701/830-byte ELOOP string. Keeping the product invariant and removing only that string gives 1 place / 4 incomplete and 2 / 3, versus baseline 2 / 4 and 3 / 3. This is the only decision deviation; the executed counterexample is retained in the fix-r12 data. The differential now requires every omitted string to raise ELOOP alone. C-8.3/C-8.4, both strategy modules, the cycle file and all earlier review files stay unchanged.
+
+[Fix round r12](2026-10-31-retention-pins-fix-r12.md) contains the normal/linked counts, actual starts and loads, baseline comparisons, five routine controls, named-mutant table, PR-body lines and delivery. The r11 section below retains its dated results verbatim; r12 narrows its two-error rule.
 
 ## Review r11 and fix round r11
 

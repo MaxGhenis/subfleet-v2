@@ -40,6 +40,16 @@ if sys.argv[1] != '--admitted':
         try:
             value = json.loads(receipt_path.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
+            try:
+                split = json.loads((DATA / (name + '-split.json')).read_text())
+                if split.get('split_into'):
+                    children = [json.loads((DATA / (child['name'] + '.json')).read_text())
+                                for child in split['split_into']]
+                    if all('exit' in child and 'end' in child for child in children):
+                        return dict(exit=max(child['exit'] for child in children),
+                                    end=max(child['end'] for child in children))
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
             return None
         return value if 'exit' in value and 'end' in value else None
     previous = completed()
