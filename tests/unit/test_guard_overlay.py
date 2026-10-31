@@ -147,11 +147,31 @@ def test_looping_overlay_symlink_is_a_refusal(tmp_path):
 
 
 def test_private_overlay_bytes_remain_the_original_reviewed_pair():
+    """The reviewed pair, byte for byte. Revised once since the 2026-09-05 copy
+    (hook a60d1c51…, TRUST 0b9d688e…): D-LANE-SCOPE1 (2026-10-24) added
+    ~/.subfleet and each direct child of it to the unscoped-search roots, its
+    r2 (2026-10-25) read $SUBFLEET_ROOT and $SUBFLEET_HOME as spellings of
+    ~/.subfleet, its r3 (2026-10-25) judged path words on disk (a file is
+    never a broad root, a trailing /* after a root is that root, a glob that
+    can match a root is judged by its matches), its r3b (2026-10-25)
+    judged them with the roots, links and globs of the Claude half's
+    snapshot-5, and its r3c (2026-10-26) closed the hub's review r2's
+    walk-arounds (globs matching every entry, /Volumes/<entry> paths,
+    braces, links before .., searcher names, escapes, nesting), and its r4
+    to r8 (2026-10-26 to 2026-10-29) closed the hub's reviews r3 to r7;
+    TRUST pins those bytes. That TRUST is the installed one of
+    2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with hook a60d1c51… it
+    is the rollback) with the new hook hash and four dated provenance
+    additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one
+    and r3b's one, whose mount clause r3c corrected).
+    The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
+    staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
+    rebuilds the original from this one."""
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db",
-        "TRUST": "0b9d688e6b2ca3adefdb8ad465c0fad5e6e18dfa884bc2309ff4f506c2287bab",
+        "never-rules-hook.sh": "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed",
+        "TRUST": "36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest
