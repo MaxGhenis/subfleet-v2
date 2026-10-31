@@ -1,0 +1,337 @@
+{
+  "name": "archive-1",
+  "start": "2026-10-31T14:42:11.712860+00:00",
+  "load": [
+    43.830078125,
+    52.44482421875,
+    57.7236328125
+  ],
+  "pytest_pid": 46893,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+    "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+    "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+    "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 8.600082582997857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7720591659963247,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013682582997716963,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7266925000003539,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.570383291000326,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004392500006360933,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6273464589976356,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.119730500002333,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.19658895800239407,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4600744169947575,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.008672875002958,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0663734170011594,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7510267089965055,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.443737667003006,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09090241699595936,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.667780457995832,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.6938880829984555,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.25648870800068835,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.2203310420009075,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 39.94063195800118,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.26709966699854704,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.748238959000446,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 27.127849915996194,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.12708837499667425,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4816208749980433,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.261612542002695,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002082999999402091,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4757901670018327,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.081049417000031,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10179366600641515,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.0945396659953985,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.408039790992916,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.28518791700480506,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.430137707997346,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.23336595800356,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04774012499547098,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+    "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+    "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+    "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T14:45:02.192770+00:00",
+  "seconds": 170.4692387499963,
+  "peak_rss_mib": 117.328125,
+  "exit": 0
+}

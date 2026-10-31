@@ -1,0 +1,14 @@
+[
+  [
+    "resume-shared-property-1-0",
+    [
+      "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+    ]
+  ],
+  [
+    "resume-extra-test_retention_regenerable_properties-0",
+    [
+      "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored"
+    ]
+  ]
+]

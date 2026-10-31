@@ -1,0 +1,53 @@
+{
+  "name": "shared-property-0",
+  "start": "2026-10-31T14:09:06.003996+00:00",
+  "load": [
+    49.125,
+    62.517578125,
+    75.69287109375
+  ],
+  "pytest_pid": 53158,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.409053416995448,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 15.23527358299907,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006814580046921037,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T14:09:50.087851+00:00",
+  "seconds": 44.084024750001845,
+  "peak_rss_mib": 119.40625,
+  "exit": 0
+}

@@ -643,7 +643,11 @@ its objects; the hint reads only the storage and alternates already described.
 Every returned place uses one spelling: physical file locations and resolved
 scan targets take `folders.canonical`, including Data-volume, letter-case and
 Unicode-normalization aliases the volume accepts. Physical link entries keep
-their canonical parent plus their own name. The supplied folder is spelled
+their canonical parent plus their own name. A place inside a symlink cycle
+that cannot meet these spelling equations is left out, because nothing can be
+read through it. Its physical link entries and any incomplete evidence stay.
+The return list is built before aliases are revalidated, so changes during
+spelling retain the existing alias-changed evidence. The supplied folder is spelled
 before the routine-location comparison with it and its ancestors. This work
 stays outside store transactions. Without checkout metadata, the input walk
 can still record physical symlink entries used to reach the supplied folder.

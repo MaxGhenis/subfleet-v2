@@ -97,6 +97,10 @@ if sys.argv[1] != '--admitted':
     sys.exit(rc)
 
 _, name, *args = sys.argv[1:]
+if datetime.datetime.now(datetime.UTC) >= datetime.datetime.fromisoformat('2026-10-31T15:33:45+00:00'):
+    (DATA / (name + '-unrun.json')).write_text(json.dumps(dict(args=args,
+        reason='Four-hour cutoff before pytest admission'), indent=2))
+    sys.exit(4)
 SOURCE = Path(os.environ.get("SF_R8_SOURCE", str(ROOT)))
 os.chdir(SOURCE)
 sys.path.insert(0, str(SOURCE))

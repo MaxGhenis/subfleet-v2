@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 15:13:20Z slot A load 
+...............                                                          [100%]
+15 passed in 193.52s (0:03:13)
+{"name": "extra-test_retention_worktrees", "start": "2026-10-31T15:13:32.919641+00:00", "load": [64.599609375, 73.01025390625, 71.8232421875], "seconds": 203.5543010420006, "exit": 0}

@@ -1,0 +1,19 @@
+{
+  "time": "2026-10-31T16:00:14.983173+00:00",
+  "scratch_kib_before_removal": 80,
+  "earlier_measured_scratch_kib": 545056,
+  "earlier_measurement_utc": "2026-10-31T15:38:09+00:00",
+  "first_cleanup_cap_assertion_passed": true,
+  "restored_owner_permissions": [
+    "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro"
+  ],
+  "scratch_cap_kib": 1572864.0,
+  "removed": [
+    "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-fix272r10-fixtures",
+    "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures",
+    "/private/tmp/sf-fix272r10"
+  ],
+  "all_queued_holds_ended": true,
+  "managed_test_and_driver_sessions_waited": true,
+  "bytecode_and_hypothesis_removed": true
+}

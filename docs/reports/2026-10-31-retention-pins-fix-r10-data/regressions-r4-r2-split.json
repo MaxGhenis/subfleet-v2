@@ -1,0 +1,29 @@
+{
+  "name": "regressions-r4-r2",
+  "split_into": [
+    {
+      "name": "regressions-r4-retarget",
+      "exit": 0
+    },
+    {
+      "name": "regressions-r4-remove",
+      "exit": 0
+    },
+    {
+      "name": "regressions-r4-other",
+      "exit": 0
+    },
+    {
+      "name": "regressions-r3",
+      "exit": 0
+    },
+    {
+      "name": "regressions-r2",
+      "exit": 0
+    },
+    {
+      "name": "regressions-alternates-r2",
+      "exit": 0
+    }
+  ]
+}

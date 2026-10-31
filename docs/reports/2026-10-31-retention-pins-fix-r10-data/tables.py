@@ -27,6 +27,13 @@ for run in ordinary:
             all_failed[node] = run['name']
 unresolved = {node: run for node, run in all_failed.items()
               if node not in passing[node.split('::')[0]]}
+# Include selected files with no completed passing call, using their first attempt.
+for run in ordinary:
+    for node in run.get('collected', []):
+        filename = node.split('::')[0]
+        if filename not in passing:
+            passing[filename] = set()
+            first[filename] = run
 summary = dict(completed_runs=len(runs), ordinary_runs=len(ordinary),
                ordinary_passing_nodes=sum(map(len, passing.values())),
                superseded=sorted(superseded), unresolved=unresolved,
@@ -41,7 +48,7 @@ for _, delta in edges:
 summary['peak_pytest_concurrency'] = peak
 (DATA / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
 
-text = '| File | Passing nodes | First contributing start (UTC) | Load 1/5/15 | Hold |\n|---|---:|---|---|---|\n'
+text = '| File | Passing nodes | First passing start (first attempt if zero) (UTC) | Load 1/5/15 | Hold |\n|---|---:|---|---|---|\n'
 for filename, nodes in sorted(passing.items()):
     run = first[filename]
     text += f"| {filename} | {len(nodes)} | {run['start']} | {'/'.join(f'{v:.2f}' for v in run['load'])} | {run['name']} |\n"

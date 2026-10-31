@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T14:29:21.626711+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/early-resume-dependency-property-0-0",
+  "linked": false,
+  "driver_pid": 26600,
+  "lock_process_group": 26658
+}

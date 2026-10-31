@@ -139,6 +139,10 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
     still retain physical symlink entries traversed to reach the supplied folder.
     Every returned place has one spelling: canonical parent plus entry name for
     a physical link entry, and `folders.canonical` for every other place.
+    A place inside a symlink cycle that cannot meet these spelling equations is
+    left out, because nothing can be read through it. Its physical link entries
+    and any incomplete evidence stay. The returned list is built before alias
+    revalidation so a change during spelling keeps the existing alias-changed evidence.
     What this cannot read is left out: environment variables (`GIT_DIR`,
     `GIT_COMMON_DIR`) and `core.worktree`, which a job's folder does not set."""
     aliases = _Aliases()

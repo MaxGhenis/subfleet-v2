@@ -1,0 +1,12 @@
+[
+  [
+    "shared-property-1-verbose",
+    [
+      "tests/unit/test_retention_shared_folders.py",
+      "-k",
+      "test_early_fences_equal_reservation_before_and_after_quarantine",
+      "-s",
+      "--hypothesis-verbosity=verbose"
+    ]
+  ]
+]

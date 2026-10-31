@@ -1,0 +1,155 @@
+{
+  "name": "early-resume-regressions-r5-3",
+  "start": "2026-10-31T14:16:52.518026+00:00",
+  "load": [
+    68.46826171875,
+    63.55078125,
+    69.80810546875
+  ],
+  "pytest_pid": 56669,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 14.634646333004639,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5980807500018273,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.051135749999957625,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01874941700225463,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7211984999958077,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008397499987040646,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.022117959000752307,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.9869307080007275,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006412919974536635,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.26359120899724076,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2033653329999652,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007975839980645105,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002624749999085907,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 81.42461479100166,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000726041995221749,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T14:19:01.620723+00:00",
+  "seconds": 129.10218583300593,
+  "peak_rss_mib": 114.15625,
+  "exit": 0
+}
