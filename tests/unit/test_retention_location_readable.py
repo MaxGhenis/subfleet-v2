@@ -46,7 +46,7 @@ def differential(checkout, record_property, **kwargs):
     for place in missing:
         with pytest.raises(OSError) as failure:
             os.stat(place)
-        assert failure.value.errno in (errno.ELOOP, errno.ENAMETOOLONG)
+        assert failure.value.errno == errno.ELOOP
         refused.append(dict(place=place, errno=failure.value.errno))
     record_property("differential", json.dumps(dict(baseline=before, r10=r10,
         actual=actual, dropped=refused), sort_keys=True))
@@ -170,7 +170,7 @@ def test_filter_stat_table(tmp_path, monkeypatch, outcome, route, record_propert
         record_property("stat-table", json.dumps(dict(route=route, outcome=outcome,
             stat_errno=actual_errno, controlled_failed_equation=controlled,
             controlled_final_spelling=(route == "found"), kept=place in result)))
-        assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+        assert (place in result) == (outcome != "ELOOP")
     finally:
         if denied is not None:
             denied.chmod(0o700)
@@ -219,6 +219,18 @@ def test_real_enametoolong_cycle(tmp_path, length, route, record_property):
         assert outcomes["head"] == outcomes["475f63278"] == outcomes["ced02912b"]
         return
     assert len(records) == 3
+    baseline = records["475f63278"]
+    # The same fixture also records a shorter cycle string (701/830 bytes).
+    # Its real ELOOP must still be omitted under the round's invariant.
+    shorter = next(place for place in baseline["git"] if place.endswith("/tail"))
+    with pytest.raises(OSError) as shorter_failure:
+        os.stat(shorter)
+    assert shorter_failure.value.errno == errno.ELOOP
+    expected = dict(baseline, git=[place for place in baseline["git"] if place != shorter])
+    assert records["head"] == expected
+    assert len(baseline["git"]) == (2 if route == "gitfile" else 3)
+    assert len(records["head"]["git"]) == (1 if route == "gitfile" else 2)
+    assert len(records["head"]["incomplete"]) == (4 if route == "gitfile" else 3)
     differential(checkout, record_property)
 
 
