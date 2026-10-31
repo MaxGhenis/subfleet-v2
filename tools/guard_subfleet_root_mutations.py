@@ -200,6 +200,18 @@ MUTATIONS = {
     # review r11's probe mutants: the context or the cd reading dropped from the key that judges a path word once
     "rv11-key-ctx-dropped": (HOOK, None, None, "test_review_r11_pins_r11s_unpinned_readings"),
     "rv11-key-cd-dropped": (HOOK, None, None, "test_review_r11_pins_r11s_unpinned_readings"),
+    # r12 (the hub's decisions on review r11): one per term of spend, one per door, pfmt's and execs' charges and the
+    # message, each against its named test
+    "r12-word-charge-dropped": (HOOK, None, None, "test_r12_find_exec_braces_cost_steps_of_the_shared_budget"),
+    "r12-byte-charge-dropped": (HOOK, None, None, "test_r12_find_exec_braces_cost_steps_of_the_shared_budget"),
+    "r12-eval-door-uncharged": (HOOK, None, None, "test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget"),
+    "r12-shell-door-uncharged": (HOOK, None, None,
+                                 "test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget"),
+    "r12-source-door-uncharged": (HOOK, None, None,
+                                  "test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget"),
+    "r12-pfmt-uncharged": (HOOK, None, None, "test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget"),
+    "r12-execs-uncharged": (HOOK, None, None, "test_r12_find_exec_braces_cost_steps_of_the_shared_budget"),
+    "r12-message-unnamed": (HOOK, None, None, "test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -293,7 +305,7 @@ EDITS = {
       /[Ss][Yy][Ss][Tt][Ee][Mm]/[Vv][Oo][Ll][Uu][Mm][Ee][Ss]/[Dd][Aa][Tt][Aa]/*) p=${p:20} ;;
 """, "")],
     "r3c-in-mount-glob-lists": [('      if pw_stall "$p" && ! pw_volumes "$p"; then\n', '      if false; then\n')],
-    "r3c-eval-unwrap-dropped": [('        if (scr != "") script(scr, ctx, depth)\n', '')],
+    "r3c-eval-unwrap-dropped": [('        if (scr != "" && spend(scr)) script(scr, ctx, depth)\n', '')],
     "r4-fold-dropped": [('  local -a st\n  pw_fd=$1\n', '  local -a st\n  pw_fd=$1\n  return 0\n')],
     "r4-tree-loop-skipped": [("""    case "/$b" in */'**'/*) b=${b%%/'**'/*} ;; esac
   fi
@@ -488,8 +500,8 @@ EDITS = {
     "r11-judged-at-each-place": [(r"""if (pass == 1) { if (FK[key] == k) printf""", r"""if (pass == 1) { printf"""),
                                  (r"""else if (FK[key] in tok) {""", r"""else if (k in tok) {"""),
                                  (r"""run = qc tok[FK[key]] qc""", r"""run = qc tok[k] qc""")],
-    "r11-message-loop-unnamed": [(r"""heredoc forms, or loop variables standing for more text, than the guard reads""",
-                                  r"""heredoc forms than the guard reads""")],
+    "r11-message-loop-unnamed": [(r"""heredoc forms, or loop variables standing for more text, or find's""",
+                                  r"""heredoc forms, or find's""")],
     "r11-read-function-join-dropped": [(r""": st["pr"] ((FN && (val[k] in FA)) ? FA[val[k]] : "")""", r""": st["pr"]""")],
     "r11-join-ka-dropped": [(r"""(st["ka"] || ld > 1 || !st["vt"] || FN)""", r"""(ld > 1 || !st["vt"] || FN)""")],
     "r11-join-ld-dropped": [(r"""(st["ka"] || ld > 1 || !st["vt"] || FN)""", r"""(st["ka"] || !st["vt"] || FN)""")],
@@ -499,6 +511,20 @@ EDITS = {
                                r"""LVAR[val[k]] = st["pr"]""")],
     "rv11-key-ctx-dropped": [(r"""key = ctx SUBSEP ((run == sf) ? "u" : "q")""", r"""key = ((run == sf) ? "u" : "q")""")],
     "rv11-key-cd-dropped": [(r"""SUBSEP ((cd && !cdp) ? "c" : "p") SUBSEP sf SUBSEP b""", r"""SUBSEP sf SUBSEP b""")],
+    "r12-word-charge-dropped": [(r"""(pst += gsub(/[^[:space:]]+/, "&", s) + int(length(s) / 16))""",
+                                 r"""(pst += int(length(s) / 16))""")],
+    "r12-byte-charge-dropped": [(r"""(pst += gsub(/[^[:space:]]+/, "&", s) + int(length(s) / 16))""",
+                                 r"""(pst += gsub(/[^[:space:]]+/, "&", s))""")],
+    "r12-eval-door-uncharged": [(r"""if (scr != "" && spend(scr)) script(scr, ctx, depth)""",
+                                 r"""if (scr != "") script(scr, ctx, depth)""")],
+    "r12-shell-door-uncharged": [(r"""if (scr != "" && ((st["ps"] == "" && hstr hd != "") || spend(scr))) script(""",
+                                  r"""if (scr != "") script(""")],
+    "r12-source-door-uncharged": [(r"""st["ps"] != "" && spend(st["ps"])) script(st["ps"], ctx, depth)""",
+                                   r"""st["ps"] != "") script(st["ps"], ctx, depth)""")],
+    "r12-pfmt-uncharged": [(r"""++r < 64 && spend(f))""", r"""++r < 64)""")],
+    "r12-execs-uncharged": [("""        if (q != tk[k] && !spend(q)) return any\n""", "")],
+    "r12-message-unnamed": [(r"""or find's {} standing for more paths, or more text from printf's repeated format or """
+                             r"""piped into a shell, than the guard reads""", r"""than the guard reads""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
@@ -590,7 +616,8 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = ([name for name in MUTATIONS if name.startswith(("r11-", "rv10-", "rv11-"))]
+    newest = ([name for name in MUTATIONS if name.startswith(("r12-", "rv11-"))]
+              + [name for name in MUTATIONS if name.startswith(("r11-", "rv10-"))]
               + [name for name in MUTATIONS if name.startswith(("r10-", "rv9-"))]
               + [name for name in MUTATIONS if name.startswith(("r9-", "rv8-"))]
               + [name for name in MUTATIONS if name.startswith(("r8-", "rv7-"))]
