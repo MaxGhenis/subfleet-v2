@@ -212,6 +212,9 @@ MUTATIONS = {
     "r12-pfmt-uncharged": (HOOK, None, None, "test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget"),
     "r12-execs-uncharged": (HOOK, None, None, "test_r12_find_exec_braces_cost_steps_of_the_shared_budget"),
     "r12-message-unnamed": (HOOK, None, None, "test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget"),
+    # r12d (the hub's decision on the door r12 named): what xargs reads into a shell, uncharged
+    "r12d-xargs-pipe-charge-dropped": (HOOK, None, None,
+                                       "test_r12d_text_under_xargs_costs_steps_of_the_shared_budget"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -525,6 +528,8 @@ EDITS = {
     "r12-execs-uncharged": [("""        if (q != tk[k] && !spend(q)) return any\n""", "")],
     "r12-message-unnamed": [(r"""or find's {} standing for more paths, or more text from printf's repeated format or """
                              r"""piped into a shell, than the guard reads""", r"""than the guard reads""")],
+    "r12d-xargs-pipe-charge-dropped": [(r"""st["c"]) && spend(pin)) script(pin, sx(st, pin), depth)""",
+                                        r"""st["c"])) script(pin, sx(st, pin), depth)""")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
@@ -616,7 +621,7 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = ([name for name in MUTATIONS if name.startswith(("r12-", "rv11-"))]
+    newest = ([name for name in MUTATIONS if name.startswith(("r12d-", "r12-", "rv11-"))]
               + [name for name in MUTATIONS if name.startswith(("r11-", "rv10-"))]
               + [name for name in MUTATIONS if name.startswith(("r10-", "rv9-"))]
               + [name for name in MUTATIONS if name.startswith(("r9-", "rv8-"))]
