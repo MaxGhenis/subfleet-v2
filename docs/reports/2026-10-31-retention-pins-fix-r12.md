@@ -9,3 +9,5 @@ Red at input head: 2 passed / 2 failed; both current-reader routes retire owner 
 Decision 4 counterexample: the four requested long-cycle rows contain a shorter ELOOP path (701 or 830 bytes), which decision 1 must omit. Exact baseline equality at 2/4 and 3/3 conflicts with the round invariant. Product remains unchanged. The smallest test adjustment expects the baseline record minus that ELOOP path, at 1/4 and 2/3, while preserving every ENAMETOOLONG string and ordered incomplete entry. See data/decision-4-counterexample.json. Remaining holds were paused before making this adjustment.
 
 The four corrected long-cycle rows pass in the focused locked hold. The full required hold list is resumed, reusing only completed unchanged-file receipts.
+
+All 19 named mutants are killed by 20 named assertions. The 16 r8/r9/r10 expressions are unchanged, as is the r11 stat-gate expression. The r11 any-error mutant dies at the same test/assertion site with the required updated ELOOP-only expectation. Both new r12 killers fail.

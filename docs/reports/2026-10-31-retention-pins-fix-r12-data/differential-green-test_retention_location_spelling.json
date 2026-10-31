@@ -1,0 +1,2361 @@
+[
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe59djrr2/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp34dlauko/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPF6MSMSIC/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf6msmsic/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpva14lxy6/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPUMFFOPPF/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpumffoppf/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpct7sh2i_/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgy7gb94t/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpv63d8asp/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPGNQ9T350/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgnq9t350/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPKAY8QTSB/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpkay8qtsb/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPUHT7WHW2/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuht7whw2/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPXBT37HDT/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpxbt37hdt/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpsxpgsjsp/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMP21FLI503/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp21fli503/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMP_JLY3_BJ/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_jly3_bj/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPYE7VU_R8/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpye7vu_r8/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpnesv2iov/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2ezwzlya/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPZ4JESNAF/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz4jesnaf/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpf7l4f2qy/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPHYFRAYO9/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphyfrayo9/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5od5j6ip/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2qcoq3gt/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe7h94js_/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/object-info/alternates"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/object-info/alternates"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpuboosk93/stable/object-info/alternates"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmphj_0ozqq/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPJNKQHFHE/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjnkqhfhe/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPBQ_22YGU/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpbq_22ygu/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpjueyma9n/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPE185LBMR/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpe185lbmr/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMP_RX04OX1/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_rx04ox1/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMP8718TH1A/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8718th1a/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPQ2VSVFBZ/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpq2vsvfbz/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2a4o13xw/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpgz5_x6u0/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpobdjl4_z/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpew_iipaf/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/object-info/alternates"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/object-info/alternates"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpoh_zuuj6/stable/object-info/alternates"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMP16DP6ZHN/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/object-info/alternates"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/object-info/alternates"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp16dp6zhn/stable/object-info/alternates"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmploiq73hd/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl6v43y7d/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpm1afvj2n/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpz5iv885i/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpg8zxzu3_/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMP2U635BSR/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2u635bsr/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/own\u00e9r/entry",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp2c_cvk4g/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp8pk5oyhp/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl60t563w/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPL5I8XOIL/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/object-info/alternates"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/object-info/alternates"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpl5i8xoil/stable/object-info/alternates"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/object-info/alternates"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/object-info/alternates"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/own\u00e9r/hop1",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/object-info",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp_2pt7u7m/stable/object-info/alternates"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/own\u00e9r/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpj1v3ghg3/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMPEQUWV9E8/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpequwv9e8/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmpha21czl1/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/TMP5XZYYELR/CHECK\u00d3UT"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/own\u00e9r/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/own\u00e9r/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container/worktrees/slot",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/container/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/stable/object-store",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/own\u00e9r/HOP0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmp5xzyyelr/own\u00e9r/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/checko\u0301ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/tmparp7_gds/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/source/.git/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/own\u00e9r/pointer",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/check\u00f3ut"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin/objects",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/own\u00e9r/packs",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop0",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+    "args": [
+      "/System/Volumes/Data/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/linked"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e1/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_ROUTINE_ALIAS_KEEPS_THE_E2/OWN\u00c9R/repository"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e2/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e2/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e2/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e2/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e2/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e2/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+    "args": [
+      "/PRIVATE/TMP/SF-FIX272R12/REAL-TMP/GREEN-TEST_RETENTION_LOCATION_SPELLING/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_ROUTINE_ALIAS_KEEPS_THE_E3/OWN\u00c9R/linked"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e3/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e4/owne\u0301r/repository"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e4/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e4/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e4/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e4/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e4/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e4/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]",
+    "args": [
+      "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/owne\u0301r/linked"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git",
+        "/private/tmp/sf-fix272r12/real-tmp/green-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e5/own\u00e9r/repository/.git/objects"
+      ]
+    },
+    "dropped": []
+  }
+]
