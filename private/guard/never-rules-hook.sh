@@ -1813,9 +1813,10 @@ pw_prep_awk="$pw_lib_awk"'
       i = j + 1
     }
   }
-  # spend(s): r12 decision 2: text the reader reads again (a script eval, a shell or source runs, each round of a
-  # printf format after the first, what a find -exec {} stands for) costs a step of the shared budget (pst) for each
-  # of its words and each 16 bytes of it, as the words of a loop variable do; 0 once the budget is spent (cplx), else 1
+  # spend(s): r12 decisions 1 and 2: text the reader reads again costs a step of the shared budget (pst) for each of
+  # its words and each 16 bytes of it, as the words of a loop variable do: what a find -exec {} stands for, each round
+  # of a printf format after the first, a script eval or source runs, and one a shell runs from a pipe, a substitution
+  # or its arguments; 0 once the budget is spent (cplx), else 1
   function spend(s) { if (cplx || (pst += gsub(/[^[:space:]]+/, "&", s) + int(length(s) / 16)) > 20000) { cplx = 1; return 0 }; return 1 }
   # subout(s, depth, ctx): what the commands of s write, each read as a pipe producer is (r5 decision 11)
   function subout(s, depth, ctx,   sv, o) {
@@ -2150,6 +2151,7 @@ pw_prep_awk="$pw_lib_awk"'
     lastprod = prod; lastps = st["lp"]; lastroots = proots(val[t], fw, prod)
     if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]
     # the scripts a shell or eval runs (r4 decision 3), each judged as its own lines; r12 decision 2: each spent first
+    # (spend), but a here-string or heredoc of the shell itself
     if (!noext) {
       if (t <= nt && val[t] == "eval") {
         scr = ""; ev = 0
