@@ -1,0 +1,60 @@
+{
+  "name": "mutant-double-r7-own-objects-revalidation-dropped",
+  "start": "2026-10-31T08:42:18.775971+00:00",
+  "load": [
+    33.521484375,
+    32.69580078125,
+    31.10595703125
+  ],
+  "args": [
+    "--mutant",
+    "double-r7-own-objects-revalidation-dropped",
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.8626877499991679,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 3.4381727920008416,
+      "failure": "tests/fake/test_retention_dependency_review_r7.py:75: in test_named_own_objects_swap_keeps_actual_storage\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r7-own-objects-revalidation-dropped/pytest-of-maxghenis/pytes...own_objects_swap_ke0/old-objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49078, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07764624999981606,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "0501e2423cc8f60451cfae7c57cbf5ffd192b348366205d327e849460d31b2da"
+    },
+    {
+      "module": "subfleet.dependencies",
+      "original": "0501e2423cc8f60451cfae7c57cbf5ffd192b348366205d327e849460d31b2da",
+      "mutated": "a8133f1eaef2131f473164dead21675708df70d5d51f94bff3c5151f301cf78c"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:42:30.733107+00:00",
+  "seconds": 11.95679737500177,
+  "peak_rss_mib": 118.078125,
+  "exit": 1
+}

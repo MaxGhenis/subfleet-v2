@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r6-empty-common-initial-objects-not-recorded",
+  "start": "2026-10-31T08:34:59.187607+00:00",
+  "load": [
+    28.35791015625,
+    26.5380859375,
+    28.5322265625
+  ],
+  "args": [
+    "--mutant",
+    "r6-empty-common-initial-objects-not-recorded",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.000799042001745,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7592501669969351,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02676841699940269,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "fee5f0abce798f02da9c0944e3a7182824798aacd04bb14f6355109941716e21"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:35:10.766029+00:00",
+  "seconds": 11.578015125000093,
+  "peak_rss_mib": 115.640625,
+  "exit": 0
+}

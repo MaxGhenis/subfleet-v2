@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:42:17Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_named_own_objects_swap_keeps_actual_storage _______________
+tests/fake/test_retention_dependency_review_r7.py:75: in test_named_own_objects_swap_keeps_actual_storage
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r7-own-objects-revalidation-dropped/pytest-of-maxghenis/pytes...own_objects_swap_ke0/old-objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49078, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage
+1 failed in 10.90s
+{"name": "mutant-double-r7-own-objects-revalidation-dropped", "start": "2026-10-31T08:42:18.775971+00:00", "load": [33.521484375, 32.69580078125, 31.10595703125], "seconds": 11.95679737500177, "exit": 1}

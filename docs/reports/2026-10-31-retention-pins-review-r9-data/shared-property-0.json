@@ -1,0 +1,46 @@
+{
+  "name": "shared-property-0",
+  "start": "2026-10-31T09:12:56.533519+00:00",
+  "load": [
+    34.77880859375,
+    39.8759765625,
+    45.5751953125
+  ],
+  "args": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.14522170900090714,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.2924687909981,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003354580003360752,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:13:14.295714+00:00",
+  "seconds": 17.761905874998774,
+  "peak_rss_mib": 121.171875,
+  "exit": 0
+}

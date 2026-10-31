@@ -1,0 +1,35 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:08:10Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_c8_4_legacy_incomplete_census_survives_terminal_export[database] _____
+tests/fake/test_retention_dependency_review_r2.py:151: in test_c8_4_legacy_incomplete_census_survives_terminal_export
+    assert "borrower" in places.incomplete
+E   AssertionError: assert 'borrower' in {}
+E    +  where {} = {'borrower': {'/outside/result'}}.incomplete
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]
+1 failed in 7.05s
+{"name": "mutant-r2-terminal-legacy-incomplete-dropped", "start": "2026-10-31T09:08:13.467622+00:00", "load": [36.322265625, 49.5224609375, 50.3720703125], "seconds": 10.010685042001569, "exit": 1}

@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:34:12Z slot B load 
+.                                                                        [100%]
+1 passed in 6.13s
+{"name": "mutant-r2-post-read-identity-check-dropped", "start": "2026-10-31T08:34:14.299535+00:00", "load": [29.8642578125, 26.3212890625, 28.5615234375], "seconds": 7.733045666998805, "exit": 0}

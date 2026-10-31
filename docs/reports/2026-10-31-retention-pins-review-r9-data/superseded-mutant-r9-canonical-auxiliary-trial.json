@@ -1,0 +1,286 @@
+{
+  "name": "mutant-r9-canonical-auxiliary-trial",
+  "start": "2026-10-31T09:17:22.277171+00:00",
+  "load": [
+    31.48388671875,
+    34.3564453125,
+    41.47021484375
+  ],
+  "args": [
+    "--mutant",
+    "r9-canonical-auxiliary-trial",
+    "tests/fake/test_retention_dependency_review_r9.py",
+    "--runxfail",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.1834362909976335,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2787861670003622,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.05067754099945887,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9534694169997238,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.182719750002434,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10677337500237627,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9643529170025431,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4367940829979489,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013835082998411963,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9128675419997307,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.266792708000139,
+      "failure": "tests/fake/test_retention_dependency_review_r9.py:67: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads\n    assert before.returncode == health.returncode == 0, (before.stderr, health.stderr)\nE   AssertionError: (b'', b'error: packed-refs: badRefFiletype: not a regular file but a symlink\nE     ')\nE   assert 0 == 8\nE    +  where 0 = CompletedProcess(args=['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null', '-C...etadata_locatio3/outside', 'show', 'HEAD:owner-only.txt'], returncode=0, stdout=b'R5 owner-only storage\\n', stderr=b'').returncode\nE    +  and   8 = CompletedProcess(args=['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null', '-C...dangling'], returncode=8, stdout=b'', stderr=b'error: packed-refs: badRefFiletype: not a regular file but a symlink\\n').returncode"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06764470900088781,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006094416999985697,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.16643708300034632,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007490829993912484,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003359458001796156,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.257167625000875,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004716291001386708,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004420582998136524,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4326054169978306,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005710420009563677,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0033638329987297766,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.17606345800231793,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007311669978662394,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006735165999998571,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.16148087499823305,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007695839994994458,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/System/Volumes/Data/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"\", \"layout\": \"gitfile\", \"physical\": \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48831, \"bytes_before\": 48831, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48831, \"bytes_before\": 48831, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/System/Volumes/Data/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"\", \"layout\": \"commondir\", \"physical\": \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48824, \"bytes_before\": 48824, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48824, \"bytes_before\": 48824, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/System/Volumes/Data/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"\", \"layout\": \"alternates\", \"physical\": \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48832, \"bytes_before\": 48832, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48832, \"bytes_before\": 48832, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "key": "routine",
+      "value": "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "key": "routine",
+      "value": "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "key": "routine",
+      "value": "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "key": "routine",
+      "value": "{\"layout\": \"new-workdir\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r9-canonical-auxiliary-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "key": "routine",
+      "value": "{\"layout\": \"none\", \"recorded\": {}}"
+    }
+  ],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "d7b646f6df3d42b4d0f5f1a46cb02922b30977d68057aeab2e3509383b6364b5"
+    },
+    {
+      "module": "subfleet.dependencies",
+      "original": "d7b646f6df3d42b4d0f5f1a46cb02922b30977d68057aeab2e3509383b6364b5",
+      "mutated": "72b18d52214648382061774184ec1bb015551fa54d98e36d48928f162acfa947"
+    },
+    {
+      "module": "subfleet.dependencies",
+      "original": "72b18d52214648382061774184ec1bb015551fa54d98e36d48928f162acfa947",
+      "mutated": "9792292c493a2a63882d2833da1543a5cbd0cea6e1e23eebd6b6053f5eb29d75"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:17:41.792145+00:00",
+  "seconds": 19.514715083001647,
+  "peak_rss_mib": 114.59375,
+  "exit": 1,
+  "valid": false,
+  "qualification": "Superseded fourth fixture: installed Git fsck rejects packed-refs symlinks. First three pointer cases have valid setup. Final fixture uses a direct objects/pack link and reruns all cases and trial controls."
+}

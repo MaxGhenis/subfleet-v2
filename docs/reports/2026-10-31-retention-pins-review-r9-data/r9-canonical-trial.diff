@@ -1,0 +1,29 @@
+--- a/subfleet/dependencies.py
++++ b/subfleet/dependencies.py
+@@ -244,7 +244,7 @@
+         resolved = self.resolve(path)
+         try:
+             value = os.fsdecode(read_regular(path, limit=_FILE_LIMIT))
+-            self.files.add(resolved)
++            self.files.add(folders.canonical(resolved))
+         except NotADirectoryError:
+             value = None
+         except (OSError, ValueError) as exc:
+@@ -264,7 +264,7 @@
+             with os.scandir(directory) as entries:
+                 for entry in entries:
+                     if entry.is_symlink():
+-                        self.entries.add(self.resolve(entry.path))
++                        self.entries.add(folders.canonical(self.resolve(entry.path)))
+         except FileNotFoundError:
+             pass
+         except OSError as exc:
+@@ -401,7 +401,7 @@
+             try:
+                 with open_regular(filename) as stream:
+                     opened = True
+-                    aliases.files.add(resolved)
++                    aliases.files.add(folders.canonical(resolved))
+                     before = os.fstat(stream.fileno())
+                     while line := stream.readline(_ALTERNATE_LINE_LIMIT + 1):
+                         if len(line) > _ALTERNATE_LINE_LIMIT:

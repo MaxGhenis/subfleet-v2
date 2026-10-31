@@ -1,0 +1,1029 @@
+{
+  "name": "historic-controls",
+  "start": "2026-10-31T09:04:19.055507+00:00",
+  "load": [
+    63.36083984375,
+    60.34814453125,
+    53.12744140625
+  ],
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=review-r9-data",
+    "review-r9-data/historic_probes.py",
+    "-k",
+    "not stable_pointer_alias_inside_retirable_tree_observation"
+  ],
+  "phases": [
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.6568635420007922,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.6489587080031924,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02475649999905727,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7802753750002012,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2457899159999215,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09739479099880555,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9807517919980455,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.9631466249993537,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003133624999463791,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9005758329985838,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.047189666998747,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0030458340006589424,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7746331659982388,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.5593549590012117,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0030826250003883615,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7855439589984599,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.6844480839972675,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.2004905419998977,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5607190000009723,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.6762948329997016,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.17436937500315253,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9291877920004481,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.52950625000085,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04834304099858855,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.383998041997984,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.981869999999617,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0034459160015103407,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4242245419991377,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.307046458001423,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.31466599999839673,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8170145410003897,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.504555499999697,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.019016958998690825,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6948552079993533,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.953072332999,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.13102379200063297,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8686111250026443,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.636004459000105,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07053033299962408,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5269898750011635,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 11.669471875000454,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.01851149999856716,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.495217916999536,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.085130666000623,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03478091600118205,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.858618000002025,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.4719048750012,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002929292000771966,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9220633749973786,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.243818374998227,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007207957998616621,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8342442920002213,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.0927177499979734,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0034796670006471686,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.375825833001727,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.919765124999685,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002766707999398932,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4699466249985562,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.158942375001061,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00424008299887646,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6036176670022542,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[base]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7878462090011453,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003004750000400236,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.49658054199971957,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.35952945800090674,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003932625000743428,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[absent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.43914287500228966,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[absent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.09269595799923991,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[absent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.036597083999367896,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5760076670012495,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.16078941600062535,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03914429100041161,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6076765830002842,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.13674629199886112,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00522537500000908,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[permission]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9561375000012049,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[permission]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11813920900021913,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[permission]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005947166999249021,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[oversized]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8891536660012207,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[oversized]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15249370799938333,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[oversized]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0031409580005856697,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6650569579978765,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8047444170006202,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011025666000932688,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1957880839981954,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.044790666001063,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002872707998903934,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.834758500001044,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.857355166997877,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.085033833001944,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7713929589990585,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.7348509160001413,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0033602910007175524,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5346327090010163,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8493168749992037,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002774667002086062,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_not_a_directory_pointer_has_no_git_reader",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003987959000369301,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_not_a_directory_pointer_has_no_git_reader",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.01787125000191736,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_not_a_directory_pointer_has_no_git_reader",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.14505975000065519,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5603231249988312,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8923852920015634,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0034168330021202564,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5431759589991998,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.965885249999701,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003882416000124067,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.47374000000127126,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1664205829983985,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002967958000226645,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6337942500031204,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8237795000022743,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003195208999386523,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-base]",
+      "key": "input",
+      "value": "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep0/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep0/outside/.git/objects\"]}, \"result\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-head]",
+      "key": "input",
+      "value": "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep1/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep1/outside/.git/objects\"]}, \"result\": {\"added_bytes\": 9503, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9503, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-base]",
+      "key": "input",
+      "value": "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep2/independent/.git/worktrees/outside\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep2/independent/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep2/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9501, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9501, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-head]",
+      "key": "input",
+      "value": "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep3/independent/.git/worktrees/outside\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep3/independent/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep3/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9501, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9501, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-base]",
+      "key": "input",
+      "value": "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep4/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep4/outside/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep4/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-head]",
+      "key": "input",
+      "value": "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep5/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep5/outside/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_routine_repositories_keep5/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9501, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9501, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-base]",
+      "key": "input",
+      "value": "{\"layout\": \"no-git\", \"recorded\": {}, \"result\": {\"added_bytes\": 9501, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9501, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-head]",
+      "key": "input",
+      "value": "{\"layout\": \"no-git\", \"recorded\": {}, \"result\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+      "key": "input",
+      "value": "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '541632a18086e360cb71ae2d28f10ac133a8b7bb'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g0/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g0/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g0/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g0/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22940, \"archived_bytes\": 49431, \"bytes_after\": 0, \"bytes_before\": 48665, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22940, \"archived_bytes\": 49431, \"bytes_after\": 0, \"bytes_before\": 48665, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+      "key": "input",
+      "value": "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'e005a02063e17d410953c2140301b60a5a147a1a'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g1/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g1/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g1/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22940, \"archived_bytes\": 49432, \"bytes_after\": 0, \"bytes_before\": 48666, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22940, \"archived_bytes\": 49432, \"bytes_after\": 0, \"bytes_before\": 48666, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+      "key": "input",
+      "value": "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'ff24510da3c80090cebd74d4adeddddbbd70371e'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g2/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g2/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g2/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g2/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22941, \"archived_bytes\": 49433, \"bytes_after\": 0, \"bytes_before\": 48667, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22941, \"archived_bytes\": 49433, \"bytes_after\": 0, \"bytes_before\": 48667, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+      "key": "input",
+      "value": "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'b3b5bf081d73887a468264bef0b10f6edfdf0dcc'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24824, \"archived_bytes\": 49790, \"bytes_after\": 0, \"bytes_before\": 49024, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24824, \"archived_bytes\": 49790, \"bytes_after\": 0, \"bytes_before\": 49024, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+      "key": "input",
+      "value": "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'e31e78c92a890d518965d51b65fd75fdf1016ebb'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g4/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g4/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g4/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g4/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22941, \"archived_bytes\": 49432, \"bytes_after\": 0, \"bytes_before\": 48666, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22941, \"archived_bytes\": 49432, \"bytes_after\": 0, \"bytes_before\": 48666, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+      "key": "input",
+      "value": "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '1438af60ff7046abf91b9b23d6f2c4c15c9f4bd5'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g5/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g5/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g5/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g5/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22941, \"archived_bytes\": 49432, \"bytes_after\": 0, \"bytes_before\": 48666, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22941, \"archived_bytes\": 49432, \"bytes_after\": 0, \"bytes_before\": 48666, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+      "key": "input",
+      "value": "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '4ac9b4cce584b25a230927b5636a39a411a037a6'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g6/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g6/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g6/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g6/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22941, \"archived_bytes\": 49431, \"bytes_after\": 0, \"bytes_before\": 48665, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22941, \"archived_bytes\": 49431, \"bytes_after\": 0, \"bytes_before\": 48665, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+      "key": "input",
+      "value": "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '6092a866d3f1159951d84b427a3ca38e516cc95b'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24823, \"archived_bytes\": 49789, \"bytes_after\": 0, \"bytes_before\": 49023, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24823, \"archived_bytes\": 49789, \"bytes_after\": 0, \"bytes_before\": 49023, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+      "key": "input",
+      "value": "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'd10ffec1ef9e6a4c141ca205f7d5050bb5604559'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g8/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g8/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g8/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g8/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22941, \"archived_bytes\": 49432, \"bytes_after\": 0, \"bytes_before\": 48666, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22941, \"archived_bytes\": 49432, \"bytes_after\": 0, \"bytes_before\": 48666, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+      "key": "input",
+      "value": "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'c42f61860edd8c3187679acbbeb48f881c33c81f'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g9/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g9/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g9/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g9/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22938, \"archived_bytes\": 49431, \"bytes_after\": 0, \"bytes_before\": 48665, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22938, \"archived_bytes\": 49431, \"bytes_after\": 0, \"bytes_before\": 48665, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+      "key": "input",
+      "value": "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '37a0784b47f366c5660ae5f0c6bd61da55c6d8ba'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g10/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g10/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g10/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g10/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22949, \"archived_bytes\": 49436, \"bytes_after\": 0, \"bytes_before\": 48669, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22949, \"archived_bytes\": 49436, \"bytes_after\": 0, \"bytes_before\": 48669, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+      "key": "input",
+      "value": "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'a1f2a7234accee972ec45fd88a910c705d6cf154'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24666, \"archived_bytes\": 49793, \"bytes_after\": 0, \"bytes_before\": 49026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24666, \"archived_bytes\": 49793, \"bytes_after\": 0, \"bytes_before\": 49026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[base]",
+      "key": "input",
+      "value": "{\"bytes\": 1048577, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_base_0/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_base_0/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_base_0/container/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_base_0/container/objects/info/alternates\", \"reason\": \"line exceeds 1048576 bytes\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20062, \"bytes_before\": 20062, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_base_0/container/objects/info/alternates (line exceeds 1048576 bytes)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20062, \"bytes_before\": 20062, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[head]",
+      "key": "input",
+      "value": "{\"bytes\": 1048577, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_head_0/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_head_0/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_head_0/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_head_0/container/worktrees/slot/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_head_0/container/objects/info/alternates\", \"reason\": \"line exceeds 1048576 bytes\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20062, \"bytes_before\": 20062, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_d_r7_1_predates_r6_head_0/container/objects/info/alternates (line exceeds 1048576 bytes)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20062, \"bytes_before\": 20062, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[absent]",
+      "key": "input",
+      "value": "{\"defect\": \"absent\", \"git_error\": \"\", \"git_rc\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga0/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga0/outside/.git/objects\"]}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[dangling]",
+      "key": "input",
+      "value": "{\"defect\": \"dangling\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga1/outside/.git/commondir: No such file or directory\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga1/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga1/outside/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga1/gone\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga1/outside/.git/commondir\", \"reason\": \"[Errno 2] No such file or directory: '/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga1/outside/.git/commondir'\"}]}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[directory]",
+      "key": "input",
+      "value": "{\"defect\": \"directory\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga2/outside/.git/commondir: Is a directory\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga2/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga2/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga2/outside/.git/commondir\", \"reason\": \"[Errno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga2/outside/.git/commondir'\"}]}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[permission]",
+      "key": "input",
+      "value": "{\"defect\": \"permission\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga3/outside/.git/commondir: Permission denied\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga3/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga3/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga3/outside/.git/commondir\", \"reason\": \"[Errno 13] Permission denied: '/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga3/outside/.git/commondir'\"}]}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[oversized]",
+      "key": "input",
+      "value": "{\"defect\": \"oversized\", \"git_error\": \"\", \"git_rc\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga4/outside/.git\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga4/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga4/outside/.git/commondir\", \"reason\": \"[Errno 27] longer than 65536 bytes: '/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_pointer_failure_split_aga4/outside/.git/commondir'\"}]}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "key": "input",
+      "value": "{\"change\": \"rewrite\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can0/initial-admin\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can0/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can0/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48666, \"bytes_before\": 48666, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can0/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48666, \"bytes_before\": 48666, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+      "key": "input",
+      "value": "{\"change\": \"oversized\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can1/initial-admin\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can1/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can1/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48665, \"bytes_before\": 48665, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can1/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48665, \"bytes_before\": 48665, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+      "key": "input",
+      "value": "{\"change\": \"unreadable\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can2/initial-admin\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can2/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can2/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48665, \"bytes_before\": 48665, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_final_pointer_failure_can2/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48665, \"bytes_before\": 48665, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+      "key": "input",
+      "value": "{\"legacy\": false, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_ended_job_with_gone_named0/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_ended_job_with_gone_named0/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_ended_job_with_gone_named0/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_ended_job_with_gone_named0/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 11644, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 0, \"more\": false, \"pin_reasons\": {}, \"pools\": {\"detached\": {\"added_bytes\": 11644, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [], \"pruned\": [\"borrower\", \"owner\"], \"reclaimed\": [\"borrower\", \"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+      "key": "input",
+      "value": "{\"legacy\": true, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_ended_job_with_gone_named1/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_ended_job_with_gone_named1/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_ended_job_with_gone_named1/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_ended_job_with_gone_named1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 11643, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 0, \"more\": false, \"pin_reasons\": {}, \"pools\": {\"detached\": {\"added_bytes\": 11643, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [], \"pruned\": [\"borrower\", \"owner\"], \"reclaimed\": [\"borrower\", \"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_not_a_directory_pointer_has_no_git_reader",
+      "key": "input",
+      "value": "{\"git_error\": \"fatal: invalid gitfile format: /private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_not_a_directory_pointer_h0/file\\n\", \"git_rc\": 128, \"incomplete\": [], \"pointer\": \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_not_a_directory_pointer_h0/file/commondir\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+      "key": "input",
+      "value": "{\"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj0/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj0/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj0/container/objects\"]}, \"result\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+      "key": "input",
+      "value": "{\"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj1/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj1/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj1/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9502, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+      "key": "input",
+      "value": "{\"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj2/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj2/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj2/container/objects\"]}, \"result\": {\"added_bytes\": 9503, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9503, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+    },
+    {
+      "node": "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+      "key": "input",
+      "value": "{\"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj3/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj3/container\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj3/container/objects\", \"/private/tmp/sf-r272r9/real-tmp/historic-controls/pytest-of-maxghenis/pytest-0/test_unused_parent_without_obj3/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 9503, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9503, \"archived_bytes\": 20829, \"bytes_after\": 0, \"bytes_before\": 20063, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-base]",
+    "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[plain-head]",
+    "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-base]",
+    "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[worktree-head]",
+    "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-base]",
+    "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[shared-head]",
+    "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-base]",
+    "review-r9-data/historic_probes.py::test_routine_repositories_keep_retiring[no-git-head]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+    "review-r9-data/historic_probes.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+    "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[base]",
+    "review-r9-data/historic_probes.py::test_d_r7_1_predates_r6[head]",
+    "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[absent]",
+    "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[dangling]",
+    "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[directory]",
+    "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[permission]",
+    "review-r9-data/historic_probes.py::test_pointer_failure_split_against_git[oversized]",
+    "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+    "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+    "review-r9-data/historic_probes.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+    "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+    "review-r9-data/historic_probes.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+    "review-r9-data/historic_probes.py::test_not_a_directory_pointer_has_no_git_reader",
+    "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+    "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+    "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+    "review-r9-data/historic_probes.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:07:11.848341+00:00",
+  "seconds": 172.7916179999993,
+  "peak_rss_mib": 118.171875,
+  "exit": 0
+}

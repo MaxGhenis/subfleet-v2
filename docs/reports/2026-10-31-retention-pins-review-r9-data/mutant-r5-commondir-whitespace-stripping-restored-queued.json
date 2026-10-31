@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T09:09:54.982918+00:00",
+  "args": [
+    "--mutant",
+    "r5-commondir-whitespace-stripping-restored",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/mutant-r5-commondir-whitespace-stripping-restored",
+  "linked": false,
+  "driver_pid": 7268,
+  "lock_process_group": 7285
+}

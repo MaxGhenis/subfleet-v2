@@ -1,0 +1,505 @@
+{
+  "name": "revert-r7-f1-location",
+  "start": "2026-10-31T08:48:11.755337+00:00",
+  "load": [
+    45.86083984375,
+    40.66064453125,
+    35.24609375
+  ],
+  "args": [
+    "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.9153286250002566,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 16.31374945800053,
+      "failure": "tests/unit/test_retention_location_inputs.py:159: in test_location_inputs_keep_the_places_real_git_traverses\n    suppress_health_check=[HealthCheck.function_scoped_fixture])\n         ^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_inputs.py:164: in test_location_inputs_keep_the_places_real_git_traverses\n    observation = check_location_input(Path(directory), data)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/review-r9-data/run.py:112: in observed\n    result = original(base, data)\n             ^^^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_inputs.py:142: in check_location_input\n    assert not recorded.get(\"incomplete\"), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'\"}]}\nE   assert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'\"}]\nE    +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10abfd400>('incomplete')\nE    +    where <built-in method get of dict object at 0x10abfd400> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'\"}]}.get\nE   Failing test case: test_location_inputs_keep_the_places_real_git_traverses(\nE       # The test always failed when commented parts were varied together.\nE       record_property=append_property,\nE       data={\nE           'position': 'gitfile-target',\nE           'chain': 1,  # or any other generated value\nE           'relative': False,  # or any other generated value\nE           'named': True,\nE           'entry': 'HEAD',  # or any other generated value\nE       },\nE   )\nE   {'position': 'gitfile-target',\nE    'chain': 1,\nE    'relative': False,\nE    'named': True,\nE    'entry': 'HEAD'}\nE   Explanation:\nE       These lines were always and only run by failing test cases:\nE           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:110\nE           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:253\nE           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:268\nE           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:323\nE           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:326\nE           (and 6 more with settings.verbosity >= verbose)"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007037909999780823,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-target\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp5l5bayam/stable/container/admin\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp5l5bayam/stable/container/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp5l5bayam/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"git-entry\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp68c8csg6/stable/container/admin\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp68c8csg6/stable/container/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp68c8csg6/owner/hop0\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp68c8csg6/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 3, \"entry\": \"refs\", \"named\": false, \"position\": \"git-entry\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptogf3my8/stable/container/admin\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptogf3my8/stable/container/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptogf3my8/owner/hop0\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptogf3my8/owner/hop1\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptogf3my8/owner/hop2\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptogf3my8/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"git-entry\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgztah0ki/stable/container/admin\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgztah0ki/stable/container/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgztah0ki/owner/hop0\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgztah0ki/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"refs\", \"named\": false, \"position\": \"alternates-line\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp_aiteh_p/stable/container/admin\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp_aiteh_p/stable/container/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp_aiteh_p/stable/source/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp_aiteh_p/owner/hop0\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp_aiteh_p/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"refs\", \"named\": false, \"position\": \"objects-info\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp2g3kdcls/stable/container/admin\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp2g3kdcls/stable/container/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp2g3kdcls/stable/source/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp2g3kdcls/owner/hop0\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp2g3kdcls/owner/hop1\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp2g3kdcls/stable/object-info\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp2g3kdcls/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-target\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp1nqxbmsr/stable/container/admin\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp1nqxbmsr/stable/container/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp1nqxbmsr/owner/hop0\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp1nqxbmsr/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-target\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfqk7pbyk/stable/container/admin\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfqk7pbyk/stable/container/admin/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfqk7pbyk/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": true, \"position\": \"commondir-target\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmph1ew_pf2/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmph1ew_pf2/stable/common\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmph1ew_pf2/stable/common/objects\", \"/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmph1ew_pf2/owner/hop0\"]}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses"
+  ],
+  "product_file": "/private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py",
+  "product_sha256": "4ff89780285fe71f4031360c6bad4aef58eb7fea16886725fde45231f56d4e80",
+  "attempts": [
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": false,
+        "position": "git-entry",
+        "chain": 3,
+        "entry": "refs",
+        "named": false
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "chain": 1,
+        "relative": true,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "refs",
+        "named": true,
+        "chain": 1,
+        "position": "git-entry",
+        "relative": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir'\"}] = <built-in method get of dict object at 0x1097f97c0>('incomplete')\n +    where <built-in method get of dict object at 0x1097f97c0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": true,
+        "named": false,
+        "position": "alternates-line",
+        "chain": 2,
+        "entry": "refs"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": true,
+        "named": true,
+        "position": "alternates-line",
+        "chain": 2,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpqy2en49p/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpqy2en49p/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpqy2en49p/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpqy2en49p/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpqy2en49p/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpqy2en49p/stable/container/commondir'\"}] = <built-in method get of dict object at 0x1093251c0>('incomplete')\n +    where <built-in method get of dict object at 0x1093251c0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpqy2en49p/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpqy2en49p/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "chain": 2,
+        "entry": "refs",
+        "relative": true,
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa_s7zru0/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa_s7zru0/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa_s7zru0/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa_s7zru0/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa_s7zru0/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa_s7zru0/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a211700>('incomplete')\n +    where <built-in method get of dict object at 0x10a211700> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa_s7zru0/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa_s7zru0/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": false,
+        "named": true,
+        "entry": "refs",
+        "chain": 2,
+        "position": "objects-info"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpbqm_xrm4/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpbqm_xrm4/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpbqm_xrm4/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpbqm_xrm4/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpbqm_xrm4/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpbqm_xrm4/stable/container/commondir'\"}] = <built-in method get of dict object at 0x109dab6c0>('incomplete')\n +    where <built-in method get of dict object at 0x109dab6c0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpbqm_xrm4/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpbqm_xrm4/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": false,
+        "named": false,
+        "entry": "refs",
+        "chain": 2,
+        "position": "objects-info"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": false,
+        "named": true,
+        "entry": "refs",
+        "chain": 2,
+        "position": "objects-info"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpprlp9av0/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpprlp9av0/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpprlp9av0/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpprlp9av0/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpprlp9av0/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpprlp9av0/stable/container/commondir'\"}] = <built-in method get of dict object at 0x109d97680>('incomplete')\n +    where <built-in method get of dict object at 0x109d97680> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpprlp9av0/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpprlp9av0/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": false,
+        "named": true,
+        "entry": "refs",
+        "chain": 2,
+        "position": "gitfile-target"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpq7d3sld4/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpq7d3sld4/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpq7d3sld4/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpq7d3sld4/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpq7d3sld4/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpq7d3sld4/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a04b280>('incomplete')\n +    where <built-in method get of dict object at 0x10a04b280> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpq7d3sld4/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpq7d3sld4/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": false,
+        "named": true,
+        "entry": "HEAD",
+        "chain": 2,
+        "position": "gitfile-target"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpir8ta91z/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpir8ta91z/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpir8ta91z/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpir8ta91z/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpir8ta91z/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpir8ta91z/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a005e40>('incomplete')\n +    where <built-in method get of dict object at 0x10a005e40> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpir8ta91z/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpir8ta91z/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "named": true,
+        "entry": "HEAD",
+        "chain": 2,
+        "relative": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpv38mk92j/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpv38mk92j/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpv38mk92j/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpv38mk92j/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpv38mk92j/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpv38mk92j/stable/container/commondir'\"}] = <built-in method get of dict object at 0x109fa6940>('incomplete')\n +    where <built-in method get of dict object at 0x109fa6940> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpv38mk92j/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpv38mk92j/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "named": false,
+        "entry": "HEAD",
+        "chain": 2,
+        "relative": false
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "named": true,
+        "entry": "HEAD",
+        "chain": 1,
+        "relative": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpsg565yd7/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpsg565yd7/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpsg565yd7/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpsg565yd7/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpsg565yd7/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpsg565yd7/stable/container/commondir'\"}] = <built-in method get of dict object at 0x109f63400>('incomplete')\n +    where <built-in method get of dict object at 0x109f63400> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpsg565yd7/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpsg565yd7/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "named": false,
+        "entry": "HEAD",
+        "chain": 1,
+        "relative": false
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "named": true,
+        "relative": false,
+        "chain": 1,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp52mgox1m/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp52mgox1m/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp52mgox1m/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp52mgox1m/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp52mgox1m/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp52mgox1m/stable/container/commondir'\"}] = <built-in method get of dict object at 0x109f600c0>('incomplete')\n +    where <built-in method get of dict object at 0x109f600c0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp52mgox1m/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp52mgox1m/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfdxx55l4/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfdxx55l4/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfdxx55l4/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfdxx55l4/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfdxx55l4/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfdxx55l4/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a32b4c0>('incomplete')\n +    where <built-in method get of dict object at 0x10a32b4c0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfdxx55l4/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpfdxx55l4/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp4r65nfs5/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp4r65nfs5/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp4r65nfs5/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp4r65nfs5/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp4r65nfs5/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp4r65nfs5/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a772440>('incomplete')\n +    where <built-in method get of dict object at 0x10a772440> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp4r65nfs5/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp4r65nfs5/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpz_rp966w/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpz_rp966w/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpz_rp966w/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpz_rp966w/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpz_rp966w/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpz_rp966w/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a7e7c00>('incomplete')\n +    where <built-in method get of dict object at 0x10a7e7c00> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpz_rp966w/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpz_rp966w/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpkd4oiftl/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpkd4oiftl/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpkd4oiftl/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpkd4oiftl/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpkd4oiftl/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpkd4oiftl/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a841900>('incomplete')\n +    where <built-in method get of dict object at 0x10a841900> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpkd4oiftl/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpkd4oiftl/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 3,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp7dsiptsu/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp7dsiptsu/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp7dsiptsu/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp7dsiptsu/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp7dsiptsu/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp7dsiptsu/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a871a40>('incomplete')\n +    where <built-in method get of dict object at 0x10a871a40> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp7dsiptsu/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp7dsiptsu/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 2,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvuyt8os7/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvuyt8os7/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvuyt8os7/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvuyt8os7/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvuyt8os7/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvuyt8os7/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a8f7180>('incomplete')\n +    where <built-in method get of dict object at 0x10a8f7180> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvuyt8os7/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvuyt8os7/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": true,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpx3dfep8k/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpx3dfep8k/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpx3dfep8k/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpx3dfep8k/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpx3dfep8k/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpx3dfep8k/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a9b7d00>('incomplete')\n +    where <built-in method get of dict object at 0x10a9b7d00> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpx3dfep8k/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpx3dfep8k/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa9vqxr7v/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa9vqxr7v/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa9vqxr7v/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa9vqxr7v/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa9vqxr7v/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa9vqxr7v/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10a9ccb40>('incomplete')\n +    where <built-in method get of dict object at 0x10a9ccb40> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa9vqxr7v/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpa9vqxr7v/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 3,
+        "relative": true,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpae1hbh8t/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpae1hbh8t/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpae1hbh8t/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpae1hbh8t/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpae1hbh8t/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpae1hbh8t/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10aa1bfc0>('incomplete')\n +    where <built-in method get of dict object at 0x10aa1bfc0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpae1hbh8t/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpae1hbh8t/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 3,
+        "relative": false,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvxrlhjnr/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvxrlhjnr/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvxrlhjnr/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvxrlhjnr/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvxrlhjnr/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvxrlhjnr/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10aa68100>('incomplete')\n +    where <built-in method get of dict object at 0x10aa68100> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvxrlhjnr/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpvxrlhjnr/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 3,
+        "relative": true,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp8sw4jp_9/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp8sw4jp_9/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp8sw4jp_9/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp8sw4jp_9/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp8sw4jp_9/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp8sw4jp_9/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10aa79380>('incomplete')\n +    where <built-in method get of dict object at 0x10aa79380> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp8sw4jp_9/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp8sw4jp_9/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 2,
+        "relative": false,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgzwqnxkj/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgzwqnxkj/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgzwqnxkj/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgzwqnxkj/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgzwqnxkj/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgzwqnxkj/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10aae6800>('incomplete')\n +    where <built-in method get of dict object at 0x10aae6800> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgzwqnxkj/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpgzwqnxkj/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 2,
+        "relative": true,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpns6hq4e6/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpns6hq4e6/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpns6hq4e6/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpns6hq4e6/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpns6hq4e6/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpns6hq4e6/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10ab347c0>('incomplete')\n +    where <built-in method get of dict object at 0x10ab347c0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpns6hq4e6/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmpns6hq4e6/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 2,
+        "relative": true,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp0sa3u0h4/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp0sa3u0h4/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp0sa3u0h4/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp0sa3u0h4/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp0sa3u0h4/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp0sa3u0h4/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10ab706c0>('incomplete')\n +    where <built-in method get of dict object at 0x10ab706c0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp0sa3u0h4/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp0sa3u0h4/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": true,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp209_ch26/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp209_ch26/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp209_ch26/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp209_ch26/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp209_ch26/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp209_ch26/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10abcdc40>('incomplete')\n +    where <built-in method get of dict object at 0x10abcdc40> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp209_ch26/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmp209_ch26/stable/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'\"}] = <built-in method get of dict object at 0x10abfd400>('incomplete')\n +    where <built-in method get of dict object at 0x10abfd400> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'\"}]}.get"
+    }
+  ],
+  "end": "2026-10-31T08:48:42.876666+00:00",
+  "seconds": 31.11933716600106,
+  "peak_rss_mib": 124.84375,
+  "exit": 1
+}

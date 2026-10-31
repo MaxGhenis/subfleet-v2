@@ -1,0 +1,1476 @@
+{
+  "name": "shared-folders",
+  "start": "2026-10-31T09:31:14.561153+00:00",
+  "load": [
+    57.78857421875,
+    42.08349609375,
+    40.0234375
+  ],
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "not test_fence_hold_against_a_model_of_the_fence and not test_early_fences_equal_reservation_before_and_after_quarantine and not test_interleavings_never_delete_a_folder_named_by_a_turn and not test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.4726366249997227,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2496536250000645,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03562012499969569,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7876734169985866,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.183985291998397,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1312124579999363,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9371240000000398,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.06509799999912502,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.010736499996710336,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5945847919974767,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3275934999983292,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02402270899983705,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5504647089983337,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.17335079199983738,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002714540998567827,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4801349579975067,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24679220800317125,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0529175830015447,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6005569170010858,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1019726249978703,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03890270800184226,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6865021249977872,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.117602833001001,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.012185833002149593,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8461996659971192,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.686451292000129,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.010556416000326863,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.398714208000456,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.1818822499990347,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.015333667000959394,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01774654200198711,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.06645458300045,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000562375000299653,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.008161082998412894,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2100222920016677,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004820419999305159,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.07623829200019827,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6327091249986552,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002913749995059334,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001547124997159699,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2510919160013145,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000503999999637017,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029210419997980352,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.460717874997499,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042445900180609897,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.15365683299751254,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.4716452499997104,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005980409987387247,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.20705325000017183,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.058628874998249,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00040245900163426995,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04748770899823285,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.896458375002112,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005932909989496693,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.013207667001552181,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.77572274999693,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008347500006493647,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03938933299650671,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.926209917000961,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005860420023964252,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.14977579200058244,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.9177940410008887,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005170419972273521,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00324591699973098,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.686245583998243,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000588916998822242,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004388542001834139,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.5613649579972844,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0015287919995898847,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0036896249985147733,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.2678151660002186,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005424160008260515,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1468590000004042,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.4936605830007466,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008099580009002239,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006577708998520393,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.776421750000736,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00047745800111442804,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032632090005790815,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.507204666002508,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005665419994329568,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3311790000007022,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.055190792001667,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008177499985322356,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0016114579993882217,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.8113186250011495,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007885420018283185,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005412291000538971,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.45641333399908,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005795840006612707,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004238749999785796,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.379098334000446,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009796249978535343,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007417791999614565,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.901556958000583,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006226670011528768,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.030303916999400826,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4939189169999736,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005124160015839152,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003875209000398172,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.6666979170004197,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004996249990654178,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6396182079988648,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8566268750000745,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.017130291998910252,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5997768340021139,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.643467791000148,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.022410000001400476,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9992092089996731,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.053443584001798,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006256957996811252,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9886323330028972,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.96794249999948,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005521667000721209,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.1092839159973664,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.873062167000171,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004645125001843553,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0090785840002354,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.19221820900202147,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0032838750012160745,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0886661669974274,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3073045000019192,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0034100839984603226,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0006228750025912,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.39401079199888045,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002561833000072511,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.7255700419991626,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2893335410008149,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.15204691699909745,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8964529160002712,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.6715754580000066,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.14480154199918616,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5806067920020723,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4061135830015701,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10559483399993042,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6526944580000418,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.1181437500017637,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005536042001040187,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.518155542002205,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.408951583001908,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.053338166002504295,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9359831660003692,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.034845665999455,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.36320983299810905,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.828371874998993,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8911088339991693,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0027287500015518162,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9800218750024214,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.0762654160025704,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.014502915997582022,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5430512919992907,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.9179717499973776,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10480049999750918,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.1798952910030494,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.9976865830030874,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00473375000001397,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.530549333001545,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.364974624997558,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.014108874998782994,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.3104446659999667,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.646565125000052,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003299791998870205,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5288558749998629,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5867593330003729,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0038162499986356124,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.549499458000355,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.381785249999666,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0041903749988705385,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9445416669987026,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1455789579995326,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013837459002388641,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9340897500005667,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8783077920015785,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0029268750004121102,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:35:24.412063+00:00",
+  "seconds": 249.84745170799943,
+  "peak_rss_mib": 120.875,
+  "exit": 0
+}

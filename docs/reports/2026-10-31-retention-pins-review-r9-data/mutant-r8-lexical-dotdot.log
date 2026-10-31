@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:38:06Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ test_dotdot_applies_after_the_link_before_it _________________
+tests/unit/test_retention_locations.py:37: in test_dotdot_applies_after_the_link_before_it
+    assert str(paths["admin"]) in recorded["git"], recorded
+E   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_af...9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']}
+E   assert '/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' in ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_...r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']
+E    +  where '/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' = str(PosixPath('/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin'))
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it
+1 failed in 16.94s
+{"name": "mutant-r8-lexical-dotdot", "start": "2026-10-31T08:38:08.316235+00:00", "load": [29.18603515625, 30.05712890625, 29.79541015625], "seconds": 20.661264417001803, "exit": 1}

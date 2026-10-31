@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r6-pointer-read-failure-evidence-dropped",
+  "start": "2026-10-31T09:10:49.498727+00:00",
+  "load": [
+    28.2734375,
+    41.36376953125,
+    46.9189453125
+  ],
+  "args": [
+    "--mutant",
+    "r6-pointer-read-failure-evidence-dropped",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5201429579974501,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 9.298330207999243,
+      "failure": "tests/fake/test_retention_dependency_review_r6.py:76: in test_crlf_padded_pointer_keeps_the_storage_real_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49076, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005560125002375571,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "f69ff461ddf8a041dce48f61a295bf3fc89f55617350dd0f1e1009cd472c51c2"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:11:19.492307+00:00",
+  "seconds": 29.99318591699921,
+  "peak_rss_mib": 116.15625,
+  "exit": 1
+}

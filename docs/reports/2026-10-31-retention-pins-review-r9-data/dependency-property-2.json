@@ -1,0 +1,51 @@
+{
+  "name": "dependency-property-2",
+  "start": "2026-10-31T09:26:15.807818+00:00",
+  "load": [
+    34.8564453125,
+    34.60693359375,
+    38.21142578125
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "monotone"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.2855122909968486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 134.71028916700016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008754169975873083,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:28:47.109831+00:00",
+  "seconds": 151.29987270900165,
+  "peak_rss_mib": 126.1875,
+  "exit": 0
+}
