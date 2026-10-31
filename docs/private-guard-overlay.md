@@ -309,8 +309,8 @@ Its r12d (2026-10-31) charges the one place r12 named and left uncharged: what x
 shell xargs runs has `-c` and no script, or a `-c` script that only runs its arguments, such as `bash
 -c '"$@"' _`. Before it, the hook took 51 s to read 8 KB echoed through 1,000 `| xargs -0 bash -c`
 stages and ran past 75 s on 32 KB through 1,500, where its timeout is 60 s (the hub's runs at
-`307e2373c`); it now denies each of the hub's xargs rows as too complex to judge in under 0.7 s of
-CPU. It still reads 1 KB through 10 such stages, and still allows `echo 'rg -n foo src' | xargs -0
+`307e2373c`); it now denies those rows, and 1 KB through 100 such stages, as too complex to judge in
+under 0.7 s of CPU. It still reads 1 KB through 10, and still allows `echo 'rg -n foo src' | xargs -0
 bash -c`. The message's "piped into a shell" covers this text. The hub read every other place where
 the prep reads a script: each reads the command's own text or already spends.
 

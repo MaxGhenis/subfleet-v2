@@ -2466,7 +2466,8 @@ as at r12 (H1).
 at 05:34:56Z. R ran in a scratch export of `307e2373c` plus the pins. H1, HT and MB started at `3d3e8aa80`; HEAD
 moved to `08796c7a8` (the overlay doc only) while HT and MB ran, so MB's later exports are of `08796c7a8`. HY and HX
 ran at `dfbd8caed`, which adds a test comment. So every hold ran this head's hook, TRUST, tests and driver, but for
-that comment in the earlier holds.
+that comment in the earlier holds. After them, one sentence of the overlay doc's r12d paragraph changed, outside the
+text any test reads (its "Known differences", headings and hash table are byte for byte the same).
 
 | Hold | Admitted (slot, load) | Selection | Result, time |
 | --- | --- | --- | --- |
