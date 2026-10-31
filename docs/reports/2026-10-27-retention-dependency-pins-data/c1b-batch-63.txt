@@ -1,0 +1,4 @@
+tests/unit/test_retention_ordinary_trees.py::test_an_ordinary_tree_retires_without_an_unarchived_path[clone-False]
+tests/unit/test_retention_ordinary_trees.py::test_an_ordinary_tree_retires_without_an_unarchived_path[clone-True]
+tests/unit/test_retention_ordinary_trees.py::test_an_ordinary_tree_retires_without_an_unarchived_path[hardlink-False]
+tests/unit/test_retention_ordinary_trees.py::test_an_ordinary_tree_retires_without_an_unarchived_path[hardlink-True]

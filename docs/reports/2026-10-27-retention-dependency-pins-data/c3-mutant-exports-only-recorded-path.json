@@ -1,0 +1,52 @@
+{
+  "start": "2026-10-28T20:47:18.685414+00:00",
+  "load": [
+    102.794921875,
+    85.05908203125,
+    95.55712890625
+  ],
+  "pid": 93910,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 5.324177041999064
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 0.39169983299507294,
+      "failure": "tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/hold-c3-mutant-exports-only-recorded-path/pytest-of-maxghenis/pytest-0/test_d2_a_pending_export_pins_0')\n\n    def test_d2_a_pending_export_pins_and_a_written_one_does_not(tmp_path):\n        \"\"\"An ended job still holding `out:<path>` keeps a tree its path is in; once the\n        lease goes (its export written, `Daemon._export`), nothing of it does.\"\"\"\n        store = Store(tmp_path / \"s.sqlite3\")\n        try:\n            store.add_job(job_id=\"tree\", request_id=\"t\", payload_digest=\"d\", kind=\"dispatch\", workdir=\"/src\",\n                          worktree=\"/s/worktrees/tree\", prompt_path=\"/p\", sandbox=\"workspace-write\", state=\"succeeded\")\n            store.add_job(job_id=\"writer\", request_id=\"w\", payload_digest=\"d\", kind=\"dispatch\", workdir=\"/x\",\n                          out_path=\"/s/worktrees/TREE/out.md\", prompt_path=\"/p\", sandbox=\"read-only\", state=\"succeeded\")\n            assert \"tree\" not in retention._pin_reasons(store, set(), None)\n            store.acquire_lease(\"out:/s/worktrees/TREE/out.md\", \"writer\")\n>           assert retention._pin_reasons(store, set(), None)[\"tree\"] == \"worktree-in-use\"\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE           KeyError: 'tree'\n\ntests/unit/test_retention_dependency_units.py:338: KeyError"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0008912910052458756
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "exit": 1,
+  "seconds": 25.58804970899655,
+  "maxrss": 115949568,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "admission_utc": "2026-10-28T20:47:11.388367+00:00",
+  "wall_seconds": 38.208,
+  "queue_seconds": 3.265
+}

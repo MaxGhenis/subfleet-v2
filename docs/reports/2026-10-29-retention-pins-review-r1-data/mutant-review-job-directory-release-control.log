@@ -1,0 +1,28 @@
+hold 04:24:11Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_output_in_another_jobs_directory_keeps_that_directory __________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/b-cc00bc5c1fdd/test_output_in_another_jobs_di0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b1e4d60>
+
+    def test_output_in_another_jobs_directory_keeps_that_directory(tmp_path,monkeypatch):
+     monkeypatch.setattr(procs,'worktree_cwd_pids',lambda *a,**k:frozenset())
+     w=World(tmp_path)
+     try:
+      w.job('owner',worktree=False)
+      folder=w.root/'jobs'/'owner'
+      outside=tmp_path/'outside';outside.mkdir()
+      output=folder/'result.md'
+      recorded=dependencies.record(str(outside),out_path=str(output))
+      w.store.add_job(job_id='reader',request_id='reader',payload_digest='d',kind='dispatch',state='queued',workdir=str(outside),out_path=str(output),prompt_path='/p',sandbox='read-only')
+      w.store.add_event('job.submitted',job_id='reader',data={'depends':recorded})
+      result=retention.maintenance(w.store,w.root,max_jobs=0,max_bytes=0,holders=lambda *a,**k:{})
+>     assert 'owner' not in result['pruned'],result
+E     AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E     assert 'owner' not in ['owner']
+
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/test_job_directory_probe.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/test_job_directory_probe.py::test_output_in_another_jobs_directory_keeps_that_directory
+1 failed in 1.55s

@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T10:52:31.545652+00:00",
+  "args": [
+    "review-r10-data/loop_growth_probe.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/loop-growth",
+  "linked": false,
+  "driver_pid": 28006,
+  "lock_process_group": 28092
+}

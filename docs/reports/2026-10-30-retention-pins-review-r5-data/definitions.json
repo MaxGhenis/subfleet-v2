@@ -1,0 +1,112 @@
+{
+  "r2-post-read-identity-check-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "                    after = os.fstat(stream.fileno())\n                    named = os.stat(filename)\n                    fields = (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\")\n                    if (any(getattr(before, field) != getattr(after, field) for field in fields)\n                            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):\n                        raise ValueError(\"alternates changed during discovery\")\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+    ]
+  },
+  "r2-terminal-legacy-incomplete-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "        errors = getattr(legacy_places, \"incomplete\", {}).get(row[\"job_id\"])\n        if errors:\n            found.incomplete[row[\"job_id\"]] = errors\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+    ]
+  },
+  "r3-post-traversal-alias-check-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))",
+    "new": "    return list(dict.fromkeys(folders.canonical(each) for each in found))",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+    ]
+  },
+  "r3-census-moved-after-recovery": {
+    "file": "subfleet/retention.py",
+    "old": "    def run(self) -> dict[str, Any]:\n        # Recovery can quarantine: discover legacy dependencies before any move.\n        # If the census raises, this pass cannot enter recovery with empty evidence.\n        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)\n        in_flight = self._recover()\n        jobs = list(reversed(self.store.list_jobs()))        # oldest first\n        by_id = {job[\"job_id\"]: job for job in jobs}\n        self.hosted = nested_hosts(jobs, self.root)\n",
+    "new": "    def run(self) -> dict[str, Any]:\n        in_flight = self._recover()\n        jobs = list(reversed(self.store.list_jobs()))        # oldest first\n        by_id = {job[\"job_id\"]: job for job in jobs}\n        self.hosted = nested_hosts(jobs, self.root)\n        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+    ]
+  },
+  "r3-write-metadata-check-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "                    if (any(getattr(before, field) != getattr(after, field) for field in fields)\n                            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):",
+    "new": "                    if (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino):",
+    "tests": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-fix272r4",
+      "/private/tmp/sf-fix272r4/probes.py::test_changes[same-size-running]"
+    ]
+  },
+  "r3-final-path-check-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "                    named = os.stat(filename)\n                    fields = (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\")\n                    if (any(getattr(before, field) != getattr(after, field) for field in fields)\n                            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):\n",
+    "new": "                    fields = (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\")\n                    if any(getattr(before, field) != getattr(after, field) for field in fields):\n",
+    "tests": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-fix272r4",
+      "/private/tmp/sf-fix272r4/probes.py::test_changes[symlink-info-running]"
+    ]
+  },
+  "r3-terminal-census-live-only": {
+    "file": "subfleet/dependencies.py",
+    "old": "    for row in read(_DISCOVERING, ()):",
+    "new": "    for row in read(_LIVE, ()):",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+    ]
+  },
+  "r4-initial-objects-revalidation-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "    target = aliases.resolve(objects)\n",
+    "new": "    target = os.path.realpath(objects)\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+    ]
+  },
+  "r4-initial-objects-recording-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "    return list(dict.fromkeys([gitdir, common, target, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))",
+    "new": "    return list(dict.fromkeys([gitdir, common, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+    ]
+  },
+  "r5-preserve-pointer-path-whitespace": {
+    "file": "subfleet/dependencies.py",
+    "patches": [
+      {
+        "old": "    text = (aliases.text(dotgit) or \"\").strip()\n    if not text.startswith(\"gitdir:\"):\n        return None\n    named = text[len(\"gitdir:\"):].strip()\n",
+        "new": "    text = (aliases.text(dotgit) or \"\").rstrip(\"\\r\\n\")\n    if not text.startswith(\"gitdir: \"):\n        return None\n    named = text[len(\"gitdir: \"):]\n"
+      },
+      {
+        "old": "    pointer = aliases.text(os.path.join(gitdir, \"commondir\"))\n    if pointer is not None and pointer.strip():\n        common = aliases.resolve(os.path.join(gitdir, pointer.strip()))\n",
+        "new": "    pointer = aliases.text(os.path.join(gitdir, \"commondir\"))\n    pointer = pointer.rstrip(\"\\r\\n\") if pointer is not None else None\n    if pointer:\n        common = aliases.resolve(os.path.join(gitdir, pointer))\n"
+      }
+    ],
+    "baseline_patch_count": 2
+  },
+  "r5-commondir-whitespace-stripping-restored": {
+    "file": "subfleet/dependencies.py",
+    "baseline_patch_count": 2,
+    "patches": [
+      {
+        "old": "    text = (aliases.text(dotgit) or \"\").strip()\n    if not text.startswith(\"gitdir:\"):\n        return None\n    named = text[len(\"gitdir:\"):].strip()\n",
+        "new": "    text = (aliases.text(dotgit) or \"\").rstrip(\"\\r\\n\")\n    if not text.startswith(\"gitdir: \"):\n        return None\n    named = text[len(\"gitdir: \"):]\n"
+      },
+      {
+        "old": "    pointer = aliases.text(os.path.join(gitdir, \"commondir\"))\n    if pointer is not None and pointer.strip():\n        common = aliases.resolve(os.path.join(gitdir, pointer.strip()))\n",
+        "new": "    pointer = aliases.text(os.path.join(gitdir, \"commondir\"))\n    pointer = pointer.rstrip(\"\\r\\n\") if pointer is not None else None\n    if pointer:\n        common = aliases.resolve(os.path.join(gitdir, pointer))\n"
+      },
+      {
+        "old": "        common = aliases.resolve(os.path.join(gitdir, pointer))\n",
+        "new": "        common = aliases.resolve(os.path.join(gitdir, pointer.strip()))\n"
+      }
+    ]
+  }
+}

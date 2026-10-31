@@ -1,0 +1,1 @@
+{"label": "mutant-r4-initial-objects-recording-dropped", "queued": "2026-10-31T06:33:49.575729+00:00", "args": ["tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"], "pid": 28433}

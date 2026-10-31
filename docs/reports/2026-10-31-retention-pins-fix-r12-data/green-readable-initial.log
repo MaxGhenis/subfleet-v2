@@ -1,0 +1,47 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:16:40Z slot A load 
+............................FFFF....                                     [100%]
+=================================== FAILURES ===================================
+__________________ test_real_enametoolong_cycle[gitfile-371] ___________________
+tests/unit/test_retention_location_readable.py:222: in test_real_enametoolong_cycle
+    assert records["head"] == records["475f63278"]
+E   assert {'git': ['/pr...commondir'"}]} == {'git': ['/pr...commondir'"}]}
+E     
+E     Omitting 1 identical items, use -vv to show
+E     Differing items:
+E     {'git': ['/private/tmp/sf-fix272r12/real-tmp/green-readable/pytest-of-maxghenis/pytest-0/test_real_enametoolong_cycle_...ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects']} != {'git': ['/private/tmp/sf-fix272r12/real-tmp/green-readable/pytest-of-maxghenis/pytest-0/test_real_enametoolong_cycle_...ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects']}
+E     Use -v to get more diff
+__________________ test_real_enametoolong_cycle[gitfile-500] ___________________
+tests/unit/test_retention_location_readable.py:222: in test_real_enametoolong_cycle
+    assert records["head"] == records["475f63278"]
+E   assert {'git': ['/pr...commondir'"}]} == {'git': ['/pr...commondir'"}]}
+E     
+E     Omitting 1 identical items, use -vv to show
+E     Differing items:
+E     {'git': ['/private/tmp/sf-fix272r12/real-tmp/green-readable/pytest-of-maxghenis/pytest-0/test_real_enametoolong_cycle_...ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects']} != {'git': ['/private/tmp/sf-fix272r12/real-tmp/green-readable/pytest-of-maxghenis/pytest-0/test_real_enametoolong_cycle_...ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects']}
+E     Use -v to get more diff
+_________________ test_real_enametoolong_cycle[commondir-371] __________________
+tests/unit/test_retention_location_readable.py:222: in test_real_enametoolong_cycle
+    assert records["head"] == records["475f63278"]
+E   assert {'git': ['/pr...lternates'"}]} == {'git': ['/pr...lternates'"}]}
+E     
+E     Omitting 1 identical items, use -vv to show
+E     Differing items:
+E     {'git': ['/private/tmp/sf-fix272r12/real-tmp/green-readable/pytest-of-maxghenis/pytest-0/test_real_enametoolong_cycle_...ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects']} != {'git': ['/private/tmp/sf-fix272r12/real-tmp/green-readable/pytest-of-maxghenis/pytest-0/test_real_enametoolong_cycle_...ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects']}
+E     Use -v to get more diff
+_________________ test_real_enametoolong_cycle[commondir-500] __________________
+tests/unit/test_retention_location_readable.py:222: in test_real_enametoolong_cycle
+    assert records["head"] == records["475f63278"]
+E   assert {'git': ['/pr...lternates'"}]} == {'git': ['/pr...lternates'"}]}
+E     
+E     Omitting 1 identical items, use -vv to show
+E     Differing items:
+E     {'git': ['/private/tmp/sf-fix272r12/real-tmp/green-readable/pytest-of-maxghenis/pytest-0/test_real_enametoolong_cycle_...ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects']} != {'git': ['/private/tmp/sf-fix272r12/real-tmp/green-readable/pytest-of-maxghenis/pytest-0/test_real_enametoolong_cycle_...ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects']}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle[gitfile-371]
+FAILED tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle[gitfile-500]
+FAILED tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle[commondir-371]
+FAILED tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle[commondir-500]
+4 failed, 32 passed in 198.59s (0:03:18)
+{"name": "green-readable", "start": "2026-10-31T20:16:44.812844+00:00", "load": [83.4912109375, 82.45654296875, 82.80908203125], "seconds": 200.8871756669978, "exit": 1}

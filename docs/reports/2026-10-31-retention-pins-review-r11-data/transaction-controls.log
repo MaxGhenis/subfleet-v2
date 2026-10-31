@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 16:25:59Z slot A load 
+..............                                                           [100%]
+14 passed, 18 deselected in 201.59s (0:03:21)
+{"name": "transaction-controls", "start": "2026-10-31T16:26:12.057379+00:00", "load": [100.9501953125, 107.28564453125, 109.701171875], "seconds": 209.07398349999858, "exit": 0}

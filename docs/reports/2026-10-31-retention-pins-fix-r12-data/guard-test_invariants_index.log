@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:55:09Z slot A load 
+.........................                                                [100%]
+25 passed in 4.52s
+{"name": "guard-test_invariants_index", "start": "2026-10-31T20:55:11.122848+00:00", "load": [45.95751953125, 50.24755859375, 57.7109375], "seconds": 6.103840041992953, "exit": 0}

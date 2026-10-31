@@ -1,0 +1,36 @@
+hold 03:45:13Z slot B load 
+F
+=================================== FAILURES ===================================
+_ test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all] _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-mutant-collate-nocase-restored/test_a_job_id_typed_with_lette0')
+store = <subfleet.store.Store object at 0x107819fd0>, typed = 'all'
+where = 'submitted', recorded = True
+
+    @pytest.mark.parametrize("typed", sorted(EXOTIC), ids=sorted(EXOTIC))
+    @pytest.mark.parametrize("where", ["submitted", "workdir"])
+    @pytest.mark.parametrize("recorded", [True, False], ids=["recorded", "unrecorded"])
+    def test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree(tmp_path, store, typed, where, recorded):
+        """The tree's name is its job id, ASCII (C-1.1), but the volume finds it typed
+        with letters that fold to its own (`ﬁ`, `ﬆ`, `ſ`, the Kelvin sign), which SQLite
+        does not fold. A folder so typed while the tree was in quarantine stays as typed,
+        in the folder submit records and in the directory: the folded fence holds the
+        job, and its job keeps the tree, recorded or allocated and not yet recorded,
+        whichever of the two names it. Failed before: kept nothing."""
+        root = tmp_path / "state"
+        tree = str(root / "worktrees" / ID)
+        alias = str(root / "worktrees" / EXOTIC[typed] / "vendor" / "lib")
+        finished_tree(store, ID, tree if recorded else None)
+        queued(store, "turn", workdir=alias if where == "workdir" else "/elsewhere",
+               submitted={"folder": alias} if where == "submitted" else None)
+        fence(store, tree, ID)
+        assert folders.retiring(store.query, alias, folded=True) == [folders.exclusive_key(tree)]
+>       assert kept(store, ID, root) == "worktree-in-use"
+E       AssertionError: assert None == 'worktree-in-use'
+E        +  where None = kept(<subfleet.store.Store object at 0x107819fd0>, '20261005-120000-first-desk', PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-mutant-collate-nocase-restored/test_a_job_id_typed_with_lette0/state'))
+
+tests/unit/test_retention_folded_pin.py:119: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 1.11s

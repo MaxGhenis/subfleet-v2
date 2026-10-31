@@ -1,0 +1,32 @@
+| Dimension | Class | Original /100 | Focused /40 |
+|---|---|---:|---:|
+| layout | gitfile | 52 | 40 |
+| layout | directory | 48 | 0 |
+| prefix | present | 28 | 40 |
+| prefix | absent | 27 | 0 |
+| prefix | misspelled | 25 | 0 |
+| prefix | colon-only | 20 | 0 |
+| target | normal | 27 | 40 |
+| target | spaces | 24 | 0 |
+| target | blank | 28 | 0 |
+| target | padded | 21 | 0 |
+| common | absent | 23 | 15 |
+| common | empty | 20 | 0 |
+| common | lf | 24 | 10 |
+| common | crlf | 13 | 15 |
+| common | target | 20 | 0 |
+| own | absent | 36 | 0 |
+| own | alternate | 29 | 16 |
+| own | symlink | 35 | 12 |
+| own | plain | 0 | 12 |
+| named | false | 53 | 0 |
+| named | true | 47 | 40 |
+| padding | short | 39 | 40 |
+| padding | under | 23 | 0 |
+| padding | over | 38 | 0 |
+| pad_file | gitfile | 55 | 40 |
+| pad_file | commondir | 45 | 0 |
+| parent | absent | — | 10 |
+| parent | repository | — | 16 |
+| parent | not-repository | — | 6 |
+| parent | unrelated-commondir | — | 8 |

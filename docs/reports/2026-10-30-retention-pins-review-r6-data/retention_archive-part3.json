@@ -1,0 +1,135 @@
+{
+  "label": "retention_archive-part3",
+  "start": "2026-10-30T20:11:55.009169+00:00",
+  "loads": [
+    56.36767578125,
+    53.373046875,
+    51.91455078125
+  ],
+  "seconds": 95.92066233301011,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.399551042006351
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.9313367499999003
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 44.912828000000445
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 19.17120512499241
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.125998582996544
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5167542080016574
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.7250523749971762
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3858367919892771
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+    "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+    "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+    "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+    "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+    "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+    "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 126910464
+}

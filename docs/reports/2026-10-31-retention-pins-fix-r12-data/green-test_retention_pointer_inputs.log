@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:29:54Z slot A load 
+..                                                                       [100%]
+2 passed in 73.19s (0:01:13)
+{"name": "green-test_retention_pointer_inputs", "start": "2026-10-31T20:29:59.524595+00:00", "load": [92.16796875, 80.4853515625, 79.998046875], "seconds": 76.34809525001037, "exit": 0}

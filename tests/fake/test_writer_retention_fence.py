@@ -291,8 +291,8 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
     harness's checkout and a repository nested in that) and any `worktree:` leases on
     those folders and on the folders above them up to `/`, held by retentions, a gate
     round or a job: the writer is held exactly when a lease is on its own folder (any
-    holder, contested as before) or retention holds one on a folder it is inside
-    (`folders.within`, whole names). While retention's fence covers its folder, its hold
+    holder, contested as before) or retention holds one above its folder or a recorded
+    dependency (`folders.within`, whole names). While a retention fence covers either, its hold
     names exactly the fences, once each, all `retiring`: the look before its workspace
     is prepared holds it there whatever else it would also wait for (C-8.4). Otherwise
     its hold names exactly its own key, not `retiring`; and with neither it is placed on
@@ -319,6 +319,8 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
         @example(where="outer-nested", held=[("/", "retention:a"), (writers["outer-nested"], "gate-round:g")])
         @example(where="nested", held=[(nested, "gate-round:g")])
         @example(where="nested", held=[(nested, "retention:b"), (tree, "retention:a")])
+        @example(where="nested", held=[(writers["outer"], "retention:a")])
+        @example(where="nested", held=[("/", "retention:a"), (writers["outer"], "retention:b")])
         @given(where=st.sampled_from(sorted(writers)),
                held=st.lists(st.tuples(st.sampled_from(places), st.sampled_from(holders)),
                              max_size=4, unique_by=lambda pair: pair[0]))
@@ -333,8 +335,12 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
                     for place, holder in held:
                         tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
                                    (folders.exclusive_key(place), holder, "now"))
+                depends = daemon._submitted(writer)["depends"]
+                needed = [folder, depends.get("review_root"), depends.get("out_path"),
+                          *depends.get("git", [])]
                 fenced = {folders.exclusive_key(place) for place, holder in held
-                          if holder.startswith("retention:") and folders.within(folder, place)}
+                          if holder.startswith("retention:")
+                          and any(folders.within(path, place) for path in needed if path)}
                 expected = fenced or {folders.exclusive_key(place) for place, holder in held if place == folder}
                 hold = look(daemon, writer)
                 if expected:

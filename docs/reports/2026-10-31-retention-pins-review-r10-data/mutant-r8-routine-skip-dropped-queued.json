@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:43:28.696149+00:00",
+  "args": [
+    "--mutant",
+    "r8-routine-skip-dropped",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/mutant-r8-routine-skip-dropped",
+  "linked": false,
+  "driver_pid": 86195,
+  "lock_process_group": 86206
+}

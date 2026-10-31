@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r7-parent-objects-recording-dropped",
+  "start": "2026-10-31T07:29:58.472225+00:00",
+  "load": [
+    28.5615234375,
+    32.61328125,
+    33.46630859375
+  ],
+  "args": [
+    "--mutant",
+    "r7-parent-objects-recording-dropped",
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6296108330025163,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.882735709001281,
+      "failure": "tests/fake/test_retention_parent_hint.py:31: in test_inferred_parent_objects_keeps_its_resolved_storage\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r7-parent-objects-recording-dropped/pytest-of-maxghenis/pytest-0/t...container/worktrees/slot/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48693, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024212500029534567,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+      "mutated": "7458dc3be91ce540f50ac9ca43ad3d9c5921f884c0748a1d04e76c4be1977a84"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+  "end": "2026-10-31T07:30:05.407675+00:00",
+  "seconds": 6.935180832999322,
+  "peak_rss_mib": 113.84375,
+  "exit": 1
+}

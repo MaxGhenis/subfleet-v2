@@ -1,0 +1,1 @@
+tests/fake/test_admission_properties.py::test_c6_12_submit_refuses_exclusions_that_are_not_lane_names[exclusions1]

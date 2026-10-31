@@ -1,0 +1,10 @@
+{
+  "base": "783123230",
+  "review_marks_only": true,
+  "turn_test_unchanged": true,
+  "clauses": 255,
+  "unique_clauses": 255,
+  "clause_ids_preserved": true,
+  "clause_pattern": "\\*\\*(C-\\d+\\.\\d+)\\*\\*",
+  "normal_property_settings": true
+}

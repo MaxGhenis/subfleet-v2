@@ -1,0 +1,59 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:05:17Z slot A load 
+................FFFF..FFFF......FF                                       [100%]
+=================================== FAILURES ===================================
+____________________ test_filter_stat_table[found-success] _____________________
+tests/unit/test_retention_location_readable.py:171: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/PRIVATE/TMP/SF-FIX272R11/REAL-TMP/RED-READABLE/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_FILTER_STAT_TABLE_FOUND_S0/READABLE' in []) == ('success' not in ('ELOOP', 'ENAMETOOLONG'))
+_____________________ test_filter_stat_table[found-ENOENT] _____________________
+tests/unit/test_retention_location_readable.py:171: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E0/missing' in []) == ('ENOENT' not in ('ELOOP', 'ENAMETOOLONG'))
+____________________ test_filter_stat_table[found-ENOTDIR] _____________________
+tests/unit/test_retention_location_readable.py:171: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E1/file/child' in []) == ('ENOTDIR' not in ('ELOOP', 'ENAMETOOLONG'))
+_____________________ test_filter_stat_table[found-EACCES] _____________________
+tests/unit/test_retention_location_readable.py:171: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E2/denied/child' in []) == ('EACCES' not in ('ELOOP', 'ENAMETOOLONG'))
+___________________ test_filter_stat_table[entries-success] ____________________
+tests/unit/test_retention_location_readable.py:171: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/PRIVATE/TMP/SF-FIX272R11/REAL-TMP/RED-READABLE/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_FILTER_STAT_TABLE_ENTRIES0/READABLE' in []) == ('success' not in ('ELOOP', 'ENAMETOOLONG'))
+____________________ test_filter_stat_table[entries-ENOENT] ____________________
+tests/unit/test_retention_location_readable.py:171: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_filter_stat_table_entries1/missing' in []) == ('ENOENT' not in ('ELOOP', 'ENAMETOOLONG'))
+___________________ test_filter_stat_table[entries-ENOTDIR] ____________________
+tests/unit/test_retention_location_readable.py:171: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_filter_stat_table_entries2/file/child' in []) == ('ENOTDIR' not in ('ELOOP', 'ENAMETOOLONG'))
+____________________ test_filter_stat_table[entries-EACCES] ____________________
+tests/unit/test_retention_location_readable.py:171: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_filter_stat_table_entries3/denied/child' in []) == ('EACCES' not in ('ELOOP', 'ENAMETOOLONG'))
+_________________ test_more_readable_rename_forms[parent-case] _________________
+tests/unit/test_retention_location_readable.py:268: in test_more_readable_rename_forms
+    assert len(recorded["git"]) == 3
+E   AssertionError: assert 2 == 3
+E    +  where 2 = len(['/private/tmp/sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/outside.../sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/outside/.git/objects'])
+____________ test_more_readable_rename_forms[unicode-normalization] ____________
+tests/unit/test_retention_location_readable.py:268: in test_more_readable_rename_forms
+    assert len(recorded["git"]) == 3
+E   AssertionError: assert 4 == 3
+E    +  where 4 = len(['/private/tmp/sf-fix272r11/real-tmp/red-readable/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/outside...p/red-readable/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/state/worktrees/owner/source/.git/objects'])
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-success]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOTDIR]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-EACCES]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[entries-success]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[entries-ENOENT]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[entries-ENOTDIR]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[entries-EACCES]
+FAILED tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]
+FAILED tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]
+10 failed, 24 passed in 242.50s (0:04:02)
+{"name": "red-readable", "start": "2026-10-31T18:05:31.481160+00:00", "load": [72.87548828125, 62.28369140625, 54.806640625], "seconds": 249.72480625000026, "exit": 1}

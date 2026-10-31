@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:56:12Z slot B load 
+START retention_archive_properties-part1 2026-10-30T14:56:14.268205+00:00 load=(27.13232421875, 22.52197265625, 20.41357421875)
+.                                                                        [100%]
+1 passed, 1 deselected in 60.18s (0:01:00)

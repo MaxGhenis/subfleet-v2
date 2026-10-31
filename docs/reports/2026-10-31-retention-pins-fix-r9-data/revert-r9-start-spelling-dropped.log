@@ -1,0 +1,32 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:15:23Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_spelling_inputs_keep_the_places_real_git_traverses ____________
+tests/unit/test_retention_location_spelling.py:201: in test_spelling_inputs_keep_the_places_real_git_traverses
+    suppress_health_check=[HealthCheck.function_scoped_fixture])
+         ^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:206: in test_spelling_inputs_keep_the_places_real_git_traverses
+    observation = check_spelling_input(Path(directory), data)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/docs/reports/2026-10-31-retention-pins-fix-r9-data/run.py:103: in observed
+    result = original(base, data)
+             ^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:190: in check_spelling_input
+    assert str(checkout / ".git") not in recorded.get("git", []), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/stable/container/admin', '/pr.../tmp__tfuo7q/ownér/hop0', '/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/ownér/hop1']}
+E   assert '/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/checkóut/.git' not in ['/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/stable/container/admin', '/private/tm...d/tmp__tfuo7q/ownér/hop0', '/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/ownér/hop1']
+E    +  where '/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/checkóut/.git' = str((PosixPath('/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/checkóut') / '.git'))
+E    +  and   ['/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/stable/container/admin', '/private/tm...d/tmp__tfuo7q/ownér/hop0', '/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/ownér/hop1'] = <built-in method get of dict object at 0x108f3d440>('git', [])
+E    +    where <built-in method get of dict object at 0x108f3d440> = {'git': ['/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/stable/container/admin', '/pr.../tmp__tfuo7q/ownér/hop0', '/private/tmp/sf-fix272r9/real-tmp/revert-r9-start-spelling-dropped/tmp__tfuo7q/ownér/hop1']}.get
+E   Failing test case: test_spelling_inputs_keep_the_places_real_git_traverses(
+E       record_property=append_property,
+E       data={'position': 'gitfile-target', 'spelling': 'data-volume', 'named': False},  # or any other generated value
+E   )
+E   {'position': 'gitfile-target', 'spelling': 'data-volume', 'named': False}
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses
+1 failed in 30.45s
+{"name": "revert-r9-start-spelling-dropped", "start": "2026-10-31T10:15:25.542653+00:00", "load": [34.74267578125, 34.21337890625, 34.68017578125], "seconds": 32.15303949999725, "exit": 1}

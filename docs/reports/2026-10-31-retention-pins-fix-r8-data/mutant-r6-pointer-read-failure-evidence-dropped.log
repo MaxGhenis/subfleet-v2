@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:28:35Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile] ___
+tests/fake/test_retention_dependency_review_r6.py:76: in test_crlf_padded_pointer_keeps_the_storage_real_git_reads
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49078, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]
+1 failed in 7.14s
+{"name": "mutant-r6-pointer-read-failure-evidence-dropped", "start": "2026-10-31T07:28:36.668948+00:00", "load": [33.080078125, 34.29638671875, 34.0908203125], "seconds": 7.996601541002747, "exit": 1}

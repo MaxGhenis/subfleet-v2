@@ -1,0 +1,326 @@
+{
+  "name": "sweep-examples",
+  "start": "2026-10-31T11:20:44.449367+00:00",
+  "load": [
+    47.5390625,
+    44.5849609375,
+    41.00341796875
+  ],
+  "args": [
+    "tests/unit/test_retention_sweep_race.py",
+    "-k",
+    "not test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[after-the-lookup]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.022281375000603,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[after-the-lookup]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.347226916001091,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[after-the-lookup]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004678999997850042,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[before-quarantine]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4521285840019118,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[before-quarantine]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2488932499982184,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[before-quarantine]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0030422079980780836,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_as_it_is_moved_in_keeps_its_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.47993516700080363,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_as_it_is_moved_in_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.4449719160002132,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_as_it_is_moved_in_keeps_its_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018304169971088413,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gitfile_rewritten_before_the_archive_reads_it_keeps_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.44067220899887616,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gitfile_rewritten_before_the_archive_reads_it_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.323394917002588,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gitfile_rewritten_before_the_archive_reads_it_keeps_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0015499589972023387,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_found_registered_then_moved_away_before_the_lock_keeps_its_registration",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3776874579998548,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_found_registered_then_moved_away_before_the_lock_keeps_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.4413912080017326,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_found_registered_then_moved_away_before_the_lock_keeps_its_registration",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002562207999289967,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_trees_registration_repaired_to_another_place_keeps_its_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.36191279199920245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_trees_registration_repaired_to_another_place_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.074915167002473,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_trees_registration_repaired_to_another_place_keeps_its_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017872079988592304,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_replaced_by_a_copy_before_quarantine_keeps_its_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5108063749976282,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_replaced_by_a_copy_before_quarantine_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6415916670011939,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_replaced_by_a_copy_before_quarantine_keeps_its_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0028217079998285044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_put_back_by_hand_after_the_final_check_keeps_its_registration",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5838417920022039,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_put_back_by_hand_after_the_final_check_keeps_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3011025830019207,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_tree_put_back_by_hand_after_the_final_check_keeps_its_registration",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004344125001807697,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_journal_written_before_the_identity_check_is_read_again",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5114525829994818,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_journal_written_before_the_identity_check_is_read_again",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.035683333000634,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_journal_written_before_the_identity_check_is_read_again",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001634125001146458,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6667193329994916,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.721016249997774,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.05331912500332692,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4611795830023766,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.665261707999889,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005077207999420352,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.39206033400114393,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.901514249999309,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006133999999292428,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[after-the-lookup]",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[before-quarantine]",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_as_it_is_moved_in_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_gitfile_rewritten_before_the_archive_reads_it_keeps_the_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_found_registered_then_moved_away_before_the_lock_keeps_its_registration",
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_trees_registration_repaired_to_another_place_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_replaced_by_a_copy_before_quarantine_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_put_back_by_hand_after_the_final_check_keeps_its_registration",
+    "tests/unit/test_retention_sweep_race.py::test_a_journal_written_before_the_identity_check_is_read_again",
+    "tests/unit/test_retention_sweep_race.py::test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled",
+    "tests/unit/test_retention_sweep_race.py::test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree",
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T11:21:36.727942+00:00",
+  "seconds": 52.277536583002075,
+  "peak_rss_mib": 116.5625,
+  "exit": 0
+}

@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_dependency_units-2",
+  "start": "2026-10-29T13:52:16.178192+00:00",
+  "load": [
+    21.4931640625,
+    22.8955078125,
+    23.02978515625
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 8.706571000002441,
+  "rss": 112787456
+}

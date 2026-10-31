@@ -1,0 +1,1 @@
+{"label": "mutant-r3-post-traversal-alias-check-dropped", "queued": "2026-10-31T06:29:47.232569+00:00", "args": ["tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"], "pid": 15651}

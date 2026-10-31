@@ -1,0 +1,45 @@
+{
+  "start": "2026-10-28T20:15:25.731727+00:00",
+  "load": [
+    135.2216796875,
+    149.47412109375,
+    126.580078125
+  ],
+  "pid": 8301,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 28.38676495799882
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 368.97950170799595,
+      "failure": "+ Exception Group Traceback (most recent call last):\n  |   File \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/mutant-tree/tests/unit/test_retention_dependency_units.py\", line 263, in test_d2_d3_worktree_in_use_is_exactly_the_specification\n  |     @given(OWNERS, st.lists(JOB, max_size=6), st.integers(0, 3))\n  |                    ^^^\n  |   File \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/venv/lib/python3.14/site-packages/hypothesis/core.py\", line 2295, in wrapped_test\n  |     raise the_error_hypothesis_found\n  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)\n  +-+---------------- 1 ----------------\n    | Traceback (most recent call last):\n    |   File \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/mutant-tree/tests/unit/test_retention_dependency_units.py\", line 283, in test_d2_d3_worktree_in_use_is_exactly_the_specification\n    |     assert set(found) == {job_id for job_id in places if job_id != tree and oracle({job_id: places[job_id]},\n    |                                                                                  path, tree)}\n    | AssertionError: assert {'j2'} == {'j1', 'j2'}\n    |   \n    |   Extra items in the right set:\n    |   'j1'\n    |   Use -v to get more diff\n    | Failing test case: test_d2_d3_worktree_in_use_is_exactly_the_specification(\n    |     owners=[('t2', False)],\n    |     jobs=[{'review_root': None,\n    |          'out_path': None,\n    |          'recorded': 'legacy',\n    |          'folder': ('t1', '', 0),\n    |          'depends_review': None,\n    |          'depends_out': None,\n    |          'git': [],\n    |          'workdir': ('t1', '', 0),\n    |          'worktree': ('t1', '', 0),\n    |          'state': 'queued',\n    |          'exporting': False},\n    |      {'git': [('out', '/a', 3), ('T\u00e9', '/a/b', 2)],\n    |          'review_root': None,\n    |          'depends_out': None,\n    |          'workdir': ('T\u00e9', '/a/b', 0),\n    |          'folder': None,\n    |          'out_path': ('t1x', '/a/b', 0),\n    |          'worktree': None,\n    |          'exporting': False,\n    |          'depends_review': ('t2', '', 0),\n    |          'state': 'queued',\n    |          'recorded': 'new'},\n    |      {'review_root': None,\n    |          'recorded': 'spelled',\n    |          'exporting': False,\n    |          'worktree': ('T\u00e9', '/a/b', 3),\n    |          'out_path': ('t1', '/a', 1),\n    |          'depends_review': None,\n    |          'git': [('t2', '/a', 0)],\n    |          'workdir': ('t2', '', 0),\n    |          'state': 'running',\n    |          'depends_out': ('t2', '/a/b', 1),\n    |          'folder': ('T\u00e9', '/a', 1)},\n    |      {'state': 'waiting',\n    |          'git': [],\n    |          'exporting': False,\n    |          'depends_review': ('T\u00e9', '/a/b', 3),\n    |          'review_root': None,\n    |          'worktree': None,\n    |          'recorded': 'new',\n    |          'depends_out': ('t1', '/a/b', 1),\n    |          'out_path': ('T\u00e9', '', 0),\n    |          'folder': None,\n    |          'workdir': ('T\u00e9', '', 0)},\n    |      {'recorded': 'spelled',\n    |          'state': 'lost',\n    |          'workdir': ('t2', '/a/b', 3),\n    |          'depends_review': ('T\u00e9', '', 1),\n    |          'folder': None,\n    |          'worktree': None,\n    |          'depends_out': ('out', '', 2),\n    |          'review_root': None,\n    |          'exporting': True,\n    |          'git': [],\n    |          'out_path': ('t1x', '/a/b', 3)},\n    |      {'state': 'running',\n    |          'exporting': True,\n    |          'depends_review': None,\n    |          'worktree': None,\n    |          'depends_out': ('t1x', '/a/b', 3),\n    |          'recorded': 'legacy',\n    |          'folder': ('t2', '/a', 1),\n    |          'workdir': ('t1', '', 0),\n    |          'review_root': ('t1', '/a', 2),\n    |          'git': [],\n    |          'out_path': ('T\u00e9', '/a', 2)}],\n    |     how=2,\n    | )\n    +---------------- 2 ----------------\n    | Traceback (most recent call last):\n    |   File \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/mutant-tree/tests/unit/test_retention_dependency_units.py\", line 276, in test_d2_d3_worktree_in_use_is_exactly_the_specification\n    |     assert (reasons.get(tree) == \"worktree-in-use\") == expected, (tree, reasons, places)\n    | AssertionError: ('t2', {'j0': 'active'}, {'j0': (True, {'/s/worktrees/t1', '/s/worktrees/t2'}, set())})\n    | assert (None == 'worktree-in-use') == True\n    |  +  where None = <built-in method get of dict object at 0x10c727280>('t2')\n    |  +    where <built-in method get of dict object at 0x10c727280> = {'j0': 'active'}.get\n    | Failing test case: test_d2_d3_worktree_in_use_is_exactly_the_specification(\n    |     owners=[(\n    |          't2',\n    |          False,  # or any other generated value\n    |      )],\n    |     jobs=[{\n    |          'state': 'queued',\n    |          'workdir': (\n    |              't1',\n    |              '',  # or any other generated value\n    |              0,  # or any other generated value\n    |          ),\n    |          'worktree': None,  # or any other generated value\n    |          'review_root': None,  # or any other generated value\n    |          'out_path': None,  # or any other generated value\n    |          'recorded': 'new',\n    |          'folder': None,  # or any other generated value\n    |          'depends_review': None,\n    |          'depends_out': ('t2', '', 0),\n    |          'git': [],\n    |          'exporting': False,\n    |      }],\n    |     how=0,\n    | )\n    +------------------------------------"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.006420915997296106
+    }
+  ],
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "exit": 1,
+  "seconds": 469.1054680830057,
+  "maxrss": 169656320,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ]
+}

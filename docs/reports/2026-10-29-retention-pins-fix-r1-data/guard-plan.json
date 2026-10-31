@@ -1,0 +1,26 @@
+[
+  [
+    "guard-state",
+    [
+      "tests/fake/test_state_contract.py"
+    ]
+  ],
+  [
+    "guard-module-names",
+    [
+      "tests/unit/test_test_module_names.py"
+    ]
+  ],
+  [
+    "guard-invariants",
+    [
+      "tests/unit/test_invariants_index.py"
+    ]
+  ],
+  [
+    "turn-contract-final",
+    [
+      "tests/unit/test_retention_turn_contract.py"
+    ]
+  ]
+]

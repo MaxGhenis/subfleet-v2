@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:58:48Z slot B load 
+OBSERVED_START test_retention_shared_folders-4 2026-10-29T10:58:49.873666+00:00 load=(37.517578125, 27.2099609375, 19.01318359375)
+....                                                                     [100%]
+4 passed, 58 deselected in 192.77s (0:03:12)
+OBSERVED_END test_retention_shared_folders-4 seconds=196.05

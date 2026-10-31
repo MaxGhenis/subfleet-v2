@@ -1,0 +1,42 @@
+[
+  {
+    "name": "revert-r9-text-canonicalization-dropped",
+    "input": {
+      "position": "gitfile-target",
+      "spelling": "data-volume",
+      "named": false
+    },
+    "assertion": "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place",
+    "result": "Detected"
+  },
+  {
+    "name": "revert-r9-alternates-canonicalization-dropped",
+    "input": {
+      "position": "alternates-file",
+      "spelling": "data-volume",
+      "named": true
+    },
+    "assertion": "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place",
+    "result": "Detected"
+  },
+  {
+    "name": "revert-r9-scan-canonicalization-dropped",
+    "input": {
+      "position": "commondir-file",
+      "spelling": "data-volume",
+      "named": false
+    },
+    "assertion": "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place",
+    "result": "Detected"
+  },
+  {
+    "name": "revert-r9-start-spelling-dropped",
+    "input": {
+      "position": "gitfile-target",
+      "spelling": "data-volume",
+      "named": false
+    },
+    "assertion": "assert str(checkout / \".git\") not in recorded.get(\"git\", []), recorded",
+    "result": "Detected"
+  }
+]

@@ -1,0 +1,18 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:30:40Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ test_dotdot_applies_after_the_link_before_it _________________
+tests/unit/test_retention_locations.py:37: in test_dotdot_applies_after_the_link_before_it
+    assert str(paths["admin"]) in recorded["git"], recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_...8/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']}
+E   assert '/private/tmp/sf-fix272r8/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' in ['/private/tmp/sf-fix272r8/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_th...r8/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']
+E    +  where '/private/tmp/sf-fix272r8/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' = str(PosixPath('/private/tmp/sf-fix272r8/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin'))
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it
+1 failed in 7.76s
+{"name": "mutant-r8-lexical-dotdot", "start": "2026-10-31T07:30:41.782650+00:00", "load": [31.0693359375, 32.6025390625, 33.40966796875], "seconds": 9.07655437500216, "exit": 1}

@@ -1,0 +1,115 @@
+{
+  "name": "loop-growth",
+  "start": "2026-10-31T10:52:36.769642+00:00",
+  "load": [
+    44.68994140625,
+    40.73291015625,
+    38.61767578125
+  ],
+  "args": [
+    "review-r10-data/loop_growth_probe.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.05539791699993657,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4083712910032773,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00015583300046273507,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0006018749991199002,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24946091699894168,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00037274999704095535,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[dangling-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010355840022384655,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[dangling-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.10001962499882211,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[dangling-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003934999986086041,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[self-suffix]",
+      "key": "suffix-cycle",
+      "value": "{\"kind\": \"self-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_sel0/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_sel0/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_sel0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"]}, \"differences\": [{\"place\": \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_sel0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"canonical\": \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_sel0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"parent\": \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_sel0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"}]}"
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[two-link-suffix]",
+      "key": "suffix-cycle",
+      "value": "{\"kind\": \"two-link-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_two0/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_two0/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_two0/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\"]}, \"differences\": [{\"place\": \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_two0/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\", \"canonical\": \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_two0/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\", \"parent\": \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_two0/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra\"}]}"
+    },
+    {
+      "node": "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[dangling-suffix]",
+      "key": "suffix-cycle",
+      "value": "{\"kind\": \"dangling-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_dan0/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_dan0/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/loop-growth/pytest-of-maxghenis/pytest-0/test_suffix_cycle_spelling_dan0/absent/tail\"]}, \"differences\": []}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[self-suffix]",
+    "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[two-link-suffix]",
+    "review-r10-data/loop_growth_probe.py::test_suffix_cycle_spelling[dangling-suffix]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:52:48.249071+00:00",
+  "seconds": 11.479156040997623,
+  "peak_rss_mib": 67.25,
+  "exit": 0
+}

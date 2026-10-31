@@ -1,0 +1,25 @@
+c3-properties-fence
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted:
+
+  - during generate phase (240.06 seconds):
+    - Typical runtimes: ~ 4167-23359 ms, of which ~ 10-715 ms in data generation
+    - 24 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=24
+
+
+1 passed, 3 deselected in 274.52s (0:04:34)
+
+c3-detached-interleavings
+============================ Hypothesis Statistics =============================
+tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired:
+
+  - during generate phase (53.23 seconds):
+    - Typical runtimes: ~ 1246-7922 ms, of which ~ 0-1523 ms in data generation
+    - 12 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=12
+
+
+1 passed in 91.50s (0:01:31)

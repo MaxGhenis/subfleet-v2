@@ -1,0 +1,21 @@
+import datetime,json,os,subprocess,sys,time
+from pathlib import Path
+s=Path(__file__).parent
+plan=json.loads((s/sys.argv[1]).read_text())
+worker=sys.argv[2] if len(sys.argv)>2 else '0'
+for name,args in plan:
+ if datetime.datetime.now(datetime.UTC)>=datetime.datetime(2026,10,29,10,21,tzinfo=datetime.UTC):
+  print('STOP starting holds at 4h',flush=True);break
+ env=os.environ.copy()
+ env.update(TMPDIR=str(s/('hold-'+name)),HYPOTHESIS_STORAGE_DIRECTORY=str(s/'hyp'),UV_PROJECT_ENVIRONMENT=str(s/'venv'),UV_CACHE_DIR=str(s/'uv-cache'),SF_RUN_NAME=name,PYTHONDONTWRITEBYTECODE='1')
+ if name.startswith(('mutant-','proof-')):env['SF_MUTANT']=name.removeprefix('mutant-')
+ Path(env['TMPDIR']).mkdir(exist_ok=True)
+ command=['/bin/zsh','/Users/maxghenis/reviews/subfleet-hub/host-runs/suite_hold.sh','env','-u','SUBFLEET_RETENTION_DORMANT','-u','PYTHONPATH','uv','run','--no-sync','python',str(s/'pytest_entry.py'),'-q','-p','no:cacheprovider',*args,'--hypothesis-seed=217']
+ print('START',name,datetime.datetime.now(datetime.UTC).isoformat(),flush=True)
+ with (s/(name+'.log')).open('w') as log:
+  p=subprocess.Popen(command,env=env,stdout=log,stderr=subprocess.STDOUT)
+  try: rc=p.wait(timeout=1800)
+  except subprocess.TimeoutExpired:
+   p.terminate();p.wait();raise SystemExit('queued/running hold exceeded 30m; manual fallback required')
+ print('END',name,rc,flush=True)
+ with (s/('driver-'+worker+'.jsonl')).open('a') as log:log.write(json.dumps(dict(name=name,rc=rc))+'\n')

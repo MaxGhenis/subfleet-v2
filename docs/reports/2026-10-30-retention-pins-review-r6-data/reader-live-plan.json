@@ -1,0 +1,11 @@
+[
+  [
+    "reader-live-admin-probe",
+    [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-r272r6",
+      "/private/tmp/sf-r272r6/readers_live_probe.py"
+    ]
+  ]
+]

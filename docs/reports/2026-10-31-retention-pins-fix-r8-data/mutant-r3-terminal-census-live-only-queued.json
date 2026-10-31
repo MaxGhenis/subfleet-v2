@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:27:06.266755+00:00",
+  "args": [
+    "--mutant",
+    "r3-terminal-census-live-only",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r3-terminal-census-live-only",
+  "linked": false
+}

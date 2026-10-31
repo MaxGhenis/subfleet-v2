@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r3-terminal-census-live-only",
+  "start": "2026-10-31T07:27:08.010295+00:00",
+  "load": [
+    39.8798828125,
+    34.8798828125,
+    34.22265625
+  ],
+  "args": [
+    "--mutant",
+    "r3-terminal-census-live-only",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.1861820000012813,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.990493040997535,
+      "failure": "tests/fake/test_retention_dependency_review_r2.py:135: in test_c8_4_legacy_incomplete_census_survives_terminal_export\n    assert \"owner\" not in result[\"pruned\"], result\nE   AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 20083, 'bytes_after': 0, ...}\nE   assert 'owner' not in ['owner']"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0013334169998415746,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+      "mutated": "ba2ddd9912ff9506bd18b8f18ce474e573c845ee532ded50bcac286b76406ecd"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+  "end": "2026-10-31T07:27:16.118406+00:00",
+  "seconds": 8.107692332996521,
+  "peak_rss_mib": 111.875,
+  "exit": 1
+}

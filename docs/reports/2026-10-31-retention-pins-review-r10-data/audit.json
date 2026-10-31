@@ -1,0 +1,12 @@
+{
+  "holds": 85,
+  "all_complete": true,
+  "all_locked": true,
+  "all_under_ten_minutes": true,
+  "all_setup_teardown_passed": true,
+  "only_expected_call_failures": true,
+  "named_tables_byte_identical": true,
+  "head_and_product_files_unchanged": true,
+  "r10_f1_strict_expected_failures": 2,
+  "trial_passes": 49
+}

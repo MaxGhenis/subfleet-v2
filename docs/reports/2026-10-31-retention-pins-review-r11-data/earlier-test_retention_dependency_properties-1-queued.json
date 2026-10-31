@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T17:09:41.849411+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_properties-1",
+  "linked": false,
+  "driver_pid": 47153,
+  "lock_process_group": 47225
+}

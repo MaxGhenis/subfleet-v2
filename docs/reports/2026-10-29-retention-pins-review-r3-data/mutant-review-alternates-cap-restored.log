@@ -1,0 +1,71 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:53:21Z slot B load 
+{"start": "2026-10-29T13:53:21.398609+00:00", "load": [17.2099609375, 21.43212890625, 22.4736328125], "name": "mutant-review-alternates-cap-restored"}
+Ftmp_path = PosixPath('/private/tmp/sf-r272r3/cases-95378/pytest/test_c8_4_large_valid_alternat0')
+
+    def test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads(tmp_path):
+        """A valid file past the discovery read cap must not silently lose dependencies."""
+        world = World(tmp_path)
+        try:
+            tree = world.job("owner")
+            source = repo(tree / "objects-source")
+            commit = git(source, "rev-parse", "HEAD")
+            borrower = tmp_path / "borrower"
+            git(tmp_path, "clone", "--quiet", "--shared", str(source), str(borrower))
+            line = str(source / ".git" / "objects") + "\n"
+            text = line * ((64 * 1024) // len(line.encode()) + 1)
+            assert len(text.encode()) > 64 * 1024
+            (borrower / ".git" / "objects" / "info" / "alternates").write_text(text)
+            assert git(borrower, "cat-file", "-t", commit) == "commit"
+    
+            recorded = dependencies.record(str(borrower))
+            world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                                kind="dispatch", state="running", sandbox="read-only",
+                                workdir=str(borrower), prompt_path="/prompt")
+            world.store.add_event("job.submitted", job_id="borrower", data={"depends": recorded})
+            result = retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+                                           holders=lambda *args, **kwargs: {})
+>           assert "owner" not in result["pruned"], (recorded, result)
+E           AssertionError: ({'git': ['/private/tmp/sf-r272r3/cases-95378/pytest/test_c8_4_large_valid_alternat0/borrower/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47992, 'bytes_after': 0, ...})
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r1.py:138: AssertionError
+
+=================================== FAILURES ===================================
+________ test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads ________
+
+tmp_path = PosixPath('/private/tmp/sf-r272r3/cases-95378/pytest/test_c8_4_large_valid_alternat0')
+
+    def test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads(tmp_path):
+        """A valid file past the discovery read cap must not silently lose dependencies."""
+        world = World(tmp_path)
+        try:
+            tree = world.job("owner")
+            source = repo(tree / "objects-source")
+            commit = git(source, "rev-parse", "HEAD")
+            borrower = tmp_path / "borrower"
+            git(tmp_path, "clone", "--quiet", "--shared", str(source), str(borrower))
+            line = str(source / ".git" / "objects") + "\n"
+            text = line * ((64 * 1024) // len(line.encode()) + 1)
+            assert len(text.encode()) > 64 * 1024
+            (borrower / ".git" / "objects" / "info" / "alternates").write_text(text)
+            assert git(borrower, "cat-file", "-t", commit) == "commit"
+    
+            recorded = dependencies.record(str(borrower))
+            world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                                kind="dispatch", state="running", sandbox="read-only",
+                                workdir=str(borrower), prompt_path="/prompt")
+            world.store.add_event("job.submitted", job_id="borrower", data={"depends": recorded})
+            result = retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+                                           holders=lambda *args, **kwargs: {})
+>           assert "owner" not in result["pruned"], (recorded, result)
+E           AssertionError: ({'git': ['/private/tmp/sf-r272r3/cases-95378/pytest/test_c8_4_large_valid_alternat0/borrower/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47992, 'bytes_after': 0, ...})
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r1.py:138: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 17 deselected in 4.48s

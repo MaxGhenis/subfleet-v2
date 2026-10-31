@@ -1,0 +1,21 @@
+{
+  "name": "dependency-test_retention_dependency_properties",
+  "split_into": [
+    {
+      "name": "dependency-property-0",
+      "exit": 0
+    },
+    {
+      "name": "dependency-property-1",
+      "exit": 0
+    },
+    {
+      "name": "dependency-property-2",
+      "exit": 0
+    },
+    {
+      "name": "dependency-property-3",
+      "exit": 0
+    }
+  ]
+}

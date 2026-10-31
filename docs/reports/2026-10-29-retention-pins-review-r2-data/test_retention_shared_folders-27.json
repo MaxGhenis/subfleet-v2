@@ -1,0 +1,33 @@
+{
+  "name": "test_retention_shared_folders-27",
+  "start": "2026-10-29T06:32:30.084409+00:00",
+  "load": [
+    20.9794921875,
+    23.208984375,
+    22.95654296875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "valid": 150,
+      "invalid": 11,
+      "calls": 192,
+      "settings_max": 150
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

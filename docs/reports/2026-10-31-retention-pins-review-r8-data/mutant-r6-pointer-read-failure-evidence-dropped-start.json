@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:35:38.251940+00:00", "loads": [38.92626953125, 36.3857421875, 34.806640625], "pid": 76143, "args": ["tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"], "fixture_root": "/private/tmp/sf-r272r8"}

@@ -1,0 +1,40 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:40:10Z slot B load 
+ADMITTED 2026-10-29T05:40:10.338743+00:00 LOAD (18.892578125, 21.263671875, 24.6416015625)
+FOBSERVATION {"engines": [], "explicit": {}, "mutant": "git-storage-no-alternates", "loaded": ["subfleet.dependencies"]}
+
+=================================== FAILURES ===================================
+_______________________ test_d1_alternates_are_followed ________________________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-mutant-git-storage-no-alternates/pytest-of-maxghenis/pytest-0/test_d1_alternates_are_followe0')
+
+    def test_d1_alternates_are_followed(tmp_path):
+        """A clone that borrows objects (`--shared`, or an `alternates` line relative to
+        the objects directory, followed again from there) needs the object directories
+        it borrows from."""
+        source = repo(tmp_path / "tree" / "source")
+        clone = tmp_path / "clone"
+        git(tmp_path, "clone", "--quiet", "--shared", str(source), str(clone))
+        found = dependencies.git_storage(str(clone))
+>       assert folders.canonical(source / ".git" / "objects") in found
+E       AssertionError: assert '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-mutant-git-storage-no-alternates/pytest-of-maxghenis/pytest-0/test_d1_alternates_are_followe0/tree/source/.git/objects' in ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-mutant-git-storage-no-alternates/pytest-of-maxghenis/pytest-0/test_d1_alternates_are_followe0/clone/.git']
+E        +  where '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-mutant-git-storage-no-alternates/pytest-of-maxghenis/pytest-0/test_d1_alternates_are_followe0/tree/source/.git/objects' = <function canonical at 0x10b9bef00>(((PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-mutant-git-storage-no-alternates/pytest-of-maxghenis/pytest-0/test_d1_alternates_are_followe0/tree/source') / '.git') / 'objects'))
+E        +    where <function canonical at 0x10b9bef00> = folders.canonical
+
+tests/unit/test_retention_dependency_units.py:142: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 2 warnings in 1.26s

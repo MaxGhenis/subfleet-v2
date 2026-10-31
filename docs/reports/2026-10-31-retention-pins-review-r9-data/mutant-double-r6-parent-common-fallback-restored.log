@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:42:05Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf] _____
+tests/fake/test_retention_dependency_review_r6.py:45: in test_empty_common_target_keeps_the_own_store_git_reads
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r6-parent-common-fallback-restored/pytest-of-maxghenis/pytest..._target_keeps0/container/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49074, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]
+1 failed in 8.12s
+{"name": "mutant-double-r6-parent-common-fallback-restored", "start": "2026-10-31T08:42:07.186366+00:00", "load": [32.6630859375, 32.51416015625, 31.02490234375], "seconds": 9.263727333000134, "exit": 1}

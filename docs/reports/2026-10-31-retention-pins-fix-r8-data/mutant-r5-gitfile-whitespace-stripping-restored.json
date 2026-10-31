@@ -1,0 +1,60 @@
+{
+  "name": "mutant-r5-gitfile-whitespace-stripping-restored",
+  "start": "2026-10-31T07:27:55.650573+00:00",
+  "load": [
+    36.31884765625,
+    34.91015625,
+    34.28515625
+  ],
+  "args": [
+    "--mutant",
+    "r5-gitfile-whitespace-stripping-restored",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8299016250020941,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 2.5061402499995893,
+      "failure": "tests/fake/test_retention_dependency_review_r5.py:310: in test_pointer_path_whitespace_keeps_the_storage_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r5-gitfile-whitespace-stripping-restored/pytest-of-maxghenis/pytes...pace_k0/outside/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48697, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005417666998255299,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+      "mutated": "1158c16e83e9b19bfdb1e9877ab50a81d719cdfe917ea925621932b77992da16"
+    },
+    {
+      "module": "subfleet.dependencies",
+      "original": "1158c16e83e9b19bfdb1e9877ab50a81d719cdfe917ea925621932b77992da16",
+      "mutated": "4a58e6ea4aeca3a8f47f0117ab6f58ce270deaef214bcef1214e4622202fd864"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+  "end": "2026-10-31T07:28:04.923088+00:00",
+  "seconds": 9.27221570799884,
+  "peak_rss_mib": 113.25,
+  "exit": 1
+}

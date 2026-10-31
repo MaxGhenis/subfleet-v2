@@ -1,0 +1,10 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:16:46Z slot B load 
+START journal-controls 2026-10-30T14:16:49.744597+00:00 load=(23.9384765625, 17.5615234375, 12.16796875)
+OLD-JOURNAL quarantine starting-state locked final [(True, True)] renames [('/private/tmp/sf-r272r5/cases-62296/pytest/test_old_journal_paths_quarant0/state/worktrees/owner', True), ('/private/tmp/sf-r272r5/cases-62296/pytest/test_old_journal_paths_quarant0/state/jobs/owner', True), ('/private/tmp/sf-r272r5/cases-62296/pytest/test_old_journal_paths_quarant0/state/retention/owner/archive', True)]
+.OLD-JOURNAL archive starting-state quarantined final [(False, False)] renames [('/private/tmp/sf-r272r5/cases-62296/pytest/test_old_journal_paths_archive0/state/retention/owner/archive', False)]
+.OLD-JOURNAL final_check starting-state archived final [(False, False)] renames [('/private/tmp/sf-r272r5/cases-62296/pytest/test_old_journal_paths_final_c0/state/retention/owner/archive', False)]
+.
+3 passed in 22.50s

@@ -1,0 +1,32 @@
+{
+  "label": "retention_salvage_properties-1",
+  "start": "2026-10-29T20:31:26.570348+00:00",
+  "loads": [
+    31.16748046875,
+    38.31787109375,
+    29.880859375
+  ],
+  "seconds": 137.2829359999996,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 126.6592699580001
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent"
+  ],
+  "phases": {
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 117096448
+}

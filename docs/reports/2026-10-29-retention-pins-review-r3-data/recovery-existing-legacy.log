@@ -1,0 +1,187 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:52:52Z slot B load 
+{"start": "2026-10-29T13:52:52.239653+00:00", "load": [19.7421875, 22.31787109375, 22.81396484375], "name": "recovery-existing-legacy"}
+Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-92473/pytest/test_recovery_sees_incomplete_0'), trusted=True, remot...-r272r3/cases-92473/pytest/test_recovery_sees_incomplete_0/state'), store=<subfleet.store.Store object at 0x1080d56a0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107d5b230>
+recorded = False, state = 'running'
+
+    @pytest.mark.parametrize('recorded',[False,True],ids=['legacy','recorded'])
+    @pytest.mark.parametrize('state',['running','succeeded'],ids=['live','exporting'])
+    def test_recovery_sees_incomplete_before_quarantine(world,monkeypatch,recorded,state):
+        tree=world.job('owner')
+        outside=world.base/'outside'
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        alternate.parent.mkdir(parents=True);alternate.write_bytes(b'# valid\n')
+        def insert(data):
+            world.store.add_job(job_id='borrower',request_id='borrower',payload_digest='d',kind='dispatch',state=state,sandbox='read-only',workdir=str(outside),prompt_path='/p')
+            world.store.add_event('job.submitted',job_id='borrower',data=data)
+            if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        if not recorded:insert({})
+        original=rarch.Retirement.quarantine
+        class Crash(BaseException):pass
+        def crash(self):raise Crash()
+        with monkeypatch.context() as patch:
+            patch.setattr(rarch.Retirement,'quarantine',crash)
+            with pytest.raises(Crash):maintain(world)
+        assert tree.is_dir()
+        alternate.write_bytes(b'"bad\\z"\n')
+        if recorded:insert({'depends':{'incomplete':[{'file':str(alternate),'reason':'invalid Git C escape'}]}})
+        observations=[]
+        def observing(self):
+            try:return original(self)
+            finally:observations.append(tree.is_dir())
+        monkeypatch.setattr(rarch.Retirement,'quarantine',observing)
+        result=maintain(world)
+        assert tree.is_dir() and 'owner' not in result['pruned'],result
+>       assert observations==[True], (observations,result)
+E       AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})
+E       assert [False] == [True]
+E         
+E         At index 0 diff: False != True
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/recovery.py:34: AssertionError
+.Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-92473/pytest/test_recovery_sees_incomplete_2'), trusted=True, remot...-r272r3/cases-92473/pytest/test_recovery_sees_incomplete_2/state'), store=<subfleet.store.Store object at 0x108286c10>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1087b67a0>
+recorded = False, state = 'succeeded'
+
+    @pytest.mark.parametrize('recorded',[False,True],ids=['legacy','recorded'])
+    @pytest.mark.parametrize('state',['running','succeeded'],ids=['live','exporting'])
+    def test_recovery_sees_incomplete_before_quarantine(world,monkeypatch,recorded,state):
+        tree=world.job('owner')
+        outside=world.base/'outside'
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        alternate.parent.mkdir(parents=True);alternate.write_bytes(b'# valid\n')
+        def insert(data):
+            world.store.add_job(job_id='borrower',request_id='borrower',payload_digest='d',kind='dispatch',state=state,sandbox='read-only',workdir=str(outside),prompt_path='/p')
+            world.store.add_event('job.submitted',job_id='borrower',data=data)
+            if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        if not recorded:insert({})
+        original=rarch.Retirement.quarantine
+        class Crash(BaseException):pass
+        def crash(self):raise Crash()
+        with monkeypatch.context() as patch:
+            patch.setattr(rarch.Retirement,'quarantine',crash)
+            with pytest.raises(Crash):maintain(world)
+        assert tree.is_dir()
+        alternate.write_bytes(b'"bad\\z"\n')
+        if recorded:insert({'depends':{'incomplete':[{'file':str(alternate),'reason':'invalid Git C escape'}]}})
+        observations=[]
+        def observing(self):
+            try:return original(self)
+            finally:observations.append(tree.is_dir())
+        monkeypatch.setattr(rarch.Retirement,'quarantine',observing)
+        result=maintain(world)
+        assert tree.is_dir() and 'owner' not in result['pruned'],result
+>       assert observations==[True], (observations,result)
+E       AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})
+E       assert [False] == [True]
+E         
+E         At index 0 diff: False != True
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/recovery.py:34: AssertionError
+.                                                                     [100%]
+=================================== FAILURES ===================================
+_________ test_recovery_sees_incomplete_before_quarantine[live-legacy] _________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-92473/pytest/test_recovery_sees_incomplete_0'), trusted=True, remot...-r272r3/cases-92473/pytest/test_recovery_sees_incomplete_0/state'), store=<subfleet.store.Store object at 0x1080d56a0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107d5b230>
+recorded = False, state = 'running'
+
+    @pytest.mark.parametrize('recorded',[False,True],ids=['legacy','recorded'])
+    @pytest.mark.parametrize('state',['running','succeeded'],ids=['live','exporting'])
+    def test_recovery_sees_incomplete_before_quarantine(world,monkeypatch,recorded,state):
+        tree=world.job('owner')
+        outside=world.base/'outside'
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        alternate.parent.mkdir(parents=True);alternate.write_bytes(b'# valid\n')
+        def insert(data):
+            world.store.add_job(job_id='borrower',request_id='borrower',payload_digest='d',kind='dispatch',state=state,sandbox='read-only',workdir=str(outside),prompt_path='/p')
+            world.store.add_event('job.submitted',job_id='borrower',data=data)
+            if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        if not recorded:insert({})
+        original=rarch.Retirement.quarantine
+        class Crash(BaseException):pass
+        def crash(self):raise Crash()
+        with monkeypatch.context() as patch:
+            patch.setattr(rarch.Retirement,'quarantine',crash)
+            with pytest.raises(Crash):maintain(world)
+        assert tree.is_dir()
+        alternate.write_bytes(b'"bad\\z"\n')
+        if recorded:insert({'depends':{'incomplete':[{'file':str(alternate),'reason':'invalid Git C escape'}]}})
+        observations=[]
+        def observing(self):
+            try:return original(self)
+            finally:observations.append(tree.is_dir())
+        monkeypatch.setattr(rarch.Retirement,'quarantine',observing)
+        result=maintain(world)
+        assert tree.is_dir() and 'owner' not in result['pruned'],result
+>       assert observations==[True], (observations,result)
+E       AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})
+E       assert [False] == [True]
+E         
+E         At index 0 diff: False != True
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/recovery.py:34: AssertionError
+______ test_recovery_sees_incomplete_before_quarantine[exporting-legacy] _______
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-92473/pytest/test_recovery_sees_incomplete_2'), trusted=True, remot...-r272r3/cases-92473/pytest/test_recovery_sees_incomplete_2/state'), store=<subfleet.store.Store object at 0x108286c10>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1087b67a0>
+recorded = False, state = 'succeeded'
+
+    @pytest.mark.parametrize('recorded',[False,True],ids=['legacy','recorded'])
+    @pytest.mark.parametrize('state',['running','succeeded'],ids=['live','exporting'])
+    def test_recovery_sees_incomplete_before_quarantine(world,monkeypatch,recorded,state):
+        tree=world.job('owner')
+        outside=world.base/'outside'
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        alternate.parent.mkdir(parents=True);alternate.write_bytes(b'# valid\n')
+        def insert(data):
+            world.store.add_job(job_id='borrower',request_id='borrower',payload_digest='d',kind='dispatch',state=state,sandbox='read-only',workdir=str(outside),prompt_path='/p')
+            world.store.add_event('job.submitted',job_id='borrower',data=data)
+            if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        if not recorded:insert({})
+        original=rarch.Retirement.quarantine
+        class Crash(BaseException):pass
+        def crash(self):raise Crash()
+        with monkeypatch.context() as patch:
+            patch.setattr(rarch.Retirement,'quarantine',crash)
+            with pytest.raises(Crash):maintain(world)
+        assert tree.is_dir()
+        alternate.write_bytes(b'"bad\\z"\n')
+        if recorded:insert({'depends':{'incomplete':[{'file':str(alternate),'reason':'invalid Git C escape'}]}})
+        observations=[]
+        def observing(self):
+            try:return original(self)
+            finally:observations.append(tree.is_dir())
+        monkeypatch.setattr(rarch.Retirement,'quarantine',observing)
+        result=maintain(world)
+        assert tree.is_dir() and 'owner' not in result['pruned'],result
+>       assert observations==[True], (observations,result)
+E       AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})
+E       assert [False] == [True]
+E         
+E         At index 0 diff: False != True
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/recovery.py:34: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../private/tmp/sf-r272r3/recovery.py::test_recovery_sees_incomplete_before_quarantine[live-legacy]
+FAILED ../../../../../private/tmp/sf-r272r3/recovery.py::test_recovery_sees_incomplete_before_quarantine[exporting-legacy]
+2 failed, 2 passed in 14.87s

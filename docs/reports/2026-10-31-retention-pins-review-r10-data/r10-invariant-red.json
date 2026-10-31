@@ -1,0 +1,88 @@
+{
+  "name": "r10-invariant-red",
+  "start": "2026-10-31T10:53:50.309358+00:00",
+  "load": [
+    41.50732421875,
+    40.8173828125,
+    38.83740234375
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_review_r10.py",
+    "-k",
+    "test_returned_cycle_target",
+    "--runxfail"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.21443083399935858,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.6795012500006123,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r10.py:75: in test_returned_cycle_target_obeys_the_claimed_spelling_invariant\n    assert_location_spelling(checkout, recorded.get('git', []))\ntests/unit/test_retention_location_spelling.py:64: in assert_location_spelling\n    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place\nE   AssertionError: /private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\nE   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'\nE     \nE     Skipping 425 identical leading characters in diff, use -v to show\nE     - l/tail/tail\nE     + l/tail/tail/tail\nE     ?            +++++"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004978750002919696,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001952250000613276,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.5691776670028048,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r10.py:75: in test_returned_cycle_target_obeys_the_claimed_spelling_invariant\n    assert_location_spelling(checkout, recorded.get('git', []))\ntests/unit/test_retention_location_spelling.py:64: in assert_location_spelling\n    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place\nE   AssertionError: /private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\nE   assert '/private/tmp...il/extra/tail' == '/private/tmp...il/extra/tail'\nE     \nE     Skipping 463 identical leading characters in diff, use -v to show\nE     - /extra/tail\nE     + /extra/tail/extra/tail"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007128329998522531,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+      "key": "R10-F1",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"]}, \"respelled\": {\"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git\": \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects\": \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\": \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"}, \"status\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]",
+      "key": "R10-F1",
+      "value": "{\"cycle\": \"two-link-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\"]}, \"respelled\": {\"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git\": \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects\": \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\": \"/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\"}, \"status\": 0}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:54:02.861849+00:00",
+  "seconds": 12.552162500000122,
+  "peak_rss_mib": 115.34375,
+  "exit": 1
+}

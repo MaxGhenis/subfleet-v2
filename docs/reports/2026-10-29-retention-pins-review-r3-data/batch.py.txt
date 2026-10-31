@@ -1,0 +1,23 @@
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+root = Path('/private/tmp/sf-r272r3')
+plan = json.loads((root/sys.argv[1]).read_text())
+for name, args in plan:
+    tmp = root/('hold-'+name)
+    tmp.mkdir(exist_ok=True)
+    env = os.environ.copy()
+    env.update(TMPDIR=str(tmp)+'/', HYPOTHESIS_STORAGE_DIRECTORY=str(root/'hyp'), UV_PROJECT_ENVIRONMENT=str(root/'venv'), UV_CACHE_DIR=str(root/'uv-cache'), PYTHONDONTWRITEBYTECODE='1')
+    env.pop('SUBFLEET_RETENTION_DORMANT', None)
+    env.pop('PYTHONPATH', None)
+    if name.startswith('mutant-'):
+        env['SF_MUTANT'] = name.removeprefix('mutant-')
+    cmd = ['/bin/zsh', '/Users/maxghenis/reviews/subfleet-hub/host-runs/suite_hold.sh', 'env', '-u', 'SUBFLEET_RETENTION_DORMANT', '-u', 'PYTHONPATH', 'uv', 'run', '--no-sync', 'python', str(root/'run.py'), name, *args]
+    with (root/'logs'/f'{name}.log').open('w') as log:
+        rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
+    print(name, rc, flush=True)
+    shutil.rmtree(tmp, ignore_errors=True)

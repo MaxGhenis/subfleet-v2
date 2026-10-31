@@ -1,0 +1,51 @@
+{
+  "name": "unfinished-regenerable",
+  "start": "2026-10-31T16:13:28.526095+00:00",
+  "load": [
+    103.16796875,
+    111.025390625,
+    113.69775390625
+  ],
+  "pytest_pid": 12286,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 19.489954000004218,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 372.3720046249946,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007117499990272336,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:20:47.670831+00:00",
+  "seconds": 439.13435820900486,
+  "peak_rss_mib": 117.859375,
+  "exit": 0
+}

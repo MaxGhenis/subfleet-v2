@@ -1,0 +1,10 @@
+[
+  [
+    "contract-guards",
+    [
+      "tests/fake/test_state_contract.py",
+      "tests/unit/test_test_module_names.py",
+      "tests/unit/test_invariants_index.py"
+    ]
+  ]
+]

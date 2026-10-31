@@ -1,0 +1,44 @@
+{
+  "name": "test_retention_archive-15",
+  "start": "2026-10-29T06:40:32.225160+00:00",
+  "load": [
+    22.3388671875,
+    23.5703125,
+    23.29052734375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned": {
+      "setup": {
+        "duration": 1.7473489590047393,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 5.375799208006356,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.015980583004420623,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

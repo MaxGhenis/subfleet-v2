@@ -1,0 +1,36 @@
+[
+  [
+    "mutant-r2-c-escape-bell-wrong",
+    [
+      "tests/unit/test_retention_alternates_review_r2.py",
+      "-k",
+      "extended_git_c_escapes",
+      "-x"
+    ]
+  ],
+  [
+    "mutant-r2-alternates-file-cap",
+    [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory",
+      "-x"
+    ]
+  ],
+  [
+    "mutant-r2-export-join-request-id",
+    [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "legacy and pending_export",
+      "-x"
+    ]
+  ],
+  [
+    "mutant-r2-jobdir-final-check-removed",
+    [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "-k",
+      "nested_job_directory_aliases and commit",
+      "-x"
+    ]
+  ]
+]

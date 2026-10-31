@@ -1,0 +1,14 @@
+{
+  "label": "named-True-own-True-content-b''",
+  "git_rc": 128,
+  "git_stdout": "",
+  "git_stderr": "fatal: failed to read /private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__True_True_0/container/worktrees/slot/commondir: No such file or directory\n",
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__True_True_0/container/worktrees/slot",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__True_True_0/container",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__True_True_0/container/objects"
+    ]
+  },
+  "actual_storage_covered": false
+}

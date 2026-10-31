@@ -1,0 +1,44 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:34:48Z slot A load 
+START mutant-r5-gitfile-colon-without-space-accepted 2026-10-31T06:34:51.146867+00:00 load=(38.2939453125, 35.97314453125, 34.58203125)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space] ______
+
+tmp_path = PosixPath('/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0')
+layout = 'gitfile', name = 'metadata', ending = b'\n', prefix = b'gitdir:'
+accepted = False
+
+    @pytest.mark.parametrize("layout,name,ending,prefix,accepted", [
+        ("gitfile", " metadata ", b"\n", b"gitdir: ", True),
+        ("gitfile", "metadata", b"\n", b"gitdir:", False),
+        ("gitfile", "", b"\n", b"gitdir: ", False),
+        ("gitfile", " metadata ", b"\r\n", b"gitdir: ", True),
+        ("commondir", " metadata ", b"\n", b"", True),
+        ("commondir", "   ", b"\n", b"", True),
+        ("commondir", "", b"\n", b"", False),
+        ("commondir", " metadata ", b"\r\n", b"", True),
+    ], ids=["gitfile-spaces", "gitfile-no-space", "gitfile-empty", "gitfile-crlf",
+            "commondir-spaces", "commondir-only-spaces", "commondir-empty", "commondir-crlf"])
+    def test_pointer_syntax_and_whitespace_match_real_git(tmp_path, layout, name, ending, prefix, accepted):
+        owner, checkout, resolved = pointer_repository(tmp_path, layout, name, ending=ending, prefix=prefix)
+        assert (resolved.returncode == 0) == accepted, resolved.stderr
+        recorded = dependencies.record(str(checkout))
+        if accepted:
+            assert resolved.stdout == b"pointer-only blob\n"
+            assert folders.canonical(owner / "objects") in recorded["git"]
+            assert not recorded.get("incomplete"), recorded
+        elif layout == "gitfile":
+            # Rejected gitfiles name no usable Git storage, including no syntactic
+            # target from the colon-only spelling. This also kills a lax prefix.
+>           assert not recorded.get("git"), recorded
+E           AssertionError: {'git': ['/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git/objects']}
+E           assert not ['/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git/objects']
+E            +  where ['/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git/objects'] = <built-in method get of dict object at 0x1085981c0>('git')
+E            +    where <built-in method get of dict object at 0x1085981c0> = {'git': ['/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git/objects']}.get
+
+tests/unit/test_retention_pointer_whitespace.py:72: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]
+1 failed in 8.40s

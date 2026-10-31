@@ -102,7 +102,7 @@ def test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names(tm
             folders.canonical(job["workdir"]),
         )
         # Isolate the reserving transaction as the differential property does.
-        patch.setattr(daemon, "_fence_hold", lambda *args: False)
+        patch.setattr(daemon, "_fence_hold", lambda *args, **kwargs: False)
         daemon._admit_turns()
         reservation = daemon._holds.get(turn) or {}
         assert not _live(daemon, turn)
@@ -310,7 +310,7 @@ def test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_e
         # excluding the workspace snapshot as the generated differential does.
         daemon.store.update_job(turn, state="queued", wait_reason=None, next_check_at=None)
         daemon._capacity_waits.pop(turn)
-        patch.setattr(daemon, "_fence_hold", lambda *args: False)
+        patch.setattr(daemon, "_fence_hold", lambda *args, **kwargs: False)
         patch.setattr(daemon, "_workspace", lambda current: (nested, None, None, []))
         daemon._admit_turns()
         reserved = dict(daemon._holds[turn])

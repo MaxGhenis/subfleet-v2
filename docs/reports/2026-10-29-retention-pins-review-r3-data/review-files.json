@@ -1,0 +1,14 @@
+{
+  "tests/fake/test_retention_dependency_review_r2.py": {
+    "base_sha256": "6f5d2aeb60e87c0d31ea0c30325816d532039eee2c1f066e51fcfc661459670f",
+    "head_sha256": "5208dd74e72b0156881970fef0a7700c0bda0bcfd23a76acec781c9c98eb744c",
+    "removed_marks": 3,
+    "exact_expected": true
+  },
+  "tests/unit/test_retention_alternates_review_r2.py": {
+    "base_sha256": "dfb160f0cf20d5fd591cb12b5597d667810f489654908b339d48031c67c47f2a",
+    "head_sha256": "dfb160f0cf20d5fd591cb12b5597d667810f489654908b339d48031c67c47f2a",
+    "removed_marks": 0,
+    "exact_expected": true
+  }
+}

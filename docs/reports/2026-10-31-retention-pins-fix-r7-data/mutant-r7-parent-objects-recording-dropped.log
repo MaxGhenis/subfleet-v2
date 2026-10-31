@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 03:57:19Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_inferred_parent_objects_keeps_its_resolved_storage ____________
+tests/fake/test_retention_parent_hint.py:31: in test_inferred_parent_objects_keeps_its_resolved_storage
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r7-parent-objects-recording-dropped/pytest-of-maxghenis/pytest-0/test_...container/worktrees/slot/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48688, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage
+1 failed in 11.75s
+{"name": "mutant-r7-parent-objects-recording-dropped", "start": "2026-10-31T03:57:22.191781+00:00", "load": [36.05224609375, 36.66748046875, 38.1787109375], "seconds": 13.93310349999956, "exit": 1}

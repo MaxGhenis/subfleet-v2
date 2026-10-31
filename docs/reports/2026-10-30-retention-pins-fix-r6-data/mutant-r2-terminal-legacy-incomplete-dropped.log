@@ -1,0 +1,60 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:19:26Z slot A load 
+START mutant-r2-terminal-legacy-incomplete-dropped 2026-10-30T22:19:36.237579+00:00 load=(18.21826171875, 19.66455078125, 19.1279296875)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_c8_4_legacy_incomplete_census_survives_terminal_export[database] _____
+
+world = World(base=PosixPath('/private/tmp/sf-fix272r6/cases-26223/pytest/test_c8_4_legacy_incomplete_ce0'), trusted=True, rem...ix272r6/cases-26223/pytest/test_c8_4_legacy_incomplete_ce0/state'), store=<subfleet.store.Store object at 0x10c54a270>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10bf87ce0>
+stage = 'database'
+
+    @pytest.mark.parametrize("stage", ["database", "full-pass", "already-exporting"])
+    def test_c8_4_legacy_incomplete_census_survives_terminal_export(world, monkeypatch, stage):
+        tree = world.job("owner")
+        borrower = world.base / "outside"
+        alternate = borrower / ".git" / "objects" / "info" / "alternates"
+        alternate.parent.mkdir(parents=True)
+        alternate.write_bytes(b'"bad\\z"\n')
+        world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                            kind="dispatch", state="running", sandbox="read-only",
+                            workdir=str(borrower), prompt_path="/p", out_path="/outside/result")
+        world.store.add_event("job.submitted", job_id="borrower", data={})
+        original = dependencies.legacy
+    
+        def finish_after_discovery(read):
+            legacy = original(read)
+            assert legacy.incomplete["borrower"][0]["file"] == str(alternate)
+            world.store.acquire_lease("out:/outside/result", "borrower")
+            world.store.update_job("borrower", state="succeeded")
+            return legacy
+    
+        if stage == "already-exporting":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+            world.store.update_job("borrower", state="succeeded")
+            result = maintain(world)
+            assert "owner" not in result["pruned"], result
+            assert "dependency-incomplete" in result["pin_reasons"]["owner"]
+            assert str(alternate) in result["pin_reasons"]["owner"]
+            return
+    
+        if stage == "full-pass":
+            monkeypatch.setattr(dependencies, "legacy", finish_after_discovery)
+            result = maintain(world)
+            assert "owner" not in result["pruned"], result
+            assert "dependency-incomplete" in result["pin_reasons"]["owner"]
+            assert str(alternate) in result["pin_reasons"]["owner"]
+            return
+    
+        legacy = finish_after_discovery(world.store.query)
+        with world.store.transaction():
+            places = dependencies.live(world.store.query, legacy)
+>           assert "borrower" in places.incomplete
+E           AssertionError: assert 'borrower' in {}
+E            +  where {} = {'borrower': {'/outside/result'}}.incomplete
+
+tests/fake/test_retention_dependency_review_r2.py:151: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]
+1 failed in 6.95s

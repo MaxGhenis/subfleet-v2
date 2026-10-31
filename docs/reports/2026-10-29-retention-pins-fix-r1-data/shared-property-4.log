@@ -1,0 +1,30 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:50:50Z slot A load 
+ADMITTED 2026-10-29T05:50:51.603748+00:00 LOAD (23.97998046875, 24.6611328125, 24.25732421875)
+.                                                                        [100%]OBSERVATION {"engines": [{"nodeid": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in", "valid": 150, "invalid": 11, "calls": 192, "settings_max": 150}], "explicit": {}, "mutant": null, "loaded": []}
+
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in:
+
+  - during generate phase (48.62 seconds):
+    - Typical runtimes: ~ 1-784 ms, of which ~ 0-170 ms in data generation
+    - 150 passing, 0 failing, and 42 invalid test cases
+    - Events:
+      * 30.73%, Retried draw from text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')).filter(lambda name: '/' not in name) to satisfy filter
+      * 5.73%, gave up because: Aborted test because unable to satisfy text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')).filter(lambda name: '/' not in name)
+      * 3.65%, Retried draw from text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')) to satisfy filter
+
+  - Stopped because settings.max_examples=150
+
+
+1 passed, 2 warnings in 60.01s (0:01:00)

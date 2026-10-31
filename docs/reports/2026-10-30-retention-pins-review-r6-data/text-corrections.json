@@ -1,0 +1,36 @@
+{
+  "finding": "R6-F1",
+  "main_report": {
+    "file": "docs/reports/2026-10-27-retention-dependency-pins.md",
+    "line": 9,
+    "replace_sentence": "The executed LF-only and CRLF-only commondir probes use a directory .git, where discovery records the own store. A gitfile naming worktrees/<id> instead triggers the parent-common fallback and can omit that same usable store without incomplete evidence (R6-F1).",
+    "invariant_line_11": "Required invariant, currently violated by R6-F1 and R6-F2: for every pointer Git follows, discovery records the target Git reads, or reports incomplete.",
+    "qualify_current_discovery_descriptions": "At beabed1f7, R5-F1's three original inputs pass. Discovery still infers a parent common directory for gitfiles naming worktrees/<id> when commondir is absent or CR/LF-only, which can omit a valid own store (R6-F1). Git also accepts pointers padded with trailing CR/LF beyond discovery's 64 KiB cap; discovery silently drops that read error (R6-F2). Both cases permit retirement of a running borrower's storage without incomplete evidence. The required fail-closed guarantee and the existing swap-back, timestamp and later-dependency observation bounds are unchanged.",
+    "lead_line_3": "R5-F1's three original whitespace regressions pass at beabed1f7. Initial-object recording and revalidation apply to the store discovery selects; R6-F1 and R6-F2 can still prevent it from selecting the storage Git reads. The original r3, r4 and T2 inputs remain covered. Keep retention dormant pending repairs, approving rereview and completed CI."
+  },
+  "fix_r5_report": {
+    "file": "docs/reports/2026-10-30-retention-pins-fix-r5.md",
+    "line_12": "Required invariant, currently violated by R6-F1 and R6-F2: for every pointer Git follows, discovery records the target Git reads, or reports incomplete.",
+    "table_line_28": "The own-store result applies to the tested directory-.git fixture. Named worktrees/<id> admins with LF/CRLF-only commondir use the wrong inferred parent in discovery (R6-F1).",
+    "paragraph_line_31": "The additional own-store controls cover a directory .git; the same result does not hold for a gitfile naming worktrees/<id> (R6-F1).",
+    "pointer_read_scope_note": "At beabed1f7, Gitfiles and commondir files larger than discovery's 64 KiB cap can still be accepted by Git after trailing CR/LF is removed. Discovery swallows the read failure without incomplete evidence, permitting retirement of a running borrower's storage (R6-F2)."
+  },
+  "desktop": {
+    "file": "docs/desktop/retention-archive.md",
+    "line": 642,
+    "append_qualification": "At beabed1f7, R5-F1's three original inputs pass. Discovery still infers a parent common directory for gitfiles naming worktrees/<id> when commondir is absent or CR/LF-only, which can omit a valid own store (R6-F1). Git also accepts pointers padded with trailing CR/LF beyond discovery's 64 KiB cap; discovery silently drops that read error (R6-F2). Both cases permit retirement of a running borrower's storage without incomplete evidence. The required fail-closed guarantee and the existing swap-back, timestamp and later-dependency observation bounds are unchanged."
+  },
+  "contract": {
+    "C-8.3": "Keep normative clause byte-identical.",
+    "C-8.4": "Keep normative guarantee unweakened; repair implementation."
+  },
+  "PR_lead": "Review r6 at beabed1f7 requests changes for R6-F1 and R6-F2. R5-F1's three real-Git regressions pass. Discovery still omits valid own object stores behind worktrees/<id> gitdirs with absent or CR/LF-only commondir, and silently drops pointers over its 64 KiB cap even when Git reads them. Five stable real-Git inputs retire storage used by a running borrower without incomplete evidence. Retention stays dormant; repairs, approving rereview and completed CI remain merge gates.",
+  "PR_next": "Repair R6-F1 and R6-F2, preserve R5-F1's passing regressions, obtain approving rereview and complete every CI shard before merge or re-enablement.",
+  "findings": [
+    "R6-F1",
+    "R6-F2"
+  ],
+  "pointer_cap_qualification": "At beabed1f7, Gitfiles and commondir files larger than discovery's 64 KiB cap can still be accepted by Git after trailing CR/LF is removed. Discovery swallows the read failure without incomplete evidence, permitting retirement of a running borrower's storage (R6-F2).",
+  "listed_differences_doc_line": "Outside dependency discovery, older archive, survey and registration-cleanup readers still strip pathname whitespace: executed fixtures select a stripped admin twin or miss the real admin, defer a whitespace-common target, accept an external nested admin as internal, and discard a stripped-common twin's registration. These differences remain for follow-up; the complete-pack verifier control passes despite a stripped alternate path.",
+  "PR_followup": "After merge or in a follow-up, document the listed older reader differences; they do not hold the verdict."
+}

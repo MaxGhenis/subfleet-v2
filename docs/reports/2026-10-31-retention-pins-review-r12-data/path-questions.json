@@ -1,0 +1,629 @@
+{
+  "name": "path-questions",
+  "start": "2026-10-31T19:57:58.931721+00:00",
+  "load": [
+    81.67236328125,
+    85.03173828125,
+    83.47802734375
+  ],
+  "pytest_pid": 27829,
+  "failure_root": "/private/tmp/sf-r272r12/failed-keep",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r12-data/path_questions.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.2958792080025887,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7597582090020296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000748874997952953,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003438749998167623,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.827234167001734,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000993459005258046,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005297166993841529,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3779442500017467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006103330015321262,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[missing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0038615000012214296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[missing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7525142500016955,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[missing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007790829986333847,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[not-directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.17086879199632676,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[not-directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7193602080005803,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[not-directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006575410006917082,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[denied]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1131583749956917,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[denied]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5940869999976712,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[denied]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00038795800355728716,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[31]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.028458082997531164,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[31]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6910147080052411,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[31]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006191669963300228,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[32]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002413000001979526,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[32]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4352662919991417,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[32]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005992910009808838,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[33]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002306166999915149,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[33]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9579678329973831,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[33]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006089169983169995,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[64]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03817887500190409,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[64]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4344159999964177,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[64]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0014916660002199933,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[65]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003582958997867536,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[65]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.642628916000831,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[65]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001106374998926185,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[80]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007596667004690971,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[80]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.543565749998379,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[80]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006617090039071627,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_relative_long_path_real_git[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002929917005531024,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_relative_long_path_real_git[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.9299207919975743,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_relative_long_path_real_git[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025594999970053323,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_relative_long_path_real_git[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005404540999734309,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_relative_long_path_real_git[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.373047291999683,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_relative_long_path_real_git[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005776249963673763,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016059374996984843,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0009730840029078536,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00043412500235717744,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[360]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00745137500052806,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[360]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0008870829988154583,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[360]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003335332999995444,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[370]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029807079990860075,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[370]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0016567080019740388,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[370]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002945829983218573,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[371]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002726374994381331,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[371]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0012660420034080744,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[371]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004674208001233637,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[500]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004789874998095911,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[500]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0011380840005585924,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[500]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00040216700290329754,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[995]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026630420034052804,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[995]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.002773790998617187,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[995]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004317500061006285,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[gitfile]",
+      "key": "nul",
+      "value": "{\"filters\": {\"canonical\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}, \"predicate\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}, \"stat\": {\"errno\": null, \"error\": \"ValueError\"}}, \"read\": 0, \"records\": {\"475f63278\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"scandir: embedded null character in path\"}, \"ced02912b\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"scandir: embedded null character in path\"}, \"head\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"scandir: embedded null character in path\"}}, \"route\": \"gitfile\"}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[commondir]",
+      "key": "nul",
+      "value": "{\"filters\": {\"canonical\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}, \"predicate\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}, \"stat\": {\"errno\": null, \"error\": \"ValueError\"}}, \"read\": 0, \"records\": {\"475f63278\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"scandir: embedded null character in path\"}, \"ced02912b\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"scandir: embedded null character in path\"}, \"head\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"scandir: embedded null character in path\"}}, \"route\": \"commondir\"}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[alternates]",
+      "key": "nul",
+      "value": "{\"filters\": {\"canonical\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}, \"predicate\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}, \"stat\": {\"errno\": null, \"error\": \"ValueError\"}}, \"read\": 0, \"records\": {\"475f63278\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}, \"ced02912b\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}, \"head\": {\"errno\": null, \"error\": \"ValueError\", \"message\": \"lstat: embedded null character in path\"}}, \"route\": \"alternates\"}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[missing]",
+      "key": "stable-error",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/absent/child\", \"canonical_stat\": {\"errno\": 2, \"error\": \"FileNotFoundError\"}, \"equation\": true, \"failure\": \"missing\", \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/absent/child\", \"raw_stat\": {\"errno\": 2, \"error\": \"FileNotFoundError\"}, \"records\": {\"475f63278\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/absent/child\"]}}, \"ced02912b\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/absent/child\"]}}, \"head\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell0/absent/child\"]}}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[not-directory]",
+      "key": "stable-error",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/file/child\", \"canonical_stat\": {\"errno\": 20, \"error\": \"NotADirectoryError\"}, \"equation\": true, \"failure\": \"not-directory\", \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/file/child\", \"raw_stat\": {\"errno\": 20, \"error\": \"NotADirectoryError\"}, \"records\": {\"475f63278\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/file/child\"]}}, \"ced02912b\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/file/child\"]}}, \"head\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell1/file/child\"]}}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_real_stable_failure_spelling[denied]",
+      "key": "stable-error",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/DENIED/child\", \"canonical_stat\": {\"errno\": 13, \"error\": \"PermissionError\"}, \"equation\": true, \"failure\": \"denied\", \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/denied/child\", \"raw_stat\": {\"errno\": 13, \"error\": \"PermissionError\"}, \"records\": {\"475f63278\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/DENIED/child\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git/unused\", \"reason\": \"[Errno 13] Permission denied: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/denied/child'\"}]}}, \"ced02912b\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/DENIED/child\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git/unused\", \"reason\": \"[Errno 13] Permission denied: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/denied/child'\"}]}}, \"head\": {\"value\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/DENIED/child\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/checkout/.git/unused\", \"reason\": \"[Errno 13] Permission denied: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_real_stable_failure_spell2/denied/child'\"}]}}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[31]",
+      "key": "many-links",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/source/.git/objects\", \"canonical_stat\": {\"errno\": 0, \"identity\": [16777234, 2442222408]}, \"hops\": 31, \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/link0\", \"raw_stat\": {\"errno\": 0, \"identity\": [16777234, 2442222408]}, \"read\": 0, \"records\": {\"475f63278\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/source/.git/objects\"]}, \"ced02912b\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/source/.git/objects\"]}, \"head\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_0/source/.git/objects\"]}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[32]",
+      "key": "many-links",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/source/.git/objects\", \"canonical_stat\": {\"errno\": 0, \"identity\": [16777234, 2442223166]}, \"hops\": 32, \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/link0\", \"raw_stat\": {\"errno\": 0, \"identity\": [16777234, 2442223166]}, \"read\": 0, \"records\": {\"475f63278\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/source/.git/objects\"]}, \"ced02912b\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/source/.git/objects\"]}, \"head\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_1/source/.git/objects\"]}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[33]",
+      "key": "many-links",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/source/.git/objects\", \"canonical_stat\": {\"errno\": 0, \"identity\": [16777234, 2442223988]}, \"hops\": 33, \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/link0\", \"raw_stat\": {\"errno\": 62, \"error\": \"OSError\"}, \"read\": 0, \"records\": {\"475f63278\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/source/.git/objects\"]}, \"ced02912b\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/source/.git/objects\"]}, \"head\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_2/source/.git/objects\"]}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[64]",
+      "key": "many-links",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/source/.git/objects\", \"canonical_stat\": {\"errno\": 0, \"identity\": [16777234, 2442224649]}, \"hops\": 64, \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/link0\", \"raw_stat\": {\"errno\": 62, \"error\": \"OSError\"}, \"read\": 128, \"records\": {\"475f63278\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/source/.git/objects\"]}, \"ced02912b\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/source/.git/objects\"]}, \"head\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_3/source/.git/objects\"]}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[65]",
+      "key": "many-links",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/source/.git/objects\", \"canonical_stat\": {\"errno\": 0, \"identity\": [16777234, 2442225457]}, \"hops\": 65, \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/link0\", \"raw_stat\": {\"errno\": 62, \"error\": \"OSError\"}, \"read\": 128, \"records\": {\"475f63278\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/source/.git/objects\"]}, \"ced02912b\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/source/.git/objects\"]}, \"head\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_4/source/.git/objects\"]}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_many_links_on_alternates_route[80]",
+      "key": "many-links",
+      "value": "{\"canonical\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/source/.git/objects\", \"canonical_stat\": {\"errno\": 0, \"identity\": [16777234, 2442226567]}, \"hops\": 80, \"raw\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/link0\", \"raw_stat\": {\"errno\": 62, \"error\": \"OSError\"}, \"read\": 128, \"records\": {\"475f63278\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/source/.git/objects\"]}, \"ced02912b\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/source/.git/objects\"]}, \"head\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/checkout/.git\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/checkout/.git/objects\", \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_many_links_on_alternates_5/source/.git/objects\"]}}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_relative_long_path_real_git[gitfile]",
+      "key": "relative-long",
+      "value": "{\"canonical_stat\": {\"errno\": 63, \"error\": \"OSError\"}, \"fsck\": 128, \"length\": 1174, \"raw_stat\": {\"errno\": 63, \"error\": \"OSError\"}, \"read\": 128, \"read_error\": \"fatal: failed to stat '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/checkout': File name too long\\n\", \"records\": {\"475f63278\": {\"value\": {\"incomplete\": [{\"file\": \"checkout\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/checkout/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}]}}, \"ced02912b\": {\"value\": {\"incomplete\": [{\"file\": \"checkout\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/checkout/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}]}}, \"head\": {\"value\": {\"incomplete\": [{\"file\": \"checkout\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/checkout/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g0/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}]}}}, \"relative_stat\": {\"errno\": 0, \"identity\": [16777234, 2442227984]}, \"route\": \"gitfile\", \"spelled\": {\"value\": true}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_relative_long_path_real_git[alternates]",
+      "key": "relative-long",
+      "value": "{\"canonical_stat\": {\"errno\": 63, \"error\": \"OSError\"}, \"fsck\": 128, \"length\": 1174, \"raw_stat\": {\"errno\": 63, \"error\": \"OSError\"}, \"read\": 128, \"read_error\": \"fatal: failed to stat '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.checkout': File name too long\\n\", \"records\": {\"475f63278\": {\"value\": {\"incomplete\": [{\"file\": \".checkout\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.checkout/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}]}}, \"ced02912b\": {\"value\": {\"incomplete\": [{\"file\": \".checkout\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.checkout/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}]}}, \"head\": {\"value\": {\"incomplete\": [{\"file\": \".checkout\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.checkout/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, {\"file\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/.git\", \"reason\": \"[Errno 63] File name too long: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_relative_long_path_real_g1/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}]}}}, \"relative_stat\": {\"errno\": 0, \"identity\": [16777234, 2442229129]}, \"route\": \"alternates\", \"spelled\": {\"value\": true}}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[180]",
+      "key": "fixture-length",
+      "value": "{\"result\": {\"value\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_length_fixture_outcome_180/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppp\"}, \"root_length\": 180, \"target\": 371}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[360]",
+      "key": "fixture-length",
+      "value": "{\"result\": {\"value\": \"/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_length_fixture_outcome_360/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/ppppppppppppp/pppppppppp\"}, \"root_length\": 360, \"target\": 371}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[370]",
+      "key": "fixture-length",
+      "value": "{\"result\": {\"errno\": \"None\", \"error\": \"AssertionError\", \"message\": \"(PosixPath('/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_length_fixture_outcome_370/pp...pppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/ppppppppppppppppppppppp'), 371)\\nassert 1 > 1\"}, \"root_length\": 370, \"target\": 371}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[371]",
+      "key": "fixture-length",
+      "value": "{\"result\": {\"errno\": \"17\", \"error\": \"FileExistsError\", \"message\": \"[Errno 17] File exists: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_length_fixture_outcome_371/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppp'\"}, \"root_length\": 371, \"target\": 371}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[500]",
+      "key": "fixture-length",
+      "value": "{\"result\": {\"errno\": \"17\", \"error\": \"FileExistsError\", \"message\": \"[Errno 17] File exists: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_length_fixture_outcome_500/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp'\"}, \"root_length\": 500, \"target\": 371}"
+    },
+    {
+      "node": "review-r12-data/path_questions.py::test_length_fixture_outcome[995]",
+      "key": "fixture-length",
+      "value": "{\"result\": {\"errno\": \"17\", \"error\": \"FileExistsError\", \"message\": \"[Errno 17] File exists: '/private/tmp/sf-r272r12/tmp/path-questions/pytest-of-maxghenis/pytest-0/test_length_fixture_outcome_990/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/p'\"}, \"root_length\": 995, \"target\": 371}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[gitfile]",
+    "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[commondir]",
+    "review-r12-data/path_questions.py::test_embedded_nul_at_all_three_readers[alternates]",
+    "review-r12-data/path_questions.py::test_real_stable_failure_spelling[missing]",
+    "review-r12-data/path_questions.py::test_real_stable_failure_spelling[not-directory]",
+    "review-r12-data/path_questions.py::test_real_stable_failure_spelling[denied]",
+    "review-r12-data/path_questions.py::test_many_links_on_alternates_route[31]",
+    "review-r12-data/path_questions.py::test_many_links_on_alternates_route[32]",
+    "review-r12-data/path_questions.py::test_many_links_on_alternates_route[33]",
+    "review-r12-data/path_questions.py::test_many_links_on_alternates_route[64]",
+    "review-r12-data/path_questions.py::test_many_links_on_alternates_route[65]",
+    "review-r12-data/path_questions.py::test_many_links_on_alternates_route[80]",
+    "review-r12-data/path_questions.py::test_relative_long_path_real_git[gitfile]",
+    "review-r12-data/path_questions.py::test_relative_long_path_real_git[alternates]",
+    "review-r12-data/path_questions.py::test_length_fixture_outcome[180]",
+    "review-r12-data/path_questions.py::test_length_fixture_outcome[360]",
+    "review-r12-data/path_questions.py::test_length_fixture_outcome[370]",
+    "review-r12-data/path_questions.py::test_length_fixture_outcome[371]",
+    "review-r12-data/path_questions.py::test_length_fixture_outcome[500]",
+    "review-r12-data/path_questions.py::test_length_fixture_outcome[995]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-154518-pr272-review-r12/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T19:59:25.168647+00:00",
+  "seconds": 86.23628070799896,
+  "peak_rss_mib": 116.921875,
+  "exit": 0
+}

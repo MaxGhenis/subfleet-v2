@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r2-post-read-identity-check-dropped",
+  "start": "2026-10-31T06:29:02.482670+00:00",
+  "loads": [
+    26.638671875,
+    31.86181640625,
+    32.95751953125
+  ],
+  "seconds": 22.965229417000955,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 8.368989959000828,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 3.3512085840011423,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-94996/pytest/test_c8_4_changed_alternates_d0'), trusted=True, remot...-r272r8/cases-94996/pytest/test_c8_4_changed_alternates_d0/state'), store=<subfleet.store.Store object at 0x10c792510>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c51bce0>\nchange = 'replace'\n\n    @pytest.mark.parametrize(\"change\", [\"replace\", \"rewrite\"])\n    def test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads(world, monkeypatch, change):\n        tree = world.job(\"owner\")\n        source = repo(tree / \"object-source\")\n        commit = git(source, \"rev-parse\", \"HEAD\")\n        borrower = world.base / \"outside\"\n        git(world.base, \"init\", \"--quiet\", str(borrower))\n        alternate = borrower / \".git\" / \"objects\" / \"info\" / \"alternates\"\n        alternate.write_bytes(b\"# first\\n# second\\n\")\n        real = dependencies.open_regular\n        changed = []\n    \n        @contextmanager\n        def opening(path, *args, **kwargs):\n            with real(path, *args, **kwargs) as stream:\n                if str(path) != str(alternate):\n                    yield stream\n                    return\n    \n                class Changing:\n                    def readline(self, size=-1):\n                        line = stream.readline(size)\n                        if not changed:\n                            changed.append(True)\n                            new = os.fsencode(source / \".git\" / \"objects\") + b\"\\n\"\n                            if change == \"replace\":\n                                replacement = alternate.with_name(\"replacement\")\n                                replacement.write_bytes(new)\n                                replacement.replace(alternate)\n                            else:\n                                alternate.write_bytes(new)\n                        return line\n    \n                    def __getattr__(self, name):\n                        return getattr(stream, name)\n    \n                yield Changing()\n    \n        with monkeypatch.context() as patch:\n            patch.setattr(dependencies, \"open_regular\", opening)\n            recorded = dependencies.record(str(borrower))\n        assert changed\n        assert git(borrower, \"cat-file\", \"-t\", commit) == \"commit\"\n        reader(world, recorded)\n        result = maintain(world)\n>       assert \"owner\" not in result[\"pruned\"], (recorded, result)\nE       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-94996/pytest/test_c8_4_changed_alternates_d0/outside/.git', '/private/tmp/sf-r...ternates_d0/outside/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47985, 'bytes_after': 0, ...})\nE       assert 'owner' not in ['owner']\n\ntests/fake/test_retention_dependency_review_r2.py:82: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.046981874998891726,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "a6d5a7bc4918145fb61c2f423a033835904c0f8d293b85afec03fcca1965b22d"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 121290752
+}

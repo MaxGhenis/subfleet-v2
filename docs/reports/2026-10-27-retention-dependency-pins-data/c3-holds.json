@@ -1,0 +1,615 @@
+[
+  {
+    "hold": "c3-firmlink",
+    "start": "2026-10-28T19:50:02.371024+00:00",
+    "load": [
+      112.98876953125,
+      106.46630859375,
+      99.251953125
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 3
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-mutant-submit-records-nothing",
+    "start": "2026-10-28T20:10:39.299665+00:00",
+    "load": [
+      184.82861328125,
+      153.00439453125,
+      117.8779296875
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1,
+      "unfinished": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-mutant-live-ignores-depends",
+    "start": "2026-10-28T20:15:25.731727+00:00",
+    "load": [
+      135.2216796875,
+      149.47412109375,
+      126.580078125
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-units",
+    "start": "2026-10-28T20:22:17.002662+00:00",
+    "load": [
+      136.55078125,
+      136.12646484375,
+      128.4453125
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 17
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-mutant-live-ignores-row-places",
+    "start": "2026-10-28T20:23:56.388029+00:00",
+    "load": [
+      121.7392578125,
+      133.50341796875,
+      128.38525390625
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-dependencies",
+    "start": "2026-10-28T20:32:42.088830+00:00",
+    "load": [
+      89.234375,
+      78.6689453125,
+      98.48828125
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 44
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-mutant-live-ignores-recorded-folder",
+    "start": "2026-10-28T20:33:03.792798+00:00",
+    "load": [
+      107.2041015625,
+      83.5673828125,
+      99.791015625
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-mutant-live-ignores-spelled-folder",
+    "start": "2026-10-28T20:41:40.365533+00:00",
+    "load": [
+      166.55322265625,
+      128.49560546875,
+      114.93310546875
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 1
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 13.718
+  },
+  {
+    "hold": "c3-mutant-live-ignores-exports",
+    "start": "2026-10-28T20:46:18.015331+00:00",
+    "load": [
+      87.8662109375,
+      79.47802734375,
+      94.51220703125
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 110.675
+  },
+  {
+    "hold": "c3-mutant-exports-only-recorded-path",
+    "start": "2026-10-28T20:47:18.685414+00:00",
+    "load": [
+      102.794921875,
+      85.05908203125,
+      95.55712890625
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1,
+      "unfinished": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 3.265
+  },
+  {
+    "hold": "c3-mutant-no-fold",
+    "start": "2026-10-28T20:50:32.063298+00:00",
+    "load": [
+      144.05126953125,
+      113.05859375,
+      105.01953125
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 155.976
+  },
+  {
+    "hold": "c3-mutant-within-not-prefix-boundary",
+    "start": "2026-10-28T20:51:40.033025+00:00",
+    "load": [
+      132.3212890625,
+      116.44384765625,
+      106.91943359375
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 3.348
+  },
+  {
+    "hold": "c3-folded",
+    "start": "2026-10-28T20:52:31.627373+00:00",
+    "load": [
+      124.6337890625,
+      116.90087890625,
+      107.6337890625
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 34
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 380.687
+  },
+  {
+    "hold": "c3-properties-selection",
+    "start": "2026-10-28T21:01:39.066671+00:00",
+    "load": [
+      113.18310546875,
+      104.576171875,
+      104.38671875
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 1,
+      "unfinished": 1
+    },
+    "capped": true,
+    "exit": null,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-mutant-pin-ignores-unrecorded-tree",
+    "start": "2026-10-28T21:16:32.309889+00:00",
+    "load": [
+      100.15869140625,
+      110.97119140625,
+      112.10205078125
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 1424.626
+  },
+  {
+    "hold": "c3-mutant-pin-counts-own-places",
+    "start": "2026-10-28T21:21:15.519090+00:00",
+    "load": [
+      133.4189453125,
+      116.5537109375,
+      113.65869140625
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 1
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 54.64
+  },
+  {
+    "hold": "c3-properties-reference",
+    "start": "2026-10-28T21:28:25.538792+00:00",
+    "load": [
+      140.814453125,
+      126.71044921875,
+      119.23095703125
+    ],
+    "lock": "locked",
+    "counts": {
+      "unfinished": 1
+    },
+    "capped": true,
+    "exit": null,
+    "queue_seconds": null
+  },
+  {
+    "hold": "c3-mutant-selection-no-dependents",
+    "start": "2026-10-28T21:46:43.663816+00:00",
+    "load": [
+      91.3115234375,
+      112.6357421875,
+      118.67919921875
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 1139.768
+  },
+  {
+    "hold": "c3-mutant-commit-no-dependents",
+    "start": "2026-10-28T21:47:40.146557+00:00",
+    "load": [
+      78.3046875,
+      105.83203125,
+      115.7919921875
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 2.17
+  },
+  {
+    "hold": "c3-properties-monotone",
+    "start": "2026-10-28T21:51:03.174069+00:00",
+    "load": [
+      71.88671875,
+      88.95166015625,
+      106.3525390625
+    ],
+    "lock": "locked",
+    "counts": {
+      "unfinished": 1
+    },
+    "capped": true,
+    "exit": null,
+    "queue_seconds": 135.882
+  },
+  {
+    "hold": "c3-detached-basic-a",
+    "start": "2026-10-28T22:10:24.445681+00:00",
+    "load": [
+      125.9736328125,
+      125.73681640625,
+      113.5859375
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 28
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 939.092
+  },
+  {
+    "hold": "c3-mutant-no-legacy-evidence",
+    "start": "2026-10-28T22:18:39.210720+00:00",
+    "load": [
+      65.5390625,
+      85.50537109375,
+      98.94140625
+    ],
+    "lock": "outside after 30 minutes",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 1800.654
+  },
+  {
+    "hold": "c3-detached-basic-b",
+    "start": "2026-10-28T22:23:25.629070+00:00",
+    "load": [
+      65.61181640625,
+      66.845703125,
+      85.673828125
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 59
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 367.063
+  },
+  {
+    "hold": "c3-properties-fence",
+    "start": "2026-10-28T22:24:38.268744+00:00",
+    "load": [
+      69.5146484375,
+      68.6953125,
+      84.84765625
+    ],
+    "lock": "outside after 30 minutes",
+    "counts": {
+      "passed": 1
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 1800.515
+  },
+  {
+    "hold": "c3-writer-rediscovery",
+    "start": "2026-10-28T22:29:49.448641+00:00",
+    "load": [
+      78.37158203125,
+      75.96923828125,
+      83.2861328125
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 40
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 8.71
+  },
+  {
+    "hold": "c3-shared-basic-a",
+    "start": "2026-10-28T22:39:06.826592+00:00",
+    "load": [
+      71.45654296875,
+      80.28857421875,
+      81.24853515625
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 20
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 2.194
+  },
+  {
+    "hold": "c3-guards-plan",
+    "start": "2026-10-28T22:40:23.260848+00:00",
+    "load": [
+      105.18408203125,
+      88.5849609375,
+      84.30810546875
+    ],
+    "lock": "outside after 30 minutes",
+    "counts": {
+      "passed": 63
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 1800.241
+  },
+  {
+    "hold": "c3-mutant-live-ignores-spelled-folder-red",
+    "start": "2026-10-28T22:42:17.936291+00:00",
+    "load": [
+      137.33203125,
+      105.498046875,
+      91.48486328125
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 228.94
+  },
+  {
+    "hold": "c3-killing-tests-green",
+    "start": "2026-10-28T22:47:21.517585+00:00",
+    "load": [
+      101.29052734375,
+      111.29052734375,
+      99.42919921875
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 1
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 10.085
+  },
+  {
+    "hold": "c3-mutant-legacy-admission-reads-nothing",
+    "start": "2026-10-28T22:49:29.315134+00:00",
+    "load": [
+      133.97265625,
+      119.66015625,
+      104.357421875
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 1745.466
+  },
+  {
+    "hold": "c3-detached-generated",
+    "start": "2026-10-28T22:50:47.050696+00:00",
+    "load": [
+      123.9853515625,
+      119.5234375,
+      105.576171875
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 1,
+      "unfinished": 1
+    },
+    "capped": true,
+    "exit": null,
+    "queue_seconds": 1274.087
+  },
+  {
+    "hold": "c3-shared-basic-b",
+    "start": "2026-10-28T23:12:51.136695+00:00",
+    "load": [
+      113.6669921875,
+      109.38037109375,
+      110.5126953125
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 18,
+      "unfinished": 21
+    },
+    "capped": true,
+    "exit": null,
+    "queue_seconds": 1503.362
+  },
+  {
+    "hold": "c3-shared-reservation",
+    "start": "2026-10-28T23:22:57.579905+00:00",
+    "load": [
+      100.30517578125,
+      107.40673828125,
+      110.05224609375
+    ],
+    "lock": "locked",
+    "counts": {
+      "unfinished": 1
+    },
+    "capped": true,
+    "exit": null,
+    "queue_seconds": 792.148
+  },
+  {
+    "hold": "c3-mutant-early-look-folder-only",
+    "start": "2026-10-28T23:23:34.664132+00:00",
+    "load": [
+      106.78271484375,
+      108.32373046875,
+      110.2734375
+    ],
+    "lock": "outside after 30 minutes",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 1801.262
+  },
+  {
+    "hold": "c3-detached-interleavings",
+    "start": "2026-10-28T23:43:15.377765+00:00",
+    "load": [
+      38.9833984375,
+      66.0859375,
+      85.44189453125
+    ],
+    "lock": "outside after 30 minutes",
+    "counts": {
+      "passed": 1
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 1800.645
+  },
+  {
+    "hold": "c3-shared-generated",
+    "start": "2026-10-28T23:44:17.404084+00:00",
+    "load": [
+      47.5517578125,
+      63.18408203125,
+      83.0107421875
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 2
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 774.722
+  },
+  {
+    "hold": "c3-mutant-transaction-no-needs-blockers",
+    "start": "2026-10-28T23:45:07.944205+00:00",
+    "load": [
+      51.7216796875,
+      61.931640625,
+      81.3125
+    ],
+    "lock": "locked",
+    "counts": {
+      "failed": 1
+    },
+    "capped": false,
+    "exit": 1,
+    "queue_seconds": 1164.425
+  },
+  {
+    "hold": "c3-shared-basic-b-resume",
+    "start": "2026-10-28T23:55:47.073941+00:00",
+    "load": [
+      32.93017578125,
+      49.6142578125,
+      64.51318359375
+    ],
+    "lock": "locked",
+    "counts": {
+      "passed": 21
+    },
+    "capped": false,
+    "exit": 0,
+    "queue_seconds": 838.429
+  }
+]

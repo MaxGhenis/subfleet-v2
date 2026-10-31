@@ -1,0 +1,66 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:52:17Z slot B load 
+START retention_sweep_race-explicit 2026-10-30T20:52:24.848712+00:00 load=(51.1640625, 41.61083984375, 38.74560546875)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'lookup': 'away', 'quarantine': 'back'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'lookup': 'away', 'lock': 'back'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'lookup': 'away', 'backlink': 'back'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'lookup': 'away', 'quarantine': 'back', 'moving-in': 'away'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'away'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'backlink': 'away', 'lock': 'back'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'gone-check': 'back'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'gone-check': 'back', 'gone-lookup': 'away'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'gone-check': 'back', 'lock': 'away'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away', 'gone-check': 'back', 'quarantine': 'away'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'begin': 'away',
+     'gone-check': 'back',
+     'gone-lookup': 'away',
+     'moved-tree': 'back',
+     'lock': 'away',
+     'quarantine-away-check': 'back',
+     'final-check': 'away',
+     'final-away-check': 'back'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'lock': 'away'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'lock': 'away', 'quarantine': 'back'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'quarantine': 'away'},
+)
+Trying explicit example: test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree(
+    moves={'archive': 'away', 'final-check': 'back', 'reclaim': 'away'},
+)
+.
+============================ Hypothesis Statistics =============================
+1 passed in 166.96s (0:02:46)

@@ -1,0 +1,70 @@
+{
+  "name": "memory-observed",
+  "start": "2026-10-29T06:38:45.040652+00:00",
+  "load": [
+    28.42724609375,
+    25.31640625,
+    23.8310546875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory": {
+      "setup": {
+        "duration": 2.014251457992941,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 6.451513916006661,
+        "wasxfail": null,
+        "properties": [
+          [
+            "alternates_bytes",
+            2097264
+          ],
+          [
+            "distinct_paths",
+            1
+          ],
+          [
+            "traced_peak_bytes",
+            135665
+          ]
+        ]
+      },
+      "teardown": {
+        "duration": 0.0003655420005088672,
+        "wasxfail": null,
+        "properties": [
+          [
+            "alternates_bytes",
+            2097264
+          ],
+          [
+            "distinct_paths",
+            1
+          ],
+          [
+            "traced_peak_bytes",
+            135665
+          ]
+        ]
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

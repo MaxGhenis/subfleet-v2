@@ -1,0 +1,27 @@
+{
+  "name": "mutant-review-job-directory-pin-removed",
+  "start": "2026-10-29T05:59:21.247157+00:00",
+  "load": [
+    43.98095703125,
+    33.71435546875,
+    28.65673828125
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "review-job-directory-pin-removed",
+  "loaded": [
+    "subfleet.retention"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "turn-contract-final",
+  "start": "2026-10-29T06:09:10.568062+00:00",
+  "load": [
+    18.75732421875,
+    23.16748046875,
+    25.7958984375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_turn_contract.py::test_c84_claim_that_a_turn_row_keeps_no_in_place_job[workspace]",
+    "tests/unit/test_retention_turn_contract.py::test_c84_claim_that_a_turn_row_keeps_no_in_place_job[job-directory]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_turn_contract.py::test_c84_claim_that_a_turn_row_keeps_no_in_place_job[workspace]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turn_contract.py::test_c84_claim_that_a_turn_row_keeps_no_in_place_job[job-directory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

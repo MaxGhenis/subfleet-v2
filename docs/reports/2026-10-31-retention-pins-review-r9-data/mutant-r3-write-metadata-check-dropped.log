@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:09:19Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________________ test_changes[same-size-running] ________________________
+docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py:56: in test_changes
+    assert changed and recorded.get('incomplete'), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r3-write-metadata-check-dropped/pytest-of-maxghenis/pytest-0/test_cha...nt-r3-write-metadata-check-dropped/pytest-of-maxghenis/pytest-0/test_changes_same_size_running0/outside/.git/objects']}
+E   assert ([True] and None)
+E    +  where None = <built-in method get of dict object at 0x1089f5dc0>('incomplete')
+E    +    where <built-in method get of dict object at 0x1089f5dc0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r3-write-metadata-check-dropped/pytest-of-maxghenis/pytest-0/test_cha...nt-r3-write-metadata-check-dropped/pytest-of-maxghenis/pytest-0/test_changes_same_size_running0/outside/.git/objects']}.get
+=========================== short test summary info ============================
+FAILED docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]
+1 failed in 11.83s
+{"name": "mutant-r3-write-metadata-check-dropped", "start": "2026-10-31T09:09:22.268574+00:00", "load": [36.4267578125, 46.55712890625, 49.16796875], "seconds": 16.62148687499939, "exit": 1}

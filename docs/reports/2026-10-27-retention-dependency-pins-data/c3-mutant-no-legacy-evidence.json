@@ -1,0 +1,49 @@
+{
+  "start": "2026-10-28T22:18:39.210720+00:00",
+  "load": [
+    65.5390625,
+    85.50537109375,
+    98.94140625
+  ],
+  "pid": 85673,
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.4746618749923073
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 23.34796116700454,
+      "failure": "tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/hold-c3-mutant-no-legacy-evidence/pytest-of-maxghenis/pytest-0/test_c8_4_a_job_queued_before_0')\nkind = 'linked'\n\n    @pytest.mark.parametrize(\"kind\", [\"linked\", \"case\"])\n    def test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree(tmp_path, kind):\n        \"\"\"A job a daemon queued before submit recorded `depends` (or its folder): its\n        places are read for it once a pass, outside any transaction (the git storage its\n        outside checkout uses), and its row's workdir compares folded (typed in another\n        case). Either keeps the tree while the job has not ended.\n        Failed on 0a91f070: pruned with the job queued.\"\"\"\n        with fleet_daemon(tmp_path / \"state\") as (daemon, harness, patch):\n            measured(daemon, harness)\n            tree, nested = retiring_tree(daemon, harness)\n            if kind == \"linked\":\n                external_checkout(tmp_path, nested)\n            job, _, _ = needing(daemon, harness, tmp_path, tree, nested, kind)\n            legacy(daemon, job)\n            result = retire(daemon)\n>           assert \"retired\" not in result[\"pruned\"] and result[\"pin_reasons\"].get(\"retired\") == \"worktree-in-use\", result\nE           AssertionError: {'pruned': ['retired'], 'errors': [], 'bytes_before': 30096, 'bytes_after': 1427, ...}\nE           assert ('retired' not in ['retired'])\n\ntests/fake/test_retention_dependencies.py:348: AssertionError"
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.06351199999335222
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]"
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]"
+  ],
+  "exit": 1,
+  "seconds": 63.24846170800447,
+  "maxrss": 123781120,
+  "lock": "outside after 30 minutes",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]"
+  ],
+  "admission_utc": "2026-10-28T22:18:31.084220+00:00",
+  "wall_seconds": 1875.305,
+  "queue_seconds": 1800.654
+}

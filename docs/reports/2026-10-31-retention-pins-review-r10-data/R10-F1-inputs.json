@@ -1,0 +1,54 @@
+[
+  {
+    "cycle": "self-suffix",
+    "fsck": 0,
+    "read": 0,
+    "recorded": {
+      "git": [
+        "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git",
+        "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail"
+      ]
+    },
+    "respelled": {
+      "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git",
+      "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects",
+      "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail"
+    },
+    "status": 0,
+    "nonfixed": [
+      {
+        "place": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+        "canonical": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+        "tail_count": 64,
+        "canonical_tail_count": 65
+      }
+    ]
+  },
+  {
+    "cycle": "two-link-suffix",
+    "fsck": 0,
+    "read": 0,
+    "recorded": {
+      "git": [
+        "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git",
+        "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail"
+      ]
+    },
+    "respelled": {
+      "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git",
+      "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects",
+      "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail"
+    },
+    "status": 0,
+    "nonfixed": [
+      {
+        "place": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+        "canonical": "/private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+        "tail_count": 33,
+        "canonical_tail_count": 34
+      }
+    ]
+  }
+]

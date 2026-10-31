@@ -1,0 +1,7 @@
+| Hold not completed | Selection |
+|---|---|
+
+Nodes without a completed passing call:
+
+- `tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored`
+- `tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine`

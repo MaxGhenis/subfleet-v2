@@ -1,0 +1,54 @@
+{
+  "name": "test_detached_retention_fence-20",
+  "start": "2026-10-29T06:45:09.019246+00:00",
+  "load": [
+    13.79541015625,
+    19.54541015625,
+    21.6884765625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired": {
+      "setup": {
+        "duration": 0.029585083000711165,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 17.562751792007475,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0007628750026924536,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+      "valid": 12,
+      "invalid": 0,
+      "calls": 12,
+      "settings_max": 12
+    }
+  ],
+  "explicit": {
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired": 5
+  },
+  "mutant": null,
+  "loaded": []
+}

@@ -1,0 +1,23 @@
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job:
+
+  - during generate phase (155.94 seconds):
+    - Typical runtimes: ~ 1-778 ms, of which ~ 0-131 ms in data generation
+    - 500 passing, 0 failing, and 217 invalid test cases
+    - Events:
+      * 26.36%, Retried draw from text(characters(categories=(), include_characters=('f', 'i', 'k', 'l', 's', 't', '0', '-')), min_size=1, max_size=8).filter(lambda n: n not in ('.', '..')).filter(lambda other: folders.fold(other) != folders.fold(tree_id)) to satisfy filter
+      * 1.39%, gave up because: Aborted test because unable to satisfy text(characters(categories=(), include_characters=('f', 'i', 'k', 'l', 's', 't', '0', '-')), min_size=1, max_size=8).filter(lambda n: n not in ('.', '..')).filter(lambda other: folders.fold(other) != folders.fold(tree_id))
+
+  - Stopped because settings.max_examples=500
+
+
+tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job:
+
+  - during generate phase (32.98 seconds):
+    - Typical runtimes: ~ 5-651 ms, of which ~ 0-367 ms in data generation
+    - 150 passing, 0 failing, and 17 invalid test cases
+
+  - Stopped because settings.max_examples=150
+
+
+34 passed, 3 deselected in 295.23s (0:04:55)

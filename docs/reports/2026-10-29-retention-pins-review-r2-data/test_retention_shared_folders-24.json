@@ -1,0 +1,113 @@
+{
+  "name": "test_retention_shared_folders-24",
+  "start": "2026-10-29T06:39:27.852242+00:00",
+  "load": [
+    22.4609375,
+    24.15087890625,
+    23.47021484375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]": {
+      "setup": {
+        "duration": 0.7042995410010917,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.7326316249964293,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.003622040996560827,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]": {
+      "setup": {
+        "duration": 0.6729090000008,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.7608201660041232,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.008301541005494073,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]": {
+      "setup": {
+        "duration": 0.6999224169994704,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.6501241660007508,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0027185000071767718,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]": {
+      "setup": {
+        "duration": 0.7921776669973042,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.919554000007338,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00815904101182241,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

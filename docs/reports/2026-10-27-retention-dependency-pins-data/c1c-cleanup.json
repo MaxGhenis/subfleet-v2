@@ -1,0 +1,24 @@
+{
+  "utc": "2026-10-28T11:47:04.348135+00:00",
+  "removed_bytecode": [
+    "docs/reports/2026-10-27-retention-dependency-pins-data/__pycache__/c1b-hold.cpython-314.pyc",
+    "subfleet/__pycache__/__init__.cpython-314.pyc",
+    "subfleet/__pycache__/boot_identity.cpython-314.pyc",
+    "subfleet/__pycache__/contracts.cpython-314.pyc",
+    "subfleet/__pycache__/guardian.cpython-314.pyc",
+    "subfleet/__pycache__/home_paths.cpython-314.pyc",
+    "subfleet/__pycache__/launch_env.cpython-314.pyc",
+    "subfleet/__pycache__/procs.cpython-314.pyc"
+  ],
+  "scratch_owned_subtree": "sf-rdp217c1/recovery-0747",
+  "release_comparison_worktree": "removed",
+  "scratch_cleanup_procedure": "Guarded removal of only sf-rdp217c1/recovery-0747 after final bundle verification; delivery checks that the subtree is absent.",
+  "all_test_drivers_ended": true,
+  "final_pre_bundle_scratch_kib": 27580,
+  "workspace_generated_directories": {
+    "build": false,
+    ".hypothesis": false,
+    ".venv": false,
+    "__pycache__": false
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "label": "reader-live-admin-probe",
+  "start": "2026-10-30T21:04:11.862069+00:00",
+  "loads": [
+    44.09375,
+    50.2568359375,
+    45.7998046875
+  ],
+  "seconds": 14.898402875012835,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "readers_live_probe.py::test_running_borrower_of_the_stripped_admin_twin",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.19654941699991468
+    }
+  ],
+  "nodes": [
+    "readers_live_probe.py::test_running_borrower_of_the_stripped_admin_twin"
+  ],
+  "all_nodes": [
+    "readers_live_probe.py::test_running_borrower_of_the_stripped_admin_twin"
+  ],
+  "phases": {
+    "readers_live_probe.py::test_running_borrower_of_the_stripped_admin_twin": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 117194752
+}

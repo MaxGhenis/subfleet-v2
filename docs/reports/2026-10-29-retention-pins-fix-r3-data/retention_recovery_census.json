@@ -1,0 +1,46 @@
+{
+  "label": "retention_recovery_census",
+  "start": "2026-10-29T21:02:27.777872+00:00",
+  "loads": [
+    45.77294921875,
+    57.2919921875,
+    53.736328125
+  ],
+  "seconds": 5.726304957999673,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.19644487499954266
+    },
+    {
+      "nodeid": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0041645410001365235
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+    "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census"
+  ],
+  "phases": {
+    "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 119291904
+}

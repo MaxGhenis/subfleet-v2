@@ -1,0 +1,19 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:10:11Z slot A load 
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_________________ test_more_readable_rename_forms[parent-case] _________________
+tests/unit/test_retention_location_readable.py:270: in test_more_readable_rename_forms
+    assert changed
+E   AssertionError: assert 2 == 3
+E    +  where 2 = len(['/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/out...fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/outside/.git/objects'])
+____________ test_more_readable_rename_forms[unicode-normalization] ____________
+tests/unit/test_retention_location_readable.py:270: in test_more_readable_rename_forms
+    assert changed
+E   AssertionError: assert 2 == 3
+E    +  where 2 = len(['/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/out...fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/outside/.git/objects'])
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]
+FAILED tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]
+2 failed, 32 deselected in 27.72s
+{"name": "red-rename-final", "start": "2026-10-31T18:10:15.491621+00:00", "load": [59.71826171875, 62.24609375, 57.13134765625], "seconds": 31.34130329099571, "exit": 1}

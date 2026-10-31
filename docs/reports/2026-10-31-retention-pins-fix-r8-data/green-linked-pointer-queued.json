@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:16:38.892261+00:00",
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/green-linked-pointer",
+  "linked": true
+}

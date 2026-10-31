@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:28:23.673802+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/dependency-properties-0",
+  "linked": false
+}

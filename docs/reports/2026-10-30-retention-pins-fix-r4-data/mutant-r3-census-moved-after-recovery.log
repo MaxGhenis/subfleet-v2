@@ -1,0 +1,78 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:06:28Z slot B load 
+START mutant-r3-census-moved-after-recovery 2026-10-30T05:06:29.047477+00:00 load=(18.39404296875, 22.50146484375, 21.96875)
+F
+=================================== FAILURES ===================================
+____ test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy] ____
+
+world = World(base=PosixPath('/private/tmp/sf-fix272r4/cases-95753/pytest/test_c8_4_recovery_discovers_i0'), trusted=True, rem...ix272r4/cases-95753/pytest/test_c8_4_recovery_discovers_i0/state'), store=<subfleet.store.Store object at 0x108622510>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107a3fe10>
+recorded = False, state = 'running'
+
+    @pytest.mark.parametrize("recorded", [
+        pytest.param(False, id="legacy"),
+        pytest.param(True, id="recorded"),
+    ])
+    @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
+    def test_c8_4_recovery_discovers_incomplete_before_quarantine(world, monkeypatch, recorded, state):
+        tree = world.job("owner")
+        outside = world.base / "outside"
+        alternate = outside / ".git" / "objects" / "info" / "alternates"
+        alternate.parent.mkdir(parents=True)
+        alternate.write_bytes(b"# valid\n")
+    
+        def insert(data):
+            world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                                kind="dispatch", state=state, sandbox="read-only",
+                                workdir=str(outside), prompt_path="/p")
+            world.store.add_event("job.submitted", job_id="borrower", data=data)
+            if state == "succeeded":
+                world.store.acquire_lease("out:/outside/result", "borrower")
+    
+        # A legacy job predates both passes. Its alternates become malformed
+        # between them, so recovery must use the resumed pass's fresh census.
+        if not recorded:
+            insert({})
+        original = rarch.Retirement.quarantine
+    
+        class Crash(BaseException):
+            pass
+    
+        def crash(self):
+            raise Crash()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(rarch.Retirement, "quarantine", crash)
+            with pytest.raises(Crash):
+                maintain(world)
+        assert tree.is_dir()
+        alternate.write_bytes(b'"bad\\z"\n')
+        if recorded:
+            insert({"depends": {"incomplete": [{"file": str(alternate), "reason": "invalid Git C escape"}]}})
+        observations = []
+    
+        def observing(self):
+            try:
+                return original(self)
+            finally:
+                observations.append(tree.is_dir())
+    
+        monkeypatch.setattr(rarch.Retirement, "quarantine", observing)
+        result = maintain(world)
+        # The final rollback is insufficient: a live job must not lose its path
+        # during recovery, before the incomplete evidence is finally discovered.
+        assert tree.is_dir() and "owner" not in result["pruned"], result
+>       assert observations == [True], (observations, result)
+E       AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})
+E       assert [False] == [True]
+E         
+E         At index 0 diff: False != True
+E         Use -v to get more diff
+
+tests/fake/test_retention_dependency_review_r3.py:125: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 3.17s

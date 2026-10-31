@@ -1,0 +1,119 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 16:06:11Z slot B load
+ADMITTED {"utc": "2026-10-27T16:06:13Z", "load": [96.51318359375, 103.93408203125, 109.5224609375], "pid": 53562}
+................F....................................................... [ 83%]
+..............                                                           [100%]
+=================================== FAILURES ===================================
+_____ test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction ______
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217/hold-merge-fixes/pytest-of-maxghenis/pytest-0/test_a_legacy_firmlink_folder_0')
+
+    def test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction(tmp_path):
+        """Release respells legacy folders per look, without caching folder_spelled.
+        The retention pass must spell that old workdir off the lock too, including
+        a plain folder with no nested repository to supply a git-storage dependency.
+        """
+        root = tmp_path / "state"
+        tree = root / "worktrees" / "owner"
+        tree.mkdir(parents=True)
+        canonical = folders.canonical(tree)
+        firm = Path("/System/Volumes/Data" + canonical)
+        if not firm.is_dir() or not firm.samefile(canonical):
+            pytest.skip("requires the Data volume firmlink")
+        store = Store(root / "subfleet.db")
+        try:
+            store.add_job(job_id="owner", request_id="owner", payload_digest="d", kind="dispatch", state="succeeded",
+                          workdir=str(tmp_path / "neutral"), worktree=canonical, prompt_path="/p", sandbox="workspace-write")
+            store.add_job(job_id="legacy", request_id="legacy", payload_digest="d", kind="dispatch", state="queued",
+                          workdir=str(firm), prompt_path="/p", sandbox="read-only")
+            places = dependencies.legacy(store.query)
+            with store.transaction():
+>               assert retention._pin_reasons(store, set(), None, root=root, legacy=places).get("owner") == "worktree-in-use"
+E               AssertionError: assert None == 'worktree-in-use'
+E                +  where None = <built-in method get of dict object at 0x10b9904c0>('owner')
+E                +    where <built-in method get of dict object at 0x10b9904c0> = {'legacy': 'active'}.get
+E                +      where {'legacy': 'active'} = <function _pin_reasons at 0x10b4f2a30>(<subfleet.store.Store object at 0x10baa63f0>, set(), None, root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217/hold-merge-fixes/pytest-of-maxghenis/pytest-0/test_a_legacy_firmlink_folder_0/state'), legacy={'legacy': []})
+E                +        where <function _pin_reasons at 0x10b4f2a30> = retention._pin_reasons
+E                +        and   set() = set()
+
+tests/unit/test_retention_dependency_units.py:550: AssertionError
+============================= slowest 5 durations ==============================
+200.21s call     tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification
+134.90s call     tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place
+77.82s call     tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one
+68.35s call     tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout
+39.50s call     tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction
+1 failed, 85 passed in 959.48s (0:15:59)
+FINISHED {"load": [106.19482421875, 122.201171875, 122.3525390625], "peak_rss_bytes": 129155072}

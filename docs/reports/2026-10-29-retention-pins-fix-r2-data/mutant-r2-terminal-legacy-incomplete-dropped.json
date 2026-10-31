@@ -1,0 +1,27 @@
+{
+  "name": "mutant-r2-terminal-legacy-incomplete-dropped",
+  "start": "2026-10-29T10:58:20.868558+00:00",
+  "load": [
+    45.02197265625,
+    27.41015625,
+    18.79150390625
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+    "-x"
+  ],
+  "results": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "call",
+      "outcome": "failed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ],
+  "seconds": 6.396009459000197,
+  "max_rss_bytes": 113000448,
+  "end": "2026-10-29T10:58:27.264905+00:00"
+}

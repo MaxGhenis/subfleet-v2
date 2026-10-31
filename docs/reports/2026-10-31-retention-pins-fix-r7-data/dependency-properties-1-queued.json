@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T04:13:32.129509+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "python_pins_and_transaction"
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "name": "mutant-r5-gitfile-colon-without-space-accepted",
+  "start": "2026-10-31T04:21:02.854038+00:00",
+  "load": [
+    32.41259765625,
+    32.55224609375,
+    34.2373046875
+  ],
+  "args": [
+    "--mutant",
+    "r5-gitfile-colon-without-space-accepted",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.15140054099993,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.06055366700002196,
+      "failure": "tests/unit/test_retention_pointer_whitespace.py:72: in test_pointer_syntax_and_whitespace_match_real_git\n    assert not recorded.get(\"git\"), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r7/hold-mutant-r5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/te...-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_pointer_syntax_and_whites0/owner.git/objects']}\nE   assert not ['/private/tmp/sf-fix272r7/hold-mutant-r5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_point...5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_pointer_syntax_and_whites0/owner.git/objects']\nE    +  where ['/private/tmp/sf-fix272r7/hold-mutant-r5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_point...5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_pointer_syntax_and_whites0/owner.git/objects'] = <built-in method get of dict object at 0x108df3e80>('git')\nE    +    where <built-in method get of dict object at 0x108df3e80> = {'git': ['/private/tmp/sf-fix272r7/hold-mutant-r5-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/te...-gitfile-colon-without-space-accepted/pytest-of-maxghenis/pytest-0/test_pointer_syntax_and_whites0/owner.git/objects']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005056669997429708,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "d570a20469ab8b2418bd862858ed7b35e4facae026d6f356c3e2c191d951714d"
+    },
+    {
+      "module": "subfleet.dependencies",
+      "original": "d570a20469ab8b2418bd862858ed7b35e4facae026d6f356c3e2c191d951714d",
+      "mutated": "a0958b627697b2b7f34be6540c8efbaa14f4ddffba9ed558162e33f18de95098"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+  ],
+  "end": "2026-10-31T04:21:06.610967+00:00",
+  "seconds": 3.756670082999335,
+  "peak_rss_mib": 112.6875,
+  "exit": 1
+}

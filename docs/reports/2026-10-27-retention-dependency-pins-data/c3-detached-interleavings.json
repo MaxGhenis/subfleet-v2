@@ -1,0 +1,50 @@
+{
+  "start": "2026-10-28T23:43:15.377765+00:00",
+  "load": [
+    38.9833984375,
+    66.0859375,
+    85.44189453125
+  ],
+  "pid": 56838,
+  "phases": [
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.3774436250096187
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 79.18158866699378
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0026266670029144734,
+      "_hypothesis_stats": "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired:\n\n  - during generate phase (53.23 seconds):\n    - Typical runtimes: ~ 1246-7922 ms, of which ~ 0-1523 ms in data generation\n    - 12 passing, 0 failing, and 0 invalid test cases\n\n  - Stopped because settings.max_examples=12"
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired"
+  ],
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired"
+  ],
+  "exit": 0,
+  "seconds": 102.57654937500774,
+  "maxrss": 125517824,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "outside after 30 minutes",
+  "command": [
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+    "--hypothesis-show-statistics"
+  ],
+  "admission_utc": "2026-10-28T23:43:07.460688+00:00",
+  "wall_seconds": 1915.221,
+  "queue_seconds": 1800.645
+}

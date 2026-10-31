@@ -1,0 +1,14 @@
+--- a/subfleet/dependencies.py
++++ b/subfleet/dependencies.py
+@@ -267,7 +267,10 @@
+             with os.scandir(directory) as entries:
+                 for entry in entries:
+                     if entry.is_symlink():
+-                        self.entries.add(folders.canonical(self.resolve(entry.path)))
++                        target = folders.canonical(self.resolve(entry.path))
++                        if (folders.canonical(target) == target
++                                and os.path.join(folders.canonical(os.path.dirname(target)), os.path.basename(target)) == target):
++                            self.entries.add(target)
+         except FileNotFoundError:
+             pass
+         except OSError as exc:

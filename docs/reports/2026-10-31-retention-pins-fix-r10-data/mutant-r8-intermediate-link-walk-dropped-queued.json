@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T13:25:58.196367+00:00",
+  "args": [
+    "--mutant",
+    "r8-intermediate-link-walk-dropped",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/mutant-r8-intermediate-link-walk-dropped",
+  "linked": false,
+  "driver_pid": 89954,
+  "lock_process_group": 90193
+}

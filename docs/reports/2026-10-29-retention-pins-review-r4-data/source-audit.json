@@ -1,0 +1,31 @@
+{
+  "head": "7f1888960bb1f1256cf39a216a683247fe00c1a2",
+  "base": "c2f08a156f6749e0d5bb5304292deb038d0392f9",
+  "start_utc": "2026-10-30T02:49:40Z",
+  "first_hold_utc": "2026-10-30T02:51:31.111981+00:00",
+  "python": "3.14.7",
+  "git": "2.55.0",
+  "r3_marks_only": {
+    "exact_match_after_only_authorized_removals": true,
+    "case_count": 4
+  },
+  "source_sha256": {
+    "subfleet/dependencies.py": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+    "subfleet/retention.py": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+    "subfleet/retention_archive.py": "694128abe23c095ac5c9067d0ef0714f23c0347ae32216779f0c1faa10bc8127",
+    "tests/fake/test_retention_dependency_review_r4.py": "8bfc677946277644aa0281bf54f90c60bc2136c65422f1d8e029898d4d9edf87"
+  },
+  "turn_property_unchanged_from_release": true,
+  "requested_existing_passed": 680,
+  "ordinary_passed": 733,
+  "strict_xfailed": 5,
+  "ordinary_nodes": 738,
+  "hold_count": 85,
+  "ordinary_holds": 71,
+  "mutants": 8,
+  "trial_nodes": 6,
+  "max_seconds": 300.42617141699884,
+  "max_rss_bytes": 135069696,
+  "outside_lock": 0,
+  "oracle_correction": "Initial stable-terminal-export expectation was invalid. With complete discovery only output paths remain pinned for a terminal exporter; the corrected exporting-control passes. The four changed-object-alias cases and stable live case remain valid R4-F1 failures."
+}

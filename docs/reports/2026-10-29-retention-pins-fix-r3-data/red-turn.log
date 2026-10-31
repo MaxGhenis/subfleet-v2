@@ -1,0 +1,158 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:07:05Z slot A load 
+START red-turn 2026-10-29T20:07:07.000670+00:00 load=(16.6005859375, 16.580078125, 12.2783203125)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_t2_retention_never_moves_a_live_turns_actual_cwd _____________
+
+    @settings(max_examples=40, deadline=None, derandomize=True,
+>             suppress_health_check=[HealthCheck.too_slow])
+                   ^^^
+
+tests/fake/test_turn_retention_job_properties.py:31: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/private/tmp/sf-fix272r3/venv/lib/python3.14/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+where = 'job', depth = 2, after_selection = True, writable = True
+external = True, alias = True
+
+    @settings(max_examples=40, deadline=None, derandomize=True,
+              suppress_health_check=[HealthCheck.too_slow])
+    @example(where="job", depth=0, after_selection=False, writable=False, external=False, alias=False)
+    @example(where="job", depth=1, after_selection=True, writable=False, external=False, alias=False)
+    @example(where="job", depth=2, after_selection=True, writable=True, external=True, alias=True)
+    @example(where="tree", depth=1, after_selection=True, writable=False, external=True, alias=True)
+    @example(where="tree", depth=0, after_selection=False, writable=True, external=True, alias=False)
+    @given(where=st.sampled_from(["tree", "job"]), depth=st.integers(0, 3),
+           after_selection=st.booleans(), writable=st.booleans(), external=st.booleans(), alias=st.booleans())
+    def test_t2_retention_never_moves_a_live_turns_actual_cwd(where, depth, after_selection, writable, external, alias):
+        with tempfile.TemporaryDirectory(prefix="turn-cwd-t2-") as temporary:
+            base = Path(temporary)
+            with fleet_daemon(base / "state") as (daemon, harness, patch):
+                for lane in CODEX:
+                    measure(daemon, lane)
+                tree = daemon.root / "worktrees" / "retired"
+                directory = daemon.root / "jobs" / "retired"
+                tree.mkdir(parents=True)
+                directory.mkdir(parents=True)
+                (directory / "stdout").write_text("retired output")
+                daemon.store.add_job(job_id="retired", request_id="retired", payload_digest="d", kind="dispatch",
+                                     workdir=str(harness.workdir), worktree=str(tree), prompt_path="/prompt",
+                                     sandbox="workspace-write", state="succeeded")
+                actual = (tree if where == "tree" else directory).joinpath(*(["sub:dir"] * depth))
+                actual.mkdir(parents=True, exist_ok=True)
+                git(actual, "init", "--quiet", "-b", "task/turn")
+                (actual / "f.txt").write_text("turn\n")
+                git(actual, "add", ".")
+                git(actual, "commit", "--quiet", "-m", "turn")
+                if external:
+                    held = base / "external"
+                    held.mkdir()
+                    (held / "f.txt").write_text("turn\n")
+                    git(actual, "config", "core.worktree", str(held))
+                actual = actual.resolve()
+                typed = str(actual)
+                if alias:
+                    link = base / "cwd-link"
+                    link.symlink_to(actual, target_is_directory=True)
+                    typed = str(link) + "/./"
+                patch.setattr(daemon, "_workspace", lambda job: (typed, None, None, []))
+                turns, moves, instances = [], [], []
+                expected_cwds = {}
+    
+                def submit():
+                    _, _, turn = message_in(
+                        daemon, harness, "Move property", workspace=actual,
+                        settings={**SETTINGS, "permission": "accept-edits" if writable else "read-only"})
+                    turns.append(turn)
+                    expected_cwds[turn] = actual
+                    daemon._admit_turns()
+    
+                class FakeRetirement(rarch.Retirement):
+                    def begin(self, job, pool):
+                        self.journal = {"worktree": job["worktree"], "job_dir": str(directory)}
+                        self.renamed = []
+                        instances.append(self)
+                        if after_selection and not turns:
+                            submit()
+    
+                    def lock(self):
+                        pass
+    
+                    def quarantine(self):
+                        # This production guard couples job-folder pins and its fence.
+                        self._fence_job_folder()
+                        for name in ("worktree", "job_dir"):
+                            source = Path(self.journal[name])
+                            live = daemon.store.query(
+                                "SELECT DISTINCT job_id FROM attempts WHERE state IN "
+                                "('reserved','starting','running','finalizing','quarantined')")
+                            assert not any(contains(source, expected_cwds[row["job_id"]])
+                                           for row in live if row["job_id"] in expected_cwds), (
+                                               "moving a live provider cwd", source, live, expected_cwds)
+                            target = self.work / name
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            source.rename(target)
+                            self.renamed.append((source, target))
+                            moves.append(source)
+    
+                    def rollback(self, *args, **kwargs):
+                        for source, target in reversed(self.renamed):
+                            target.rename(source)
+                        self.renamed.clear()
+                        daemon.store.release_leases("retention:retired")
+                        return {"conflicts": []}
+    
+                patch.setattr(rarch, "Retirement", FakeRetirement)
+                if not after_selection:
+                    submit()
+                    assert _live(daemon, turns[0]), daemon._holds
+                    # Blind the census to prove the selecting transaction's tree
+                    # guard independently; job-directory safety also has a move guard.
+                    patch.setattr(folders, "turn_folders", lambda read: set())
+                driver = selecting_pass(daemon)
+                selected = driver._start(daemon._job("retired"), set())
+                assert not driver.errors, driver.errors
+                turn = turns[0]
+                if _live(daemon, turn):
+                    assert actual.is_dir() and not moves, (where, moves)
+                    assert selected is None
+                for instance in instances:
+                    instance.rollback()
+                daemon._admit_turns()
+                assert _live(daemon, turn), daemon._holds
+                _end(daemon, turn)
+                # It becomes retireable as soon as the turn ends; pins do not leak.
+                moves.clear()
+                driver = selecting_pass(daemon)
+                selected = driver._start(daemon._job("retired"), set())
+>               assert selected is not None and not driver.errors, driver.progress
+E               AssertionError: {'errors': [], 'deferred': {'retired': "error: FileNotFoundError: [Errno 2] No such file or directory: '/private/tmp/sf-fix272r3/tmp/turn-cwd-t2-zbd88v1z/state/retention/retired/.journal.json.92569.tmp'"}}
+E               assert (None is not None)
+E               (note: 4 other explicit examples also failed with this error; use Verbosity.verbose to view)
+E               Failing explicit example: test_t2_retention_never_moves_a_live_turns_actual_cwd(
+E                   where='job',
+E                   depth=2,
+E                   after_selection=True,
+E                   writable=True,
+E                   external=True,
+E                   alias=True,
+E               )
+
+tests/fake/test_turn_retention_job_properties.py:140: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4450649152:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4450649152:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4450648480:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4450648480:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4467566176:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4467566176:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4467570880:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4467570880:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4467569200:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4467569200:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd
+1 failed in 4.28s

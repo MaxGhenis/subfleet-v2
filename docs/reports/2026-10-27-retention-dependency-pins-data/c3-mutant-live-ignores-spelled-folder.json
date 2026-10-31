@@ -1,0 +1,48 @@
+{
+  "start": "2026-10-28T20:41:40.365533+00:00",
+  "load": [
+    166.55322265625,
+    128.49560546875,
+    114.93310546875
+  ],
+  "pid": 19388,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 13.343616291000217
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 107.92706741700385
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00038058299833210185
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "exit": 0,
+  "seconds": 148.1378594170019,
+  "maxrss": 113967104,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "admission_utc": "2026-10-28T20:41:15.802671+00:00",
+  "wall_seconds": 191.39,
+  "queue_seconds": 13.718
+}

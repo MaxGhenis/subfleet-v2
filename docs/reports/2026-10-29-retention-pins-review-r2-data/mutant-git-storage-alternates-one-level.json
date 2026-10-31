@@ -1,0 +1,27 @@
+{
+  "name": "mutant-git-storage-alternates-one-level",
+  "start": "2026-10-29T06:25:41.648840+00:00",
+  "load": [
+    18.2177734375,
+    18.17431640625,
+    20.9248046875
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "git-storage-alternates-one-level",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

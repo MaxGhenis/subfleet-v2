@@ -1,0 +1,8 @@
+{
+  "subfleet/dependencies.py": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8",
+  "subfleet/retention.py": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3",
+  "subfleet/retention_archive.py": "05d3290acecebd4c9d5720858bc69beec989cf6d314d1f30effcfc8ae2227e49",
+  "subfleet/folders.py": "9d31ea0bf8a5907cf774617cbb254713ece4efc00a2d4f49c8c84eb780d81aea",
+  "tests/fake/test_retention_dependency_review_r2.py": "6f5d2aeb60e87c0d31ea0c30325816d532039eee2c1f066e51fcfc661459670f",
+  "tests/unit/test_retention_alternates_review_r2.py": "dfb160f0cf20d5fd591cb12b5597d667810f489654908b339d48031c67c47f2a"
+}

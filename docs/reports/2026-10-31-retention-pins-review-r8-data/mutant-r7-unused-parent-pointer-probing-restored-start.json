@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:37:17.567709+00:00", "loads": [37.884765625, 36.25634765625, 34.88623046875], "pid": 10030, "args": ["tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees"], "fixture_root": "/private/tmp/sf-r272r8"}

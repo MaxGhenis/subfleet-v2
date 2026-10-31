@@ -1,0 +1,28 @@
+{
+  "start": "2026-10-28T21:28:25.538792+00:00",
+  "load": [
+    140.814453125,
+    126.71044921875,
+    119.23095703125
+  ],
+  "pid": 42400,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 7.5031819170035305
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "capped": true,
+  "cap_seconds": 1140,
+  "lock": "locked",
+  "admission_utc": "2026-10-28T21:27:40.645877+00:00"
+}

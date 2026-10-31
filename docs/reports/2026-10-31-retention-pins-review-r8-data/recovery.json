@@ -1,0 +1,120 @@
+[
+  {
+    "label": "archive",
+    "args": [
+      "tests/unit/test_retention_archive.py",
+      "-m",
+      "not real_lsof"
+    ]
+  },
+  {
+    "label": "archive-properties",
+    "args": [
+      "tests/unit/test_retention_archive_properties.py",
+      "-m",
+      "not real_lsof"
+    ]
+  },
+  {
+    "label": "nested-leases",
+    "args": [
+      "tests/unit/test_retention_nested_leases.py",
+      "-k",
+      "not never_"
+    ]
+  },
+  {
+    "label": "salvage-properties",
+    "args": [
+      "tests/unit/test_retention_salvage_properties.py"
+    ]
+  },
+  {
+    "label": "sweep-examples",
+    "args": [
+      "tests/unit/test_retention_sweep_race.py",
+      "-k",
+      "not test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+    ]
+  },
+  {
+    "label": "sweep-explicit",
+    "args": [
+      "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+    ],
+    "env": {
+      "SF_PHASE": "explicit"
+    }
+  },
+  {
+    "label": "sweep-generated",
+    "args": [
+      "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+    ],
+    "env": {
+      "SF_PHASE": "generated"
+    }
+  },
+  {
+    "label": "81-notes",
+    "args": [
+      "tests/unit/test_retention_81_notes.py"
+    ]
+  },
+  {
+    "label": "dependency-property-0",
+    "args": [
+      "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+    ]
+  },
+  {
+    "label": "dependency-property-1",
+    "args": [
+      "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+    ]
+  },
+  {
+    "label": "dependency-property-2",
+    "args": [
+      "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+    ]
+  },
+  {
+    "label": "dependency-property-3",
+    "args": [
+      "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+    ]
+  },
+  {
+    "label": "shared-examples",
+    "args": [
+      "tests/unit/test_retention_shared_folders.py",
+      "-k",
+      "not test_early_fences_equal_reservation_before_and_after_quarantine and not test_fence_hold_against_a_model_of_the_fence and not test_interleavings_never_delete_a_folder_named_by_a_turn and not test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+    ]
+  },
+  {
+    "label": "shared-property-0",
+    "args": [
+      "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+    ]
+  },
+  {
+    "label": "shared-property-1",
+    "args": [
+      "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+    ]
+  },
+  {
+    "label": "shared-property-2",
+    "args": [
+      "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+    ]
+  },
+  {
+    "label": "shared-property-3",
+    "args": [
+      "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+    ]
+  }
+]

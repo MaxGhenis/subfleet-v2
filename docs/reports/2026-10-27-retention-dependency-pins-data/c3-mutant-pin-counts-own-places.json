@@ -1,0 +1,49 @@
+{
+  "start": "2026-10-28T21:21:15.519090+00:00",
+  "load": [
+    133.4189453125,
+    116.5537109375,
+    113.65869140625
+  ],
+  "pid": 56715,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 14.89972595799918
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 265.4308784169989
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.000810792000265792,
+      "_hypothesis_stats": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification:\n\n  - during generate phase (264.89 seconds):\n    - Typical runtimes: ~ 1-4458 ms, of which ~ 0-938 ms in data generation\n    - 150 passing, 0 failing, and 23 invalid test cases\n    - Events:\n      * 15.03%, Retried draw from TupleStrategy((sampled_from(('t1', 't2', 'T\u00e9')), booleans())).filter(not_yet_in_unique_list) to satisfy filter\n\n  - Stopped because settings.max_examples=150"
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "exit": 0,
+  "seconds": 356.4322463749995,
+  "maxrss": 111984640,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "admission_utc": "2026-10-28T21:20:38.807999+00:00",
+  "wall_seconds": 467.62,
+  "queue_seconds": 54.64
+}

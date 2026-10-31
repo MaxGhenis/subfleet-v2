@@ -1,0 +1,11 @@
+import datetime, json, os, signal, sys
+from pathlib import Path
+root=Path.cwd()
+sys.path.insert(0,str(root))
+print('ADMITTED', datetime.datetime.now(datetime.UTC).isoformat(), 'LOAD', os.getloadavg(), flush=True)
+def deadline(*_): raise KeyboardInterrupt('570-second whole-pytest bound')
+signal.signal(signal.SIGALRM,deadline)
+signal.alarm(570)
+import pytest
+import observe
+raise SystemExit(pytest.main(sys.argv[1:],plugins=[observe]))

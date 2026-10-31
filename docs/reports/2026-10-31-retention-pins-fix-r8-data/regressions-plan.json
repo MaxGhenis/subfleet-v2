@@ -1,0 +1,34 @@
+[
+  [
+    "regressions-r7-r6",
+    [
+      "tests/fake/test_retention_dependency_review_r7.py",
+      "tests/fake/test_retention_parent_hint.py",
+      "tests/fake/test_retention_dependency_review_r6.py",
+      "tests/fake/test_retention_pointer_failures.py"
+    ]
+  ],
+  [
+    "regressions-r5",
+    [
+      "tests/fake/test_retention_dependency_review_r5.py",
+      "tests/unit/test_retention_pointer_whitespace.py"
+    ]
+  ],
+  [
+    "regressions-r4-r2",
+    [
+      "tests/fake/test_retention_dependency_review_r4.py",
+      "tests/fake/test_retention_dependency_review_r3.py",
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "tests/unit/test_retention_alternates_review_r2.py"
+    ]
+  ],
+  [
+    "regressions-r1",
+    [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "tests/fake/test_retention_dependency_incomplete.py"
+    ]
+  ]
+]

@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r4-initial-objects-revalidation-dropped",
+  "start": "2026-10-31T04:15:44.605818+00:00",
+  "load": [
+    27.18359375,
+    32.37060546875,
+    35.09130859375
+  ],
+  "args": [
+    "--mutant",
+    "r4-initial-objects-revalidation-dropped",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.454772041999604,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 4.376347750000605,
+      "failure": "tests/fake/test_retention_dependency_review_r4.py:85: in test_objects_parent_swap_keeps_every_allocated_tree\n    assert not result[\"pruned\"], (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r4-initial-objects-revalidation-dropped/pytest-of-maxghenis/pytest-0/t..._keeps0/old-objects']}, {'pruned': ['owner-a', 'owner-b'], 'errors': [], 'bytes_before': 68815, 'bytes_after': 0, ...})\nE   assert not ['owner-a', 'owner-b']"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0019270000002507004,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "b1609bece0074ca72086ac1f8948e5f6676274410f3dcdab098643814dbeeb10"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ],
+  "end": "2026-10-31T04:15:52.892412+00:00",
+  "seconds": 8.286326792000182,
+  "peak_rss_mib": 113.90625,
+  "exit": 1
+}

@@ -1,0 +1,44 @@
+{
+  "name": "test_turn_retention_cwd_properties",
+  "start": "2026-10-31T03:37:54.759059+00:00",
+  "load": [
+    37.31298828125,
+    41.3232421875,
+    43.0439453125
+  ],
+  "args": [
+    "tests/fake/test_turn_retention_cwd_properties.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6210675000002084,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 39.197594082999785,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000766791999922134,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder"
+  ],
+  "end": "2026-10-31T03:38:52.115025+00:00",
+  "seconds": 57.35451791700052,
+  "peak_rss_mib": 121.03125,
+  "exit": 0
+}

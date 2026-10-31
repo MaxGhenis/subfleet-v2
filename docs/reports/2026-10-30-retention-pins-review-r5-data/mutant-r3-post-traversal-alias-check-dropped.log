@@ -1,0 +1,76 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:22:44Z slot B load 
+START mutant-r3-post-traversal-alias-check-dropped 2026-10-30T14:22:45.996040+00:00 load=(19.80419921875, 21.03662109375, 16.0478515625)
+F
+=================================== FAILURES ===================================
+_ test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r5/cases-26460/pytest/test_c8_4_git_parent_symlink_s0'), trusted=True, remot...-r272r5/cases-26460/pytest/test_c8_4_git_parent_symlink_s0/state'), store=<subfleet.store.Store object at 0x109e0a7b0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10975be10>
+state = 'running'
+
+    @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
+    def test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree(world, monkeypatch, state):
+        tree = world.job("owner")
+        source = repo(tree / "source")
+        (source / "owner-only.txt").write_text("R3-F1 owner-only commit\n")
+        git(source, "add", "owner-only.txt")
+        git(source, "commit", "--quiet", "-m", "owner-only r3 evidence")
+        commit = git(source, "rev-parse", "HEAD")
+        old = repo(world.base / "old")
+        assert git(old, "rev-parse", "HEAD") != commit
+        outside = world.base / "outside"
+        outside.mkdir()
+        link = outside / ".git"
+        link.symlink_to(old / ".git")
+        alternate = old / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        before = alternate.stat()
+        real = dependencies.open_regular
+        swapped = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not swapped:
+                            swapped.append(True)
+                            link.unlink()
+                            link.symlink_to(source / ".git")
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(outside))
+        assert swapped
+        after = alternate.stat()
+        for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns"):
+            assert getattr(before, field) == getattr(after, field)
+        assert git(outside, "cat-file", "-t", commit) == "commit"
+        assert git(outside, "show", commit + ":owner-only.txt") == "R3-F1 owner-only commit"
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r5/cases-26460/pytest/test_c8_4_git_parent_symlink_s0/old/.git', '/private/tmp/sf-r272r...rent_symlink_s0/old/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48642, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r3.py:66: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 5.29s

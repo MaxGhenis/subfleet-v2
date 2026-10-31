@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T04:21:07.112161+00:00",
+  "args": [
+    "--mutant",
+    "r6-empty-common-initial-objects-not-recorded",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+  ]
+}

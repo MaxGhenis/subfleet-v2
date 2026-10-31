@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_shared_folders-6",
+  "start": "2026-10-29T14:16:57.343891+00:00",
+  "load": [
+    35.98486328125,
+    35.49560546875,
+    29.8408203125
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 215.18809162500838,
+  "rss": 116326400
+}

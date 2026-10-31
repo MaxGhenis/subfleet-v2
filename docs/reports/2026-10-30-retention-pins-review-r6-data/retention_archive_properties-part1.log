@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:27:37Z slot A load 
+START retention_archive_properties-part1 2026-10-30T20:27:40.661895+00:00 load=(26.0263671875, 37.478515625, 44.134765625)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository:
+
+  - during generate phase (122.03 seconds):
+    - Typical runtimes: ~ 9451-14657 ms, of which ~ 0-93 ms in data generation
+    - 10 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=10
+
+
+1 passed in 126.15s (0:02:06)

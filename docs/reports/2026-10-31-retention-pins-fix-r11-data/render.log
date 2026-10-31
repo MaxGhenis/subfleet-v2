@@ -1,0 +1,58 @@
+{
+  "completed": 98,
+  "ordinary_invocations": 75,
+  "unique_passed": 803,
+  "missing_or_unfinished": [],
+  "planned_holds_not_completed": [],
+  "active": [],
+  "locked": true,
+  "longest_seconds": 467.9142571249977,
+  "peak_rss_mib": 134.6875,
+  "differential_comparisons": 496,
+  "new_module_comparisons": 256,
+  "unchanged_strategy_comparisons": {
+    "differential-linked-test_retention_location_inputs": 55,
+    "differential-green-test_retention_location_inputs": 55,
+    "differential-green-test_retention_location_spelling": 65,
+    "differential-linked-test_retention_location_spelling": 65
+  },
+  "ordinary_failures": [
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-0",
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "call",
+      "later_passed": true
+    },
+    {
+      "hold": "archive-4",
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "call",
+      "later_passed": true
+    }
+  ],
+  "interrupted": []
+}

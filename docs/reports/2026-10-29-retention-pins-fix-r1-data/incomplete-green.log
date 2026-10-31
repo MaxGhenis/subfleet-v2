@@ -1,0 +1,29 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:27:54Z slot A load 
+ADMITTED 2026-10-29T05:27:59.931142+00:00 LOAD (31.71728515625, 32.6259765625, 29.38037109375)
+...............F..                                                       [100%]
+=================================== FAILURES ===================================
+_________________ test_c8_4_incomplete_alternates_still_admit __________________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-incomplete-green/pytest-of-maxghenis/pytest-0/test_c8_4_incomplete_alternate0')
+
+    def test_c8_4_incomplete_alternates_still_admit(tmp_path):
+        with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+            base = harness.workdir / ".git" / "objects" / "info"
+            base.mkdir(parents=True, exist_ok=True)
+            (base / "alternates").write_bytes(b'"bad\\z"\n')
+            patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
+            job = submit(daemon, harness)
+            daemon._admit()
+            assert _live(daemon, job), daemon._holds.get(job)
+>           assert dependencies._loads(daemon.store.one(
+                "SELECT data_json FROM events WHERE job_id=? AND kind='job.submitted'", (job,))[0])["depends"]["incomplete"]
+E           KeyError: 0
+
+tests/fake/test_retention_dependency_incomplete.py:86: KeyError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4457098816:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4457098816:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit
+1 failed, 17 passed in 76.77s (0:01:16)

@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 00:08:12Z slot A load 
+START test_turn_retention_job_properties 2026-10-31T00:08:20.406189+00:00 load=(41.0380859375, 36.55126953125, 41.5830078125)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd:
+
+  - during generate phase (48.02 seconds):
+    - Typical runtimes: ~ 393-2906 ms, of which ~ 0-51 ms in data generation
+    - 40 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=40
+
+
+1 passed in 72.52s (0:01:12)

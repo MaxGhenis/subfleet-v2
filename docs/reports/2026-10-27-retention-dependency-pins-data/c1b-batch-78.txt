@@ -1,0 +1,2 @@
+tests/unit/test_retention_turn_contract.py::test_c84_claim_that_a_turn_row_keeps_no_in_place_job[job-directory]
+tests/unit/test_retention_turn_contract.py::test_c84_claim_that_a_turn_row_keeps_no_in_place_job[workspace]

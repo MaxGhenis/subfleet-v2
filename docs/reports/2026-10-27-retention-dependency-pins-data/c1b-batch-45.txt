@@ -1,0 +1,7 @@
+tests/fake/test_retention_dormant.py::test_a_dormant_pass_runs_no_maintenance_and_waits_the_hour
+tests/fake/test_retention_dormant.py::test_retention_runs_unless_the_switch_is_exactly_one[ 1]
+tests/fake/test_retention_dormant.py::test_retention_runs_unless_the_switch_is_exactly_one[0]
+tests/fake/test_retention_dormant.py::test_retention_runs_unless_the_switch_is_exactly_one[None]
+tests/fake/test_retention_dormant.py::test_retention_runs_unless_the_switch_is_exactly_one[]
+tests/fake/test_retention_dormant.py::test_retention_runs_unless_the_switch_is_exactly_one[true]
+tests/fake/test_retention_dormant.py::test_retention_runs_unless_the_switch_is_exactly_one[yes]

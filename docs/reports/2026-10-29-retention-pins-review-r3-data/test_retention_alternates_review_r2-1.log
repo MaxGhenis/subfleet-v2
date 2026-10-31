@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:40:32Z slot A load 
+{"start": "2026-10-29T13:40:33.312882+00:00", "load": [23.68505859375, 22.72607421875, 24.08740234375], "name": "test_retention_alternates_review_r2-1"}
+...............                                                          [100%]
+15 passed in 8.57s

@@ -1,0 +1,35 @@
+{
+  "name": "test_retention_dependency_properties-4",
+  "start": "2026-10-29T06:28:30.295071+00:00",
+  "load": [
+    26.5107421875,
+    23.93994140625,
+    22.9658203125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "valid": 24,
+      "invalid": 0,
+      "calls": 25,
+      "settings_max": 24
+    }
+  ],
+  "explicit": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": 1
+  },
+  "mutant": null,
+  "loaded": []
+}

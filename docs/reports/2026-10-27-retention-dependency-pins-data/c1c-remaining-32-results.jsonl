@@ -1,0 +1,7 @@
+{"nodeid": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored", "when": "setup", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored", "when": "call", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored", "when": "teardown", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent", "when": "setup", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent", "when": "call", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent", "when": "teardown", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest", "when": "setup", "outcome": "passed", "xfail": null}

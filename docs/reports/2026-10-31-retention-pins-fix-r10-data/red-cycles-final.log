@@ -1,0 +1,131 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 11:39:05Z slot A load 
+.FFFFFFFF.........FF                                                     [100%]
+=================================== FAILURES ===================================
+________ test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix] ________
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail
+E   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'
+E     
+E     Skipping 426 identical leading characters in diff, use -v to show
+E     - l/tail/tail
+E     + l/tail/tail/tail
+E     ?            +++++
+_____ test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix] _____
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail
+E   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'
+E     
+E     Skipping 431 identical leading characters in diff, use -v to show
+E     - l/tail/tail
+E     + l/tail/tail/tail
+E     ?            +++++
+__ test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix] ___
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x
+E   assert '/private/tmp...l/tail/tail/x' == '/private/tmp...l/tail/tail/x'
+E     
+E     Skipping 433 identical leading characters in diff, use -v to show
+E     - tail/tail/x
+E     + tail/tail/tail/x
+E     ? +++++
+______ test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix] _______
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail
+E   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'
+E     
+E     Skipping 431 identical leading characters in diff, use -v to show
+E     - l/tail/tail
+E     + l/tail/tail/tail
+E     ?            +++++
+_____ test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix] ______
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail
+E   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'
+E     
+E     Skipping 431 identical leading characters in diff, use -v to show
+E     - l/tail/tail
+E     + l/tail/tail/tail
+E     ?            +++++
+_ test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix] _
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail
+E   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'
+E     
+E     Skipping 431 identical leading characters in diff, use -v to show
+E     - l/tail/tail
+E     + l/tail/tail/tail
+E     ?            +++++
+______ test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix] ______
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail
+E   assert '/private/tmp...il/extra/tail' == '/private/tmp...il/extra/tail'
+E     
+E     Skipping 464 identical leading characters in diff, use -v to show
+E     - /extra/tail
+E     + /extra/tail/extra/tail
+___ test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix] ___
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail
+E   assert '/private/tmp...il/extra/tail' == '/private/tmp...il/extra/tail'
+E     
+E     Skipping 469 identical leading characters in diff, use -v to show
+E     - /extra/tail
+E     + /extra/tail/extra/tail
+___ test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link] ___
+tests/unit/test_retention_location_cycles.py:145: in test_scan_retargeted_into_cycle_before_spelling_is_incomplete
+    assert any(error["file"] == str(entry) and "alias changed" in error["reason"]
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_c.../tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/owner/place']}
+E   assert False
+E    +  where False = any(<generator object test_scan_retargeted_into_cycle_before_spelling_is_incomplete.<locals>.<genexpr> at 0x10ab11990>)
+_ test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target] _
+tests/unit/test_retention_location_cycles.py:145: in test_scan_retargeted_into_cycle_before_spelling_is_incomplete
+    assert any(error["file"] == str(entry) and "alias changed" in error["reason"]
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_c.../tmp/sf-fix272r10/real-tmp/red-cycles-final/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl1/owner/place']}
+E   assert False
+E    +  where False = any(<generator object test_scan_retargeted_into_cycle_before_spelling_is_incomplete.<locals>.<genexpr> at 0x10ab12200>)
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]
+FAILED tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]
+FAILED tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]
+10 failed, 10 passed in 68.96s (0:01:08)
+{"name": "red-cycles-final", "start": "2026-10-31T11:39:19.127978+00:00", "load": [59.87060546875, 55.22802734375, 50.7080078125], "seconds": 78.34485820800182, "exit": 1}

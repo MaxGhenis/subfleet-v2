@@ -1,0 +1,137 @@
+{
+  "name": "own-controls",
+  "start": "2026-10-29T13:43:08.657241+00:00",
+  "load": [
+    13.5810546875,
+    19.49609375,
+    22.58740234375
+  ],
+  "phases": {
+    "probes.py::test_changes[replace-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[replace-succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[rewrite-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[rewrite-succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[unlink-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[unlink-succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[rename-over-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[rename-over-succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[same-size-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[same-size-succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[symlink-file-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[symlink-file-succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[symlink-info-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[symlink-info-succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_export_range[out:-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_export_range[out:/result-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_export_range[out:/\\xe9-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_export_range[out;-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_export_range[out9-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_export_range[outz:/result-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "probes.py::test_changes[replace-running]",
+    "probes.py::test_changes[replace-succeeded]",
+    "probes.py::test_changes[rewrite-running]",
+    "probes.py::test_changes[rewrite-succeeded]",
+    "probes.py::test_changes[unlink-running]",
+    "probes.py::test_changes[unlink-succeeded]",
+    "probes.py::test_changes[rename-over-running]",
+    "probes.py::test_changes[rename-over-succeeded]",
+    "probes.py::test_changes[same-size-running]",
+    "probes.py::test_changes[same-size-succeeded]",
+    "probes.py::test_changes[symlink-file-running]",
+    "probes.py::test_changes[symlink-file-succeeded]",
+    "probes.py::test_changes[symlink-info-running]",
+    "probes.py::test_changes[symlink-info-succeeded]",
+    "probes.py::test_export_range[out:-True]",
+    "probes.py::test_export_range[out:/result-True]",
+    "probes.py::test_export_range[out:/\\xe9-True]",
+    "probes.py::test_export_range[out;-False]",
+    "probes.py::test_export_range[out9-False]",
+    "probes.py::test_export_range[outz:/result-False]"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 120.49512366700219,
+  "rss": 114524160
+}

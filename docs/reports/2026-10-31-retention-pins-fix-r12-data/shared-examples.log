@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:35:58Z slot B load 
+..........................................................               [100%]
+58 passed, 4 deselected in 138.70s (0:02:18)
+{"name": "shared-examples", "start": "2026-10-31T20:36:01.192842+00:00", "load": [61.78173828125, 69.876953125, 75.26513671875], "seconds": 140.2341341249994, "exit": 0}

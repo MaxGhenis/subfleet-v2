@@ -1,0 +1,66 @@
+{
+  "name": "mutant-r9-text-canonicalization-dropped",
+  "start": "2026-10-31T13:39:40.461853+00:00",
+  "load": [
+    66.20654296875,
+    83.67626953125,
+    94.46435546875
+  ],
+  "pytest_pid": 20386,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "--mutant",
+    "r9-text-canonicalization-dropped",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 6.685108542005764,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 13.77998212500097,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r9.py:79: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads\n    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r10/real-tmp/mutant-r9-text-canonicalization-dropped/pytest-of-maxghenis/pytest-0/tes...ytes_before': 48846, 'bytes_after': 0, ...}, b'fatal: not a git repository (or any of the parent directories): .git\nE     ')\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.13066587499633897,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "key": "R9-F1",
+      "value": "{\"after\": 128, \"alias\": \"/System/Volumes/Data/private/tmp/sf-fix272r10/real-tmp/mutant-r9-text-canonicalization-dropped/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"fatal: not a git repository (or any of the parent directories): .git\\n\", \"layout\": \"gitfile\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/mutant-r9-text-canonicalization-dropped/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/mutant-r9-text-canonicalization-dropped/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git\", \"/private/tmp/sf-fix272r10/real-tmp/mutant-r9-text-canonicalization-dropped/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git/objects\", \"/System/Volumes/Data/private/tmp/sf-fix272r10/real-tmp/mutant-r9-text-canonicalization-dropped/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 23469, \"archived_bytes\": 49637, \"bytes_after\": 0, \"bytes_before\": 48846, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 23469, \"archived_bytes\": 49637, \"bytes_after\": 0, \"bytes_before\": 48846, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    }
+  ],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+      "mutated": "34b5203a714c6dffdf9ff1c48d868c09625c47d50c58792fe829d1b3373f6bfc"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T13:40:47.591728+00:00",
+  "seconds": 67.12882950000494,
+  "peak_rss_mib": 115.796875,
+  "exit": 1
+}

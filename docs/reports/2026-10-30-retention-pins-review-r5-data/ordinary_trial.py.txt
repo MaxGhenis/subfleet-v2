@@ -1,0 +1,78 @@
+import inspect
+import pytest
+from subfleet import dependencies, folders, retention
+from tests.fake.test_retention_dependency_review_r2 import world, reader
+from tests.unit.test_retention_dependency_units import repo
+
+@pytest.mark.parametrize('state', ['running','succeeded'])
+def test_ordinary_initial_recording_changes_lists_but_not_owner_verdict(world, monkeypatch, state):
+    tree=world.job('owner')
+    work=repo(tree/'ordinary')
+    current=dependencies.record(str(work))
+    head=dependencies._storage
+    text=inspect.getsource(head)
+    text=text.replace('    target = aliases.resolve(objects)\n', '    target = aliases.resolve(objects)\n    extra = [target] if target != objects else []\n')
+    text=text.replace('[gitdir, common, target, *_alternates(', '[gitdir, common, *extra, *_alternates(')
+    namespace=dict(dependencies.__dict__)
+    exec(compile(text,'<review-r4-conditional-trial>','exec'),namespace)
+    with monkeypatch.context() as patch:
+        patch.setattr(dependencies,'_storage',namespace['_storage'])
+        trial=dependencies.record(str(work))
+    assert not current.get('incomplete') and not trial.get('incomplete')
+    added=set(current['git'])-set(trial['git'])
+    assert folders.canonical(work/'.git'/'objects') in added
+    assert all(path.endswith('/objects') and path[:-8] in trial['git'] for path in added)
+    assert set(trial['git']) <= set(current['git'])
+    reader(world,current,state=state)
+    if state=='succeeded': world.store.acquire_lease('out:/outside/result','borrower')
+    def verdict():
+        with world.store.transaction():
+            return (retention._pin_reasons(world.store,set(),None,root=world.root).get('owner'),
+                    dependencies.dependents(world.store.query,str(tree),exclude='owner'))
+    before=verdict()
+    with world.store.transaction() as tx:
+        import json
+        tx.execute("UPDATE events SET data_json=? WHERE job_id='borrower' AND kind='job.submitted'",(json.dumps({'depends':trial}),))
+    assert verdict()==before
+    assert bool(before[1])==(state=='running')
+    fence=folders.exclusive_key(str(tree))
+    assert world.store.acquire_lease(fence,'retention:owner')
+    fences=[dependencies.fences(world.store.query,dependencies.needed({'depends':d})) for d in (current,trial)]
+    assert fences[0][0]==fences[1][0]
+    assert [{key for _,_,keys in found for key in keys} for found in fences]==[{fence},{fence}]
+    print('ORDINARY',state,'added',sorted(added),'verdict',before)
+
+@pytest.mark.parametrize('pointer', ['gitfile-leading','gitfile-trailing','commondir'])
+@pytest.mark.parametrize('state', ['running','succeeded'])
+def test_pointer_trailing_space_matches_git(world, pointer, state):
+    from tests.unit.retention_world import git
+    tree=world.job('owner')
+    owner=repo(tree/'source')
+    (owner/'owner-only.txt').write_text('R5 pointer-space owner-only\n')
+    git(owner,'add','owner-only.txt')
+    git(owner,'commit','--quiet','-m','unique pointer-space commit')
+    commit=git(owner,'rev-parse','HEAD')
+    outside=world.base/'outside'
+    if pointer.startswith('gitfile'): outside.mkdir()
+    alias=(outside/' metadata' if pointer=='gitfile-leading' else world.base/'metadata ')
+    alias.symlink_to(owner/'.git',target_is_directory=True)
+    if pointer.startswith('gitfile'):
+        named=alias.name if pointer=='gitfile-leading' else str(alias)
+        (outside/'.git').write_text(f'gitdir: {named}\n')
+    else:
+        repo(outside)
+        (outside/'.git'/'commondir').write_text(str(alias)+'\n')
+    observed=git(outside,'show',commit+':owner-only.txt',check=False)
+    print('GIT-POINTER',pointer,'reads',repr(observed))
+    if observed!='R5 pointer-space owner-only':
+        pytest.skip('Git rejects this pointer spelling; not a product counterexample')
+    recorded=dependencies.record(str(outside))
+    reader(world,recorded,state=state)
+    if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+    from tests.fake.test_retention_dependency_review_r2 import maintain
+    result=maintain(world)
+    print('POINTER-RESULT',pointer,state,recorded,result['pruned'])
+    if state=='running':
+        assert 'owner' not in result['pruned'] and tree.is_dir(),(recorded,result)
+    else:
+        assert 'owner' in result['pruned'] and not tree.exists(),(recorded,result)

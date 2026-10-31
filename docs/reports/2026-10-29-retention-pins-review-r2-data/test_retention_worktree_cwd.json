@@ -1,0 +1,182 @@
+{
+  "name": "test_retention_worktree_cwd",
+  "start": "2026-10-29T06:47:15.770840+00:00",
+  "load": [
+    14.93212890625,
+    19.123046875,
+    21.28515625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[resolved]",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[tmp-alias]",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_does_not_hold_an_in_place_workdir_for_cwd",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[owned]",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[in-place]",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_never_verifies_containment",
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_keeps_retention_before_rename"
+  ],
+  "phases": {
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[resolved]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[tmp-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_does_not_hold_an_in_place_workdir_for_cwd": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[owned]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[in-place]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_never_verifies_containment": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_keeps_retention_before_rename": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[resolved]": {
+      "setup": {
+        "duration": 0.16302370899938978,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.8416042079916224,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.008796666996204294,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid[tmp-alias]": {
+      "setup": {
+        "duration": 0.1433584170008544,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.1919601670088014,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.007817207995685749,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_retention_does_not_hold_an_in_place_workdir_for_cwd": {
+      "setup": {
+        "duration": 0.14982658399094362,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.3232801669946639,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.008365208996110596,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[owned]": {
+      "setup": {
+        "duration": 0.007190000003902242,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.05894204099604394,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0036172919935779646,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed[in-place]": {
+      "setup": {
+        "duration": 0.014411959011340514,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.11155554100696463,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.009179375003441237,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_never_verifies_containment": {
+      "setup": {
+        "duration": 0.010156499993172474,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0009498330036876723,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002119374999892898,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_worktree_cwd.py::test_d_kill3_failed_cwd_read_keeps_retention_before_rename": {
+      "setup": {
+        "duration": 0.18437391699990258,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00385279199690558,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.01110941699880641,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

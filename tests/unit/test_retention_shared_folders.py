@@ -797,7 +797,7 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
                     daemon._capacity_waits.pop(turn, None)
                     daemon._workspace_deferrals.pop(turn, None)
                     prepared.clear()
-                    patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+                    patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
                     daemon._admit_turns()
                     hold = daemon._holds.get(turn, {})
                     # The look holds a fenced turn before its workspace; otherwise it is prepared.
@@ -864,12 +864,22 @@ def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_
 
         def taken(read, folder, *, folded=False):
             found = real(read, folder, folded=folded)
-            if not reads:
-                assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
             reads.append(found)
             return found
 
         patch.setattr(folders, "retiring", taken)
+        look, landed = daemon._fence_hold, []
+
+        def after_look(*args, **kwargs):
+            held = look(*args, **kwargs)
+            if not landed:
+                # The complete early look includes recorded dependencies now.
+                assert not held
+                assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
+                landed.append(True)
+            return held
+
+        patch.setattr(daemon, "_fence_hold", after_look)
         spawned = git_spawns(patch)
         daemon._admit_turns()
         assert reads[:2] == [[], [folders.exclusive_key(tree)]], reads

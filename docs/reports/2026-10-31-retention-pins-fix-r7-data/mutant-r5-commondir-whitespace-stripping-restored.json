@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r5-commondir-whitespace-stripping-restored",
+  "start": "2026-10-31T04:16:06.924313+00:00",
+  "load": [
+    26.62646484375,
+    31.837890625,
+    34.8203125
+  ],
+  "args": [
+    "--mutant",
+    "r5-commondir-whitespace-stripping-restored",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4524382499994317,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.654342999999244,
+      "failure": "tests/fake/test_retention_dependency_review_r5.py:310: in test_pointer_path_whitespace_keeps_the_storage_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r5-commondir-whitespace-stripping-restored/pytest-of-maxghenis/pytest-...h_whitespace_k0/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48697, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004991916999642854,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "bc00919807af783c0992e106df76664aaa59015b3e10393354df425d8c7de485"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]"
+  ],
+  "end": "2026-10-31T04:16:13.308043+00:00",
+  "seconds": 6.368323749999945,
+  "peak_rss_mib": 115.265625,
+  "exit": 1
+}

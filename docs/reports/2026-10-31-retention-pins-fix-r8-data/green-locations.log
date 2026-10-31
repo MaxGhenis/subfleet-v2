@@ -1,0 +1,196 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:12:49Z slot B load 
+FFFFFFFF.............                                                    [100%]
+=================================== FAILURES ===================================
+___________ test_location_inputs_keep_the_places_real_git_traverses ____________
+  + Exception Group Traceback (most recent call last):
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/tests/unit/test_retention_location_inputs.py", line 138, in test_location_inputs_keep_the_places_real_git_traverses
+  |     suppress_health_check=[HealthCheck.function_scoped_fixture])
+  |          ^^^^^^^^^^^^^^^^^^
+  |   File "/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py", line 2295, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/tests/unit/test_retention_location_inputs.py", line 142, in test_location_inputs_keep_the_places_real_git_traverses
+    |     observation = check_location_input(Path(directory), data)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/tests/unit/test_retention_location_inputs.py", line 118, in check_location_input
+    |     assert before.returncode == 0 and before.stdout == b"source", before.stderr
+    | AssertionError: b'fatal: not a git repository: (null)
+    |   '
+    | assert (128 == 0)
+    |  +  where 128 = CompletedProcess(args=['git', '-C', '/private/tmp/sf-fix272r8/real-tmp/green-locations/tmp6181cqge/checkout', 'show', 'HEAD:f.txt'], returncode=128, stdout=b'', stderr=b'fatal: not a git repository: (null)\n').returncode
+    | Failing test case: test_location_inputs_keep_the_places_real_git_traverses(
+    |     # The test always failed when commented parts were varied together.
+    |     record_property=append_property,
+    |     data={
+    |         'position': 'git-entry',
+    |         'chain': 1,  # or any other generated value
+    |         'relative': False,  # or any other generated value
+    |         'named': False,  # or any other generated value
+    |         'entry': 'HEAD',
+    |     },
+    | )
+    +---------------- 2 ----------------
+    | Exception Group Traceback (most recent call last):
+    |   File "/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py", line 1186, in execute_once
+    |     raise FlakyFailure(
+    |     ...<3 lines>...
+    |     )
+    | hypothesis.errors.FlakyFailure: Hypothesis test_location_inputs_keep_the_places_real_git_traverses(record_property=append_property, data={'position': 'alternates-line',
+    |  'chain': 1,
+    |  'relative': False,
+    |  'named': False,
+    |  'entry': 'HEAD'}) produces unreliable results: Failed on the first call but did not on a subsequent one (1 sub-exception)
+    | Failing test case: test_location_inputs_keep_the_places_real_git_traverses(
+    |     record_property=append_property,
+    |     data={'position': 'alternates-line',
+    |         'chain': 1,
+    |         'relative': False,
+    |         'named': False,
+    |         'entry': 'HEAD'},
+    | )
+    | {'input': {'position': 'alternates-line',
+    |   'chain': 1,
+    |   'relative': False,
+    |   'named': False,
+    |   'entry': 'HEAD'},
+    |  'recorded': {'git': ['/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpx8bnjweu/stable/container/admin',
+    |    '/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpx8bnjweu/stable/container/admin/objects',
+    |    '/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpx8bnjweu/stable/source/.git/objects',
+    |    '/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpx8bnjweu/owner/hop0']}}
+    | Failed to reproduce exception. Expected: 
+    | tests/unit/test_retention_location_inputs.py:142: in test_location_inputs_keep_the_places_real_git_traverses
+    |     observation = check_location_input(Path(directory), data)
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | tests/unit/test_retention_location_inputs.py:115: in check_location_input
+    |     paths = build_location_input(base, data)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | tests/unit/test_retention_location_inputs.py:37: in build_location_input
+    |     shutil.copytree(source / ".git", admin)
+    | /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py:654: in copytree
+    |     return _copytree(entries=entries, src=src, dst=dst, symlinks=symlinks,
+    | /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py:608: in _copytree
+    |     raise Error(errors)
+    | E   shutil.Error: [('/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpfxjj1t53/stable/source/.git/objects/maintenance.lock', '/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpfxjj1t53/stable/container/admin/objects/maintenance.lock', "[Errno 2] No such file or directory: '/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpfxjj1t53/stable/source/.git/objects/maintenance.lock'")]
+    | 
+    +-+---------------- 1 ----------------
+      | Traceback (most recent call last):
+      |   File "/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py", line 1223, in _execute_once_for_engine
+      |     result = self.execute_once(data)
+      |   File "/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py", line 1161, in execute_once
+      |     result = self.test_runner(data, run)
+      |   File "/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py", line 828, in default_executor
+      |     return function(data)
+      |   File "/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py", line 1118, in run
+      |     return test(*args, **kwargs)
+      |   File "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/tests/unit/test_retention_location_inputs.py", line 138, in test_location_inputs_keep_the_places_real_git_traverses
+      |     suppress_health_check=[HealthCheck.function_scoped_fixture])
+      |          ^^^^^^^^^^^^^^^^^^^^^^^^
+      |   File "/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py", line 1013, in test
+      |     return self.test(*args, **kwargs)
+      |            ~~~~~~~~~^^^^^^^^^^^^^^^^^
+      |   File "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/tests/unit/test_retention_location_inputs.py", line 142, in test_location_inputs_keep_the_places_real_git_traverses
+      |     observation = check_location_input(Path(directory), data)
+      |   File "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/tests/unit/test_retention_location_inputs.py", line 115, in check_location_input
+      |     paths = build_location_input(base, data)
+      |   File "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/tests/unit/test_retention_location_inputs.py", line 37, in build_location_input
+      |     shutil.copytree(source / ".git", admin)
+      |     ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+      |   File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py", line 654, in copytree
+      |     return _copytree(entries=entries, src=src, dst=dst, symlinks=symlinks,
+      |                      ignore=ignore, copy_function=copy_function,
+      |                      ignore_dangling_symlinks=ignore_dangling_symlinks,
+      |                      dirs_exist_ok=dirs_exist_ok)
+      |   File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py", line 608, in _copytree
+      |     raise Error(errors)
+      | shutil.Error: [('/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpfxjj1t53/stable/source/.git/objects/maintenance.lock', '/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpfxjj1t53/stable/container/admin/objects/maintenance.lock', "[Errno 2] No such file or directory: '/private/tmp/sf-fix272r8/real-tmp/green-locations/tmpfxjj1t53/stable/source/.git/objects/maintenance.lock'")]
+      +------------------------------------
+___ test_required_locations_survive_two_relative_links[gitfile-target-HEAD] ____
+tests/unit/test_retention_locations.py:21: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:120: in check_location_input
+    note(dict(input=data, recorded=recorded))
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:269: in note
+    should_report = should_note()
+                    ^^^^^^^^^^^^^
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:253: in should_note
+    raise InvalidArgument("Cannot make notes outside of a test")
+E   hypothesis.errors.InvalidArgument: Cannot make notes outside of a test
+____ test_required_locations_survive_two_relative_links[intermediate-HEAD] _____
+tests/unit/test_retention_locations.py:21: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:120: in check_location_input
+    note(dict(input=data, recorded=recorded))
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:269: in note
+    should_report = should_note()
+                    ^^^^^^^^^^^^^
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:253: in should_note
+    raise InvalidArgument("Cannot make notes outside of a test")
+E   hypothesis.errors.InvalidArgument: Cannot make notes outside of a test
+___ test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD] ___
+tests/unit/test_retention_locations.py:21: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:120: in check_location_input
+    note(dict(input=data, recorded=recorded))
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:269: in note
+    should_report = should_note()
+                    ^^^^^^^^^^^^^
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:253: in should_note
+    raise InvalidArgument("Cannot make notes outside of a test")
+E   hypothesis.errors.InvalidArgument: Cannot make notes outside of a test
+___ test_required_locations_survive_two_relative_links[commondir-file-HEAD] ____
+tests/unit/test_retention_locations.py:21: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:120: in check_location_input
+    note(dict(input=data, recorded=recorded))
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:269: in note
+    should_report = should_note()
+                    ^^^^^^^^^^^^^
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:253: in should_note
+    raise InvalidArgument("Cannot make notes outside of a test")
+E   hypothesis.errors.InvalidArgument: Cannot make notes outside of a test
+___ test_required_locations_survive_two_relative_links[alternates-file-HEAD] ___
+tests/unit/test_retention_locations.py:21: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:120: in check_location_input
+    note(dict(input=data, recorded=recorded))
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:269: in note
+    should_report = should_note()
+                    ^^^^^^^^^^^^^
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:253: in should_note
+    raise InvalidArgument("Cannot make notes outside of a test")
+E   hypothesis.errors.InvalidArgument: Cannot make notes outside of a test
+______ test_required_locations_survive_two_relative_links[git-entry-HEAD] ______
+tests/unit/test_retention_locations.py:21: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:118: in check_location_input
+    assert before.returncode == 0 and before.stdout == b"source", before.stderr
+E   AssertionError: b'fatal: not a git repository: (null)
+E     '
+E   assert (128 == 0)
+E    +  where 128 = CompletedProcess(args=['git', '-C', '/private/tmp/sf-fix272r8/real-tmp/green-locations/pytest-of-maxghenis/pytest-0/te..._surviv5/checkout', 'show', 'HEAD:f.txt'], returncode=128, stdout=b'', stderr=b'fatal: not a git repository: (null)\n').returncode
+____ test_required_locations_survive_two_relative_links[objects-pack-HEAD] _____
+tests/unit/test_retention_locations.py:21: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:120: in check_location_input
+    note(dict(input=data, recorded=recorded))
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:269: in note
+    should_report = should_note()
+                    ^^^^^^^^^^^^^
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/control.py:253: in should_note
+    raise InvalidArgument("Cannot make notes outside of a test")
+E   hypothesis.errors.InvalidArgument: Cannot make notes outside of a test
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]
+8 failed, 13 passed in 41.79s
+{"name": "green-locations", "start": "2026-10-31T07:12:53.247389+00:00", "load": [37.6650390625, 36.54248046875, 35.7021484375], "seconds": 44.157904874999076, "exit": 1}

@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r3-post-traversal-alias-check-dropped",
+  "start": "2026-10-31T06:29:53.217096+00:00",
+  "loads": [
+    36.501953125,
+    33.6025390625,
+    33.5263671875
+  ],
+  "seconds": 17.132484957999623,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.996094874999471,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.0840470409984846,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-15817/pytest/test_c8_4_git_parent_symlink_s0'), trusted=True, remot...-r272r8/cases-15817/pytest/test_c8_4_git_parent_symlink_s0/state'), store=<subfleet.store.Store object at 0x108832660>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107d97950>\nstate = 'running'\n\n    @pytest.mark.parametrize(\"state\", [\"running\", \"succeeded\"], ids=[\"live\", \"exporting\"])\n    def test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree(world, monkeypatch, state):\n        tree = world.job(\"owner\")\n        source = repo(tree / \"source\")\n        (source / \"owner-only.txt\").write_text(\"R3-F1 owner-only commit\\n\")\n        git(source, \"add\", \"owner-only.txt\")\n        git(source, \"commit\", \"--quiet\", \"-m\", \"owner-only r3 evidence\")\n        commit = git(source, \"rev-parse\", \"HEAD\")\n        old = repo(world.base / \"old\")\n        assert git(old, \"rev-parse\", \"HEAD\") != commit\n        outside = world.base / \"outside\"\n        outside.mkdir()\n        link = outside / \".git\"\n        link.symlink_to(old / \".git\")\n        alternate = old / \".git\" / \"objects\" / \"info\" / \"alternates\"\n        alternate.write_bytes(b\"# first\\n# second\\n\")\n        before = alternate.stat()\n        real = dependencies.open_regular\n        swapped = []\n    \n        @contextmanager\n        def opening(path, *args, **kwargs):\n            with real(path, *args, **kwargs) as stream:\n                if str(path) != str(alternate):\n                    yield stream\n                    return\n    \n                class Changing:\n                    def readline(self, size=-1):\n                        line = stream.readline(size)\n                        if not swapped:\n                            swapped.append(True)\n                            link.unlink()\n                            link.symlink_to(source / \".git\")\n                        return line\n    \n                    def __getattr__(self, name):\n                        return getattr(stream, name)\n    \n                yield Changing()\n    \n        with monkeypatch.context() as patch:\n            patch.setattr(dependencies, \"open_regular\", opening)\n            recorded = dependencies.record(str(outside))\n        assert swapped\n        after = alternate.stat()\n        for field in (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\"):\n            assert getattr(before, field) == getattr(after, field)\n        assert git(outside, \"cat-file\", \"-t\", commit) == \"commit\"\n        assert git(outside, \"show\", commit + \":owner-only.txt\") == \"R3-F1 owner-only commit\"\n        reader(world, recorded, state=state)\n        if state == \"succeeded\":\n            world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n        result = maintain(world)\n>       assert \"owner\" not in result[\"pruned\"], (recorded, result)\nE       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-15817/pytest/test_c8_4_git_parent_symlink_s0/old/.git', '/private/tmp/sf-r272r...rent_symlink_s0/old/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48640, 'bytes_after': 0, ...})\nE       assert 'owner' not in ['owner']\n\ntests/fake/test_retention_dependency_review_r3.py:66: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003079000000070664,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "975ee950301f35b8b5cb31756a10b14c6880a9b971483a744a379629ae3de1a6"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 120881152
+}

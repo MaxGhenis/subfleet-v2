@@ -1,0 +1,29 @@
+{
+  "name": "mutant-review-alternates-cap-restored",
+  "start": "2026-10-29T13:53:21.398609+00:00",
+  "load": [
+    17.2099609375,
+    21.43212890625,
+    22.4736328125
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "70b3a03ad7177e708991213f23d518780eb44718272e9e460d584f22d19c61db"
+    }
+  ],
+  "rc": 1,
+  "seconds": 5.682151957997121,
+  "rss": 126648320
+}

@@ -1,0 +1,43 @@
+{
+  "location": {
+    "gitfile-target": 6,
+    "git-entry": 7,
+    "gitfile-pointer": 2,
+    "intermediate": 8,
+    "commondir-file": 8,
+    "objects-info": 9,
+    "commondir-target": 3,
+    "objects": 4,
+    "alternates-file": 3,
+    "alternates-line": 2,
+    "objects-pack": 3
+  },
+  "location_outcomes": {
+    "needs-owner": 55
+  },
+  "focused_count": 40,
+  "focused_complete": 40,
+  "original_count": 115,
+  "original_outcomes": {
+    "reads-owner": 43,
+    "rejects": 72
+  },
+  "focused_dimensions": {
+    "common": {
+      "absent": 15,
+      "crlf": 15,
+      "lf": 10
+    },
+    "own": {
+      "plain": 12,
+      "symlink": 12,
+      "alternate": 16
+    },
+    "parent": {
+      "absent": 10,
+      "repository": 16,
+      "not-repository": 6,
+      "unrelated-commondir": 8
+    }
+  }
+}

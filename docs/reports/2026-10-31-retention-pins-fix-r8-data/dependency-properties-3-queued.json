@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:32:43.739008+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/dependency-properties-3",
+  "linked": false
+}

@@ -47,7 +47,7 @@ from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
-from . import folders, procs
+from . import dependencies, folders, procs
 from .attempt_tmp import cleared_tmpdirs, job_tmpdirs, probe_tmpdir_rows
 from .retention_holders import ScanFailed, lsof_holders
 from .store import Store
@@ -201,38 +201,19 @@ _PIN_QUERIES = (
                        "WHERE l.holder != 'retention:' || j.job_id"),
     ("retire-lease", "SELECT substr(lease_key, 8) AS job_id FROM leases WHERE lease_key LIKE 'retire:%' "
                      "AND holder != 'retention:' || substr(lease_key, 8)"),
-    # A job not yet ended whose directory is this job's allocated worktree or
-    # inside it (a job an agent submitted from its worktree, still queued):
-    # the tree must still be there when it runs (design review, Opus 9). A
-    # directory is compared without ASCII case: inside the tree with LIKE (the
-    # store sets no case_sensitive_like), the tree itself with NOCASE. A native
-    # session's cwd may spell the tree `jOB` for `Job`, and its queued turn, which
-    # waits on retention's fence (`folders.retiring`, folded), keeps the tree
-    # (review of 8a112986, finding 1).
-    ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
-                        "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
-                        "AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE "
-                        "OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') "
-                        "WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'"),
 )
-#: `worktree-in-use` for a tree `_workspace` allocated that no row names yet
-#: (`jobs.worktree` NULL, `rarch.owned_worktree`); ?1 is `<state>/worktrees/`.
-_UNRECORDED_IN_USE = ("SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
-                      "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
-                      "AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE "
-                      "OR b.workdir LIKE ?1 || a.job_id || '/%' OR b.worktree LIKE ?1 || a.job_id || '/%') "
-                      "WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'")
 
 
 def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | None, *,
                  pins: Callable[[], Iterable[str]] | None = None, turn_keep_s: float = 0,
                  only: str | None = None, hosted: dict[str, set[str]] | None = None,
-                 root: Path | None = None) -> dict[str, str]:
+                 root: Path | None = None, legacy: dict[str, list[str]] | None = None) -> dict[str, str]:
     """job id -> why retention must keep it. Reads only database evidence (and
     the conversation service's, and `hosted`, which `nested_hosts` read from the
-    trees before the pass), so it is as safe inside the delete transaction.
-    With the state `root`, a tree allocated before its row recorded it counts
-    for `worktree-in-use` like a recorded one.
+    trees before the pass, and `legacy`, which `dependencies.legacy` read then),
+    so it is as safe inside the delete transaction. With the state `root`, a
+    tree allocated before its row recorded it counts for `worktree-in-use` like
+    a recorded one.
 
     `landed_salvage` is the set of salvage artifact ids whose commit is (or, at
     selection, will be) in the job's verified archive bundle: C-8.4 pins a job
@@ -277,6 +258,27 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     for reason, sql in _PIN_QUERIES:
         for row in store.query(sql):
             add(row["job_id"], reason)
+    # A job not yet ended that needs a place in this job's allocated tree: its
+    # folder or workdir is the tree or inside it (a job an agent submitted from
+    # its worktree, still queued: design review, Opus 9), or its review root, its
+    # `-o` path or the git storage its checkout uses is (C-8.4,
+    # `dependencies.live`), or an export to a path there is pending. The tree
+    # must still be there when it runs. The tree is the one `jobs.worktree`
+    # records or, while that is NULL, the one `_workspace` allocated
+    # (`rarch.owned_worktree`); paths compare folded, so a spelling in another
+    # case is the same path.
+    places = dependencies.live(store.query, legacy)
+    needs = dependencies.users(places)
+    incomplete = "; ".join(f"{job}: {error['file']} ({error.get('reason', 'unreadable')})"
+                           for job, errors in places.incomplete.items() for error in errors)
+    for row in jobs:
+        if row["sandbox"] != "workspace-write" or row["in_place"]:
+            continue
+        if incomplete:
+            add(row["job_id"], "dependency-incomplete: " + incomplete)
+        tree = row["worktree"] or (str(Path(root) / "worktrees" / row["job_id"]) if root is not None else None)
+        if tree and needs.get(dependencies.key(tree), set()) - {row["job_id"]}:
+            add(row["job_id"], "worktree-in-use")
     owned = {row["job_id"] for row in jobs if row["worktree"] and row["sandbox"] == "workspace-write"
              and not row["in_place"]}
     # I5 (C-8.4, C-13.4): turns and readers have per-turn rows rather than
@@ -313,8 +315,8 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
             job_folder = str(Path(root) / "jobs" / row["job_id"])
             if any(folders.within(folder, job_folder) for folder in in_use | turn_workdirs):
                 add(row["job_id"], "turn-folder")
-        for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / "worktrees") + "/",)):
-            add(row["job_id"], "worktree-in-use")
+            if needs.get(dependencies.key(job_folder), set()) - {row["job_id"]}:
+                add(row["job_id"], "job-directory-in-use")
     # A job registered in a repository inside another job's tree keeps that
     # tree while it has rows: it retires first, with its own anchor (N4).
     for host in ([only] if only else sorted(hosted or ())):
@@ -494,6 +496,9 @@ class _Pass:
         self.freed_by_pool: dict[str, dict[str, int]] = {}
         #: host job -> jobs registered in a repository inside its tree (`nested_hosts`, N4).
         self.hosted: dict[str, set[str]] = {}
+        #: job id -> the places a job queued before submit recorded them needs
+        #: (`dependencies.legacy`), read once a pass, outside any transaction.
+        self.legacy: dict[str, list[str]] = {}
         #: Journal-less retention leases left by selection or old half-removal.
         self.leftovers = state.leftovers
 
@@ -508,11 +513,12 @@ class _Pass:
     def _reasons(self, only: str | None = None) -> dict[str, str]:
         vouched = self._vouched()
         reasons = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
-                               only=only, hosted=self.hosted, root=self.root)
+                               only=only, hosted=self.hosted, root=self.root, legacy=self.legacy)
         if vouched:
             # The caller vouches for these salvage artifacts; recompute those jobs.
             strict = _pin_reasons(self.store, self.explicit, vouched | self._owned_salvage(), pins=self.pins,
-                                  turn_keep_s=self.turn_keep_s, only=only, hosted=self.hosted, root=self.root)
+                                  turn_keep_s=self.turn_keep_s, only=only, hosted=self.hosted, root=self.root,
+                                  legacy=self.legacy)
             reasons = {k: v for k, v in reasons.items() if k in strict}
         return reasons
 
@@ -523,12 +529,16 @@ class _Pass:
 
     def _pinned_at_commit(self, job_id: str, landed: set[int]) -> str | None:
         reasons = _pin_reasons(self.store, self.explicit, landed | self._vouched(), pins=self.pins,
-                               turn_keep_s=self.turn_keep_s, only=job_id, hosted=self.hosted, root=self.root)
+                               turn_keep_s=self.turn_keep_s, only=job_id, hosted=self.hosted, root=self.root,
+                               legacy=self.legacy)
         return reasons.get(job_id)
 
     # the pass ----------------------------------------------------------------------
 
     def run(self) -> dict[str, Any]:
+        # Recovery can quarantine: discover legacy dependencies before any move.
+        # If the census raises, this pass cannot enter recovery with empty evidence.
+        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)
         in_flight = self._recover()
         jobs = list(reversed(self.store.list_jobs()))        # oldest first
         by_id = {job["job_id"]: job for job in jobs}
@@ -858,7 +868,7 @@ class _Pass:
         with self.store.transaction("retention.selected", job_id=job_id) as conn:
             self.ctx.check()
             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
-                                  only=job_id, hosted=self.hosted, root=self.root).get(job_id)
+                                  only=job_id, hosted=self.hosted, root=self.root, legacy=self.legacy).get(job_id)
             # A turn may register after selection. Read its rows, on the tree
             # and on any folder inside it (P3-1), and acquire the fence
             # atomically; daemon reservation checks this same fence before
@@ -869,6 +879,13 @@ class _Pass:
             if reason is None and folder is not None and folders.turn_holds(
                     lambda sql, params: conn.execute(sql, params).fetchall(), folder, inside=True):
                 reason = "turn-folder"
+            # Nor while a job that has not ended needs a place in the tree, named
+            # in the fence's spelling (`dependencies`): admission starts no job
+            # there once the fence is held, and the commit reads this again.
+            if reason is None and folder is not None and dependencies.dependents(
+                    lambda sql, params: conn.execute(sql, params).fetchall(), folder, exclude=job_id,
+                    legacy_places=self.legacy):
+                reason = "worktree-in-use"
             if reason is None:
                 for key in keys:
                     current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()

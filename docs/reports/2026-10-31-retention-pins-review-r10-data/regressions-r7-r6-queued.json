@@ -1,0 +1,13 @@
+{
+  "queued": "2026-10-31T10:40:17.675766+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r7.py",
+    "tests/fake/test_retention_parent_hint.py",
+    "tests/fake/test_retention_dependency_review_r6.py",
+    "tests/fake/test_retention_pointer_failures.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/regressions-r7-r6",
+  "linked": false,
+  "driver_pid": 42457,
+  "lock_process_group": 42465
+}

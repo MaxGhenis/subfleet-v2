@@ -1,0 +1,164 @@
+import collections, datetime, json, re, subprocess
+from pathlib import Path
+scratch=Path(__file__).parent
+out=Path('docs/reports/2026-10-29-retention-pins-fix-r1.md')
+data_dir=Path('docs/reports/2026-10-29-retention-pins-fix-r1-data')
+
+def counts(data):
+    tally=collections.Counter()
+    for node in data['collected']:
+        p=data['phases'].get(node,{})
+        if all(p.get(k)=='passed' for k in ('setup','call','teardown')):tally['P']+=1
+        elif 'failed' in p.values() and p.get('teardown')=='passed':tally['F']+=1
+        elif 'skipped' in p.values():tally['S']+=1
+        else:tally['U']+=1
+    return '/'.join(str(tally[k]) for k in ('P','F','S','U'))
+
+runs=[json.loads(p.read_text()) for p in scratch.glob('*.json')
+      if p.name not in ('mutant-definitions.json','mutants.json') and isinstance(json.loads(p.read_text()),dict)
+      and 'phases' in json.loads(p.read_text())]
+runs.sort(key=lambda d:d['start'])
+normal=[d for d in runs if not d['mutant'] and '-red' not in d['name']]
+latest={}
+for d in normal:
+    for node,p in d['phases'].items():latest[node]=(p,d)
+files=collections.defaultdict(list)
+for node,(phases,d) in latest.items():files[node.split('::')[0]].append((node,phases,d))
+file_rows=[]
+for file,nodes in sorted(files.items()):
+    starts=[d for d in normal if any(n.startswith(file+'::') for n in d['collected'])]
+    first=starts[0]
+    tally=collections.Counter('passed' if all(p.get(k)=='passed' for k in ('setup','call','teardown'))
+                              else 'failed' if 'failed' in p.values() else 'skipped' if 'skipped' in p.values() else 'unfinished'
+                              for _,p,_ in nodes)
+    file_rows.append(dict(file=file,counts=dict(tally),first=first['start'],first_load=first['load'],holds=[d['name'] for d in starts]))
+(data_dir/'file-counts.json').write_text(json.dumps(file_rows,indent=2)+'\n')
+mutants=json.loads((scratch/'mutants.json').read_text())
+definitions=json.loads((scratch/'mutant-definitions.json').read_text())
+text='''# Retention dependency pins: fix round r1, 2026-10-29
+
+Base: `3893c7120b38004fcd43539bb557a2cd25c319e3`. First recorded clock 05:18:07 UTC; first correctness hold admitted 05:20:19 UTC. New holds stop before 09:18 UTC and the wall ends before 11:18 UTC. All work, including fixture stores and local Git remotes, uses the assigned workspace or `sf-fix272r1` scratch. No live store, real provider, production CLI, sub-agent, repository fetch/merge/push or external message was used. Network was used only for the prescribed locked dev environment sync. Fixture Git transport uses only local bare remotes.
+
+## Decisions built
+
+1. Imported the review report, its evidence directory and the 18-case test file byte for byte: all 38 SHA-256 entries verified before the first commit. The review file remains unchanged. At base source it gave **13 passed / 5 failed**; after findings 1–3 it gave **18 passed**, and the final implementation repeats all 18.
+2. C-quoted alternates decode on raw bytes before `fsdecode`, relative resolution against the objects directory and canonical spelling. Git's three-digit octal range and C escapes apply. Spaces are path bytes, not whitespace to strip. Traversal remains five levels, with distinct-path deduplication.
+3. `_EXPORTING` joins `jobs` on its primary job key and yields `jobs.out_path` beside lease identity and `depends.out_path`. The lease range and indexed event lookup remain; no filesystem discovery runs in a transaction. Both terminal legacy identity cases now retain their tree.
+4. Alternates files stream to EOF without a whole-file cap. The input buffer holds at most a 1 MiB line plus its overflow-detection byte; path results and the frontier grow with distinct dependencies. The bound is 256 times a 4096-byte PATH_MAX and well above even four-byte C escaping of such a path. Existing but unreadable files, interrupted reads (including disappearance after open), FIFOs, oversized lines and malformed quotes record incomplete evidence. Durable `depends.incomplete` and the once-per-pass legacy census carry the job and filename through database-only rechecks. While the job is live or exporting, allocated worktrees are kept with `dependency-incomplete`; admission still proceeds. C-8.4 states this rule.
+5. The separate **job-directory boundary already present in release/217** is closed at the dependency census, the job-directory fence transaction before either rename, and the final commit recheck. The converted probe plus role/stage/export tests are **11 failed at base / 11 passed after the first boundary fix**. A further symlinked `jobs/` parent case failed on the initial boundary fix: the fence was canonical but the final check used the journal alias. The follow-up captures `job_folder` off the store lock and uses it at commit, preserving `job_dir` for the rename's symlink refusal; old archived journals get their fallback spelling off the lock. All **12 boundary tests pass**. Eight crash/removal recovery cases are rerun after this follow-up. Existing turn protection retains its `turn-folder` precedence.
+6. The desktop timing sentence uses review r1's corrected text. C-6.5, C-6.11, C-8.3, C-8.4, relevant change-log entries, desktop I16 and dependency description, the main report's “Review r1 and fix round r1” section and c4a resolution describe this implementation. Historical evidence stays dated; no temporary “until fixed” qualification is applied to a fixed finding.
+7. The three review mutants, one boundary-pin mutant and all ten continuation 4b mutants targeting `dependencies.py` are killed by their named tests. The four required properties run at normal maxima and phases, with seed 217. A new property writes Git's own quoted path output into alternates and checks both Git object access and canonical discovery.
+
+No hub decision required a departure. The boundary needed a separate spelling follow-up, after findings 1–3 were committed, as decision 5 permits.
+
+## Git comparison
+
+Git **2.55.0** was executed against every listed spelling. The unit comparisons give the borrower a blob available only in the alternate, so `cat-file` success proves object access. The generated property obtains quoting from Git's `ls-files --others --directory` with `core.quotePath=true`; its borrower then reads that blob and discovery must yield the canonical object directory. No production Git subprocess was added.
+
+| Executed line | Git result | Reader result |
+|---|---|---|
+| Quoted absolute | reads intended object directory | same canonical directory |
+| Quoted relative | resolves against objects directory | same canonical directory |
+| ASCII octal `\\157` | byte `o` | same byte before fsdecode |
+| Non-ASCII octal `\\303\\251` | UTF-8 bytes for é | same bytes before fsdecode |
+| `\\"` | literal quote | same |
+| `\\\\` | literal backslash | same |
+| `\\t` | tab in path | same |
+| `\\n` | newline in path | same |
+| Comment at entry start | ignored | ignored |
+| Blank line | ignored | ignored |
+| Leading space outside quotes | part of path; absent path fails lookup | byte preserved |
+| Trailing space outside quotes | part of path; absent path fails lookup | byte preserved |
+| Leading/trailing spaces inside quotes | intended directory is read | spaces preserved |
+| Quoted entry followed by a separator and another entry | first directory is read; next entry also parsed | same parse, including missing-path evidence |
+| Unknown escape, short octal, octal above `377` | rejects quoted spelling | incomplete discovery, conservative pin |
+
+The initial additional invalid-UTF-8-byte fixture could not create byte `0xff` in this sandbox. It was replaced before the quote fix commit by a pure raw-byte decoder assertion; executed non-ASCII Git comparisons still cover UTF-8 octal bytes. This changes no imported review test or hub decision. [Probe output](2026-10-29-retention-pins-fix-r1-data/git-compare.json) and the committed comparison tests retain the inputs.
+
+## Red and green development evidence
+
+| Hold | Result |
+|---|---|
+| `red-review` | 13 passed / 5 expected failures, 66.46 s; 05:20:19.773 UTC, load 34.83 / 28.08 / 26.19 |
+| `quote-unit` | 15 passed / 1 fixture failure creating byte 0xff; corrected as above |
+| `quote-unit-fixed` | 16 passed |
+| `export-green` | 4 passed / 14 deselected |
+| `incomplete-green` | 17 passed / 1 new-test mapping-key error; corrected before commit |
+| `incomplete-admission` | corrected admission assertion passed |
+| `review-green` | unchanged review: 18 passed |
+| `boundary-red` | premature baseline extraction attempt; pytest unavailable, no tests collected; superseded by next hold |
+| `boundary-red-base` | exact archived base source: 11 expected failures; 05:31:41.440 UTC, load 29.72 / 30.26 / 29.03 |
+| `boundary-green` | 11 passed |
+| `boundary-canonical-red` | 1 expected failure against initial boundary fix |
+| `boundary-canonical-green` | 12 passed after saving canonical fence spelling |
+
+Full logs and the run ledger retain failed development attempts separately from successful implementation coverage. Production source has no expected-failure annotations. The imported review file was never edited.
+
+## File coverage
+
+Counts below are distinct selected node ids with completed setup, call and teardown, using their latest ordinary implementation run; mutant and expected-red runs are excluded. “First start/load” is the first admitted observed run for that file. The per-hold table below retains each observed pytest start after lock admission and all three load averages. The two-case turn contract is repeated with the final guards so it also has an observation record.
+
+| File | P / F / S / U | First start UTC | First load (1/5/15 min) |
+|---|---|---|---|
+'''
+for r in file_rows:
+    c=r['counts']; nums=' / '.join(str(c.get(k,0)) for k in ['passed','failed','skipped','unfinished'])
+    text+=f"| `{r['file']}` | {nums} | {r['first'][11:23]} | {' / '.join(f'{v:.2f}' for v in r['first_load'])} |\n"
+text+='''
+## Properties at normal settings
+
+Counts observe completed engine runs without changing generation, shrinking, phases or maxima. Other engine calls include discarded/overrun evaluations and are not passing examples. Nested properties use the observer because pytest's terminal Hypothesis summary does not expose their inner statistics. Explicit counts are successful explicit-example executions. Settings and strategies are unchanged; the new quote property uses 100 examples plus three explicit inputs.
+
+| Hold | Generated passing | Other engine calls | Explicit passing |
+|---|---:|---:|---:|
+'''
+for d in normal:
+    for e in d['engines']:
+        text+=f"| `{d['name']}` | {e['valid']} | {e['calls']-e['valid']} | {d['explicit'].get(e['nodeid'],0)} |\n"
+text+='''
+Required four: `folded-property-3` (attribution), `dependency-property-2` (independent reference), `dependency-property-3` (monotonicity), `shared-property-2` (fence differential). The last retains its 12 explicit examples. New Git quote property: `quoted-property`, 100 generated and 3 explicit.
+
+## Named mutants
+
+Every replacement matches exactly once, compiles, and is observed loading its target module. Mutants run in memory without editing production source on disk. Each has one pytest in one lock hold, seed 217, `-x`, and explicit/generate phases without shrinking; configured example maxima and strategies stay unchanged. U is selected but not executed after the first failure, never an implementation failure. All fourteen are killed, with no survivor or load error.
+
+| Mutant | Observed killing node | P / F / S / U | Start UTC | Load (1 min) |
+|---|---|---|---|---:|
+'''
+byname={d['name']:d for d in runs}
+for m in mutants:
+    d=byname['mutant-'+m['name']]
+    killers=[n for n,p in d['phases'].items() if p.get('call')=='failed' and p.get('teardown')=='passed']
+    text+=f"| `{m['name']}` | `{killers[0]}` | {counts(d)} | {d['start'][11:23]} | {d['load'][0]:.2f} |\n"
+text+='''
+[Exact definitions and target hashes](2026-10-29-retention-pins-fix-r1-data/mutant-definitions.json), [observed results](2026-10-29-retention-pins-fix-r1-data/mutants.json). Ten are the requested continuation 4b replays; four isolate this round's decisions.
+
+## Observed ordinary implementation holds
+
+One pytest per hold, serial inside each hold and no xdist. At most four pytest workers were active or queued; the shared script admits at most two concurrently. The whole-pytest alarm is 570 seconds. No hold required an unlocked fallback or a timeout interruption. The longest completed pytest was `archive-2`, 513.46 seconds; its full lock wall was longer but still below ten minutes. Shared-script `sysctl` probes were denied by the sandbox; loads here are `os.getloadavg()` measured inside the admitted process. Two observer-preimport assertion-rewrite warnings in later holds do not change test assertions or property settings.
+
+The ordinary compatibility runs began at the initial boundary implementation; after the canonical journal follow-up, the complete boundary file, unchanged review file, final new-test file, eight crash/removal recovery cases and remaining compatibility files validate that follow-up. Earlier passing properties are not re-labelled as new executions.
+
+| Hold | Start UTC | Load (1/5/15 min) | P/F/S/U |
+|---|---|---|---|
+'''
+for d in normal:
+    text+=f"| `{d['name']}` | {d['start'][11:23]} | {' / '.join(f'{v:.2f}' for v in d['load'])} | {counts(d)} |\n"
+text+='''
+## PR-body lines
+
+- Status: Review r1's findings 1–4 and the separate release/217 job-directory boundary are fixed; CI remains pending. Earlier continuation results remain historical evidence.
+- What changes: Decode Git C-quoted alternates on bytes, stream complete alternates with a bounded line buffer and conservative incomplete-discovery pins, retain terminal exporters' actual job-row destinations, and protect jobs/<id> through census, canonical fence and final commit checks.
+- Invariants: C-6.5/C-6.11 retain shared dependency comparison and hold attribution; C-8.3/C-8.4 and desktop I16 keep needed trees through live use and pending export. Discovery stays outside transactions; selection/fence and final rechecks use database evidence under the store lock. Incomplete discovery admits the job and prevents allocated-worktree retirement while it is live or exporting.
+- Evidence this round: Imported review red 13/5 then green 18/0; boundary red 11/0 passing then green 11/0 failing, with a further canonical-spelling red/green and 12 final passing cases; Git comparisons; four normal properties at 100/100/100/400 plus 12 explicit fence inputs; new Git quote property at 100 plus 3 explicit; fourteen named mutants killed; requested compatibility files and guards pass. No new timing claim is made; continuation 4b's two comparisons stay dated.
+
+## Delivery and what did not run
+
+Shared `index.lock` creation was denied. Ordered commits use private scratch Git metadata on `fix/retention-dependency-pins-217`, with the assigned `.git` file unchanged; no history was rewritten. Every commit ends with the requested co-author footer. The final commit and bundle head are reported in the final response; the bundle is `retention-fix272r1.bundle` at the assigned workspace root, based on `3893c7120`, verified before private metadata cleanup.
+
+All requested local files are covered. CI, the full suite, Python 3.12 and the person-only live frontend were not run. No live host/state survey, remote CI/PR lookup or new timing measurement was performed. The final response confirms that every owned process ended and scratch was removed with the lane rules' guarded cleanup; no bytecode, build output or Hypothesis storage is kept in the worktree. Exact per-run observations, logs and replay scripts accompany this report.
+'''
+# Make the PR evidence's red/green wording unambiguous.
+text=text.replace('boundary red 11/0 passing then green 11/0 failing','boundary 0 passed / 11 failed at base then 11 passed / 0 failed after the initial fix')
+out.write_text(text)
+print('Wrote',out,'with',sum(r['counts'].get('passed',0) for r in file_rows),'distinct passing nodes')

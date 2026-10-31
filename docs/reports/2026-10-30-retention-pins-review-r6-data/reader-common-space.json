@@ -1,0 +1,176 @@
+{
+  "mode": "common-space",
+  "commit": "dcfeed46fdf773a9d916b5a2d81f3f05de535a98",
+  "gitfile_admin": "/private/tmp/sf-r272r6/cases-31863/pytest/test_archive_and_survey_common0/home/project/.git/worktrees/owner",
+  "actual_admin": "/private/tmp/sf-r272r6/cases-31863/pytest/test_archive_and_survey_common0/home/project/.git/worktrees/owner",
+  "registration": "None",
+  "registration_why": "registration-not-direct",
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-r272r6/cases-31863/pytest/test_archive_and_survey_common0/home/project/.git/worktrees/owner",
+      "/private/tmp/sf-r272r6/cases-31863/pytest/test_archive_and_survey_common0/home/project/.git",
+      "/private/tmp/sf-r272r6/cases-31863/pytest/test_archive_and_survey_common0/home/project/.git/objects"
+    ]
+  },
+  "survey": {
+    "state_root": "/private/tmp/sf-r272r6/cases-31863/pytest/test_archive_and_survey_common0/state",
+    "read_only": true,
+    "generated_at": "2026-10-30T19:16:58Z",
+    "budgets": {
+      "detached": {
+        "max_jobs": 0,
+        "max_bytes": 0
+      },
+      "turn": {
+        "max_jobs": 0,
+        "max_bytes": 0
+      }
+    },
+    "notes": [
+      "the conversation service's in-memory pins are not visible offline; turn jobs it needs would also be kept"
+    ],
+    "pools": {
+      "detached": {
+        "jobs": 1,
+        "bytes": 20044,
+        "max_jobs": 0,
+        "max_bytes": 0
+      },
+      "turn": {
+        "jobs": 0,
+        "bytes": 0,
+        "max_jobs": 0,
+        "max_bytes": 0
+      }
+    },
+    "would_retire": {
+      "jobs": 0,
+      "with_worktree": 0,
+      "bytes": 0,
+      "worktree_bytes": 0,
+      "job_dir_bytes": 0,
+      "omittable_bytes_upper_bound": 0,
+      "archived_bytes": 0,
+      "scratch_sources": 0,
+      "scratch_reasons": {},
+      "with_unpushed_commits": 0,
+      "bundle_bytes_estimate": 0,
+      "added_bytes_estimate": 0
+    },
+    "kept": {
+      "jobs_by_reason": {
+        "registration": 1
+      },
+      "worktrees_by_reason": {
+        "registration": 1
+      },
+      "worktree_bytes_by_reason": {
+        "registration": 20029
+      }
+    },
+    "holders": {
+      "busy": 0,
+      "scan_seconds": null
+    },
+    "worktree_dirs": {
+      "total": 1,
+      "with_job_rows": 1,
+      "orphans_never_touched": 0,
+      "orphans": []
+    },
+    "estimate": {
+      "hash_read_bytes_per_s": null,
+      "bytes_read": 0,
+      "read_hours": null,
+      "passes": 1,
+      "batch": 32,
+      "listing_seconds_per_pass": null,
+      "git_hours_assumed": 0.0,
+      "total_hours": null
+    },
+    "candidates": [],
+    "kept_detail": [
+      {
+        "job_id": "owner",
+        "pool": "detached",
+        "created_at": "2026-10-30T19:16:58Z",
+        "state": "succeeded",
+        "kind": "dispatch",
+        "pin": null,
+        "worktree": "/private/tmp/sf-r272r6/cases-31863/pytest/test_archive_and_survey_common0/state/worktrees/owner",
+        "worktree_exists": true,
+        "job_dir_bytes": 15,
+        "bytes": 20044,
+        "manifest_bytes": 2569,
+        "issue": "registration: registration-not-direct",
+        "git": "registration-not-direct",
+        "scratch": "temporary directory",
+        "remotes": [
+          "origin"
+        ],
+        "bundle_estimate": 0,
+        "worktree_bytes": 20029,
+        "worktree_files": 6,
+        "omittable_upper": 0,
+        "kept": "registration"
+      }
+    ],
+    "elapsed_s": 0.4
+  },
+  "maintenance": {
+    "pruned": [],
+    "errors": [],
+    "bytes_before": 20044,
+    "bytes_after": 20044,
+    "deferred": {
+      "owner": "registration: registration-not-direct"
+    },
+    "in_flight": [],
+    "reclaimed": [],
+    "conflicts": [],
+    "progressed": true,
+    "holder_scan_failed": false,
+    "tmpdir_left": [],
+    "freed_bytes": 0,
+    "freed_disk_bytes": 0,
+    "archived_bytes": 0,
+    "added_bytes": 0,
+    "pools": {
+      "detached": {
+        "jobs_before": 1,
+        "bytes_before": 20044,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 0,
+        "max_bytes": 0,
+        "jobs_after": 1,
+        "bytes_after": 20044,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      },
+      "turn": {
+        "jobs_before": 0,
+        "bytes_before": 0,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 2000,
+        "max_bytes": 4294967296,
+        "jobs_after": 0,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      }
+    },
+    "protected": [
+      "owner"
+    ],
+    "jobs_after": 1,
+    "more": false,
+    "pin_reasons": {}
+  },
+  "actual_admin_exists": true
+}

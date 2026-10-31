@@ -1,0 +1,198 @@
+[
+  {
+    "name": "folded-basic",
+    "args": [
+      "tests/unit/test_retention_folded_pin.py",
+      "-k",
+      "not dependency_hold_names"
+    ],
+    "start": "2026-10-29T03:41:19.993954+00:00",
+    "load": [
+      10.0400390625,
+      8.96240234375,
+      11.75048828125
+    ],
+    "end": "2026-10-29T03:41:20.326039+00:00",
+    "wall": 0.035464125001453795,
+    "pid": 47123
+  },
+  {
+    "name": "invariants_index",
+    "args": [
+      "tests/unit/test_invariants_index.py"
+    ],
+    "start": "2026-10-29T03:41:23.932007+00:00",
+    "load": [
+      9.55615234375,
+      8.8798828125,
+      11.70458984375
+    ],
+    "end": "2026-10-29T03:41:24.304537+00:00",
+    "wall": 0.03852474999439437,
+    "pid": 47620
+  },
+  {
+    "name": "property-attribution",
+    "args": [
+      "tests/unit/test_retention_folded_pin.py",
+      "-k",
+      "dependency_hold_names",
+      "--hypothesis-show-statistics"
+    ],
+    "start": "2026-10-29T03:41:20.476904+00:00",
+    "load": [
+      10.0400390625,
+      8.96240234375,
+      11.75048828125
+    ],
+    "end": "2026-10-29T03:41:20.788780+00:00",
+    "wall": 0.019454583001788706,
+    "pid": 47149
+  },
+  {
+    "name": "property-fences",
+    "args": [
+      "tests/unit/test_retention_shared_folders.py",
+      "-k",
+      "early_fences_equal",
+      "--hypothesis-show-statistics"
+    ],
+    "start": "2026-10-29T03:41:22.401044+00:00",
+    "load": [
+      9.55615234375,
+      8.8798828125,
+      11.70458984375
+    ],
+    "end": "2026-10-29T03:41:22.752785+00:00",
+    "wall": 0.03516979099367745,
+    "pid": 47443
+  },
+  {
+    "name": "property-monotone",
+    "args": [
+      "tests/unit/test_retention_dependency_properties.py",
+      "-k",
+      "monotone",
+      "--hypothesis-show-statistics"
+    ],
+    "start": "2026-10-29T03:41:21.378594+00:00",
+    "load": [
+      9.55615234375,
+      8.8798828125,
+      11.70458984375
+    ],
+    "end": "2026-10-29T03:41:21.759524+00:00",
+    "wall": 0.03657491698686499,
+    "pid": 47308
+  },
+  {
+    "name": "property-reference",
+    "args": [
+      "tests/unit/test_retention_dependency_properties.py",
+      "-k",
+      "independent_reference",
+      "--hypothesis-show-statistics"
+    ],
+    "start": "2026-10-29T03:41:20.913753+00:00",
+    "load": [
+      9.55615234375,
+      8.8798828125,
+      11.70458984375
+    ],
+    "end": "2026-10-29T03:41:21.246538+00:00",
+    "wall": 0.03465408399642911,
+    "pid": 47277
+  },
+  {
+    "name": "retention_dependencies",
+    "args": [
+      "tests/fake/test_retention_dependencies.py"
+    ],
+    "start": "2026-10-29T03:41:18.159612+00:00",
+    "load": [
+      10.0400390625,
+      8.96240234375,
+      11.75048828125
+    ],
+    "end": "2026-10-29T03:41:18.516938+00:00",
+    "wall": 0.041151666999212466,
+    "pid": 46747
+  },
+  {
+    "name": "retention_dependency_spelling",
+    "args": [
+      "tests/fake/test_retention_dependency_spelling.py"
+    ],
+    "start": "2026-10-29T03:41:18.686197+00:00",
+    "load": [
+      10.0400390625,
+      8.96240234375,
+      11.75048828125
+    ],
+    "end": "2026-10-29T03:41:19.209563+00:00",
+    "wall": 0.06121729200822301,
+    "pid": 46840
+  },
+  {
+    "name": "retention_dependency_units",
+    "args": [
+      "tests/unit/test_retention_dependency_units.py"
+    ],
+    "start": "2026-10-29T03:41:19.406037+00:00",
+    "load": [
+      10.0400390625,
+      8.96240234375,
+      11.75048828125
+    ],
+    "end": "2026-10-29T03:41:19.834281+00:00",
+    "wall": 0.04350587500084657,
+    "pid": 47011
+  },
+  {
+    "name": "shared-basic",
+    "args": [
+      "tests/unit/test_retention_shared_folders.py",
+      "-k",
+      "not equals_its_small and not interleav and not early_fences"
+    ],
+    "start": "2026-10-29T03:41:21.906889+00:00",
+    "load": [
+      9.55615234375,
+      8.8798828125,
+      11.70458984375
+    ],
+    "end": "2026-10-29T03:41:22.252507+00:00",
+    "wall": 0.03816237499995623,
+    "pid": 47394
+  },
+  {
+    "name": "state_contract",
+    "args": [
+      "tests/fake/test_state_contract.py"
+    ],
+    "start": "2026-10-29T03:41:22.885957+00:00",
+    "load": [
+      9.55615234375,
+      8.8798828125,
+      11.70458984375
+    ],
+    "end": "2026-10-29T03:41:23.250309+00:00",
+    "wall": 0.04303166699537542,
+    "pid": 47532
+  },
+  {
+    "name": "test_module_names",
+    "args": [
+      "tests/unit/test_test_module_names.py"
+    ],
+    "start": "2026-10-29T03:41:23.420803+00:00",
+    "load": [
+      9.55615234375,
+      8.8798828125,
+      11.70458984375
+    ],
+    "end": "2026-10-29T03:41:23.772249+00:00",
+    "wall": 0.03524120899965055,
+    "pid": 47572
+  }
+]

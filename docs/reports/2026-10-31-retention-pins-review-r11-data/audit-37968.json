@@ -1,0 +1,869 @@
+{
+  "comparisons": [],
+  "audits": [
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir'"
+          }
+        ]
+      },
+      "equations": []
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/checkout/.git"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/store"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/store",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/checkout/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/stable/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid0/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/checkout/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/stable/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid1/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/checkout/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/stable/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid2/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/checkout/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/stable/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid3/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/stable/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid4/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/stable/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid5/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/store",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/stable/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/store",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid6/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/checkout/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/stable/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid7/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/checkout"
+      ],
+      "kwargs": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/stable"
+      },
+      "actual": {
+        "review_root": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/stable",
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/checkout/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/stable/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail'"
+          },
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates",
+            "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_readable_repository_besid8/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/owner/place"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git/unused",
+            "reason": "repository alias changed or vanished during discovery"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/owner/place",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl1/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl1/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl1/checkout/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl1/checkout/.git/unused",
+            "reason": "repository alias changed or vanished during discovery"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl1/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl1/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+import datetime, json, os, resource, signal, sys, time
+from pathlib import Path
+os.environ["SUBFLEET_RETENTION_QOS"] = "inherit"
+sys.path.insert(0, os.getcwd())
+loaded = []
+mutant = os.environ.get('SF_MUTANT')
+if mutant:
+    import hashlib, importlib.abc, importlib.machinery
+    definition = json.loads(Path('/private/tmp/sf-r272r6/definitions.json').read_text())[mutant.removeprefix('mutant-').removesuffix('-final')]
+    class Loader(importlib.machinery.SourceFileLoader):
+        def get_code(self, fullname):
+            source = Path(self.get_filename(fullname)).read_text()
+            mutated = source
+            baseline = source
+            for index, patch in enumerate(definition.get('patches', [definition]), 1):
+                assert mutated.count(patch['old']) == 1
+                mutated = mutated.replace(patch['old'], patch['new'])
+                if index == definition.get('baseline_patch_count', 0):
+                    baseline = mutated
+            loaded.append(dict(module=fullname, original_sha256=hashlib.sha256(source.encode()).hexdigest(), baseline_sha256=hashlib.sha256(baseline.encode()).hexdigest(), mutated_sha256=hashlib.sha256(mutated.encode()).hexdigest()))
+            return compile(mutated, self.get_filename(fullname), 'exec')
+    class Finder(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname != definition['file'].removesuffix('.py').replace('/', '.'):
+                return None
+            spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+            spec.loader = Loader(fullname, spec.origin)
+            return spec
+    sys.meta_path.insert(0, Finder())
+import tests.failed_keep
+tests.failed_keep.ROOT = Path("/private/tmp/sf-r272r6/failed")
+import pytest
+scratch = Path('/private/tmp/sf-r272r6')
+label, *args = sys.argv[1:]
+if datetime.datetime.now(datetime.UTC) >= datetime.datetime(2026, 10, 30, 22, 47, tzinfo=datetime.UTC):
+    data = dict(label=label, start=datetime.datetime.now(datetime.UTC).isoformat(), loads=os.getloadavg(), seconds=0, exit=3, locked=True, tests=[], nodes=[], all_nodes=[], phases={}, loaded=loaded, rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, cutoff=True)
+    (scratch / (label + ".json")).write_text(json.dumps(data, indent=2) + "\n")
+    print("CUTOFF before pytest", label, flush=True)
+    sys.exit(3)
+fixture = Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261030-144731-pr272-review-r6-a1-rbqh1h4b/sf-r272r6-fixtures')
+# Only archive omission fixtures need a path without a literal tmp component.
+if not any("test_retention_archive" in arg for arg in args):
+    fixture = scratch
+fixture.mkdir(parents=True, exist_ok=True)
+case_root = fixture / ('cases-' + str(os.getpid()))
+case_root.mkdir(parents=True, exist_ok=True)
+os.environ['TMPDIR'] = str(case_root)
+import tempfile
+tempfile.tempdir = None
+started = datetime.datetime.now(datetime.UTC).isoformat()
+loads = os.getloadavg()
+results = []
+nodes = []
+all_nodes = []
+property_settings = {}
+phases = {}
+class Observer:
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_collection_modifyitems(self, session, config, items):
+        all_nodes.extend(item.nodeid for item in items)
+    def pytest_sessionfinish(self, session, exitstatus):
+        from subfleet.home_paths import PYTEST_SENTINEL
+        base = session.config._subfleet_safe_home_base
+        assert (base / PYTEST_SENTINEL).is_file(), "scratch home marker removed by the observer's basetemp"
+    def pytest_collection_finish(self, session):
+        nodes.extend(item.nodeid for item in session.items)
+        for item in session.items:
+            configured = getattr(item.obj, "_hypothesis_internal_use_settings", None)
+            if configured is not None and label in {"retention_sweep_race-explicit", "retention_sweep_race-generated"}:
+                from hypothesis import settings as hypothesis_settings, Phase, Verbosity
+                selected = ((Phase.explicit,) if label.endswith("-explicit") else tuple(p for p in configured.phases if p != Phase.explicit))
+                configured = hypothesis_settings(parent=configured, phases=selected, verbosity=Verbosity.verbose)
+                item.obj._hypothesis_internal_use_settings = configured
+            if configured is not None:
+                property_settings[item.nodeid] = {"max_examples": configured.max_examples, "derandomize": configured.derandomize, "phases": [str(p) for p in configured.phases], "explicit_examples": len(getattr(item.obj, "hypothesis_explicit_examples", []))}
+    def pytest_runtest_logreport(self, report):
+        phases.setdefault(report.nodeid, {})[report.when] = report.outcome
+        if report.when == 'call' or report.failed:
+            results.append({'nodeid': report.nodeid, 'phase': report.when, 'outcome': report.outcome,
+                            'wasxfail': getattr(report, 'wasxfail', None), 'duration': report.duration})
+signal.signal(signal.SIGALRM, lambda *a: (_ for _ in ()).throw(KeyboardInterrupt('570 second hold bound')))
+signal.alarm(570)
+print(f'START {label} {started} load={loads}', flush=True)
+code = 99
+t0 = time.monotonic()
+try:
+    code = pytest.main(['-q', '--hypothesis-show-statistics', '-p', 'no:cacheprovider', '--basetemp', str(case_root / 'pytest'), *args], plugins=[Observer()])
+finally:
+    signal.alarm(0)
+    data = dict(label=label, start=started, loads=loads, seconds=time.monotonic()-t0,
+                exit=int(code), locked=not bool(os.environ.get('SF_SKIP_LOCK')), tests=results, nodes=nodes, all_nodes=all_nodes, phases=phases, property_settings=property_settings, loaded=loaded, rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    (scratch / (label + '.json')).write_text(json.dumps(data, indent=2)+'\n')
+sys.exit(code)

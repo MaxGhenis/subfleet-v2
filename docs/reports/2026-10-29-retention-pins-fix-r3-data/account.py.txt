@@ -1,0 +1,83 @@
+from pathlib import Path
+import collections, json, shutil, subprocess
+s=Path('/private/tmp/sf-fix272r3')
+r=Path('docs/reports/2026-10-29-retention-pins-fix-r3-data')
+records=[]
+for p in s.glob('*.json'):
+    try:d=json.loads(p.read_text())
+    except json.JSONDecodeError:continue
+    if isinstance(d,dict) and 'seconds' in d and 'label' in d:records.append(d)
+records.sort(key=lambda d:d['start'])
+plan=[]
+for name in ('ordinary-a','ordinary-b','followup','final-environment'):
+    plan.extend(json.loads((s/(name+'.json')).read_text()))
+ordinary_labels={label for label,args in plan if not label.startswith('mutant-')}
+ordinary=[d for d in records if d['label'] in ordinary_labels]
+latest={}
+first={}
+for d in ordinary:
+    for t in d['tests']:
+        if t['phase']=='call':
+            latest[t['nodeid']]=(t,d)
+            first.setdefault(t['nodeid'].split('::')[0],d)
+expected=set(json.loads((s/'collect.json').read_text())['nodes'])
+expected.add('tests/unit/test_retention_dependency_aliases.py::test_repeated_unresolvable_alias_keeps_one_incomplete_observation')
+missing=expected-set(latest)
+failed={n:t['outcome'] for n,(t,d) in latest.items() if t['outcome']!='passed' or t.get('wasxfail')}
+print('ordinary records',len(ordinary),'expected',len(expected),'latest',len(latest),'missing',len(missing),'failed',failed)
+if missing: print('first missing:',sorted(missing)[:3])
+mutant_latest={}
+for d in records:
+    if d['label'].startswith('mutant-'):mutant_latest[d['label'].removesuffix('-final')]=d
+mutants=list(mutant_latest.values())
+print('mutants',[(d['label'],d['exit']) for d in mutants])
+if '--final' not in __import__('sys').argv: raise SystemExit(0)
+assert not missing and not failed
+assert len(mutants)==7
+for d in mutants:
+    assert d['exit']==1 and len(d['loaded'])==1,d['label']
+    import hashlib
+    definition=json.loads((s/'definitions.json').read_text())[d['label'].removeprefix('mutant-').removesuffix('-final')]
+    assert d['loaded'][0]['original_sha256']==hashlib.sha256(Path(definition['file']).read_bytes()).hexdigest(),d['label']
+    assert len(d['phases'])==1,d['label']
+    assert list(d['phases'].values())==[{'setup':'passed','call':'failed','teardown':'passed'}],d['label']
+    assert 'AssertionError' in (s/(d['label']+'.log')).read_text()
+for n,(t,d) in latest.items():
+    assert d['phases'][n]['teardown']=='passed',n
+assert max(d['seconds'] for d in records)<600
+assert max(d['rss'] for d in records)<8*1024**3
+for d in records:
+    for suffix in ('.json','.log'):
+        p=s/(d['label']+suffix)
+        if p.exists():shutil.copy2(p,r/p.name)
+shutil.copy2(s/'mutant-wait-30-minutes.log',r/'mutant-wait-30-minutes.log')
+for name in ('run_hold.py','run_batch.py','account.py','ordinary-a.json','ordinary-b.json','followup.json','mutants.json','mutants-direct.json','final-environment.json'):
+    p=s/name;shutil.copy2(p,r/(name+'.txt' if p.suffix=='.py' else name))
+(r/'ledger.json').write_text(json.dumps(records,indent=2)+'\n')
+summary=collections.defaultdict(list)
+for n,(t,d) in latest.items():summary[n.split('::')[0]].append(n)
+lines=[f'**{len(latest)} distinct ordinary nodes passed**, including {len(expected)} repository nodes and two named review-r3 probe controls. No final failures, skips or expected failures. The adjacent `tests/unit/test_retention_alternates_review_r2.py` supplied 15 additional prior-review controls. No requested local node is unrun except the explicitly deselected real-lsof case.\n',
+       'All starts below are UTC on 2026-10-29 after lock admission. Loads are the host 1/5/15-minute averages. Counts use each node\'s latest ordinary call outcome and require passing teardown; red runs, intermediate checks and mutants are excluded. Initial environment failures remain in the full ledger.\n',
+       '| File | Passed | First ordinary start | Load (1/5/15) |','|---|---:|---|---|']
+for file,nodes in summary.items():
+    d=first[file];display='review r3 probes.py (two named controls)' if file.endswith('probes.py') else file
+    lines.append(f'| `{display}` | {len(nodes)} | {d["start"][11:23]} | '+ ' / '.join(f'{x:.2f}' for x in d['loads'])+' |')
+lines+=['\n### Red/green timing\n','| Run | P/F | Start UTC | Load (1/5/15) |','|---|---:|---|---|']
+for label in ('red-r3','green-r3','red-turn','green-turn'):
+    d=next(d for d in records if d['label']==label);c=collections.Counter(t['outcome'] for t in d['tests'] if t['phase']=='call')
+    lines.append(f'| {label} | {c["passed"]}/{c["failed"]} | {d["start"][11:23]} | '+' / '.join(f'{x:.2f}' for x in d['loads'])+' |')
+lines+=['\n### Mutants\n','Every exact replacement matches once. Each mutant loads one changed module in memory, exits 1 with its named call assertion failing, and passes setup/teardown; production source is never modified. Definitions, original/mutated source hashes and logs are adjacent.\n','| Mutant | Named killing test | Result | Start UTC | Load (1/5/15) |','|---|---|---|---|---|']
+definitions=json.loads((s/'definitions.json').read_text())
+for d in mutants:
+    name=d['label'].removeprefix('mutant-').removesuffix('-final');tests=[t for t in definitions[name]['tests'] if '::' in t];killer=tests[0]
+    if '/probes.py' in killer:killer='review r3 probes.py::'+killer.split('::')[1]
+    lines.append(f'| `{name}` | `{killer}` | KILLED | {d["start"][11:23]} | '+' / '.join(f'{x:.2f}' for x in d['loads'])+' |')
+lines+=['\n### Every hold\n','| Hold | Exit | Start UTC | Load (1/5/15) | Seconds |','|---|---:|---|---|---:|']
+for d in records:
+    lines.append(f'| `{d["label"]}` | {d["exit"]} | {d["start"][11:23]} | '+' / '.join(f'{x:.2f}' for x in d['loads'])+f' | {d["seconds"]:.2f} |')
+lines+=['\nNormal property settings and all phases are retained, with seed 272 for the ordinary plans. No example count or assertion is reduced. The turn regression uses 40 generated plus five explicit examples. The two archive properties each retain their default 10 generated examples; the sweep property retains 40 generated examples plus its explicit schedules. The four shared-folder properties run in separate holds at their normal 150/400/40/150 counts.\n',
+        f'Longest observed pytest: **{max(d["seconds"] for d in records):.2f} seconds**. Peak observed pytest RSS: **{max(d["rss"] for d in records)/1024**2:.1f} MiB**. Six named mutants used the permitted outside-lock fallback after a 30-minute wait; ordinary runs and the final repeated r2 mutant used the shared lock.\n',
+        'Not run: the named real-lsof archive node, full suite, Python 3.12, CI execution and the person-only live frontend. The live frontend cannot run on a lane. No additional scale measurement or external CI/PR read was performed.\n',
+        'PR-body evidence line: Review r3 red **2 passed / 4 failed** → green **6 passed**; unchanged turn-property red **1 failed (all five explicit inputs)** → green **1 passed (40 generated plus five explicit)**; **'+str(len(latest))+' distinct ordinary passes** and **seven killed named mutants**. Link this report for per-file starts/loads, operational adjustments and observation bounds.\n']
+p=Path('docs/reports/2026-10-29-retention-pins-fix-r3.md');text=p.read_text();marker='The final per-file counts, hold starts/loads, mutant outcomes and cleanup accounting follow when all attached runs finish.\n';assert marker in text;p.write_text(text.replace(marker,'\n'.join(lines)))
+print('wrote accounting')

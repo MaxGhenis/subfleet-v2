@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:27:54Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading] _
+tests/fake/test_retention_dependency_review_r5.py:310: in test_pointer_path_whitespace_keeps_the_storage_git_reads
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r5-gitfile-whitespace-stripping-restored/pytest-of-maxghenis/pytes...pace_k0/outside/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48697, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]
+1 failed in 8.28s
+{"name": "mutant-r5-gitfile-whitespace-stripping-restored", "start": "2026-10-31T07:27:55.650573+00:00", "load": [36.31884765625, 34.91015625, 34.28515625], "seconds": 9.27221570799884, "exit": 1}

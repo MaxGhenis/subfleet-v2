@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T11:59:48.142325+00:00",
+  "args": [
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py",
+    "-k",
+    "not test_baseline_route_files"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison",
+  "linked": false,
+  "driver_pid": 40940,
+  "lock_process_group": 41176
+}

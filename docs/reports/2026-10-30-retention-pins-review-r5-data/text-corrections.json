@@ -1,0 +1,60 @@
+{
+  "finding": "R5-F1",
+  "descriptive_qualifications": [
+    {
+      "file": "docs/desktop/retention-archive.md",
+      "lines": [
+        636
+      ],
+      "insert_qualification": "At c1dfadceb, gitdir and commondir parsing strips significant pathname whitespace. Stable valid Git pointers can therefore record and revalidate the wrong target without incomplete evidence, allowing retirement of a live borrower's storage (R5-F1). The object-directory protections above apply when the pointer target is parsed correctly. This gap is separate from the documented swap-back, timestamp and later-dependency bounds."
+    },
+    {
+      "file": "docs/reports/2026-10-27-retention-dependency-pins.md",
+      "lines": [
+        10,
+        20
+      ],
+      "insert_qualification": "At c1dfadceb, gitdir and commondir parsing strips significant pathname whitespace. Stable valid Git pointers can therefore record and revalidate the wrong target without incomplete evidence, allowing retirement of a live borrower's storage (R5-F1). The object-directory protections above apply when the pointer target is parsed correctly. This gap is separate from the documented swap-back, timestamp and later-dependency bounds."
+    },
+    {
+      "file": "docs/reports/2026-10-29-retention-pins-fix-r2.md",
+      "lines": [
+        7
+      ],
+      "insert_qualification": "At c1dfadceb, gitdir and commondir parsing strips significant pathname whitespace. Stable valid Git pointers can therefore record and revalidate the wrong target without incomplete evidence, allowing retirement of a live borrower's storage (R5-F1). The object-directory protections above apply when the pointer target is parsed correctly. This gap is separate from the documented swap-back, timestamp and later-dependency bounds."
+    },
+    {
+      "file": "docs/reports/2026-10-29-retention-pins-fix-r3.md",
+      "lines": [
+        7
+      ],
+      "insert_qualification": "At c1dfadceb, gitdir and commondir parsing strips significant pathname whitespace. Stable valid Git pointers can therefore record and revalidate the wrong target without incomplete evidence, allowing retirement of a live borrower's storage (R5-F1). The object-directory protections above apply when the pointer target is parsed correctly. This gap is separate from the documented swap-back, timestamp and later-dependency bounds."
+    },
+    {
+      "file": "docs/reports/2026-10-30-retention-pins-fix-r4.md",
+      "lines": [
+        7,
+        14,
+        18
+      ],
+      "insert_qualification": "At c1dfadceb, gitdir and commondir parsing strips significant pathname whitespace. Stable valid Git pointers can therefore record and revalidate the wrong target without incomplete evidence, allowing retirement of a live borrower's storage (R5-F1). The object-directory protections above apply when the pointer target is parsed correctly. This gap is separate from the documented swap-back, timestamp and later-dependency bounds."
+    }
+  ],
+  "contract": {
+    "file": "docs/acceptance-contract.md",
+    "keep_normative_fail_closed_guarantee": true,
+    "C8_3": "No correction: census ordering and exporter lifetime verified.",
+    "C8_4": "Repair R5-F1; do not narrow the normative storage dependency requirement."
+  },
+  "journal": "No correction needed; R4-F2 text and code comment match all three executed states.",
+  "pr_body": {
+    "replace_lead": "Review r5 at c1dfadceb requests changes for R5-F1: stripping pathname whitespace in gitdir/commondir pointers can record complete-looking dependencies for the wrong target. Three stable real-Git inputs retire storage needed by a running borrower; their terminal-export controls pass. R4-F1 and R4-F2 pass their original inputs. Retention remains dormant; repairing R5-F1, approving review and all-pass CI remain merge gates.",
+    "replace_next": "Repair R5-F1, remove only the expected-failure marks it fixes, obtain an approving review, and complete all CI shards before merge. Retention remains dormant.",
+    "evidence": "Review r5: original r4 file 53 passed; new file 57 passed and 3 strict expected failures naming R5-F1; focused red 3 failed / 3 terminal-export controls passed; in-memory parsing trial 113 passed; nine head-source mutants and one named trial mutant killed.",
+    "historical_cleanup": {
+      "line_16": "Review r4 requested R4-F1 and R4-F2; fix round r4 repairs their original inputs. Review r5 identifies the separate R5-F1 pointer parsing gap.",
+      "line_20_sentence": "Both original repairs were completed in fix round r3; fix round r4 repairs the initial object-directory omission. Review r5 requests the separate R5-F1 repair.",
+      "line_22_sentence": "Review r3 requested R3-F1/R3-F2 repairs, completed in fix round r3."
+    }
+  }
+}

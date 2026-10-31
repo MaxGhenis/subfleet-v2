@@ -1,0 +1,131 @@
+{
+  "version": "git version 2.55.0",
+  "cases": [
+    {
+      "case": "quoted absolute",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\n",
+      "error": ""
+    },
+    {
+      "case": "quoted relative",
+      "line": "\"../../../ordinary\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\n",
+      "error": ""
+    },
+    {
+      "case": "octal ASCII",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/\\157rdinary\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\n",
+      "error": ""
+    },
+    {
+      "case": "octal UTF-8",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/non-\\303\\251\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/non-\\303\\251\"\n",
+      "error": ""
+    },
+    {
+      "case": "escaped quote",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/with\\\"quote\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/with\\\"quote\"\n",
+      "error": ""
+    },
+    {
+      "case": "escaped backslash",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/with\\\\slash\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/with\\\\slash\"\n",
+      "error": ""
+    },
+    {
+      "case": "escaped tab",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/with\\ttab\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/with\\ttab\"\n",
+      "error": ""
+    },
+    {
+      "case": "escaped newline",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/with\\nnewline\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/with\\nnewline\"\n",
+      "error": ""
+    },
+    {
+      "case": "comment",
+      "line": "#/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary",
+      "reads": false,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\n",
+      "error": ""
+    },
+    {
+      "case": "blank",
+      "line": "",
+      "reads": false,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\n",
+      "error": ""
+    },
+    {
+      "case": "leading outside",
+      "line": " /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary",
+      "reads": false,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\n",
+      "error": "error: unable to normalize alternate object path: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/borrower/.git/objects/ /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\n"
+    },
+    {
+      "case": "trailing outside",
+      "line": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary ",
+      "reads": false,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\n",
+      "error": "error: object directory /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary  does not exist; check .git/objects/info/alternates\n"
+    },
+    {
+      "case": "leading inside",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ leading\"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ leading\n",
+      "error": ""
+    },
+    {
+      "case": "trailing inside",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/trailing \"",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/trailing \n",
+      "error": ""
+    },
+    {
+      "case": "quoted trailing text",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\" garbage",
+      "reads": true,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\nalternate: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\n",
+      "error": "error: object directory /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/borrower/.git/objects/garbage does not exist; check .git/objects/info/alternates\n"
+    },
+    {
+      "case": "bad escape",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\\z\"",
+      "reads": false,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\n",
+      "error": "error: unable to normalize alternate object path: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/borrower/.git/objects/\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\\z\"\n"
+    },
+    {
+      "case": "short octal",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/\\15rdinary\"",
+      "reads": false,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\n",
+      "error": "error: unable to normalize alternate object path: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/borrower/.git/objects/\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/\\15rdinary\"\n"
+    },
+    {
+      "case": "octal 400",
+      "line": "\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\\400\"",
+      "reads": false,
+      "output": "count: 0\nsize: 0\nin-pack: 0\npacks: 0\nsize-pack: 0\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0\n",
+      "error": "error: unable to normalize alternate object path: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/borrower/.git/objects/\"/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/git-compare/ordinary\\400\"\n"
+    }
+  ]
+}

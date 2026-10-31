@@ -1,0 +1,42 @@
+[
+  [
+    "job-directory-original",
+    [
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/test_job_directory_probe.py"
+    ]
+  ],
+  [
+    "review-r2-latest",
+    [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "-rx"
+    ]
+  ],
+  [
+    "review-r2-latest-red",
+    [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "-k",
+      "changed_alternates or unlinked_open or legacy_incomplete",
+      "--runxfail"
+    ]
+  ],
+  [
+    "proof-r2-f1",
+    [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "-k",
+      "changed_alternates or unlinked_open",
+      "--runxfail"
+    ]
+  ],
+  [
+    "proof-r2-f2",
+    [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "-k",
+      "legacy_incomplete",
+      "--runxfail"
+    ]
+  ]
+]

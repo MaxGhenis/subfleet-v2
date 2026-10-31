@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r5-gitfile-whitespace-stripping-restored",
+  "start": "2026-10-31T06:34:38.074543+00:00",
+  "loads": [
+    38.79833984375,
+    35.98974609375,
+    34.5712890625
+  ],
+  "seconds": 8.84744687500097,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.568155958000716,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 1.6360839999997552,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-48839/pytest/test_pointer_path_whitespace_k0'), trusted=True, remot...-r272r8/cases-48839/pytest/test_pointer_path_whitespace_k0/state'), store=<subfleet.store.Store object at 0x10cbffcb0>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c46c640>\npointer = 'gitfile-leading', state = 'running'\n\n    @pytest.mark.parametrize(\"pointer\", [\"gitfile-leading\", \"gitfile-trailing\", \"commondir-trailing\"])\n    @pytest.mark.parametrize(\"state\", [\n        pytest.param(\"running\", id=\"live\"),\n        pytest.param(\"succeeded\", id=\"exporting-control\"),\n    ])\n    def test_pointer_path_whitespace_keeps_the_storage_git_reads(world, monkeypatch, pointer, state):\n        tree = world.job(\"owner\")\n        owner, commit = source(world, tree)\n        outside = world.base / \"outside\"\n        if pointer.startswith(\"gitfile\"):\n            outside.mkdir()\n        else:\n            repo(outside)\n        # A relative gitdir path can start in a space. Absolute gitdir and common\n        # paths can end in one. Git preserves those bytes before resolving the link.\n        alias = outside / \" metadata\" if pointer == \"gitfile-leading\" else world.base / \"metadata \"\n        alias.symlink_to(owner / \".git\", target_is_directory=True)\n        if pointer.startswith(\"gitfile\"):\n            named = alias.name if pointer == \"gitfile-leading\" else str(alias)\n            (outside / \".git\").write_text(f\"gitdir: {named}\\n\")\n        else:\n            (outside / \".git\" / \"commondir\").write_text(str(alias) + \"\\n\")\n        assert git(outside, \"show\", commit + \":owner-only.txt\") == \"R5 owner-only storage\"\n        off_transaction(world, monkeypatch)\n        recorded = dependencies.record(str(outside))\n        assert not recorded.get(\"incomplete\"), recorded\n        reader(world, recorded, state=state)\n        if state == \"succeeded\":\n            world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n        result = maintain(world)\n        if state == \"running\":\n>           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE           AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-48839/pytest/test_pointer_path_whitespace_k0/outside/metadata', '/private/tmp/...pace_k0/outside/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48628, 'bytes_after': 0, ...})\nE           assert ('owner' not in ['owner'])\n\ntests/fake/test_retention_dependency_review_r5.py:310: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0037023329987277975,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "5d7a71a72dcc34d2f081a5f1bdfee627c4ad3538ee3fcf07cc71356873b29667"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 120569856
+}

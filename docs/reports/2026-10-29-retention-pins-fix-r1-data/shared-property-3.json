@@ -1,0 +1,35 @@
+{
+  "name": "shared-property-3",
+  "start": "2026-10-29T05:44:13.806860+00:00",
+  "load": [
+    16.7451171875,
+    19.27978515625,
+    22.90380859375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "valid": 40,
+      "invalid": 0,
+      "calls": 45,
+      "settings_max": 40
+    }
+  ],
+  "explicit": {
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": 9
+  },
+  "mutant": null,
+  "loaded": []
+}

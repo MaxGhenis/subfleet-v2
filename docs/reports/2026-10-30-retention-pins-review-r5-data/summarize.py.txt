@@ -1,0 +1,50 @@
+from pathlib import Path
+import collections, datetime, json
+root=Path('/private/tmp/sf-r272r5')
+ledger=[]
+for path in root.glob('*.json'):
+    try: data=json.loads(path.read_text())
+    except ValueError:continue
+    if isinstance(data,dict) and all(key in data for key in ('label','start','phases')):
+        data['queued']=datetime.datetime.fromtimestamp((root/(data['label']+'.log')).stat().st_birthtime,datetime.UTC).isoformat()
+        ledger.append(data)
+ledger.sort(key=lambda d:d['start'])
+exclude={'review-r5','ordinary-trial','r5-pointer-red'}
+ordinary=[d for d in ledger if d['label'] not in exclude and not d['label'].startswith(('mutant-','trial-'))]
+latest={};first={}
+for hold in ordinary:
+    for node,phases in hold['phases'].items():
+        file=node.split('::',1)[0]
+        first.setdefault(file,hold)
+        latest[node]=(phases,hold['label'])
+files=collections.defaultdict(collections.Counter)
+for node,(phases,label) in latest.items():
+    file=node.split('::',1)[0]
+    outcome=phases.get('call','not-called')
+    if outcome=='skipped':
+        hold=next(d for d in ordinary if d['label']==label)
+        if any(t['nodeid']==node and t.get('wasxfail') for t in hold['tests']):outcome='xfailed'
+    if phases.get('setup')!='passed' or phases.get('teardown')!='passed':outcome='phase-failure'
+    files[file][outcome]+=1
+expected=set()
+requested=set()
+for plan in ('first-plan.json','remaining-plan.json'):
+    for label,args in json.loads((root/plan).read_text()):
+        requested.update(arg.split('::',1)[0] for arg in args if arg.startswith('tests/'))
+for hold in ordinary:
+    expected.update(node for node in hold.get('all_nodes',hold['nodes']) if node.split('::',1)[0] in requested)
+real_lsof='tests/unit/test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree'
+expected.discard(real_lsof)
+missing=sorted(expected-latest.keys())
+summary={'holds':len(ledger),'ordinary_holds':len(ordinary),'ordinary_nodes':len(latest),'counts':dict(sum(files.values(),collections.Counter())),
+    'files':{file:{'counts':dict(counts),'first_start':first[file]['start'],'loads':first[file]['loads']} for file,counts in sorted(files.items())},
+    'requested_files':sorted(requested),'missing_requested_nodes':missing,'real_lsof_deselected':real_lsof,
+    'requested_passes':sum(1 for node,(phases,_) in latest.items() if node.split('::',1)[0] in requested and phases.get('call')=='passed'),
+    'maximum_seconds':max(d['seconds'] for d in ledger),'maximum_rss_bytes':max(d['rss'] for d in ledger),
+    'outside_lock':sum(not d['locked'] for d in ledger),
+    'uncompleted_requested_holds':[label for plan in ('first-plan.json','remaining-plan.json') for label,args in json.loads((root/plan).read_text()) if not (root/(label+'.json')).exists()]}
+(root/'ledger.json').write_text(json.dumps(ledger,indent=2)+'\n')
+(root/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+print('HOLDS',summary['holds'],'ORDINARY',summary['counts'],'REQUESTED_PASSES',summary['requested_passes'],'MISSING',len(missing),'MAX_SECONDS',round(summary['maximum_seconds'],2),'MAX_RSS_MIB',round(summary['maximum_rss_bytes']/2**20,1))
+for file,info in summary['files'].items():
+ print(file,dict(info['counts']),info['first_start'][11:19],'/'.join(f'{x:.2f}' for x in info['loads']))

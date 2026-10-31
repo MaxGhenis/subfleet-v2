@@ -1,0 +1,708 @@
+{
+  "label": "task_hold_admission",
+  "start": "2026-10-30T18:02:05.742838+00:00",
+  "loads": [
+    48.88134765625,
+    44.9921875,
+    57.20166015625
+  ],
+  "seconds": 46.39615987500292,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_held_build_waits_while_a_review_on_the_same_lane_is_placed",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.26384929099003784
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_job_with_no_task_and_a_job_of_another_task_are_not_held",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.12178987500374205
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_held_build_retried_after_a_failed_attempt_waits",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0853484160033986
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_release_wakes_the_held_jobs_at_once",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.15054349999991246
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_release_mid_pass_lets_the_later_jobs_of_that_pass_start",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.05466637501376681
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_the_hold_ends_by_the_clock_with_no_reaper",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.017541875000461005
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_second_hold_replaces_the_first",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.08571583400771488
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_turn_of_a_held_task_is_placed",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.10481620801147074
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_running_attempt_is_never_touched",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.03241591699770652
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_hold_committed_after_the_pass_read_its_holds_still_stops_the_reservation",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.03466808299708646
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args0-unknown-task]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.11861283300095238
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args1-unknown-task]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.012089209005353041
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args2-unknown-task]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.006018917003530078
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args3-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.006625042005907744
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args4-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.028238500002771616
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args5-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.006942834006622434
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args6-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.01678187499055639
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args7-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.017712750006467104
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args8-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.013632458008942194
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args9-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.09259704100259114
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args10-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.007872749993111938
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args11-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0081661250005709
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args12-task-hold-note]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.06519491600920446
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args13-task-hold-until]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.012900458998046815
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args14-task-hold-until]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.009591166002792306
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args15-task-hold-until]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.013508624993846752
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args16-task-hold-until]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0267584159882972
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args17-task-hold-until]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.004434458998730406
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args18-unknown-task]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.02847983399988152
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args19-tasks-action]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.009599333003279753
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_note_at_the_limit_is_kept_whole",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.07158754199917894
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_note_shaped_like_a_credential_is_refused_and_never_stored",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.000515957988682203
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_release_of_a_task_with_no_hold_is_a_no_op",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0008032920013647527
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_hold_on_a_task_the_policy_no_longer_routes_can_still_be_released",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.022621957992669195
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_the_task_names_are_the_policys_chains",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.005354583990992978
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_hold_and_release_are_events",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.002580457992735319
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_status_shows_the_holds_in_force_and_raises_no_alert",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.34896237500652205
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_why_names_the_note_and_the_end",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.013571999996202067
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_offline_status_lists_the_holds",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.3705494580062805
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[daemon]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.028295000010985
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[offline]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.5994591660128208
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_an_unknown_task_is_refused_by_name_and_holds_nothing",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.015418499999213964
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_release_signals_the_daemons_waiters_after_it_commits",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.01675374999467749
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_reset_credit_is_never_spent_for_a_held_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.03948799999488983
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_hold_needs_no_schema_change_and_survives_a_restart",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.04050337499938905
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_no_lease_reaper_removes_a_hold",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.011271374998614192
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_a_hold_is_no_lease_a_capacity_wait_counts",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.007523749998654239
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_the_hold_shows_in_why_text_constants",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00023383300867863
+    },
+    {
+      "nodeid": "tests/fake/test_task_hold_admission.py::test_quarantined_probe_can_recover_without_a_person",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6956127500016009
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_task_hold_admission.py::test_a_held_build_waits_while_a_review_on_the_same_lane_is_placed",
+    "tests/fake/test_task_hold_admission.py::test_a_job_with_no_task_and_a_job_of_another_task_are_not_held",
+    "tests/fake/test_task_hold_admission.py::test_a_held_build_retried_after_a_failed_attempt_waits",
+    "tests/fake/test_task_hold_admission.py::test_release_wakes_the_held_jobs_at_once",
+    "tests/fake/test_task_hold_admission.py::test_a_release_mid_pass_lets_the_later_jobs_of_that_pass_start",
+    "tests/fake/test_task_hold_admission.py::test_the_hold_ends_by_the_clock_with_no_reaper",
+    "tests/fake/test_task_hold_admission.py::test_a_second_hold_replaces_the_first",
+    "tests/fake/test_task_hold_admission.py::test_a_turn_of_a_held_task_is_placed",
+    "tests/fake/test_task_hold_admission.py::test_a_running_attempt_is_never_touched",
+    "tests/fake/test_task_hold_admission.py::test_a_hold_committed_after_the_pass_read_its_holds_still_stops_the_reservation",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args0-unknown-task]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args1-unknown-task]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args2-unknown-task]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args3-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args4-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args5-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args6-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args7-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args8-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args9-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args10-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args11-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args12-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args13-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args14-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args15-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args16-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args17-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args18-unknown-task]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args19-tasks-action]",
+    "tests/fake/test_task_hold_admission.py::test_a_note_at_the_limit_is_kept_whole",
+    "tests/fake/test_task_hold_admission.py::test_a_note_shaped_like_a_credential_is_refused_and_never_stored",
+    "tests/fake/test_task_hold_admission.py::test_release_of_a_task_with_no_hold_is_a_no_op",
+    "tests/fake/test_task_hold_admission.py::test_a_hold_on_a_task_the_policy_no_longer_routes_can_still_be_released",
+    "tests/fake/test_task_hold_admission.py::test_the_task_names_are_the_policys_chains",
+    "tests/fake/test_task_hold_admission.py::test_hold_and_release_are_events",
+    "tests/fake/test_task_hold_admission.py::test_status_shows_the_holds_in_force_and_raises_no_alert",
+    "tests/fake/test_task_hold_admission.py::test_why_names_the_note_and_the_end",
+    "tests/fake/test_task_hold_admission.py::test_offline_status_lists_the_holds",
+    "tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[daemon]",
+    "tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[offline]",
+    "tests/fake/test_task_hold_admission.py::test_an_unknown_task_is_refused_by_name_and_holds_nothing",
+    "tests/fake/test_task_hold_admission.py::test_a_release_signals_the_daemons_waiters_after_it_commits",
+    "tests/fake/test_task_hold_admission.py::test_a_reset_credit_is_never_spent_for_a_held_job",
+    "tests/fake/test_task_hold_admission.py::test_a_hold_needs_no_schema_change_and_survives_a_restart",
+    "tests/fake/test_task_hold_admission.py::test_no_lease_reaper_removes_a_hold",
+    "tests/fake/test_task_hold_admission.py::test_a_hold_is_no_lease_a_capacity_wait_counts",
+    "tests/fake/test_task_hold_admission.py::test_the_hold_shows_in_why_text_constants",
+    "tests/fake/test_task_hold_admission.py::test_quarantined_probe_can_recover_without_a_person"
+  ],
+  "all_nodes": [
+    "tests/fake/test_task_hold_admission.py::test_a_held_build_waits_while_a_review_on_the_same_lane_is_placed",
+    "tests/fake/test_task_hold_admission.py::test_a_job_with_no_task_and_a_job_of_another_task_are_not_held",
+    "tests/fake/test_task_hold_admission.py::test_a_held_build_retried_after_a_failed_attempt_waits",
+    "tests/fake/test_task_hold_admission.py::test_release_wakes_the_held_jobs_at_once",
+    "tests/fake/test_task_hold_admission.py::test_a_release_mid_pass_lets_the_later_jobs_of_that_pass_start",
+    "tests/fake/test_task_hold_admission.py::test_the_hold_ends_by_the_clock_with_no_reaper",
+    "tests/fake/test_task_hold_admission.py::test_a_second_hold_replaces_the_first",
+    "tests/fake/test_task_hold_admission.py::test_a_turn_of_a_held_task_is_placed",
+    "tests/fake/test_task_hold_admission.py::test_a_running_attempt_is_never_touched",
+    "tests/fake/test_task_hold_admission.py::test_a_hold_committed_after_the_pass_read_its_holds_still_stops_the_reservation",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args0-unknown-task]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args1-unknown-task]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args2-unknown-task]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args3-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args4-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args5-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args6-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args7-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args8-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args9-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args10-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args11-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args12-task-hold-note]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args13-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args14-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args15-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args16-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args17-task-hold-until]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args18-unknown-task]",
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args19-tasks-action]",
+    "tests/fake/test_task_hold_admission.py::test_a_note_at_the_limit_is_kept_whole",
+    "tests/fake/test_task_hold_admission.py::test_a_note_shaped_like_a_credential_is_refused_and_never_stored",
+    "tests/fake/test_task_hold_admission.py::test_release_of_a_task_with_no_hold_is_a_no_op",
+    "tests/fake/test_task_hold_admission.py::test_a_hold_on_a_task_the_policy_no_longer_routes_can_still_be_released",
+    "tests/fake/test_task_hold_admission.py::test_the_task_names_are_the_policys_chains",
+    "tests/fake/test_task_hold_admission.py::test_hold_and_release_are_events",
+    "tests/fake/test_task_hold_admission.py::test_status_shows_the_holds_in_force_and_raises_no_alert",
+    "tests/fake/test_task_hold_admission.py::test_why_names_the_note_and_the_end",
+    "tests/fake/test_task_hold_admission.py::test_offline_status_lists_the_holds",
+    "tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[daemon]",
+    "tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[offline]",
+    "tests/fake/test_task_hold_admission.py::test_an_unknown_task_is_refused_by_name_and_holds_nothing",
+    "tests/fake/test_task_hold_admission.py::test_a_release_signals_the_daemons_waiters_after_it_commits",
+    "tests/fake/test_task_hold_admission.py::test_a_reset_credit_is_never_spent_for_a_held_job",
+    "tests/fake/test_task_hold_admission.py::test_a_hold_needs_no_schema_change_and_survives_a_restart",
+    "tests/fake/test_task_hold_admission.py::test_no_lease_reaper_removes_a_hold",
+    "tests/fake/test_task_hold_admission.py::test_a_hold_is_no_lease_a_capacity_wait_counts",
+    "tests/fake/test_task_hold_admission.py::test_the_hold_shows_in_why_text_constants",
+    "tests/fake/test_task_hold_admission.py::test_quarantined_probe_can_recover_without_a_person"
+  ],
+  "phases": {
+    "tests/fake/test_task_hold_admission.py::test_a_held_build_waits_while_a_review_on_the_same_lane_is_placed": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_job_with_no_task_and_a_job_of_another_task_are_not_held": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_held_build_retried_after_a_failed_attempt_waits": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_release_wakes_the_held_jobs_at_once": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_release_mid_pass_lets_the_later_jobs_of_that_pass_start": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_the_hold_ends_by_the_clock_with_no_reaper": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_second_hold_replaces_the_first": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_turn_of_a_held_task_is_placed": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_running_attempt_is_never_touched": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_hold_committed_after_the_pass_read_its_holds_still_stops_the_reservation": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args0-unknown-task]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args1-unknown-task]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args2-unknown-task]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args3-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args4-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args5-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args6-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args7-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args8-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args9-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args10-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args11-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args12-task-hold-note]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args13-task-hold-until]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args14-task-hold-until]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args15-task-hold-until]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args16-task-hold-until]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args17-task-hold-until]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args18-unknown-task]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args19-tasks-action]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_note_at_the_limit_is_kept_whole": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_note_shaped_like_a_credential_is_refused_and_never_stored": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_release_of_a_task_with_no_hold_is_a_no_op": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_hold_on_a_task_the_policy_no_longer_routes_can_still_be_released": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_the_task_names_are_the_policys_chains": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_hold_and_release_are_events": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_status_shows_the_holds_in_force_and_raises_no_alert": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_why_names_the_note_and_the_end": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_offline_status_lists_the_holds": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[daemon]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[offline]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_an_unknown_task_is_refused_by_name_and_holds_nothing": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_release_signals_the_daemons_waiters_after_it_commits": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_reset_credit_is_never_spent_for_a_held_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_hold_needs_no_schema_change_and_survives_a_restart": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_no_lease_reaper_removes_a_hold": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_a_hold_is_no_lease_a_capacity_wait_counts": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_the_hold_shows_in_why_text_constants": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_task_hold_admission.py::test_quarantined_probe_can_recover_without_a_person": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 129155072
+}

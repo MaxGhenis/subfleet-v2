@@ -1,0 +1,717 @@
+[
+  {
+    "name": "r2-post-read-identity-check-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "a6d5a7bc4918145fb61c2f423a033835904c0f8d293b85afec03fcca1965b22d"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"], (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"], (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:29:02.482670+00:00",
+    "loads": [
+      26.638671875,
+      31.86181640625,
+      32.95751953125
+    ]
+  },
+  {
+    "name": "r2-terminal-legacy-incomplete-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "5ee4fb065bb8a91d34b3b4913239023dffcb0342085612f9ef67a836ea91ab85"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"borrower\" in places.incomplete"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"borrower\" in places.incomplete"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:29:31.485587+00:00",
+    "loads": [
+      30.0029296875,
+      32.18896484375,
+      33.03857421875
+    ]
+  },
+  {
+    "name": "r3-post-traversal-alias-check-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "975ee950301f35b8b5cb31756a10b14c6880a9b971483a744a379629ae3de1a6"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"], (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"], (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:29:53.217096+00:00",
+    "loads": [
+      36.501953125,
+      33.6025390625,
+      33.5263671875
+    ]
+  },
+  {
+    "name": "r3-census-moved-after-recovery",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.retention",
+        "original": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+        "mutated": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert observations == [True], (observations, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert observations == [True], (observations, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:30:16.125024+00:00",
+    "loads": [
+      37.6376953125,
+      34.06103515625,
+      33.69287109375
+    ]
+  },
+  {
+    "name": "r3-write-metadata-check-dropped",
+    "args": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-fix-r7-data",
+      "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "18942ec274973198e5d2d44618fdc5b429a69666daca0debbd5a086111cb98b2"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert changed and recorded.get('incomplete'), recorded"
+      ]
+    ],
+    "previous_assertions": [
+      "assert changed and recorded.get('incomplete'), recorded"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:30:38.614088+00:00",
+    "loads": [
+      34.96240234375,
+      33.6787109375,
+      33.56298828125
+    ]
+  },
+  {
+    "name": "r3-final-path-check-dropped",
+    "args": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-fix-r7-data",
+      "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "b44c8b2ce19eff3aebf1bb0dda32c81dd04ca5d3c40bb32fea1d65119574b487"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert changed and recorded.get('incomplete'), recorded"
+      ]
+    ],
+    "previous_assertions": [
+      "assert changed and recorded.get('incomplete'), recorded"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:31:06.018276+00:00",
+    "loads": [
+      34.15625,
+      33.64208984375,
+      33.5556640625
+    ]
+  },
+  {
+    "name": "r3-terminal-census-live-only",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "89da19e3dc73a0fd0bd7ed98b5ae249f1fd42144aad777480e3eabacef3ecf2a"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"], result"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"], result"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:31:21.374521+00:00",
+    "loads": [
+      34.45263671875,
+      33.73876953125,
+      33.591796875
+    ]
+  },
+  {
+    "name": "r4-initial-objects-revalidation-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "b1609bece0074ca72086ac1f8948e5f6676274410f3dcdab098643814dbeeb10"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert not result[\"pruned\"], (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert not result[\"pruned\"], (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:33:31.747781+00:00",
+    "loads": [
+      37.955078125,
+      35.25,
+      34.21728515625
+    ]
+  },
+  {
+    "name": "r4-initial-objects-recording-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "c4d512dceaa4af5e1fc9544b74b2df1b1e1d1ceaa7ddc9b3a0877c4ff717301e"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:33:52.078905+00:00",
+    "loads": [
+      37.3896484375,
+      35.29736328125,
+      34.2578125
+    ]
+  },
+  {
+    "name": "r5-commondir-whitespace-stripping-restored",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "bc00919807af783c0992e106df76664aaa59015b3e10393354df425d8c7de485"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:34:07.119819+00:00",
+    "loads": [
+      38.01611328125,
+      35.55517578125,
+      34.3681640625
+    ]
+  },
+  {
+    "name": "r5-gitfile-whitespace-stripping-restored",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "5d7a71a72dcc34d2f081a5f1bdfee627c4ad3538ee3fcf07cc71356873b29667"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:34:38.074543+00:00",
+    "loads": [
+      38.79833984375,
+      35.98974609375,
+      34.5712890625
+    ]
+  },
+  {
+    "name": "r5-gitfile-colon-without-space-accepted",
+    "args": [
+      "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "a0958b627697b2b7f34be6540c8efbaa14f4ddffba9ed558162e33f18de95098"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert not recorded.get(\"git\"), recorded"
+      ]
+    ],
+    "previous_assertions": [
+      "assert not recorded.get(\"git\"), recorded"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:34:51.146867+00:00",
+    "loads": [
+      38.2939453125,
+      35.97314453125,
+      34.58203125
+    ]
+  },
+  {
+    "name": "r6-empty-common-initial-objects-not-recorded",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "79052bf4ee389bca59b3b336c39d3c695e495a9d4c9cd5914044436449990365"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:35:13.552880+00:00",
+    "loads": [
+      37.89013671875,
+      36.06884765625,
+      34.65673828125
+    ]
+  },
+  {
+    "name": "r6-pointer-read-failure-evidence-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "941102c21eda0cdc6632ff4c5c24703c383a6f07825c355ba8dbdc4c22b33279"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:35:38.251940+00:00",
+    "loads": [
+      38.92626953125,
+      36.3857421875,
+      34.806640625
+    ]
+  },
+  {
+    "name": "r6-parent-common-fallback-restored",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "2f6600d06935f45255cd68ae0731f6206ab042022bb34f6b3b62a89194d4bc13"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": [
+      "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:36:01.154556+00:00",
+    "loads": [
+      34.75341796875,
+      35.611328125,
+      34.56591796875
+    ]
+  },
+  {
+    "name": "r6-dangling-pointer-treated-as-missing",
+    "args": [
+      "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "d063b5551681f6ba8d39be39cf0b39713ff8a8e61212ab964e8d2da82e455149"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert any(error[\"file\"] == str(pointer) for error in recorded.get(\"incomplete\", [])), recorded"
+      ]
+    ],
+    "previous_assertions": [
+      "assert any(error[\"file\"] == str(pointer) for error in recorded.get(\"incomplete\", [])), recorded"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:36:40.199831+00:00",
+    "loads": [
+      35.8017578125,
+      35.70703125,
+      34.6435546875
+    ]
+  },
+  {
+    "name": "r6-oversized-pointer-treated-as-missing",
+    "args": [
+      "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "f783b8ec698b5a52212190efe60e952a30dae88dcd6ec45983e65d179dac0ec0"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert any(error[\"file\"] == str(pointer) for error in recorded.get(\"incomplete\", [])), recorded"
+      ]
+    ],
+    "previous_assertions": [
+      "assert any(error[\"file\"] == str(pointer) for error in recorded.get(\"incomplete\", [])), recorded"
+    ],
+    "same_assertions": true,
+    "start": "2026-10-31T06:37:00.880318+00:00",
+    "loads": [
+      37.828125,
+      36.138671875,
+      34.8203125
+    ]
+  },
+  {
+    "name": "r7-unused-parent-pointer-probing-restored",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "8a8c7ed75037bcef8fc531a9685e139ad95edea91e04c55bbfb7cfda653ef770"
+      }
+    ],
+    "failures": 2,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert not recorded.get(\"incomplete\"), (recorded, result)"
+      ],
+      [
+        "assert not recorded.get(\"incomplete\"), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": null,
+    "same_assertions": null,
+    "start": "2026-10-31T06:37:17.567709+00:00",
+    "loads": [
+      37.884765625,
+      36.25634765625,
+      34.88623046875
+    ]
+  },
+  {
+    "name": "r7-own-objects-revalidation-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "52b05ec1f06c6c68542f2c84c233e6e448a70c38975ae45241f104f972b0384b"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": null,
+    "same_assertions": null,
+    "start": "2026-10-31T06:44:50.353762+00:00",
+    "loads": [
+      39.43212890625,
+      37.34130859375,
+      35.82177734375
+    ]
+  },
+  {
+    "name": "r7-parent-objects-recording-dropped",
+    "args": [
+      "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "e867f20d4e50e6b8340310b6279958390f297a78922f2f5cca8876b8f31cda81"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": null,
+    "same_assertions": null,
+    "start": "2026-10-31T06:45:04.497204+00:00",
+    "loads": [
+      39.65625,
+      37.50146484375,
+      35.90576171875
+    ]
+  },
+  {
+    "name": "r8-final-pointer-content-check-dropped",
+    "args": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-review-r8-data",
+      "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "4d0eb6e46d0c607c8eea43685bc37bccdd9fc3de0ed283808267f3a508cac8bd"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert recorded.get('incomplete'), recorded"
+      ]
+    ],
+    "previous_assertions": null,
+    "same_assertions": null,
+    "start": "2026-10-31T06:45:17.700117+00:00",
+    "loads": [
+      39.47509765625,
+      37.53369140625,
+      35.935546875
+    ]
+  },
+  {
+    "name": "r8-alias-location-recording-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "--runxfail"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "cf227810046068535a6cf20c167c564bdbcbc05675bdd02b461572eb91df40fd"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": null,
+    "same_assertions": null,
+    "start": "2026-10-31T06:32:35.350511+00:00",
+    "loads": [
+      38.23828125,
+      35.11865234375,
+      34.12744140625
+    ]
+  },
+  {
+    "name": "r8-pointer-file-location-recording-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]",
+      "--runxfail"
+    ],
+    "exit": 1,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+        "mutated": "bc3804d4fd29741cd6ac6312fcd99386eabd0dc898d91cc5c9fa5d8414e81bc7"
+      }
+    ],
+    "failures": 1,
+    "all_setup_teardown_pass": true,
+    "assertions": [
+      [
+        "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+      ]
+    ],
+    "previous_assertions": null,
+    "same_assertions": null,
+    "start": "2026-10-31T06:32:57.278118+00:00",
+    "loads": [
+      34.7138671875,
+      34.5244140625,
+      33.93701171875
+    ]
+  }
+]

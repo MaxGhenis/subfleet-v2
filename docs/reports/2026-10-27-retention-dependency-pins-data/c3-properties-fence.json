@@ -1,0 +1,55 @@
+{
+  "start": "2026-10-28T22:24:38.268744+00:00",
+  "load": [
+    69.5146484375,
+    68.6953125,
+    84.84765625
+  ],
+  "pid": 59543,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.31651408299512696
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 246.94544091699936
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0006406250031432137,
+      "_hypothesis_stats": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted:\n\n  - during generate phase (240.06 seconds):\n    - Typical runtimes: ~ 4167-23359 ms, of which ~ 10-715 ms in data generation\n    - 24 passing, 0 failing, and 0 invalid test cases\n\n  - Stopped because settings.max_examples=24"
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "exit": 0,
+  "seconds": 291.56953679199796,
+  "maxrss": 129105920,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "outside after 30 minutes",
+  "command": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "submitted",
+    "--hypothesis-show-statistics"
+  ],
+  "admission_utc": "2026-10-28T22:24:28.852253+00:00",
+  "wall_seconds": 2104.89,
+  "queue_seconds": 1800.515
+}

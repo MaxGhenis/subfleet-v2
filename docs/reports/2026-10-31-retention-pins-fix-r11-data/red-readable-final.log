@@ -1,0 +1,89 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:24:27Z slot B load 
+................FFFF..FFFF......FFFF                                     [100%]
+=================================== FAILURES ===================================
+____________________ test_filter_stat_table[found-success] _____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/PRIVATE/TMP/SF-FIX272R11/REAL-TMP/RED-READABLE-FINAL/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_FILTER_STAT_TABLE_FOUND_S0/READABLE' in []) == ('success' not in ('ELOOP', 'ENAMETOOLONG'))
+_____________________ test_filter_stat_table[found-ENOENT] _____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E0/missing' in []) == ('ENOENT' not in ('ELOOP', 'ENAMETOOLONG'))
+____________________ test_filter_stat_table[found-ENOTDIR] _____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E1/file/child' in []) == ('ENOTDIR' not in ('ELOOP', 'ENAMETOOLONG'))
+_____________________ test_filter_stat_table[found-EACCES] _____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E2/denied/child' in []) == ('EACCES' not in ('ELOOP', 'ENAMETOOLONG'))
+___________________ test_filter_stat_table[entries-success] ____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/PRIVATE/TMP/SF-FIX272R11/REAL-TMP/RED-READABLE-FINAL/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_FILTER_STAT_TABLE_ENTRIES0/READABLE' in []) == ('success' not in ('ELOOP', 'ENAMETOOLONG'))
+____________________ test_filter_stat_table[entries-ENOENT] ____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_filter_stat_table_entries1/missing' in []) == ('ENOENT' not in ('ELOOP', 'ENAMETOOLONG'))
+___________________ test_filter_stat_table[entries-ENOTDIR] ____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_filter_stat_table_entries2/file/child' in []) == ('ENOTDIR' not in ('ELOOP', 'ENAMETOOLONG'))
+____________________ test_filter_stat_table[entries-EACCES] ____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_filter_stat_table_entries3/denied/child' in []) == ('EACCES' not in ('ELOOP', 'ENAMETOOLONG'))
+_________________ test_more_readable_rename_forms[parent-case] _________________
+tests/unit/test_retention_location_readable.py:272: in test_more_readable_rename_forms
+    assert len(recorded["git"]) == 3
+E   AssertionError: assert 2 == 3
+E    +  where 2 = len(['/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/o...x272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/outside/.git/objects'])
+____________ test_more_readable_rename_forms[unicode-normalization] ____________
+tests/unit/test_retention_location_readable.py:272: in test_more_readable_rename_forms
+    assert len(recorded["git"]) == 3
+E   AssertionError: assert 2 == 3
+E    +  where 2 = len(['/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/o...x272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/outside/.git/objects'])
+___________ test_original_rename_record_equals_baseline[alternates] ____________
+tests/unit/test_retention_location_readable.py:325: in test_original_rename_record_equals_baseline
+    check_case_rename(world, monkeypatch, route, types.SimpleNamespace(record=compared), record_property)
+tests/fake/test_retention_dependency_review_r11.py:71: in check_case_rename
+    recorded = module.record(str(checkout))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_readable.py:321: in compared
+    assert actual == before
+E   AssertionError: assert {'git': ['/pr...git/objects']} == {'git': ['/pr...git/objects']}
+E     
+E     Differing items:
+E     {'git': ['/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_original_rename_reco...272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_original_rename_record_eq0/outside/.git/objects']} != {'git': ['/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_original_rename_reco...eadable-final/pytest-of-maxghenis/pytest-0/test_original_rename_record_eq0/state/worktrees/owner/source/.git/objects']}
+E     Use -v to get more diff
+______________ test_original_rename_record_equals_baseline[scan] _______________
+tests/unit/test_retention_location_readable.py:325: in test_original_rename_record_equals_baseline
+    check_case_rename(world, monkeypatch, route, types.SimpleNamespace(record=compared), record_property)
+tests/fake/test_retention_dependency_review_r11.py:71: in check_case_rename
+    recorded = module.record(str(checkout))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_readable.py:321: in compared
+    assert actual == before
+E   AssertionError: assert {'git': ['/pr...git/objects']} == {'git': ['/pr...owner/packs']}
+E     
+E     Differing items:
+E     {'git': ['/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_original_rename_reco...x272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_original_rename_record_eq1/stable/.git/objects']} != {'git': ['/private/tmp/sf-fix272r11/real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_original_rename_reco...real-tmp/red-readable-final/pytest-of-maxghenis/pytest-0/test_original_rename_record_eq1/state/worktrees/owner/packs']}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-success]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOTDIR]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-EACCES]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[entries-success]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[entries-ENOENT]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[entries-ENOTDIR]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[entries-EACCES]
+FAILED tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]
+FAILED tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]
+FAILED tests/unit/test_retention_location_readable.py::test_original_rename_record_equals_baseline[alternates]
+FAILED tests/unit/test_retention_location_readable.py::test_original_rename_record_equals_baseline[scan]
+12 failed, 24 passed in 223.49s (0:03:43)
+{"name": "red-readable-final", "start": "2026-10-31T18:24:31.637813+00:00", "load": [60.646484375, 60.3798828125, 57.93603515625], "seconds": 226.15606291600125, "exit": 1}

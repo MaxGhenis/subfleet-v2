@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:34:38.074543+00:00", "loads": [38.79833984375, 35.98974609375, 34.5712890625], "pid": 48839, "args": ["tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"], "fixture_root": "/private/tmp/sf-r272r8"}

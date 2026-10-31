@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:43:19Z slot B load 
+START trial-r6-healthy 2026-10-30T19:43:24.738526+00:00 load=(41.64013671875, 44.056640625, 47.16796875)
+................                                                         [100%]
+============================ Hypothesis Statistics =============================
+16 passed in 77.70s (0:01:17)

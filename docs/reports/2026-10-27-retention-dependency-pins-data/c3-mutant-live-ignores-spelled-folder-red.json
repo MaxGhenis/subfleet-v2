@@ -1,0 +1,50 @@
+{
+  "start": "2026-10-28T22:42:17.936291+00:00",
+  "load": [
+    137.33203125,
+    105.498046875,
+    91.48486328125
+  ],
+  "pid": 11413,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 17.941882374987472
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 0.6547451660007937,
+      "failure": "tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/hold-c3-mutant-live-ignores-spelled-folder-red/pytest-of-maxghenis/pytest-0/test_d2_a_legacy_admission_fol0')\n\n    def test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends(tmp_path):\n        \"\"\"An older admission's spelled folder is independent evidence, even when\n        the row and original submit name no place inside the owned tree.\"\"\"\n        store = Store(tmp_path / \"s.sqlite3\")\n        try:\n            store.add_job(job_id=\"tree\", request_id=\"tree\", payload_digest=\"d\", kind=\"dispatch\",\n                          workdir=\"/src\", worktree=\"/s/worktrees/tree\", prompt_path=\"/p\",\n                          sandbox=\"workspace-write\", state=\"succeeded\")\n            store.add_job(job_id=\"legacy\", request_id=\"legacy\", payload_digest=\"d\", kind=\"dispatch\",\n                          workdir=\"/outside\", prompt_path=\"/p\", sandbox=\"read-only\", state=\"queued\")\n            store.add_event(\"job.submitted\", job_id=\"legacy\", data={})\n            store.add_event(\"job.folder_spelled\", job_id=\"legacy\", data={\"folder\": \"/s/worktrees/TREE/pkg\"})\n>           assert retention._pin_reasons(store, set(), None)[\"tree\"] == \"worktree-in-use\"\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE           KeyError: 'tree'\n\ntests/unit/test_retention_dependency_units.py:358: KeyError"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.01605008299520705
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+  ],
+  "exit": 1,
+  "seconds": 98.80479445798846,
+  "maxrss": 117342208,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+  ],
+  "admission_utc": "2026-10-28T22:42:03.598308+00:00",
+  "wall_seconds": 351.047,
+  "queue_seconds": 228.94
+}

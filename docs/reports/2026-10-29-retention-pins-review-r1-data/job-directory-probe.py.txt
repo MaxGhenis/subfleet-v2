@@ -1,0 +1,18 @@
+from pathlib import Path
+from subfleet import dependencies,folders,retention,procs
+from tests.unit.retention_world import World
+
+def test_output_in_another_jobs_directory_keeps_that_directory(tmp_path,monkeypatch):
+ monkeypatch.setattr(procs,'worktree_cwd_pids',lambda *a,**k:frozenset())
+ w=World(tmp_path)
+ try:
+  w.job('owner',worktree=False)
+  folder=w.root/'jobs'/'owner'
+  outside=tmp_path/'outside';outside.mkdir()
+  output=folder/'result.md'
+  recorded=dependencies.record(str(outside),out_path=str(output))
+  w.store.add_job(job_id='reader',request_id='reader',payload_digest='d',kind='dispatch',state='queued',workdir=str(outside),out_path=str(output),prompt_path='/p',sandbox='read-only')
+  w.store.add_event('job.submitted',job_id='reader',data={'depends':recorded})
+  result=retention.maintenance(w.store,w.root,max_jobs=0,max_bytes=0,holders=lambda *a,**k:{})
+  assert 'owner' not in result['pruned'],result
+ finally:w.close()

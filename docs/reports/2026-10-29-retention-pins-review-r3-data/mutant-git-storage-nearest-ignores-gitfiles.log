@@ -1,0 +1,53 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:47:04Z slot B load 
+{"start": "2026-10-29T13:47:04.688176+00:00", "load": [19.95654296875, 20.72265625, 22.46142578125], "name": "mutant-git-storage-nearest-ignores-gitfiles"}
+Ftmp_path = PosixPath('/private/tmp/sf-r272r3/cases-50936/pytest/test_d1_a_linked_checkout_outs0')
+
+    def test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in(tmp_path):
+        """The review's P1 layout: a checkout made outside a tree from a repository in it.
+        Its folder, and a folder inside it, name the repository's admin directory and
+        common directory, inside the tree; a folder outside any checkout names none."""
+        nested = repo(tmp_path / "tree" / "vendor" / "lib")
+        outside = tmp_path / "outside"
+        git(nested, "worktree", "add", "--quiet", "--detach", str(outside), "HEAD")
+        (outside / "pkg").mkdir()
+        common = folders.canonical(nested / ".git")
+        admin = folders.canonical(nested / ".git" / "worktrees" / "outside")
+        for path in (outside, outside / "pkg"):
+>           assert dependencies.git_storage(str(path))[:2] == [admin, common]
+E           AssertionError: assert [] == ['/private/tm...dor/lib/.git']
+E             
+E             Right contains 2 more items, first extra item: '/private/tmp/sf-r272r3/cases-50936/pytest/test_d1_a_linked_checkout_outs0/tree/vendor/lib/.git/worktrees/outside'
+E             Use -v to get more diff
+
+tests/unit/test_retention_dependency_units.py:80: AssertionError
+
+=================================== FAILURES ===================================
+______ test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in ______
+
+tmp_path = PosixPath('/private/tmp/sf-r272r3/cases-50936/pytest/test_d1_a_linked_checkout_outs0')
+
+    def test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in(tmp_path):
+        """The review's P1 layout: a checkout made outside a tree from a repository in it.
+        Its folder, and a folder inside it, name the repository's admin directory and
+        common directory, inside the tree; a folder outside any checkout names none."""
+        nested = repo(tmp_path / "tree" / "vendor" / "lib")
+        outside = tmp_path / "outside"
+        git(nested, "worktree", "add", "--quiet", "--detach", str(outside), "HEAD")
+        (outside / "pkg").mkdir()
+        common = folders.canonical(nested / ".git")
+        admin = folders.canonical(nested / ".git" / "worktrees" / "outside")
+        for path in (outside, outside / "pkg"):
+>           assert dependencies.git_storage(str(path))[:2] == [admin, common]
+E           AssertionError: assert [] == ['/private/tm...dor/lib/.git']
+E             
+E             Right contains 2 more items, first extra item: '/private/tmp/sf-r272r3/cases-50936/pytest/test_d1_a_linked_checkout_outs0/tree/vendor/lib/.git/worktrees/outside'
+E             Use -v to get more diff
+
+tests/unit/test_retention_dependency_units.py:80: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 1.43s

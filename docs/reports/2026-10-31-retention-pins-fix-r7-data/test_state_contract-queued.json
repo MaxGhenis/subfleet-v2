@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T03:39:52.233575+00:00",
+  "args": [
+    "tests/fake/test_state_contract.py",
+    "tests/unit/test_test_module_names.py",
+    "tests/unit/test_invariants_index.py"
+  ]
+}

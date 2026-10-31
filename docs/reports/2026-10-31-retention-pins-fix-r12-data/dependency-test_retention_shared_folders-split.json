@@ -1,0 +1,25 @@
+{
+  "name": "dependency-test_retention_shared_folders",
+  "split_into": [
+    {
+      "name": "shared-examples",
+      "exit": 0
+    },
+    {
+      "name": "shared-property-0",
+      "exit": 0
+    },
+    {
+      "name": "shared-property-1",
+      "exit": 0
+    },
+    {
+      "name": "shared-property-2",
+      "exit": 0
+    },
+    {
+      "name": "shared-property-3",
+      "exit": 0
+    }
+  ]
+}

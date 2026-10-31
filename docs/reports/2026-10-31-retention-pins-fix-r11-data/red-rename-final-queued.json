@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T18:10:11.382059+00:00",
+  "args": [
+    "tests/unit/test_retention_location_readable.py",
+    "-k",
+    "more_readable_rename_forms"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/red-rename-final",
+  "linked": false,
+  "driver_pid": 94665,
+  "lock_process_group": 94874
+}

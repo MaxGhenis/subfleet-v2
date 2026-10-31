@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T12:48:46.345740+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r4.py",
+    "-k",
+    "changed_repository_spelling and remove"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/regressions-r4-remove",
+  "linked": false,
+  "driver_pid": 69152,
+  "lock_process_group": 69317
+}

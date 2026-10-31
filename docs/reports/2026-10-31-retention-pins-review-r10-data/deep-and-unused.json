@@ -1,0 +1,87 @@
+{
+  "name": "deep-and-unused",
+  "start": "2026-10-31T10:40:44.671362+00:00",
+  "load": [
+    39.67724609375,
+    38.46630859375,
+    36.54443359375
+  ],
+  "args": [
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py",
+    "-k",
+    "not test_routine_matches_prerequisite"
+  ],
+  "phases": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0034612919989740476,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.21341004199712188,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003953166997234803,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003501875002257293,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.22259116699933656,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00045362499804468825,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "key": "D-R8-1",
+      "value": "{\"after\": 128, \"before\": 0, \"error\": \"fatal: invalid object name 'HEAD'.\\n\", \"input\": \"refs/heads/main -> owner/branch\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/deep-and-unused/pytest-of-maxghenis/pytest-0/test_deeper_ref_link_is_the_do0/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/deep-and-unused/pytest-of-maxghenis/pytest-0/test_deeper_ref_link_is_the_do0/stable/.git/objects\"]}}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "key": "converse-bound-counterexample",
+      "value": "{\"after\": 0, \"before\": 0, \"input\": \"stable/.git/unused-entry -> unrelated/unused\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/deep-and-unused/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/deep-and-unused/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/deep-and-unused/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated/unused\"]}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:40:50.541697+00:00",
+  "seconds": 5.870095541002229,
+  "peak_rss_mib": 70.140625,
+  "exit": 0
+}

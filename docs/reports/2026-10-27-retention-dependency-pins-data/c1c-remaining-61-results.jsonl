@@ -1,0 +1,3 @@
+{"nodeid": "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass", "when": "setup", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass", "when": "call", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass", "when": "teardown", "outcome": "passed", "xfail": null}

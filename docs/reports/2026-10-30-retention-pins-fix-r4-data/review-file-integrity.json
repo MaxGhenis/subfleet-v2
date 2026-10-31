@@ -1,0 +1,8 @@
+{
+  "file": "tests/fake/test_retention_dependency_review_r4.py",
+  "base_sha256": "8bfc677946277644aa0281bf54f90c60bc2136c65422f1d8e029898d4d9edf87",
+  "head_sha256": "e9e781069d6c4fc25313edc21c3edbb84c0df17aaae94615847b8858bf6d33c9",
+  "only_authorized_marks_removed": true,
+  "cases_unmarked": 5,
+  "earlier_review_files_unchanged": true
+}

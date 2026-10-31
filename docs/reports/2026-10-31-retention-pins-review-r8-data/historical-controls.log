@@ -1,0 +1,40 @@
+START historical-controls 2026-10-31T06:18:11.375658+00:00 load=(34.380859375, 32.3671875, 32.1240234375)
+.........................................F.................              [100%]
+=================================== FAILURES ===================================
+_______________ test_pointer_failure_split_against_git[dangling] _______________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1'), trusted=True, remot...-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1/state'), store=<subfleet.store.Store object at 0x1082bb850>)
+defect = 'dangling'
+record_property = <function record_property.<locals>.append_property at 0x1076eeb90>
+
+    @pytest.mark.parametrize('defect', ['absent', 'dangling', 'directory', 'permission', 'oversized'])
+    def test_pointer_failure_split_against_git(world, defect, record_property):
+        checkout = repo(world.base / 'outside')
+        pointer = checkout / '.git' / 'commondir'
+        if defect == 'dangling':
+            pointer.symlink_to(world.base / 'gone')
+        elif defect == 'directory':
+            pointer.mkdir()
+        elif defect == 'permission':
+            pointer.write_bytes(b'\n')
+            pointer.chmod(0)
+        elif defect == 'oversized':
+            pointer.write_bytes(b'\r\n' * 35000)
+        try:
+            read = git('-C', checkout, 'show', 'HEAD:f.txt')
+            recorded = dependencies.record(str(checkout))
+        finally:
+            if defect == 'permission':
+                pointer.chmod(0o600)
+        assert bool(recorded.get('incomplete')) == (defect != 'absent'), recorded
+>       assert (read.returncode == 0) == (defect in ('absent', 'dangling', 'oversized')), read.stderr
+E       AssertionError: b'fatal: failed to read /private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1/outside/.git/commondir: No such file or directory
+E         '
+E       assert (128 == 0) == ('dangling' in ('absent', 'dangling', 'oversized'))
+E        +  where 128 = CompletedProcess(args=['git', '-C', '/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1/outside.../tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1/outside/.git/commondir: No such file or directory\n').returncode
+
+docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py:140: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]
+1 failed, 58 passed in 298.16s (0:04:58)

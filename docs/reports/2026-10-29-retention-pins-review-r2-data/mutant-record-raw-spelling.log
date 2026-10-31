@@ -1,0 +1,42 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:25:53Z slot A load 
+ADMITTED 2026-10-29T06:25:53.364025+00:00 LOAD (20.125, 18.59375, 21.04150390625)
+FOBSERVATION {"engines": [], "explicit": {}, "mutant": "record-raw-spelling", "loaded": ["subfleet.dependencies"]}
+
+=================================== FAILURES ===================================
+______________________ test_record_spells_each_place_once ______________________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-record-raw-spelling/pytest-of-maxghenis/pytest-0/test_record_spells_each_place_0')
+
+    def test_record_spells_each_place_once(tmp_path):
+        """Submit's record: the review root and `-o` path in the one spelling the volume
+        stores (`folders.canonical`), whatever case they were given in, and the git
+        storage of the workdir and of the review root."""
+        review = repo(tmp_path / "Review")
+        work = repo(tmp_path / "work")
+        typed = tmp_path / "REVIEW"
+        if not typed.exists():
+            pytest.skip("this volume tells case apart")
+        found = dependencies.record(str(work), review_root=str(typed), out_path=str(typed / "Out.md"))
+>       assert found["review_root"] == folders.canonical(review)
+E       AssertionError: assert '/private/var...lace_0/REVIEW' == '/private/var...lace_0/Review'
+E         
+E         Skipping 151 identical leading characters in diff, use -v to show
+E         - _place_0/Review
+E         + _place_0/REVIEW
+
+tests/unit/test_retention_dependency_units.py:486: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 2 warnings in 2.01s

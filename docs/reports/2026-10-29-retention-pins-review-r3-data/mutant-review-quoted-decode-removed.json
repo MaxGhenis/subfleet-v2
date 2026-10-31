@@ -1,0 +1,30 @@
+{
+  "name": "mutant-review-quoted-decode-removed",
+  "start": "2026-10-29T13:49:21.102941+00:00",
+  "load": [
+    25.93310546875,
+    22.2724609375,
+    22.79541015625
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "9166927078a52bf47344f076bd8b984c8439c1a62d76aaa590b021167df45629"
+    }
+  ],
+  "rc": 1,
+  "seconds": 21.27358737499162,
+  "rss": 126140416
+}

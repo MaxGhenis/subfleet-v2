@@ -1,0 +1,41 @@
+{
+  "label": "shared-folders-400-generated",
+  "start": "2026-10-30T23:53:22.342157+00:00",
+  "loads": [
+    56.50341796875,
+    45.49853515625,
+    54.70068359375
+  ],
+  "seconds": 500.50829200001317,
+  "exit": 2,
+  "locked": true,
+  "tests": [],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "setup": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "max_examples": 400,
+      "derandomize": true,
+      "database_none": true,
+      "phases": [
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 12
+    }
+  },
+  "loaded": [],
+  "rss": 171589632
+}

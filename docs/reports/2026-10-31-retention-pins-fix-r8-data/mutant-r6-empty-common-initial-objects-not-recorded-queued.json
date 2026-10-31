@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:28:25.694736+00:00",
+  "args": [
+    "--mutant",
+    "r6-empty-common-initial-objects-not-recorded",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r6-empty-common-initial-objects-not-recorded",
+  "linked": false
+}

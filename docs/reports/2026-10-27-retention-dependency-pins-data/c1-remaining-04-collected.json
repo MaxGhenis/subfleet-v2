@@ -1,0 +1,3 @@
+[
+  "tests/fake/test_admission_ramp.py::test_disabled_absent_matches_frozen_pre_change_pass"
+]

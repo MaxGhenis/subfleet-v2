@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:30:10.750858+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/dependency-properties-2",
+  "linked": false
+}

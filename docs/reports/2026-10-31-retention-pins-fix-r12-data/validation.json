@@ -1,0 +1,18 @@
+{
+  "required_holds_complete": true,
+  "missing_collected_nodes": [],
+  "final_ordinary_failures": [],
+  "initial_expectation_failures": 4,
+  "initial_failures_all_corrected": true,
+  "locked": true,
+  "actual_pytest_invocations": 66,
+  "distinct_passed": 397,
+  "files": 24,
+  "differential_comparisons": 496,
+  "omitted_errno": "ELOOP only",
+  "mutants_killed": 19,
+  "named_assertions": 20,
+  "longest_seconds": 241.0430064589891,
+  "peak_rss_mib": 132.984375,
+  "whitespace_check": "source, prose and structured evidence pass; raw logs excluded to preserve their bytes"
+}

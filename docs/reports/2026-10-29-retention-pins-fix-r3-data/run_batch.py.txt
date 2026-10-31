@@ -1,0 +1,18 @@
+import json, os, subprocess, sys
+from pathlib import Path
+scratch = Path('/private/tmp/sf-fix272r3')
+env = os.environ.copy()
+env.update(TMPDIR=str(scratch/'tmp'), HYPOTHESIS_STORAGE_DIRECTORY=str(scratch/'hyp'),
+           UV_PROJECT_ENVIRONMENT=str(scratch/'venv'), UV_CACHE_DIR=str(scratch/'uv-cache'),
+           PYTHONDONTWRITEBYTECODE='1', SF_FAILED_ROOT=str(scratch/'failed'))
+for label, args in json.loads(Path(sys.argv[1]).read_text()):
+    env.pop('SF_MUTANT', None)
+    if label.startswith('mutant-'): env['SF_MUTANT'] = label
+    command = ['/bin/zsh', '/Users/maxghenis/reviews/subfleet-hub/host-runs/suite_hold.sh',
+               'env', '-u', 'SUBFLEET_RETENTION_DORMANT', '-u', 'PYTHONPATH',
+               'uv', 'run', '--no-sync', 'python', str(scratch/'run_hold.py'), label, *args]
+    if env.get('SF_SKIP_LOCK'): command = command[2:]
+    with (scratch/(label+'.log')).open('w') as log:
+        p = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT)
+    print(label, 'exit', p.returncode, flush=True)
+    print((scratch/(label+'.log')).read_text()[-2600:], flush=True)

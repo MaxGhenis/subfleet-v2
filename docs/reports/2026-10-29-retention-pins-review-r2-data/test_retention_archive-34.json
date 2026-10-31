@@ -1,0 +1,67 @@
+{
+  "name": "test_retention_archive-34",
+  "start": "2026-10-29T06:42:19.186236+00:00",
+  "load": [
+    17.96533203125,
+    22.26171875,
+    22.8603515625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory]",
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[detached-worktree]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[detached-worktree]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory]": {
+      "setup": {
+        "duration": 1.151682042007451,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.726885707990732,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0017947079904843122,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[detached-worktree]": {
+      "setup": {
+        "duration": 0.7398447089944966,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4844367919868091,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.019137416005833074,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

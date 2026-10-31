@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r8-parent-hint-scanned",
+  "start": "2026-10-31T07:31:14.109316+00:00",
+  "load": [
+    31.45458984375,
+    32.55859375,
+    33.36181640625
+  ],
+  "args": [
+    "--mutant",
+    "r8-parent-hint-scanned",
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.019851375000144,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.125063458999648,
+      "failure": "tests/unit/test_retention_locations.py:113: in test_inferred_parent_is_not_scanned\n    assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_p.../real-tmp/mutant-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1', ...]}\nE   assert not True\nE    +  where True = any(<generator object test_inferred_parent_is_not_scanned.<locals>.<genexpr> at 0x10bf95040>)"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000533667000127025,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+      "mutated": "cdb8606cbde81d0baedd46e495292bb3f8ff762b54b1a855eea5c7a320e4afaa"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+  "end": "2026-10-31T07:31:18.469947+00:00",
+  "seconds": 4.360344624998106,
+  "peak_rss_mib": 111.375,
+  "exit": 1
+}

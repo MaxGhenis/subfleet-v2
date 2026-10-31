@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:29:57.385857+00:00",
+  "args": [
+    "--mutant",
+    "r7-parent-objects-recording-dropped",
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r7-parent-objects-recording-dropped",
+  "linked": false
+}

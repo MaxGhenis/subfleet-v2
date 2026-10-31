@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T18:23:55.756276+00:00",
+  "args": [
+    "tests/unit/test_retention_location_readable.py",
+    "-k",
+    "original_rename_record_equals_baseline"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/link-tmp/linked-original-record-comparison",
+  "linked": true,
+  "driver_pid": 64060,
+  "lock_process_group": 64068
+}

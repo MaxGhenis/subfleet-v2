@@ -1,0 +1,25 @@
+{
+  "name": "turn-workdirs",
+  "start": "2026-10-29T06:00:26.643610+00:00",
+  "load": [
+    29.81103515625,
+    32.03369140625,
+    28.42822265625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_turn_workdirs.py::test_live_turn_workdir_guard_uses_an_index"
+  ],
+  "phases": {
+    "tests/unit/test_retention_turn_workdirs.py::test_live_turn_workdir_guard_uses_an_index": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

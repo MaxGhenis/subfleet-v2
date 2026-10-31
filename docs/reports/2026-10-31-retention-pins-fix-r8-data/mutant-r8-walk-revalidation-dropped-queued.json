@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:31:19.138883+00:00",
+  "args": [
+    "--mutant",
+    "r8-walk-revalidation-dropped",
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r8-walk-revalidation-dropped",
+  "linked": false
+}

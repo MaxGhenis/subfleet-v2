@@ -1,0 +1,37 @@
+{
+  "name": "dependency-property-0",
+  "start": "2026-10-31T13:32:11.249324+00:00",
+  "load": [
+    93.41455078125,
+    102.60009765625,
+    103.3916015625
+  ],
+  "pytest_pid": 79058,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "selection_never"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6240570000009029,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T13:41:24.067297+00:00",
+  "seconds": 552.8104503750001,
+  "peak_rss_mib": 135.390625,
+  "exit": 2
+}

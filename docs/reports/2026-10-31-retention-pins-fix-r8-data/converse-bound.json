@@ -1,0 +1,49 @@
+{
+  "name": "converse-bound",
+  "start": "2026-10-31T07:24:19.552438+00:00",
+  "load": [
+    34.4892578125,
+    32.7802734375,
+    33.57958984375
+  ],
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r8-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_unused_top_entry_is_a_converse_bound_counterexample"
+  ],
+  "phases": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1506479170020611,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.13003612499960582,
+      "failure": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py:63: in test_unused_top_entry_is_a_converse_bound_counterexample\n    assert str(unrelated) in recorded['git'], recorded\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con...sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git/objects']}\nE   assert '/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated' in ['/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable.../sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git/objects']\nE    +  where '/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated' = str(PosixPath('/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated'))"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004430840017448645,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_unused_top_entry_is_a_converse_bound_counterexample"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+  "end": "2026-10-31T07:24:26.171540+00:00",
+  "seconds": 6.618825875000766,
+  "peak_rss_mib": 109.734375,
+  "exit": 1
+}

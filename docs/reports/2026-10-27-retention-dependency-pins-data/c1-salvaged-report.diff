@@ -1,0 +1,19 @@
+diff --git a/docs/reports/2026-10-27-retention-dependency-pins.md b/docs/reports/2026-10-27-retention-dependency-pins.md
+index 046c8dbea..8647f771d 100644
+--- a/docs/reports/2026-10-27-retention-dependency-pins.md
++++ b/docs/reports/2026-10-27-retention-dependency-pins.md
+@@ -4,6 +4,14 @@
+ 
+ The lane started at approximately 14:51Z; new holds/steps stop at 17:49:00Z, conservatively before its three-hour start cutoff. Lock waits count toward that wall. The final update is 2026-10-27T18:08:30Z.
+ 
++## Continuation 1 (in progress)
++
++This continuation started at 2026-10-27 22:12Z. Its four-hour stop for new holds and steps is 2026-10-28 02:12Z (the runner stops conservatively at 02:11Z). Shared metadata rejected `index.lock`; commits will use private scratch metadata on `fix/retention-dependency-pins-217` and a verified incremental `rdp217c1.bundle`.
++
++The saved plans cover **1,104 unique nodes**. Actual prior results account for **343**, leaving **761** in [remaining-nodes.txt](2026-10-27-retention-dependency-pins-data/remaining-nodes.txt). [The reconstruction script](2026-10-27-retention-dependency-pins-data/c1-reconstruct.py) uses pytest's own collection and keyword matching, completed named JUnit cases, and admission-a's 163-result prefix (162 passes and its intended xfail). It excludes unnamed interrupted JUnit cases; archive-a's 15 completed nodes are already covered by archive-1. The saved [accounting](2026-10-27-retention-dependency-pins-data/c1-remaining-accounting.json) records every source and plan.
++
++Initial current-head checks passed: **80 passed, 3 skipped** in the dependency-unit/guard/provider-shell hold, and **37 passed** in the dependency-fake/daemon-launch hold. The provider-shell tests require actual provider CLIs; the no-real-provider rule was honored with a restricted executable search path, so all three were collected and skipped. The fake launch checks did execute. Pending coverage is not claimed green.
++
+ ## Checkpoints and recovery
+ 
+ Shared Git metadata rejected `ORIG_HEAD.lock` with `Operation not permitted`. The original workspace metadata remains at `8f106c64595c`; checkpoints were committed in scratch Git metadata on `fix/retention-dependency-pins-217`. The delivery bundle contains those ordered commits and requires the already-present `8f106c645` and `c9430763f` histories. No shared branch update was possible.

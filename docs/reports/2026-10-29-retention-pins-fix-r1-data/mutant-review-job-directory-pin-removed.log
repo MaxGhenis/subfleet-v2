@@ -1,0 +1,63 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:59:09Z slot B load 
+ADMITTED 2026-10-29T05:59:09.851971+00:00 LOAD (42.27099609375, 33.0419921875, 28.36376953125)
+FOBSERVATION {"engines": [], "explicit": {}, "mutant": "review-job-directory-pin-removed", "loaded": ["subfleet.retention"]}
+
+=================================== FAILURES ===================================
+_ test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path] _
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-mutant-review-job-dire...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend0/state'), store=<subfleet.store.Store object at 0x1081541a0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1080615b0>
+role = 'out_path', stage = 'census'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+        assert "owner" not in result["pruned"], result
+        assert snapshot(folder) == before
+>       assert bool(begun) == (stage != "census")
+E       AssertionError: assert True == ('census' != 'census')
+E        +  where True = bool(['owner'])
+
+tests/unit/test_retention_job_dependencies.py:93: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 2 warnings in 6.53s

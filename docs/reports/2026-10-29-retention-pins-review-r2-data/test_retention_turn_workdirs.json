@@ -1,0 +1,44 @@
+{
+  "name": "test_retention_turn_workdirs",
+  "start": "2026-10-29T06:44:06.619854+00:00",
+  "load": [
+    19.55322265625,
+    21.50732421875,
+    22.48681640625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_turn_workdirs.py::test_live_turn_workdir_guard_uses_an_index"
+  ],
+  "phases": {
+    "tests/unit/test_retention_turn_workdirs.py::test_live_turn_workdir_guard_uses_an_index": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_turn_workdirs.py::test_live_turn_workdir_guard_uses_an_index": {
+      "setup": {
+        "duration": 0.3974332919897279,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.356809750010143,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0004957500059390441,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

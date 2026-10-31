@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:56:52Z slot B load 
+START test_detached_retention_fence-part3 2026-10-30T22:56:57.741504+00:00 load=(34.4072265625, 36.341796875, 37.521484375)
+.............                                                            [100%]
+============================ Hypothesis Statistics =============================
+tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded:
+
+  - during generate phase (4.16 seconds):
+    - Typical runtimes: ~ 0-27 ms, of which ~ 0-15 ms in data generation
+    - 300 passing, 0 failing, and 39 invalid test cases
+
+  - Stopped because settings.max_examples=300
+
+
+13 passed, 76 deselected in 97.10s (0:01:37)

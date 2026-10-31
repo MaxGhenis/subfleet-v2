@@ -1,0 +1,53 @@
+hold 03:45:28Z slot B load 
+F
+=================================== FAILURES ===================================
+___________ test_d5_fences_reads_what_retiring_reads_place_by_place ____________
+
+    @settings(max_examples=200, deadline=None)
+>   @given(st.dictionaries(FOLDERS, st.sampled_from(["retention:r1", "retention:r2", "job-1", "gate-round:g"]),
+                   ^^^
+                           max_size=5),
+           st.lists(st.tuples(st.sampled_from([None, "review-root", "output", "git-storage"]), FOLDERS), max_size=4))
+
+tests/unit/test_retention_dependency_units.py:431: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+held = {'/a': 'job-1'}, places = [(None, '/a')]
+
+    @settings(max_examples=200, deadline=None)
+    @given(st.dictionaries(FOLDERS, st.sampled_from(["retention:r1", "retention:r2", "job-1", "gate-round:g"]),
+                           max_size=5),
+           st.lists(st.tuples(st.sampled_from([None, "review-root", "output", "git-storage"]), FOLDERS), max_size=4))
+    def test_d5_fences_reads_what_retiring_reads_place_by_place(held, places):
+        """D5, differential: for any leases and places, `fences` answers what
+        `folders.retiring` answers for each place, in order, in one statement."""
+        store, directory = fresh_store()
+        try:
+            for folder, holder in held.items():
+                store.acquire_lease(folders.exclusive_key(folder), holder)
+            statements = []
+    
+            def read(sql, params):
+                statements.append(sql)
+                return store.query(sql, params)
+    
+            found = dependencies.fences(read, places)
+            expected = [(role, path, keys) for role, path in places if (keys := folders.retiring(store.query, path))]
+>           assert found == expected
+E           AssertionError: assert [(None, '/a',...orktree:/a'])] == []
+E             
+E             Left contains one more item: (None, '/a', ['worktree:/a'])
+E             Use -v to get more diff
+E           Failing test case: test_d5_fences_reads_what_retiring_reads_place_by_place(
+E               held={'/a': 'job-1'},
+E               places=[(
+E                    None,  # or any other generated value
+E                    '/a',
+E                )],
+E           )
+
+tests/unit/test_retention_dependency_units.py:449: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 4.30s

@@ -1,0 +1,31 @@
+hold 03:45:25Z slot B load 
+F
+=================================== FAILURES ===================================
+__________ test_d1_commondir_outside_the_worktrees_layout_is_followed __________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-mutant-git-storage-no-commondir/test_d1_commondir_outside_the_0')
+
+    def test_d1_commondir_outside_the_worktrees_layout_is_followed(tmp_path):
+        """A relocated linked admin directory needs its relative commondir pointer;
+        its parent name cannot supply the conventional worktrees fallback."""
+        nested = repo(tmp_path / "tree" / "lib")
+        outside = tmp_path / "outside"
+        git(nested, "worktree", "add", "--quiet", "--detach", str(outside), "HEAD")
+        admin = tmp_path / "metadata" / "slot"
+        admin.parent.mkdir()
+        (nested / ".git" / "worktrees" / "outside").rename(admin)
+        (outside / ".git").write_text(f"gitdir: {admin}\n")
+        (admin / "commondir").write_text(os.path.relpath(nested / ".git", admin) + "\n")
+    
+        found = dependencies.git_storage(str(outside))
+>       assert found[:2] == [folders.canonical(admin), folders.canonical(nested / ".git")]
+E       AssertionError: assert ['/private/va...etadata/slot'] == ['/private/va...ree/lib/.git']
+E         
+E         Right contains one more item: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-mutant-git-storage-no-commondir/test_d1_commondir_outside_the_0/tree/lib/.git'
+E         Use -v to get more diff
+
+tests/unit/test_retention_dependency_units.py:100: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 1.14s

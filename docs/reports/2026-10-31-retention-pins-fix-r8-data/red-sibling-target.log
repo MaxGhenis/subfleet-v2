@@ -1,0 +1,68 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:28:05Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_scanned_storage_target_beside_checkout_is_still_recorded _________
+tests/unit/test_retention_locations.py:166: in test_scanned_storage_target_beside_checkout_is_still_recorded
+    assert str(owner) in recorded["git"], recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_targe...272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/objects']}
+E   assert '/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner' in ['/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/ch...x272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/objects']
+E    +  where '/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner' = str(PosixPath('/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner'))
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded
+1 failed in 4.61s
+{"name": "red-sibling-target", "start": "2026-10-31T07:28:07.122882+00:00", "load": [36.23095703125, 34.9443359375, 34.3046875], "seconds": 5.698242667000159, "exit": 1}

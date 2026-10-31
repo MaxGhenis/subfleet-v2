@@ -1,0 +1,1 @@
+{"label": "dependency-property-1", "queued": "2026-10-31T05:58:31.260212+00:00", "args": ["tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"]}

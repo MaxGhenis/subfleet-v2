@@ -1,0 +1,14 @@
+{
+  "time": "2026-10-31T04:29:16.303653+00:00",
+  "scratch_removed": true,
+  "last_scratch_kib": 30420,
+  "recorded_high_water_kib": 298220,
+  "worktree_caches_removed": [],
+  "all_test_drivers_complete": [
+    88736,
+    24117,
+    4057,
+    54385
+  ],
+  "kept_failure_roots_reported": false
+}

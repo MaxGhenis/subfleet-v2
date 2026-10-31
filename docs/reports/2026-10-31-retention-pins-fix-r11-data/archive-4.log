@@ -1,0 +1,14 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:09:18Z slot B load 
+..........F.                                                             [100%]
+=================================== FAILURES ===================================
+________________ test_survey_is_read_only_and_predicts_the_pass ________________
+tests/unit/test_retention_archive.py:1553: in test_survey_is_read_only_and_predicts_the_pass
+    assert report["would_retire"]["omittable_bytes_upper_bound"] > 0
+E   assert 0 > 0
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass
+1 failed, 11 passed in 89.82s (0:01:29)
+{"name": "archive-4", "start": "2026-10-31T19:09:33.841867+00:00", "load": [69.873046875, 68.45751953125, 68.396484375], "seconds": 99.10989341700042, "exit": 1}
