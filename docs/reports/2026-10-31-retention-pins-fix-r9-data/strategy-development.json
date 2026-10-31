@@ -1,0 +1,12 @@
+{
+  "initial": {
+    "inputs": 55,
+    "cells": 28,
+    "status": "superseded: five empty cells are a strategy finding"
+  },
+  "finite_cross_product": {
+    "inputs": 55,
+    "cells": 33
+  },
+  "final": "adds supplied-checkout spelling and exact routine .git exclusion"
+}

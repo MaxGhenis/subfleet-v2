@@ -1,0 +1,595 @@
+{
+  "name": "linked-test_retention_location_spelling",
+  "start": "2026-10-31T10:02:39.685862+00:00",
+  "load": [
+    34.88720703125,
+    34.31396484375,
+    35.53662109375
+  ],
+  "args": [
+    "tests/unit/test_retention_location_spelling.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.7174222089997784,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 16.840991375000158,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000683666999975685,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01651920800213702,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2614187499966647,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000523374998010695,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016745291999541223,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.21137829199869884,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005275409966998268,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02671891600039089,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24834337499851245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005463750021590386,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.017318916001386242,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3204197920022125,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000517458000103943,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02909524999995483,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2075191250005446,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005147080009919591,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.017083750000892906,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.134373916000186,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00035916699926019646,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002069082998787053,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.08375004099798389,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005222920008236542,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0020076250002603047,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1614343330002157,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005384999967645854,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04985845799819799,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.08836229100052151,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005271250010991935,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002597333001176594,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1340321669995319,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007421670015901327,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-target\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpm4enufgj/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpm4enufgj/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpm4enufgj/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpm4enufgj/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpan8fgty1/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpan8fgty1/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpan8fgty1/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpan8fgty1/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpan8fgty1/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpan8fgty1/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"commondir-file\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2bqvhn0n/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2bqvhn0n/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2bqvhn0n/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2bqvhn0n/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2bqvhn0n/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2bqvhn0n/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-line\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpi6nimwrz/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpi6nimwrz/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpi6nimwrz/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpi6nimwrz/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpi6nimwrz/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-line\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8r8uavf1/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8r8uavf1/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8r8uavf1/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8r8uavf1/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8r8uavf1/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-target\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp49rn9qkt/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp49rn9qkt/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp49rn9qkt/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp49rn9qkt/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-pack\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmz8quxzb/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmz8quxzb/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmz8quxzb/own\\u00e9r/packs\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmz8quxzb/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmz8quxzb/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"alternates-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzr9ylj_4/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzr9ylj_4/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzr9ylj_4/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzr9ylj_4/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzr9ylj_4/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzr9ylj_4/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzr9ylj_4/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzr9ylj_4/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-pack\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9aw2w93k/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9aw2w93k/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9aw2w93k/own\\u00e9r/packs\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9aw2w93k/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9aw2w93k/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"git-entry\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphifffvo8/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphifffvo8/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphifffvo8/own\\u00e9r/entry\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphifffvo8/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphifffvo8/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"intermediate\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp1k9e2dp8/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp1k9e2dp8/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp1k9e2dp8/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp1k9e2dp8/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-target\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzqrqg8eb/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzqrqg8eb/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzqrqg8eb/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzqrqg8eb/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpzqrqg8eb/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"intermediate\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpst799idn/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpst799idn/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpst799idn/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpst799idn/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpst799idn/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpst799idn/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"gitfile-target\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9rwwr8ik/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9rwwr8ik/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9rwwr8ik/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9rwwr8ik/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9rwwr8ik/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp9rwwr8ik/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-file\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr6wn2ob3/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr6wn2ob3/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr6wn2ob3/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr6wn2ob3/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr6wn2ob3/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr6wn2ob3/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"alternates-line\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp512tysvb/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp512tysvb/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp512tysvb/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp512tysvb/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp512tysvb/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp512tysvb/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp512tysvb/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"commondir-target\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp5ks69pe1/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp5ks69pe1/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp5ks69pe1/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp5ks69pe1/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp5ks69pe1/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphhsr44ee/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphhsr44ee/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphhsr44ee/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphhsr44ee/stable/object-store\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphhsr44ee/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmphhsr44ee/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"git-entry\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpy2xpcl2z/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpy2xpcl2z/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpy2xpcl2z/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpy2xpcl2z/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpy2xpcl2z/own\\u00e9r/entry\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpy2xpcl2z/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpy2xpcl2z/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"alternates-line\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpski6s32m/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpski6s32m/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpski6s32m/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpski6s32m/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpski6s32m/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpski6s32m/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpski6s32m/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"commondir-target\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr625nl0e/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr625nl0e/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr625nl0e/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr625nl0e/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr625nl0e/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"git-entry\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpycg5k3ys/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpycg5k3ys/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpycg5k3ys/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpycg5k3ys/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpycg5k3ys/own\\u00e9r/entry\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpycg5k3ys/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpycg5k3ys/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"intermediate\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplbgoj7nd/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplbgoj7nd/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplbgoj7nd/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplbgoj7nd/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-file\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8yl7gf3v/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8yl7gf3v/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8yl7gf3v/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8yl7gf3v/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8yl7gf3v/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp8yl7gf3v/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-info\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp_d82g3r1/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp_d82g3r1/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp_d82g3r1/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp_d82g3r1/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp_d82g3r1/own\\u00e9r/hop1\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp_d82g3r1/stable/object-info\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp_d82g3r1/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"gitfile-pointer\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmptkeg0qzy/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmptkeg0qzy/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmptkeg0qzy/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmptkeg0qzy/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmptkeg0qzy/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmptkeg0qzy/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmptkeg0qzy/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects-pack\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmph_xji06c/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmph_xji06c/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmph_xji06c/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmph_xji06c/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmph_xji06c/own\\u00e9r/packs\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmph_xji06c/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmph_xji06c/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-target\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplotpc0uh/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplotpc0uh/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplotpc0uh/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplotpc0uh/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-pointer\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfavu0thn/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfavu0thn/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfavu0thn/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfavu0thn/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfavu0thn/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4nv7oerd/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4nv7oerd/stable/object-store\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4nv7oerd/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4nv7oerd/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"gitfile-pointer\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqbitxn_d/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqbitxn_d/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqbitxn_d/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqbitxn_d/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqbitxn_d/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqbitxn_d/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqbitxn_d/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"intermediate\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpndxbd2w1/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpndxbd2w1/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpndxbd2w1/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpndxbd2w1/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpndxbd2w1/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpndxbd2w1/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-file\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpplksms57/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpplksms57/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpplksms57/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpplksms57/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpplksms57/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpplksms57/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfvikzm9l/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfvikzm9l/stable/object-store\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfvikzm9l/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpfvikzm9l/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-line\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvvpwjcge/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvvpwjcge/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvvpwjcge/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvvpwjcge/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvvpwjcge/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"commondir-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr4lr071m/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr4lr071m/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr4lr071m/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr4lr071m/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr4lr071m/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpr4lr071m/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-pointer\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpwx1scr85/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpwx1scr85/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpwx1scr85/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpwx1scr85/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpwx1scr85/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects-info\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/own\\u00e9r/hop1\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/stable/object-info\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpxfj6vjg1/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-info\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpe4x2688r/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpe4x2688r/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpe4x2688r/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpe4x2688r/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpe4x2688r/own\\u00e9r/hop1\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpe4x2688r/stable/object-info\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpe4x2688r/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"git-entry\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmps1l_ldxt/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmps1l_ldxt/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmps1l_ldxt/own\\u00e9r/entry\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmps1l_ldxt/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmps1l_ldxt/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"gitfile-target\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvh53ucfm/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvh53ucfm/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvh53ucfm/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvh53ucfm/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvh53ucfm/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpvh53ucfm/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpufonf5p4/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpufonf5p4/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpufonf5p4/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpufonf5p4/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpufonf5p4/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpufonf5p4/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects-pack\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpaksozq8q/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpaksozq8q/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpaksozq8q/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpaksozq8q/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpaksozq8q/own\\u00e9r/packs\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpaksozq8q/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpaksozq8q/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"intermediate\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpikhu4qij/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpikhu4qij/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpikhu4qij/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpikhu4qij/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-pointer\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4q6xsf2j/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4q6xsf2j/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4q6xsf2j/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4q6xsf2j/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp4q6xsf2j/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"git-entry\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpg_xe1hkg/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpg_xe1hkg/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpg_xe1hkg/own\\u00e9r/entry\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpg_xe1hkg/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpg_xe1hkg/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-target\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpsqlb3jyz/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpsqlb3jyz/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpsqlb3jyz/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpsqlb3jyz/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpsqlb3jyz/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-target\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp7kl81hss/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp7kl81hss/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp7kl81hss/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp7kl81hss/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp7kl81hss/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects-info\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/own\\u00e9r/hop1\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/stable/object-info\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmppintsn53/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-info\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpd74bcgad/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpd74bcgad/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpd74bcgad/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpd74bcgad/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpd74bcgad/own\\u00e9r/hop1\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpd74bcgad/stable/object-info\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpd74bcgad/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmamwr56u/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmamwr56u/stable/object-store\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmamwr56u/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpmamwr56u/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"alternates-file\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2zhxqu_3/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2zhxqu_3/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2zhxqu_3/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2zhxqu_3/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2zhxqu_3/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2zhxqu_3/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2zhxqu_3/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp2zhxqu_3/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-pack\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplu_8td1l/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplu_8td1l/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplu_8td1l/own\\u00e9r/packs\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplu_8td1l/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmplu_8td1l/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp10d1n_zt/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp10d1n_zt/stable/container\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp10d1n_zt/stable/container/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp10d1n_zt/stable/object-store\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp10d1n_zt/own\\u00e9r/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmp10d1n_zt/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-file\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqpta4zut/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqpta4zut/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqpta4zut/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqpta4zut/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqpta4zut/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/tmpqpta4zut/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+      "key": "r9-sibling",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-pointer\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+      "key": "r9-sibling",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+      "key": "r9-sibling",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/source/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/own\\u00e9r/pointer\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+      "key": "r9-sibling",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-pack\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/own\\u00e9r/packs\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop0\", \"/private/tmp/sf-fix272r9/real-tmp/linked-test_retention_location_spelling/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop1\"]}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+    "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+    "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+    "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "0ce5a93ca69429b99e2525850a1a1240ff5042e45af4c09eef785bdc2707b7b0",
+  "end": "2026-10-31T10:03:07.178573+00:00",
+  "seconds": 27.492177291998814,
+  "peak_rss_mib": 113.0625,
+  "exit": 0
+}

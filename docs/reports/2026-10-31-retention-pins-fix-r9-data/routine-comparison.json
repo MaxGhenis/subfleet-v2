@@ -1,0 +1,177 @@
+{
+  "name": "routine-comparison",
+  "start": "2026-10-31T10:02:08.790223+00:00",
+  "load": [
+    34.0517578125,
+    34.11962890625,
+    35.515625
+  ],
+  "args": [
+    "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py",
+    "-k",
+    "test_routine_against_236c80883"
+  ],
+  "phases": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005060874998889631,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.10971008299748064,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00020004200268886052,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010510829997656401,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.12160749999748077,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004463339973881375,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[shared]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010737920019892044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[shared]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.16201537500091945,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[shared]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002896670011978131,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[new-workdir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017675000017334241,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[new-workdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.16731870899820933,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[new-workdir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00022879199968883768,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[none]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0008679999991727527,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[none]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.08123754199914401,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[none]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006882080015202519,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[plain]",
+      "key": "routine-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808830/repository/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808830/repository/.git/objects\"]}, \"current\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808830/repository/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808830/repository/.git/objects\"]}, \"expected\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808830/repository/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808830/repository/.git/objects\"]}, \"layout\": \"plain\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[worktree]",
+      "key": "routine-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git/worktrees/linked\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git/objects\"]}, \"current\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git/worktrees/linked\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git/objects\"]}, \"expected\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git/worktrees/linked\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808831/repository/.git/objects\"]}, \"layout\": \"worktree\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[shared]",
+      "key": "routine-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/shared/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/shared/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/repository/.git/objects\"]}, \"current\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/shared/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/shared/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/repository/.git/objects\"]}, \"expected\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/shared/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/shared/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808832/repository/.git/objects\"]}, \"layout\": \"shared\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[new-workdir]",
+      "key": "routine-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/linked/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/.git\"]}, \"current\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/linked/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/.git\"]}, \"expected\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/linked/.git\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/.git/objects\", \"/private/tmp/sf-fix272r9/real-tmp/routine-comparison/pytest-of-maxghenis/pytest-0/test_routine_against_236c808833/repository/.git\"]}, \"layout\": \"new-workdir\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[none]",
+      "key": "routine-comparison",
+      "value": "{\"base\": {}, \"current\": {}, \"expected\": {}, \"layout\": \"none\"}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[plain]",
+    "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[worktree]",
+    "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[shared]",
+    "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[new-workdir]",
+    "docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py::test_routine_against_236c80883[none]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "0ce5a93ca69429b99e2525850a1a1240ff5042e45af4c09eef785bdc2707b7b0",
+  "end": "2026-10-31T10:02:18.342207+00:00",
+  "seconds": 9.551740957998845,
+  "peak_rss_mib": 112.015625,
+  "exit": 0
+}

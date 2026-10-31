@@ -150,6 +150,8 @@ def test_routine_records_are_exactly_unchanged(tmp_path, layout, record_property
     checkout, expected = routine_input(tmp_path, layout)
     recorded = dependencies.record(str(checkout))
     assert recorded == expected
+    from tests.unit.test_retention_location_spelling import assert_location_spelling
+    assert_location_spelling(checkout, recorded.get("git", []))
     record_property("routine", json.dumps(dict(layout=layout, recorded=recorded), sort_keys=True))
 
 
