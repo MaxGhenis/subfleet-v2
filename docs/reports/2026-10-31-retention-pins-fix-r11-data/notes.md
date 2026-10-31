@@ -23,3 +23,5 @@ without an independently pinning symlink; red-rename-final records the corrected
 input before repair. This was a test construction correction, not a product gap.
 For the table's found route every row injects the final pre-filter spelling;
 controlled_failed_equation identifies the four rows also controlling the equations.
+
+Added two explicit original-input comparisons: restore each identical r11 fixture and replay the same boundary rename against baseline; assert complete record equality, then use that record for the original owner/read check. These add 2 normal and 2 linked passes to the initial 34-node module.

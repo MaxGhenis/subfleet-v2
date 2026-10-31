@@ -4,13 +4,20 @@ import functools
 import json
 import os
 from pathlib import Path
+import types
 
 from subfleet import dependencies
-from tests.unit.test_retention_location_readable import baseline_reader, r10_reader
 
 DATA = Path(__file__).resolve().parent
 COMPARISONS = []
 NODE = ""
+
+
+def snapshot_reader(path, label):
+    module = types.ModuleType("subfleet.r11_audit_" + label)
+    module.__package__ = "subfleet"
+    exec(compile(path.read_text(), label + ":subfleet/dependencies.py", "exec"), module.__dict__)
+    return module
 
 
 def pytest_runtest_setup(item):
@@ -20,7 +27,9 @@ def pytest_runtest_setup(item):
 
 def pytest_configure(config):
     original = dependencies.record
-    baseline, r10 = baseline_reader(), r10_reader()
+    baseline = snapshot_reader(DATA.parent / "2026-10-31-retention-pins-fix-r10-data" /
+                               "base-dependencies.py.txt", "475f63278")
+    r10 = snapshot_reader(DATA / "ced-dependencies.py.txt", "ced02912b")
 
     @functools.wraps(original)
     def observed(*args, **kwargs):

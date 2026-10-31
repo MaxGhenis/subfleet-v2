@@ -14,7 +14,7 @@ from hypothesis import HealthCheck, event, given, note, settings
 from subfleet import dependencies, folders
 from tests.fake.test_retention_dependency_review_r2 import world, reader, maintain
 from tests.fake.test_retention_dependency_review_r5 import source
-from tests.fake.test_retention_dependency_review_r11 import baseline_reader
+from tests.fake.test_retention_dependency_review_r11 import baseline_reader, check_case_rename
 from tests.unit.test_retention_location_cycles import ROWS, cycle_route
 from tests.unit.test_retention_location_inputs import (
     LOCATION_INPUTS, build_location_input, git, repo,
@@ -289,3 +289,37 @@ def test_more_readable_rename_forms(world, monkeypatch, form, record_property):
         before=before.returncode, after=after.returncode), sort_keys=True))
     assert "owner" not in result["pruned"] and tree.is_dir(), (results, result)
     assert after.returncode == 0 and after.stdout == before.stdout
+
+
+@pytest.mark.parametrize("route", ["alternates", "scan"])
+def test_original_rename_record_equals_baseline(world, monkeypatch, route, record_property):
+    canonical = folders.canonical
+
+    def compared(workdir):
+        tree = world.root.resolve() / "worktrees" / "owner"
+        target = tree / "source" / ".git" / "objects" if route == "alternates" else tree / "packs"
+        renamed = target.with_name(target.name.upper())
+        actual = dependencies.record(workdir)
+        # Restore precisely the same fixture and replay the same boundary race
+        # against the old reader, rather than comparing path-normalized copies.
+        renamed.rename(target)
+        changed = []
+        def spelling(path):
+            value = canonical(path)
+            caller = inspect.currentframe().f_back.f_code.co_name
+            wanted = "<genexpr>" if route == "alternates" else "scan"
+            if os.fspath(path) == str(target) and caller == wanted and not changed:
+                target.rename(renamed)
+                changed.append(True)
+            return value
+        with monkeypatch.context() as local:
+            local.setattr(folders, "canonical", spelling)
+            before = baseline_reader().record(workdir)
+        assert changed
+        record_property("original-rename-comparison", json.dumps(dict(route=route,
+            baseline=before, actual=actual), sort_keys=True))
+        assert actual == before
+        assert len(actual["git"]) == 3 and not actual.get("incomplete"), actual
+        return actual
+
+    check_case_rename(world, monkeypatch, route, types.SimpleNamespace(record=compared), record_property)
