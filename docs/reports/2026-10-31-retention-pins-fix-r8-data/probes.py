@@ -46,3 +46,25 @@ def test_deeper_ref_link_is_the_documented_difference(tmp_path, record_property)
     record_property('D-R8-1', json.dumps(dict(input='refs/heads/main -> owner/branch', recorded=recorded,
                                              before=before.returncode, after=after.returncode,
                                              error=after.stderr.decode()), sort_keys=True))
+
+
+def test_unused_top_entry_is_a_converse_bound_counterexample(tmp_path, record_property):
+    base = tmp_path.resolve()
+    stable = repo(base / 'stable')
+    unrelated = base / 'unrelated'
+    unrelated.mkdir()
+    checkout = base / 'checkout'
+    checkout.mkdir()
+    (checkout / '.git').write_text('gitdir: ' + str(stable / '.git') + '\n')
+    (unrelated / 'unused').write_text('not Git metadata')
+    (stable / '.git' / 'unused-entry').symlink_to(unrelated / 'unused')
+    before = git('-C', checkout, 'show', 'HEAD:f.txt')
+    recorded = dependencies.record(str(checkout))
+    assert before.returncode == 0 and not recorded.get('incomplete'), recorded
+    assert str(unrelated / 'unused') in recorded['git'], recorded
+    shutil.rmtree(unrelated)
+    after = git('-C', checkout, 'show', 'HEAD:f.txt')
+    assert after.returncode == 0 and after.stdout == before.stdout
+    record_property('converse-bound-counterexample', json.dumps(dict(
+        input='stable/.git/unused-entry -> unrelated/unused', recorded=recorded,
+        before=before.returncode, after=after.returncode), sort_keys=True))

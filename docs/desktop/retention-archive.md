@@ -627,7 +627,20 @@ directory's common directory, its resolved initial objects directory and the
 alternates of its objects, read from the
 files without running git, decoding Git C-style escapes on raw bytes before
 filesystem decoding and resolving relative alternates against the objects
-directory, five levels deep). Gitfiles require the literal `gitdir: ` prefix;
+directory, five levels deep). Discovery also records the physical regular pointer
+files it reads and every physical symlink entry along the paths it resolves.
+It walks components in kernel order, resolving links before a following `..`,
+with a 64-hop bound; missing paths, non-directory components and loops end the
+walk quietly. Link entries keep the canonical spelling of their parent plus
+the entry name, without following the entry again. Each actual git directory,
+common directory, object directory and alternate is scanned once for direct
+symlink entries, whose locations and resolved targets are retained. An unused
+direct link also adds its target even when a commit read does not use it, as
+fix r8's executed converse-bound counterexample shows. Missing storage directories are routine; other scan errors report incomplete evidence.
+Locations already inside a recorded place, or directly inside the job's folder
+or one of its ancestors, add no pin. This does not scan an inferred parent or
+its objects; the hint reads only the storage and alternates already described.
+Gitfiles require the literal `gitdir: ` prefix;
 their targets and `commondir` targets lose only trailing CR and LF, preserving
 all other pathname bytes, including leading/trailing spaces and tabs.
 If `commondir` is absent or blank after CR/LF removal and a named admin sits
@@ -649,7 +662,9 @@ compares device/inode, size, mtime and ctime before and after reading, then
 checks the final identity of the resolved pathname it opened. Discovery
 revalidates the tracked checkout/`.git` aliases, `gitdir:` and `commondir` pointer
 paths/targets, parsed alternate-entry paths, and the initial `<common>/objects`
-spelling. It records the initial object directory's resolved target beside
+spelling, as well as each walked link chain and opened alternates pathname.
+A changed chain is incomplete even if its final target and inode stay the same.
+It records the initial object directory's resolved target beside
 `gitdir` and `common`. A stable link into an allocated tree pins that storage for
 a live borrower. A changed or vanished initial object-directory target records
 incomplete discovery even when its alternates file stays absent or keeps the same
@@ -704,6 +719,14 @@ nothing: retention may archive a tree a finished export wrote into, the file
 with it.
 
 ### Listed differences
+
+- **D-R8-1:** A link deeper than one level inside a storage directory isn't read
+  unless it occurs on another tracked metadata path. Examples include
+  `refs/heads/x`, a loose-object `objects/ab/cd…` path, and a link inside
+  `objects/pack`. Executed input: an ordinary `refs/heads/main` symlink to an
+  external owner's branch file lets Git read the commit; discovery reports
+  complete evidence with no place in that owner, and the same read fails after
+  the owner is removed. Fix round r8 deliberately leaves this reader boundary.
 
 Review r6 executed D-R6-1 through D-R6-4 in older readers outside dependency
 discovery; those readers remain unchanged. Fix round r7 also records D-R7-1

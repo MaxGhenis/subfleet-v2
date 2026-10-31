@@ -1,0 +1,13 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:39:49Z slot A load 
+......                                                                   [100%]
+6 passed in 16.60s
+{"name": "archive-worktree-path", "start": "2026-10-31T07:39:50.142228+00:00", "load": [31.42236328125, 30.97021484375, 31.88037109375], "seconds": 17.28702987500219, "exit": 0}

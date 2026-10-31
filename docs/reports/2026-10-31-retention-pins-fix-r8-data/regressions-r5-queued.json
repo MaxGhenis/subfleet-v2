@@ -1,0 +1,9 @@
+{
+  "queued": "2026-10-31T07:18:33.149286+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r5.py",
+    "tests/unit/test_retention_pointer_whitespace.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/regressions-r5",
+  "linked": false
+}

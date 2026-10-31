@@ -12,9 +12,9 @@ for path in DATA.glob('*.json'):
     if isinstance(obj,dict) and 'phases' in obj:
         runs[path.stem]=obj
 completed={n:r for n,r in runs.items() if 'exit' in r}
-ordinary={n:r for n,r in completed.items() if r['exit']==0 and not n.startswith(('mutant-','revert-','red-'))}
+ordinary={n:r for n,r in completed.items() if r.get('valid',True) and not n.startswith(('mutant-','revert-','red-'))}
 files=defaultdict(dict)
-for name,run in ordinary.items():
+for name,run in sorted(ordinary.items(),key=lambda pair:pair[1]["start"]):
     for phase in run['phases']:
         if phase['phase']=='call' and phase['outcome']=='passed':
             file=phase['node'].split('::')[0]
@@ -30,7 +30,7 @@ for file,nodes in sorted(files.items()):
 (DATA/'file-table.md').write_text('\n'.join(lines)+'\n')
 (DATA/'files.json').write_text(json.dumps(filedata,indent=2)+'\n')
 
-loc=runs.get('green-locations-corrected',{})
+loc=runs.get('green-final-locations',runs.get('green-locations-corrected',{}))
 observations=[json.loads(o['value']) for o in loc.get('observations',[]) if o['key']=='location-input']
 positions=['gitfile-target','intermediate','gitfile-pointer','commondir-file','commondir-target','objects','objects-info','alternates-file','alternates-line','git-entry','objects-pack']
 lines=['| Position | Inputs | Chain 1/2/3 | Absolute/relative links | Unnamed/named admin | Needs owner / independent |','|---|---:|---|---|---|---|']
@@ -97,12 +97,29 @@ for decision in ('decision1','decision2','decision3','r7-f1'):
 (DATA/'reversion-table.md').write_text('\n'.join(lines)+'\n')
 (DATA/'reversion-results.json').write_text(json.dumps(revertdata,indent=2)+'\n')
 
+last_calls={}
+for run in sorted(ordinary.values(),key=lambda r:r['start']):
+    for phase in run['phases']:
+        if phase['phase']=='call': last_calls[phase['node']]=phase['outcome']
 summary=dict(completed_runs=len(completed),ordinary_runs=len(ordinary),unique_ordinary_nodes=sum(len(x) for x in files.values()),
+             unresolved_ordinary_failures=[node for node,outcome in last_calls.items() if outcome=='failed'],
              locked_runs=sum(r.get('locked',False) for r in completed.values()),
              longest_seconds=max((r['seconds'] for r in completed.values()),default=0),
-             peak_rss_mib=max((r['peak_rss_mib'] for r in completed.values()),default=0),
+             peak_rss_mib=max((r.get('peak_rss_mib') or 0 for r in completed.values()),default=0),
              incomplete_runs=[n for n,r in runs.items() if 'exit' not in r],
-             ordinary_failures={n:r['exit'] for n,r in completed.items() if r['exit']!=0 and not n.startswith(('mutant-','revert-','red-'))},
+             invalid_runs=[n for n,r in completed.items() if not r.get('valid',True)],
+             ordinary_failures={n:r['exit'] for n,r in completed.items() if r.get('valid',True) and r['exit']!=0 and not n.startswith(('mutant-','revert-','red-'))},
              mutants=Counter(m['result'] for m in mutantdata))
+events=[]
+for run in completed.values():
+    events.extend([(run['start'],1),(run['end'],-1)])
+active=peak=0
+for when,change in sorted(events):
+    active+=change;peak=max(peak,active)
+summary['peak_pytest_concurrency']=peak
+holdlines=['| Hold | Start UTC | Load 1/5/15 | Seconds | Exit |','|---|---|---|---:|---:|']
+for name,run in sorted(completed.items(),key=lambda pair:pair[1]['start']):
+    holdlines.append('| '+name+' | '+run['start'][11:19]+' | '+'/'.join(f'{v:.2f}' for v in run['load'])+' | '+f"{run['seconds']:.2f}"+' | '+str(run['exit'])+' |')
+(DATA/'hold-table.md').write_text('\n'.join(holdlines)+'\n')
 (DATA/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
 print(json.dumps(summary,indent=2))

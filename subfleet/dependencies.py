@@ -10,9 +10,11 @@ than its folder:
   pr` sets it to the pull request's checkout;
 - its `-o` path, which the daemon writes the accepted deliverable to after the
   job ends, while the job still holds `out:<path>`;
-- the git storage its folder's checkout uses. `git -C <tree>/vendor/lib worktree
-  add <outside>` makes a checkout outside the tree whose repository, and so every
-  git command run there, is inside it: a worktree writer submitted from there
+- the Git storage and metadata locations its folder's checkout uses: storage
+  directories, regular pointer files, physical symlink entries along resolved
+  paths, and links directly inside actual storage directories. `git -C
+  <tree>/vendor/lib worktree add <outside>` makes a checkout outside the tree
+  whose repository is inside it: a worktree writer submitted from there
   registers its new worktree in that repository (N4).
 
 Submit records them, spelled once (`record`, in `job.submitted` as `depends`).
@@ -90,8 +92,9 @@ def key(path: str) -> str:
 
 def record(workdir: str, *, review_root: str | None = None, out_path: str | None = None) -> dict[str, Any]:
     """What submit records as `depends` (C-8.4): the review root and the `-o` path,
-    spelled once (`folders.canonical`), and the git storage the workdir's checkout
-    and the review root's use (`git_storage`). Filesystem work: never inside a
+    spelled once (`folders.canonical`), and the Git storage and traversal
+    locations the workdir's checkout and the review root's use (`git_storage`).
+    Filesystem work: never inside a
     store transaction."""
     found: dict[str, Any] = {}
     if review_root:
@@ -113,7 +116,16 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
     `.git` at or above `path` (git uses the nearest a repository answers for;
     each one above is kept too, which can only keep more), the directory it is
     or names, that directory's common directory, and the object directories its
-    alternates name, each spelled once (`folders.canonical`).
+    alternates name, each spelled once (`folders.canonical`). Also retain the
+    physical regular pointer files read and each symlink entry along resolved
+    paths, walking components before applying a following `..`, up to 64 hops.
+    Link locations spell their parent, then append their name without following
+    the entry. Scan one level of links in each actual git/common/object/alternate
+    directory and record their locations and resolved targets. Locations covered
+    by storage already recorded, or directly inside the checkout or its ancestor
+    folders, add nothing; the ancestor exclusion does not drop storage targets.
+    Missing, non-directory and looping path walks end quietly; other walk errors
+    and nonmissing directory-scan failures report incomplete evidence.
 
     Read checkout metadata and conservative storage hints without running git.
     A `.git` file that names a directory no longer there still names it: a
@@ -162,7 +174,8 @@ class _Aliases:
     """Original path and pointer spellings beside the targets discovery used.
 
     Revalidate only after traversal, outside store transactions. This observes
-    a changed final target, not an alias swapped away and back within the read.
+    changed physical link chains even with an unchanged final target, but cannot
+    see an alias swapped away and back within the read.
     """
 
     def __init__(self):

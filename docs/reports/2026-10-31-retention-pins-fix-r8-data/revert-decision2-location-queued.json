@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:32:18.144371+00:00",
+  "args": [
+    "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/revert-decision2-location",
+  "linked": true
+}

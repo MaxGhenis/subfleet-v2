@@ -1,10 +1,48 @@
 # Retention dependency pins: review handoff, 2026-10-30
 
-**Fix round r7 repairs R7-F1 while preserving the R6-F1 and R6-F2 protections.** With an absent or CR/LF-blank `commondir`, a named `worktrees/<id>` admin records its own objects/alternates and the inferred parent's folder, resolved objects and alternates. The parent is a hint, so discovery does not read its pointers. Nonmissing pointer failures still report incomplete evidence under the 64 KiB bound. A vanished gitfile target alone is routine; unused-parent alternates failures can still globally pin trees (D-R7-1). Retention stays dormant pending approving review r8 and completed CI. [Fix round r7](2026-10-31-retention-pins-fix-r7.md) records current evidence; earlier counts and CI snapshots remain dated history.
+**Fix round r8 records the physical metadata locations Git traverses.** It
+retains regular pointer files and component-wise symlink entries, checks the
+walked chain again, and scans one level of links in actual Git storage. The
+inferred parent stays a hint. Routine records match `373a7f5bf` exactly, and the
+focused property now rejects false incomplete evidence. The pointer property's
+physical-path comparison also works with linked `TMPDIR`. Retention stays
+dormant pending review r9 and completed CI. [Fix round r8](2026-10-31-retention-pins-fix-r8.md)
+contains the current evidence; earlier counts remain dated history.
+
+## Review r8 and fix round r8
+
+Review r8 requests changes for **R8-F1 (P2)**: a running outside checkout can
+need a symlink or pointer file inside another job's tree even when all final
+Git storage is external. Both healthy real-Git inputs retire the owner at base
+and r7 head, then the identical Git read returns 128. The hub committed the
+review's tests, report and data unchanged as `373a7f5bf`.
+
+With `--runxfail`, both tests fail at the owner-retention assertion before the
+repair. Recording physical component entries, pointer-file locations and one
+level of storage links makes both pass. The repair removes only their strict
+mark. New deterministic real-Git tests cover eleven positions, one to three
+absolute or relative links and both admin layouts. All 55 generated inputs
+read with complete evidence, record a place in the required owner, omit the
+unrelated tree, and fail the same read after the owner is removed. No input is
+independent. A generated-only reversion audit and all named mutant outcomes are
+in the round report, including any newly redundant older guards.
+
+The prescribed direct-entry scan also records an unused symlink target: an
+executed `stable/.git/unused-entry -> unrelated/unused` input reads the same
+commit before and after removing `unrelated`, although discovery records that
+target with complete evidence. The literal converse bound therefore remains
+false for unused entries. The stop rule leaves the scan unchanged and records
+this extra-pin counterexample for review r9.
+
+CI's shard-1 failure at `382a6c05c` reproduced under linked `TMPDIR`: discovery
+reported physical paths while the old assertion compared the link spelling.
+The comparison now resolves its base before constructing paths. C-8.3 and C-8.4
+remain unchanged. D-R8-1 documents the one-level reader's deeper-link boundary,
+with a real Git read before and after removal; this round does not widen it.
 
 ## Review r7 and fix round r7
 
-Review r7 ended in a cold boot at about **02:21 UTC October 31**, roughly 55 minutes into its run. Its progress notes record passing r6 regressions, turn-retention checks, T2, alternates and job-dependency tests, dependency fake/spelling tests, and a source audit. Both generated-only reversions failed, showing that the existing property reaches R6-F1 and R6-F2 without its explicit examples. Review r7 also executed R7-F1: recursive discovery of an unused parent's `commondir` directory globally pins unrelated trees for both a valid separate-git-dir repository and a vanished target. Its comparison retired the owner for both inputs at `b2a357b6c` and falsely pinned it for both at `95e4a2f9a`. Its remaining checks and named mutants had not completed. These are partial observations, **not a completed review or approval**; review r8 reruns the checks at this round's head.
+Review r7 ended in a cold boot at about **02:21 UTC October 31**, roughly 55 minutes into its run. Its progress notes record passing r6 regressions, turn-retention checks, T2, alternates and job-dependency tests, dependency fake/spelling tests, and a source audit. Both generated-only reversions failed, showing that the existing property reaches R6-F1 and R6-F2 without its explicit examples. Review r7 also executed R7-F1: recursive discovery of an unused parent's `commondir` directory globally pins unrelated trees for both a valid separate-git-dir repository and a vanished target. Its comparison retired the owner for both inputs at `b2a357b6c` and falsely pinned it for both at `95e4a2f9a`. Its remaining checks and named mutants had not completed. These are partial observations, **not a completed review or approval**; review r8 subsequently reran those checks at `382a6c05c` and requested the R8-F1 repair above.
 
 At `ccc534524`, the imported r7 file gives **one pass and two failures** with `--runxfail`, both at its incomplete-evidence assertion. Replacing recursive parent discovery with the parent's folder, resolved objects and alternates makes all **three cases pass**; only that regression's strict mark is removed. Own objects remain recorded and revalidated. R6-F1/F2, R5-F1 and the five valid-parent controls retain their assertions.
 

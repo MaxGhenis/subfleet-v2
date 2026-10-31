@@ -21,6 +21,13 @@ def now():
     return datetime.datetime.now(datetime.UTC).isoformat()
 
 
+def stopping(*_):
+    raise KeyboardInterrupt
+
+
+signal.signal(signal.SIGTERM, stopping)
+
+
 if sys.argv[1] != '--admitted':
     name, *args = sys.argv[1:]
     linked = '--linked' in args
@@ -45,6 +52,9 @@ if sys.argv[1] != '--admitted':
                                                               tmpdir=str(fixture), linked=linked), indent=2))
     with (DATA / (name + '.log')).open('w') as stream:
         process = subprocess.Popen(command, env=env, stdout=stream, stderr=subprocess.STDOUT, process_group=0)
+        queued = json.loads((DATA / (name + '-queued.json')).read_text())
+        queued.update(driver_pid=os.getpid(), lock_process_group=process.pid)
+        (DATA / (name + '-queued.json')).write_text(json.dumps(queued, indent=2))
         try:
             try:
                 rc = process.wait(timeout=1800)
