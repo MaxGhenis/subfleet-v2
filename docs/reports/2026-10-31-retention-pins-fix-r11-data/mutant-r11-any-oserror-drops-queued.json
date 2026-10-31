@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T18:38:36.336775+00:00",
+  "args": [
+    "--mutant",
+    "r11-any-oserror-drops",
+    "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/mutant-r11-any-oserror-drops",
+  "linked": false,
+  "driver_pid": 46346,
+  "lock_process_group": 46928
+}
