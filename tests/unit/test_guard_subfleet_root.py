@@ -175,8 +175,8 @@ R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7
 R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
 #: The overlay's hook after r3c (review r2's walk-arounds closed), which r4 replaces.
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
-#: The overlay's hook after r11 (review r10's findings closed; c42f05ef... at r10's end): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "e5b387c4cf19f1bb6333ae9306e9657f5904a8b13f3d9c0f7d282d45b0a062d7"
+#: The overlay's hook after r12d (the xargs door charged; e5b387c4... at r12's end): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"

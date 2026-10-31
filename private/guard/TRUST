@@ -1,5 +1,5 @@
 {
-  "hook_sha256": "e5b387c4cf19f1bb6333ae9306e9657f5904a8b13f3d9c0f7d282d45b0a062d7",
+  "hook_sha256": "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed",
   "codex_version": "codex-cli 0.159.0",
   "reference_hook_path": "/Users/maxghenis/chief-of-staff/subfleet/bin/subfleet-guard-hook",
   "hooks_trust_hash": "sha256:f97fa95f2f4d43e1f8d35cd92da4d7f3f1861497abd86916680e0189e0ec34b1",

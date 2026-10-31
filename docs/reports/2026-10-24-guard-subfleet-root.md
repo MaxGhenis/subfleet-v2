@@ -29,7 +29,7 @@ findings of the hub's reviews r5 and r6, rounds r8 and r9 (2026-10-29) those of 
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `e5b387c4…62d7` after r12; r11's was `7bba4822…e102`, r10's `c42f05ef…865f`, r9's `9eb0db09…e7e2`, r8's `740728e3…20e9`, r7's `89b0efe1…aa5d`, r6's `6671496b…aea3`, r5's `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `e869dd4c…dfed` after r12d; r12's was `e5b387c4…62d7`, r11's `7bba4822…e102`, r10's `c42f05ef…865f`, r9's `9eb0db09…e7e2`, r8's `740728e3…20e9`, r7's `89b0efe1…aa5d`, r6's `6671496b…aea3`, r5's `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
 was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
@@ -67,7 +67,7 @@ region's header comments, and since r3c the prefilter's third term, `pw_cmd` in 
 (`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
 line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`c91e21b4…8fd7` after r12; r11's was `4e270e5b…14f8`, r10's `54cdded8…0432`, r9's `339ca3f0…a2c4`, r8's `f5e5268e…c073`, r7's `b749db5a…e9eb`, r6's `955bc7fa…3d2f`, r5's `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`36267abb…afc0` after r12d; r12's was `c91e21b4…8fd7`, r11's `4e270e5b…14f8`, r10's `54cdded8…0432`, r9's `339ca3f0…a2c4`, r8's `f5e5268e…c073`, r7's `b749db5a…e9eb`, r6's `955bc7fa…3d2f`, r5's `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
@@ -2693,9 +2693,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r12)
-   # e5b387c4cf19f1bb6333ae9306e9657f5904a8b13f3d9c0f7d282d45b0a062d7  private/guard/never-rules-hook.sh
-   # c91e21b4d571f0453ead3ed49a6ad8afe931d74617de5be38fd6948418a48fd7  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r12d)
+   # e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed  private/guard/never-rules-hook.sh
+   # 36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -2732,7 +2732,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # e5b387c4…62d7, c91e21b4…8fd7
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # e869dd4c…dfed, 36267abb…afc0
    ls -la ~/.subfleet/guard
    ```
 
