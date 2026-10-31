@@ -97,6 +97,11 @@ def build():
         'two_reveal_input': read(HERE / 'two-reveal-input.json'),
         'two_reveal_comparison': read(HERE / 'two-reveal-comparison.json'),
         'attempt2_comparison': read(HERE / 'attempt2-comparison.json'),
+        'mutation_kill_messages': [
+            {'run': path.stem, 'message': line}
+            for path in HERE.glob('round*.log')
+            for line in path.read_text().splitlines() if ' killed by ' in line
+        ],
         'resource': {'current_load': os.getloadavg(),
                      'max_reported_child_rss_bytes': max(
                          (r['end']['max_child_rss_bytes'] for r in runs if r['end']), default=0)},

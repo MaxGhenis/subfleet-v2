@@ -1,0 +1,4207 @@
+{
+  "job_start": "2026-10-31T02:34:34Z",
+  "inherited_head": "98924e35c1fdacac5471c974d8063214a6d165db",
+  "red_head": "26ee5d6f2",
+  "scratch": "/private/tmp/sf-fix284r1b",
+  "darwin_scratch_denied": true,
+  "shared_git_metadata_denied": true,
+  "private_git_metadata": ".git-local",
+  "bundle": "docs/reports/qt-larger-text-217-r1b.bundle",
+  "source_sha256": {
+    "app/Sources/ConversationOpeningPin.swift": "ce4697c21fada546864403feb3cf28b1b901334e0f3ab44283c58cdf058082b4",
+    "app/Sources/UIWindow.swift": "9abbf1acb41f8bc9f4252c92bacae82994ed8ad4198234d81d4b3a5c8765f46f",
+    "tests/frontend/ReviewPR284PinProbe.swift": "cf8731c40fe0e83d730cf3e93551cf17b66fbcf603f27a6a97d664ab90e68da7",
+    "tests/frontend/ReviewR219Fix8ViewProbe.swift": "077f9ea5ff34b8fe6e878bb3ed431675350bdd9a733ae2aa4f0ff70a1ac1f23a",
+    "tests/frontend/test_review_pr284_pin.py": "fa071775f6d3b62e465115b03e77d33d53b99d5dba34656428c9703e3dd5c970",
+    "tests/frontend/test_review_pr284_resizes.py": "ea955a1e5d36ac0af31d985563a6aab0fa6fc3e5d8f2cf02b84c0adea97f22fc",
+    "tests/frontend/test_review_r219_fix10_view.py": "d50cd343433ea5ea1ed6c1d74703d2d5f49f864091682f198a319e40a6242f2b",
+    "tests/frontend/test_review_r219_fix8_mutations.py": "daceac9a754f1828f7ddf22a7b616254a40f4bb6acec7cf3cca96c628db7f4ae",
+    "tests/frontend/test_review_r219_fix8_view.py": "dc40bea45281621401fd694a740c4cfbf0efc098f3d8e36e01690476ccfc59dc",
+    "tests/fixtures/qt-flake/pr284-landed-replay.json": "065426de3ba03216def9ea35e24db47405e847f2c3b4ee47fc2b05536290b3b3",
+    "tests/fixtures/qt-flake/pr284-pending-attempt2.json": "54c91e543d319a46fbf93b51b921d79bba91fc78ee34c27149a425320c06301e"
+  },
+  "runs": [
+    {
+      "name": "baseline-pin-remaining",
+      "queued": {
+        "queued": "2026-10-31T02:58:59.510573+00:00",
+        "root": "/private/tmp/sf-fix284r1b/baseline",
+        "args": [
+          "@/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b/docs/reports/qt-larger-text-r1b/baseline-pin-remaining.nodes.txt",
+          "--runxfail"
+        ]
+      },
+      "start": {
+        "name": "baseline-pin-remaining",
+        "start": "2026-10-31T03:11:26.119775+00:00",
+        "load": [
+          42.10546875,
+          42.7548828125,
+          46.2890625
+        ],
+        "root": "/private/tmp/sf-fix284r1b/baseline",
+        "args": [
+          "@/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b/docs/reports/qt-larger-text-r1b/baseline-pin-remaining.nodes.txt",
+          "--runxfail"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T03:18:31.983266+00:00",
+        "seconds": 425.85793220899996,
+        "returncode": 1,
+        "max_child_rss_bytes": 305528832
+      },
+      "boundary": null,
+      "outside_lock": null,
+      "process": {
+        "controller_pid": 1465,
+        "owned_process_group": 1816,
+        "started": "2026-10-31T02:58:59.567689+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T03:18:33.257143+00:00",
+        "returncode": 1,
+        "owned_group_terminated_and_waited": true
+      },
+      "collection": [
+        "tests/frontend/test_review_pr284_pin.py::test_resetting_identity_rejects_the_stale_callback",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_pending_request[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_pending_request[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_pending_identity_gap_is_also_present_at_base",
+        "tests/frontend/test_review_pr284_pin.py::test_person_scroll_cancellation_mutant_is_rejected",
+        "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth",
+        "tests/frontend/test_review_pr284_pin.py::test_release_probe_counts_suspension_transitions"
+      ],
+      "counts": {
+        "tests/frontend/test_review_pr284_pin.py": {
+          "passed": 3,
+          "failed": 4
+        }
+      },
+      "items": [
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_resetting_identity_rejects_the_stale_callback",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 69.40620799999988,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_pending_request[True]",
+          "when": "call",
+          "outcome": "failed",
+          "duration": 0.0006881670001348539,
+          "longrepr": "pin_inputs = {('identity', True): {'action': 'identity', 'at26': 1, 'callbacks': 1, 'conversation': 'B', ...}, ('pending_identity',...tion': 'A', ...}, ('coalesce', True): {'action': 'coalesce', 'at26': 1, 'callbacks': 2, 'conversation': 'A', ...}, ...}\nflipped = True\n\n    @pytest.mark.xfail(strict=True, raises=AssertionError,\n                       reason=\"Listed-P3-pending-identity: base also retains outstanding requests on identity changes\")\n    @pytest.mark.parametrize(\"flipped\", [True, False])\n    def test_conversation_change_cancels_the_pending_request(pin_inputs, flipped):\n        reused = pin_inputs[\"pending_identity\", flipped]\n        assert reused[\"landed\"] == 0\n>       assert reused[\"callbacks\"] == 0, reused\nE       AssertionError: {'action': 'pending_identity', 'at26': 1, 'callbacks': 1, 'conversation': 'B', ...}\nE       assert 1 == 0\n\ntests/frontend/test_review_pr284_pin.py:98: AssertionError"
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_pending_request[False]",
+          "when": "call",
+          "outcome": "failed",
+          "duration": 0.0003895830000146816,
+          "longrepr": "pin_inputs = {('identity', True): {'action': 'identity', 'at26': 1, 'callbacks': 1, 'conversation': 'B', ...}, ('pending_identity',...tion': 'A', ...}, ('coalesce', True): {'action': 'coalesce', 'at26': 1, 'callbacks': 2, 'conversation': 'A', ...}, ...}\nflipped = False\n\n    @pytest.mark.xfail(strict=True, raises=AssertionError,\n                       reason=\"Listed-P3-pending-identity: base also retains outstanding requests on identity changes\")\n    @pytest.mark.parametrize(\"flipped\", [True, False])\n    def test_conversation_change_cancels_the_pending_request(pin_inputs, flipped):\n        reused = pin_inputs[\"pending_identity\", flipped]\n        assert reused[\"landed\"] == 0\n>       assert reused[\"callbacks\"] == 0, reused\nE       AssertionError: {'action': 'pending_identity', 'at26': 1, 'callbacks': 1, 'conversation': 'B', ...}\nE       assert 1 == 0\n\ntests/frontend/test_review_pr284_pin.py:98: AssertionError"
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_pending_identity_gap_is_also_present_at_base",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 71.09323170800008,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_person_scroll_cancellation_mutant_is_rejected",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 69.05612462499994,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth",
+          "when": "call",
+          "outcome": "failed",
+          "duration": 139.74526454199986,
+          "longrepr": "tmp_path = PosixPath('/private/tmp/sf-fix284r1b/cases/baseline-pin-remaining/test_quiet_landing_rule_reject0')\n\n    @pytest.mark.xfail(strict=True, raises=AssertionError,\n                       reason=\"Listed-P3-quiet-reply: quiet-landing cases still accept a compensating shrink\")\n    def test_quiet_landing_rule_rejects_a_measured_missed_growth(tmp_path):\n        from tests.frontend.test_review_r219_fix8_mutations import MUTATIONS, round10_rule\n    \n        source = (ROOT / \"app/Sources/ConversationOpeningPin.swift\").read_text()\n        _, edits = MUTATIONS[\"quiet_landing_ends_following\"]\n        for old, new in edits:\n            if source.count(old) != 1:\n                raise RuntimeError(\"quiet-landing mutant no longer applies\")\n            source = source.replace(old, new)\n        path = tmp_path / \"ConversationOpeningPin.swift\"\n        path.write_text(source)\n        binary = tmp_path / \"probe\"\n        built = subprocess.run([\"xcrun\", \"swiftc\", \"-Xfrontend\", \"-disable-sandbox\", \"-parse-as-library\",\n                                str(path), str(ROOT / \"tests/frontend/ReviewPR284PinProbe.swift\"), \"-o\", str(binary)],\n                               capture_output=True, text=True, timeout=900)\n        if built.returncode:\n            raise RuntimeError(built.stderr)\n        try:\n            result = run_probe(binary, timeout=60)\n        except AssertionError as error:\n            raise RuntimeError(\"quiet-landing mutant setup failed\") from error\n        [growth] = [r for r in result if r[\"action\"] == \"growth_after_input\"]\n        if not (growth[\"own_landed\"] == 1 and growth[\"growth_gap\"] == 600 and growth[\"reply_gap\"] == 0):\n            raise RuntimeError(f\"quiet-landing counterexample setup failed: {growth}\")\n        sample = {\"steps\": [{\"step\": \"reply\", \"position\": {\"from_end\": growth[\"reply_gap\"]}}]}\n        # Quiet-landing cases do not attach the new optional resize_probe. Their old\n        # reply-only blind spot remains even though the growth-observer mutant is fixed.\n        try:\n            round10_rule(\"quiet-regrow\")(sample, {\"reply\": sample[\"steps\"][0]})\n        except AssertionError:\n            return\n>       raise AssertionError(f\"measured missed growth was accepted after compensation: {growth}\")\nE       AssertionError: measured missed growth was accepted after compensation: {'action': 'growth_after_input', 'at26': 0, 'callbacks': 0, 'conversation': 'A', 'first': 0, 'flipped': True, 'growth_gap': 600, 'landed': 1, 'landed_after': 1, 'offset_after': 11150, 'offset_before': 11450, 'own_landed': 1, 'releases': 0, 'reply_gap': 0, 'same_request': False}\n\ntests/frontend/test_review_pr284_pin.py:172: AssertionError"
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_release_probe_counts_suspension_transitions",
+          "when": "call",
+          "outcome": "failed",
+          "duration": 0.00030049999986658804,
+          "longrepr": "@pytest.mark.xfail(strict=True, raises=AssertionError,\n                       reason=\"Listed-P3-release-counting: releases_after includes already resumed callbacks\")\n    def test_release_probe_counts_suspension_transitions():\n        from tests.frontend.test_review_r219_fix10_view import releases_after\n    \n        result = {\"trace\": [{\"event\": \"marker_appeared\", \"at\": 0, \"suspended\": False},\n                            {\"event\": \"reveal_end_visible\", \"at\": 2, \"suspended\": False}]}\n>       assert not releases_after(result, 1), \"no suspension was released after t=1\"\nE       AssertionError: no suspension was released after t=1\nE       assert not [{'event': 'reveal_end_visible', 'at': 2, 'suspended': False}]\nE        +  where [{'event': 'reveal_end_visible', 'at': 2, 'suspended': False}] = <function releases_after at 0x10afa1bc0>({'trace': [{'event': 'marker_appeared', 'at': 0, 'suspended': False}, {'event': 'reveal_end_visible', 'at': 2, 'suspended': False}]}, 1)\n\ntests/frontend/test_review_pr284_pin.py:182: AssertionError"
+        }
+      ]
+    },
+    {
+      "name": "baseline-red",
+      "queued": {
+        "queued": "2026-10-31T02:39:05.607310+00:00",
+        "root": "/private/tmp/sf-fix284r1b/baseline",
+        "args": [
+          "tests/frontend/test_review_pr284_pin.py",
+          "tests/frontend/test_review_pr284_resizes.py",
+          "--runxfail"
+        ]
+      },
+      "start": {
+        "name": "baseline-red",
+        "start": "2026-10-31T02:39:12.274581+00:00",
+        "load": [
+          28.06591796875,
+          24.2421875,
+          15.2373046875
+        ],
+        "root": "/private/tmp/sf-fix284r1b/baseline",
+        "args": [
+          "tests/frontend/test_review_pr284_pin.py",
+          "tests/frontend/test_review_pr284_resizes.py",
+          "--runxfail"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T02:58:12.456750+00:00",
+        "seconds": 1140,
+        "returncode": -15,
+        "max_child_rss_bytes": 0,
+        "rss_measurement": "unavailable: boundary interrupted pytest",
+        "interrupted": "19-minute boundary; only completed item results retained"
+      },
+      "boundary": {
+        "at": "2026-10-31T02:58:12.456750+00:00",
+        "seconds": 1140
+      },
+      "outside_lock": null,
+      "process": null,
+      "process_ended": null,
+      "collection": [
+        "tests/frontend/test_review_pr284_pin.py::test_retained_request_callback_boundaries[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_retained_request_callback_boundaries[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_repeat_callbacks_coalesce_and_do_not_move_the_pin[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_repeat_callbacks_coalesce_and_do_not_move_the_pin[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_growth_after_person_input_and_a_quiet_send_is_pinned",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_landed_request[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_landed_request[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_production_sources_typecheck_without_view_test_names",
+        "tests/frontend/test_review_pr284_pin.py::test_resetting_identity_rejects_the_stale_callback",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_pending_request[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_pending_request[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_pending_identity_gap_is_also_present_at_base",
+        "tests/frontend/test_review_pr284_pin.py::test_person_scroll_cancellation_mutant_is_rejected",
+        "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth",
+        "tests/frontend/test_review_pr284_pin.py::test_release_probe_counts_suspension_transitions",
+        "tests/frontend/test_review_pr284_resizes.py::test_base_pin_resize_schedule_exposes_the_landed_race",
+        "tests/frontend/test_review_pr284_resizes.py::test_generated_property_rejects_dropping_the_landed_request",
+        "tests/frontend/test_review_pr284_resizes.py::test_scripted_growth_control_passes_repeatedly"
+      ],
+      "counts": {
+        "tests/frontend/test_review_pr284_pin.py": {
+          "passed": 6,
+          "failed": 2
+        }
+      },
+      "items": [
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_retained_request_callback_boundaries[True]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0002930420000666345,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_retained_request_callback_boundaries[False]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00024904199995035015,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_repeat_callbacks_coalesce_and_do_not_move_the_pin[True]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00024804200006656174,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_repeat_callbacks_coalesce_and_do_not_move_the_pin[False]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.004726124999933745,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_growth_after_person_input_and_a_quiet_send_is_pinned",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0004630420000921731,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_landed_request[True]",
+          "when": "call",
+          "outcome": "failed",
+          "duration": 0.005493999999998778,
+          "longrepr": "pin_inputs = {('identity', True): {'action': 'identity', 'at26': 1, 'callbacks': 1, 'conversation': 'B', ...}, ('pending_identity',...tion': 'A', ...}, ('coalesce', True): {'action': 'coalesce', 'at26': 1, 'callbacks': 2, 'conversation': 'A', ...}, ...}\nflipped = True\n\n    @pytest.mark.xfail(strict=True, raises=AssertionError,\n                       reason=\"R284-P3-identity: changing conversationID retains a landed request\")\n    @pytest.mark.parametrize(\"flipped\", [True, False])\n    def test_conversation_change_cancels_the_landed_request(pin_inputs, flipped):\n        reused = pin_inputs[\"identity\", flipped]\n        assert reused[\"landed\"] == 1\n>       assert reused[\"callbacks\"] == 0, reused\nE       AssertionError: {'action': 'identity', 'at26': 1, 'callbacks': 1, 'conversation': 'B', ...}\nE       assert 1 == 0\n\ntests/frontend/test_review_pr284_pin.py:66: AssertionError"
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_landed_request[False]",
+          "when": "call",
+          "outcome": "failed",
+          "duration": 0.0002971250000882719,
+          "longrepr": "pin_inputs = {('identity', True): {'action': 'identity', 'at26': 1, 'callbacks': 1, 'conversation': 'B', ...}, ('pending_identity',...tion': 'A', ...}, ('coalesce', True): {'action': 'coalesce', 'at26': 1, 'callbacks': 2, 'conversation': 'A', ...}, ...}\nflipped = False\n\n    @pytest.mark.xfail(strict=True, raises=AssertionError,\n                       reason=\"R284-P3-identity: changing conversationID retains a landed request\")\n    @pytest.mark.parametrize(\"flipped\", [True, False])\n    def test_conversation_change_cancels_the_landed_request(pin_inputs, flipped):\n        reused = pin_inputs[\"identity\", flipped]\n        assert reused[\"landed\"] == 1\n>       assert reused[\"callbacks\"] == 0, reused\nE       AssertionError: {'action': 'identity', 'at26': 1, 'callbacks': 1, 'conversation': 'B', ...}\nE       assert 1 == 0\n\ntests/frontend/test_review_pr284_pin.py:66: AssertionError"
+        },
+        {
+          "nodeid": "tests/frontend/test_review_pr284_pin.py::test_production_sources_typecheck_without_view_test_names",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 357.9287071250001,
+          "longrepr": null
+        }
+      ]
+    },
+    {
+      "name": "baseline-resizes",
+      "queued": {
+        "queued": "2026-10-31T03:09:47.019715+00:00",
+        "root": "/private/tmp/sf-fix284r1b/baseline",
+        "args": [
+          "tests/frontend/test_review_pr284_resizes.py",
+          "--runxfail"
+        ]
+      },
+      "start": {
+        "name": "baseline-resizes",
+        "start": "2026-10-31T03:22:04.168599+00:00",
+        "load": [
+          50.525390625,
+          42.998046875,
+          43.2646484375
+        ],
+        "root": "/private/tmp/sf-fix284r1b/baseline",
+        "args": [
+          "tests/frontend/test_review_pr284_resizes.py",
+          "--runxfail"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": null,
+      "boundary": null,
+      "outside_lock": null,
+      "process": {
+        "controller_pid": 73488,
+        "owned_process_group": 73498,
+        "started": "2026-10-31T03:12:16.393258+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T03:12:14.179980+00:00",
+        "returncode": -15,
+        "owned_group_terminated_and_waited": true
+      },
+      "collection": [
+        "tests/frontend/test_review_pr284_resizes.py::test_base_pin_resize_schedule_exposes_the_landed_race",
+        "tests/frontend/test_review_pr284_resizes.py::test_generated_property_rejects_dropping_the_landed_request",
+        "tests/frontend/test_review_pr284_resizes.py::test_scripted_growth_control_passes_repeatedly"
+      ],
+      "counts": {
+        "tests/frontend/test_review_pr284_resizes.py": {
+          "passed": 1
+        }
+      },
+      "items": [
+        {
+          "nodeid": "tests/frontend/test_review_pr284_resizes.py::test_base_pin_resize_schedule_exposes_the_landed_race",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 245.94877866700017,
+          "longrepr": null
+        }
+      ]
+    },
+    {
+      "name": "diagnostics-safety-setup",
+      "queued": {
+        "queued": "2026-10-31T02:40:39.382053+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "docs/reports/qt-larger-text-r1b/diagnostics.py",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "diagnostics",
+        "start": "2026-10-31T02:44:23.287114+00:00",
+        "load": [
+          65.54052734375,
+          44.90966796875,
+          27.201171875
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "docs/reports/qt-larger-text-r1b/diagnostics.py",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T02:55:26.223795+00:00",
+        "seconds": 662.936681,
+        "returncode": 130,
+        "max_child_rss_bytes": 0,
+        "interrupted": "Stopped before any diagnostic assertion completed, to explicitly load the repository home-isolation guard",
+        "rss_measurement": "unavailable: interrupted compiler before pytest teardown"
+      },
+      "boundary": null,
+      "outside_lock": null,
+      "process": null,
+      "process_ended": null,
+      "collection": [
+        "docs/reports/qt-larger-text-r1b/diagnostics.py::test_navigation_drops_a_pending_reveal_without_suspending_b",
+        "docs/reports/qt-larger-text-r1b/diagnostics.py::test_native_two_reveal_landing_and_real_release_count",
+        "docs/reports/qt-larger-text-r1b/diagnostics.py::test_saved_attempt2_old_and_new_helpers"
+      ],
+      "counts": {},
+      "items": []
+    },
+    {
+      "name": "diagnostics",
+      "queued": {
+        "queued": "2026-10-31T02:55:26.457413+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "-p",
+          "tests.conftest",
+          "docs/reports/qt-larger-text-r1b/diagnostics.py",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "diagnostics",
+        "start": "2026-10-31T02:58:21.397197+00:00",
+        "load": [
+          65.1669921875,
+          64.14013671875,
+          50.6943359375
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "-p",
+          "tests.conftest",
+          "docs/reports/qt-larger-text-r1b/diagnostics.py",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T03:08:10.654118+00:00",
+        "seconds": 589.250197333,
+        "returncode": 0,
+        "max_child_rss_bytes": 1308835840
+      },
+      "boundary": null,
+      "outside_lock": null,
+      "process": {
+        "controller_pid": 63625,
+        "owned_process_group": 63723,
+        "started": "2026-10-31T02:55:26.537237+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T03:08:11.601197+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "collection": [
+        "docs/reports/qt-larger-text-r1b/diagnostics.py::test_navigation_drops_a_pending_reveal_without_suspending_b",
+        "docs/reports/qt-larger-text-r1b/diagnostics.py::test_native_two_reveal_landing_and_real_release_count",
+        "docs/reports/qt-larger-text-r1b/diagnostics.py::test_saved_attempt2_old_and_new_helpers"
+      ],
+      "counts": {
+        "docs/reports/qt-larger-text-r1b/diagnostics.py": {
+          "passed": 3
+        }
+      },
+      "items": [
+        {
+          "nodeid": "docs/reports/qt-larger-text-r1b/diagnostics.py::test_navigation_drops_a_pending_reveal_without_suspending_b",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 409.92435716599994,
+          "longrepr": null
+        },
+        {
+          "nodeid": "docs/reports/qt-larger-text-r1b/diagnostics.py::test_native_two_reveal_landing_and_real_release_count",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 148.76144062499998,
+          "longrepr": null
+        },
+        {
+          "nodeid": "docs/reports/qt-larger-text-r1b/diagnostics.py::test_saved_attempt2_old_and_new_helpers",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.007291665999673569,
+          "longrepr": null
+        }
+      ]
+    },
+    {
+      "name": "fix10-whole",
+      "queued": {
+        "queued": "2026-10-31T02:43:38.384536+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix10_view.py"
+        ]
+      },
+      "start": {
+        "name": "fix10-whole",
+        "start": "2026-10-31T02:59:42.342306+00:00",
+        "load": [
+          59.1474609375,
+          62.8798828125,
+          51.4375
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix10_view.py"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T03:13:52.352471+00:00",
+        "seconds": 849.9990413330002,
+        "returncode": 0,
+        "max_child_rss_bytes": 1291665408
+      },
+      "boundary": null,
+      "outside_lock": null,
+      "process": {
+        "controller_pid": 34837,
+        "owned_process_group": 35139,
+        "started": "2026-10-31T02:43:38.402258+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T03:13:54.847962+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "collection": [
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_quiet]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_text_50ms]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_text_120ms]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_rows_150ms]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_rows_400ms]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_during_catchup_keeps_position[250]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_during_catchup_keeps_position[100]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_completion_before_scroll_cannot_release_a_distant_opening_reveal",
+        "tests/frontend/test_review_r219_fix10_view.py::test_scripted_growth_is_followed_before_a_compensating_shrink",
+        "tests/frontend/test_review_r219_fix10_view.py::test_scripted_document_resizes_without_a_marker_remount[pending]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_scripted_document_resizes_without_a_marker_remount[landed]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_reveal_invariant_for_resize_schedules",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[default]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_person_scroll_to_the_end_during_a_pending_reveal_releases",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[default]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_focused_50ms_probe_lands_and_keeps_position",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[0-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[0-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[16-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[16-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[50-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[50-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[120-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[120-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_crosses_both_notices_and_consumption[text-50]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_crosses_both_notices_and_consumption[tool-17]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_checks_reject_replayed_overlap_jump",
+        "tests/frontend/test_review_r219_fix10_view.py::test_trailing_stream_waits_for_late_reveal_consumption",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[first_notice-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[first_notice-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[second_notice-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[second_notice-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[consumption-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[consumption-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stale_end_marker_cannot_undo_search_reveal[text-50]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stale_end_marker_cannot_undo_search_reveal[tool-17]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_survives_delayed_first_notice[text-50]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_survives_delayed_first_notice[tool-17]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix10_view.py": {
+          "passed": 40
+        }
+      },
+      "items": [
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_quiet]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0004917500000374275,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_text_50ms]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00024370800019823946,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_text_120ms]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00014891699993313523,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_rows_150ms]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00036087500029680086,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_rows_400ms]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00015854200000831042,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_during_catchup_keeps_position[250]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0003505839999888849,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_during_catchup_keeps_position[100]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0003281660001448472,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_completion_before_scroll_cannot_release_a_distant_opening_reveal",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 17.95912695800007,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_scripted_growth_is_followed_before_a_compensating_shrink",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.6547145409999757,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_scripted_document_resizes_without_a_marker_remount[pending]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.23597883399997954,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_scripted_document_resizes_without_a_marker_remount[landed]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.8103467920000185,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_reveal_invariant_for_resize_schedules",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 9.569362374999855,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[default]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 13.552838791999875,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 14.965108791000148,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_person_scroll_to_the_end_during_a_pending_reveal_releases",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 12.526571375000003,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[default]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 17.301901458999964,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 12.770249167000202,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_focused_50ms_probe_lands_and_keeps_position",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 29.465391415999875,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[0-text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0008212080001612776,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[0-tool]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0004116249997423438,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[16-text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.008667249999689375,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[16-tool]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00029070799973851535,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[50-text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.000503792000017711,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[50-tool]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00040095799977279967,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[120-text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0005382499998631829,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[120-tool]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0002718339997045405,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_crosses_both_notices_and_consumption[text-50]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0007642499999747088,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_crosses_both_notices_and_consumption[tool-17]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0010382909999862022,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_background_checks_reject_replayed_overlap_jump",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 18.003047582999898,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_trailing_stream_waits_for_late_reveal_consumption",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.001017791999856854,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[first_notice-text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0006072500000300352,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[first_notice-tool]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0006213340002432233,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[second_notice-text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0015298750004149042,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[second_notice-tool]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0006990420001784514,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[consumption-text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0005892919998586876,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[consumption-tool]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.000631375000011758,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stale_end_marker_cannot_undo_search_reveal[text-50]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 12.8580024580001,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_stale_end_marker_cannot_undo_search_reveal[tool-17]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 12.144390417000068,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_survives_delayed_first_notice[text-50]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 19.602856584000165,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_survives_delayed_first_notice[tool-17]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 16.911649957999998,
+          "longrepr": null
+        }
+      ]
+    },
+    {
+      "name": "fix8-view",
+      "queued": {
+        "queued": "2026-10-31T03:14:25.581336+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_view.py"
+        ]
+      },
+      "start": {
+        "name": "fix8-view",
+        "start": "2026-10-31T03:18:36.931879+00:00",
+        "load": [
+          33.05224609375,
+          35.5302734375,
+          41.2607421875
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_view.py"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T03:22:08.352257+00:00",
+        "seconds": 211.417674583,
+        "returncode": 0,
+        "max_child_rss_bytes": 109527040
+      },
+      "boundary": null,
+      "outside_lock": null,
+      "process": {
+        "controller_pid": 99843,
+        "owned_process_group": 99853,
+        "started": "2026-10-31T03:14:25.588869+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T03:22:10.219691+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_view.py::test_tray_reveal_keeps_following_two_40_line_streams",
+        "tests/frontend/test_review_r219_fix8_view.py::test_timeline_reveal_leaving_end_visible_keeps_follow",
+        "tests/frontend/test_review_r219_fix8_view.py::test_tray_reveal_during_ten_catchup_pages_keeps_open_at_end",
+        "tests/frontend/test_review_r219_fix8_view.py::test_continuous_rows_reveal_at_most_twice[busy_200ms]",
+        "tests/frontend/test_review_r219_fix8_view.py::test_continuous_rows_reveal_at_most_twice[busy_400ms]",
+        "tests/frontend/test_review_r219_fix8_view.py::test_one_reveal_pair_for_bounded_row_schedules"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_view.py": {
+          "passed": 6
+        }
+      },
+      "items": [
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_view.py::test_tray_reveal_keeps_following_two_40_line_streams",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.0003484170001684106,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_view.py::test_timeline_reveal_leaving_end_visible_keeps_follow",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00017891599964059424,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_view.py::test_tray_reveal_during_ten_catchup_pages_keeps_open_at_end",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 9.099999988393392e-05,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_view.py::test_continuous_rows_reveal_at_most_twice[busy_200ms]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00019308300034026615,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_view.py::test_continuous_rows_reveal_at_most_twice[busy_400ms]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 0.00018158299963033642,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_view.py::test_one_reveal_pair_for_bounded_row_schedules",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 51.953309000000445,
+          "longrepr": null
+        }
+      ]
+    },
+    {
+      "name": "fixed-pin-forced",
+      "queued": {
+        "queued": "2026-10-31T03:18:50.334595+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_pr284_pin.py",
+          "--runxfail"
+        ]
+      },
+      "start": null,
+      "end": null,
+      "boundary": null,
+      "outside_lock": null,
+      "process": {
+        "controller_pid": 55336,
+        "owned_process_group": 55413,
+        "started": "2026-10-31T03:18:50.338798+00:00",
+        "outside_lock": false
+      },
+      "process_ended": null,
+      "collection": null,
+      "counts": {},
+      "items": []
+    },
+    {
+      "name": "repeat-larger",
+      "queued": {
+        "queued": "2026-10-31T03:22:10.296766+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "--keep-duplicates",
+          "-k",
+          "(test_document_shrink_under_a_pending_reveal_releases_nothing or test_document_shrink_after_a_distant_reveal_lands_releases) and larger_text"
+        ]
+      },
+      "start": {
+        "name": "repeat-larger",
+        "start": "2026-10-31T03:22:13.477459+00:00",
+        "load": [
+          49.44189453125,
+          42.8984375,
+          43.2275390625
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "--keep-duplicates",
+          "-k",
+          "(test_document_shrink_under_a_pending_reveal_releases_nothing or test_document_shrink_after_a_distant_reveal_lands_releases) and larger_text"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T03:29:57.017216+00:00",
+        "seconds": 463.49876937499994,
+        "returncode": 0,
+        "max_child_rss_bytes": 102350848
+      },
+      "boundary": null,
+      "outside_lock": null,
+      "process": {
+        "controller_pid": 22623,
+        "owned_process_group": 22640,
+        "started": "2026-10-31T03:22:10.302571+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T03:29:58.795602+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "collection": [
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix10_view.py": {
+          "passed": 20
+        }
+      },
+      "items": [
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 17.178857125000377,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 18.442183749999913,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 11.33232633300031,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 26.627672832999906,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 15.245751334000033,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 15.606318834000376,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 20.86365320899995,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 17.908992125000168,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 16.554809542000385,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 37.41057287500007,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 19.327733833999446,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 17.96189795800001,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 26.83087020899984,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 26.05582825000056,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 27.285170082999684,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 26.101454750000812,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 19.181409249999888,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 25.693190209000022,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 28.51029454199943,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 27.392274374999943,
+          "longrepr": null
+        }
+      ]
+    },
+    {
+      "name": "round7-default",
+      "queued": {
+        "queued": "2026-10-31T02:43:37.024563+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "round7-default",
+        "start": "2026-10-31T03:13:41.311387+00:00",
+        "load": [
+          37.359375,
+          40.75439453125,
+          44.96240234375
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T03:27:55.671513+00:00",
+        "seconds": 854.3151265420001,
+        "returncode": 0,
+        "max_child_rss_bytes": 1297252352
+      },
+      "boundary": null,
+      "outside_lock": {
+        "at": "2026-10-31T03:13:37.853183+00:00",
+        "reason": "30 minutes without admission"
+      },
+      "process": {
+        "controller_pid": 73268,
+        "owned_process_group": 90105,
+        "started": "2026-10-31T03:13:37.887384+00:00",
+        "outside_lock": true
+      },
+      "process_ended": {
+        "at": "2026-10-31T03:27:58.006099+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[marker_releases_pending_reveal]",
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[confirm_by_distance_only]",
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[reveal_never_lands]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_mutations.py": {
+          "passed": 3
+        }
+      },
+      "items": [
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[marker_releases_pending_reveal]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 179.26257791699982,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[confirm_by_distance_only]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 380.22383149999996,
+          "longrepr": null
+        },
+        {
+          "nodeid": "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[reveal_never_lands]",
+          "when": "call",
+          "outcome": "passed",
+          "duration": 277.4786752499999,
+          "longrepr": null
+        }
+      ]
+    },
+    {
+      "name": "round7-larger",
+      "queued": {
+        "queued": "2026-10-31T03:28:42.767277+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261030-223354-pr284-fix-r1b",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7",
+          "-s"
+        ]
+      },
+      "start": null,
+      "end": null,
+      "boundary": null,
+      "outside_lock": null,
+      "process": {
+        "controller_pid": 93722,
+        "owned_process_group": 93921,
+        "started": "2026-10-31T03:28:42.774742+00:00",
+        "outside_lock": false
+      },
+      "process_ended": null,
+      "collection": null,
+      "counts": {},
+      "items": []
+    }
+  ],
+  "native_results": [
+    {
+      "path": "cases/fix10-whole/fix10-distant0/result.json",
+      "sha256": "aba6af885a929244fc13ccac44df88027a3f9ed7bc3a99edc409b3c3e0ea9b3f"
+    },
+    {
+      "path": "cases/fix10-whole/test_completion_before_scroll_0/result.json",
+      "sha256": "677f04057addbe9be0c9cbbbbe5a612d3c90c0abc98438f3184d100613dde491"
+    },
+    {
+      "path": "cases/fix10-whole/test_document_shrink_under_a_p0/result.json",
+      "sha256": "230a344c379782632328fb4fcf258e6f426207062a8482c8416f12c637767912",
+      "layout": {
+        "text_scale": 1,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/fix10-whole/test_document_shrink_under_a_p1/result.json",
+      "sha256": "0a016f697d76424e59b577af3cbcf127f8fbecc0cbe144e4271dbf546d318c5b",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/diagnostics/test_native_two_reveal_landing0/result.json",
+      "sha256": "54593e4161d04b4042af3a00a74314089592e3d06061cd99f20c324008f9bc93",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 2
+      },
+      "real_releases": [
+        {
+          "at": 5.9286789894104,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/fix10-whole/test_document_shrink_after_a_d0/result.json",
+      "sha256": "179e7a2f093ab21dbd35a7cbf5dcde58d8a0dee0af8fb3c580e80bed4605118f",
+      "layout": {
+        "text_scale": 1,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 6.578843951225281,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/fix10-whole/test_document_shrink_after_a_d1/result.json",
+      "sha256": "41470c7c1a741f33073b69c7658b0192936f588b3ae8fa0396facb95de032d81",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 4.529772996902466,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/fix10-whole/test_focused_50ms_probe_lands_0/result.json",
+      "sha256": "063a64eea66e33815a60dc1a4b13c8ae176b1c703febae5b6b2f4859f5f15aa2"
+    },
+    {
+      "path": "cases/fix10-whole/test_person_scroll_to_the_end_0/result.json",
+      "sha256": "d64a93935ebe4952d4790f6e604887b8e15be14b7d50aa49c64810d7de73eddf",
+      "layout": {
+        "text_scale": 1,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": [
+        {
+          "at": 2.503237009048462,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/fix10-whole/fix10-streaming0/result.json",
+      "sha256": "6189ce9d70f7c25350cce0cc6087896d546956820da20965a4864bcca9e490ec"
+    },
+    {
+      "path": "cases/fix10-whole/test_background_checks_reject_0/result.json",
+      "sha256": "24687ac339a2e09e83691845afb23486156551686415cd23686ea6a29be8083f"
+    },
+    {
+      "path": "cases/fix10-whole/test_background_stream_survive0/result.json",
+      "sha256": "6a91a3dcb70286fa06b754ad85143c7f023fb40020b3840e174f97143918d69a"
+    },
+    {
+      "path": "cases/fix10-whole/test_background_stream_survive1/result.json",
+      "sha256": "2a0da60471cd6764c9d3dd5a6531bf5a551997913918404788939fe216c49c71"
+    },
+    {
+      "path": "cases/fix10-whole/test_stale_end_marker_cannot_u0/result.json",
+      "sha256": "f651e91a941b078b04e6a4d7880ef5169ce93d217de2d91bcd45521a6f12c381"
+    },
+    {
+      "path": "cases/fix10-whole/test_stale_end_marker_cannot_u1/result.json",
+      "sha256": "cae5576eb1e180c2f7d057bc314bbea7e1a240911a280df777b3d5945deaa46b"
+    },
+    {
+      "path": "cases/round7-default/test_round7_mutation_fails_its0/result.json",
+      "sha256": "0e38e403c69430ca04ceb83f2138ade7001e47193e30e8270027cbc813e1c736",
+      "layout": {
+        "text_scale": 1,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": [
+        {
+          "at": 5.040611028671265,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals0/result.json",
+      "sha256": "448c1db768f2edf2ea52394cc2758982777b35108c10b562c60d2fcb91639aa4"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals1/result.json",
+      "sha256": "f066ba23b76a46170c8fd9ce39898474d8464b000818735594339285a0222c5c"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals10/result.json",
+      "sha256": "9db0c0426a6ab7c0b23bb486e0bcf1ced6b9ca64c5ece8b041d2868181d703c6"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals11/result.json",
+      "sha256": "0a9b159713b9b58a22230d6d220131926d1e994452f3f73687e21fcbaa65e6df"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals12/result.json",
+      "sha256": "25518bb083f04baa0c69bd6afa592e51b05fffe4c5a93175cfaaf62f8f9204e3"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals2/result.json",
+      "sha256": "0b87fc92b7c4e04d2af47b3de31257b86343d5c394dc76d6c240f1d322abe91c"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals3/result.json",
+      "sha256": "0b546a2e8ced934a579dabca6811965fa2604be730619a71e24256c9f557d38b"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals4/result.json",
+      "sha256": "af965780e9783ae7b49151c1c80380e7d08eb960b6b16b4279fb6267c6f569f4"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals5/result.json",
+      "sha256": "7db6ffe3ac598b325417ffc065b03d17f4d0e08fc1173b81923097fb60c4f103"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals6/result.json",
+      "sha256": "864d5033b949bb45154a7e44c131d01ff852d263f291a5bb73c7414dc1ffc953"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals7/result.json",
+      "sha256": "4a00df980ef905da7fc9c98e70ed62e4127f415ff3c3e507238fbe229d892829"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals8/result.json",
+      "sha256": "a5349e7dbe98667e4152bcb6f5b74c61c5bd438a3ed92388bafed290dea70c2b"
+    },
+    {
+      "path": "cases/fix8-view/fix8-arrivals9/result.json",
+      "sha256": "da79a7500a282ceabd874c7bb132331f6836d8165a2b65a6751bf2aeac3377e7"
+    },
+    {
+      "path": "cases/fix8-view/fix8-view0/result.json",
+      "sha256": "953b2cbadac1cba6ad65bec3be61950479bf02a6a0f558e5657a43d9e536be49"
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d0/result.json",
+      "sha256": "9516fa855324bec011d1098513dbcfdc7e70a827fb5f8ccdce6afde70540bc41",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 5.6796040534973145,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p0/result.json",
+      "sha256": "892078f2fc9a0d4331244c7b4b5ec4a020ff54f79d21430b1afe2c57083a9b5a",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d1/result.json",
+      "sha256": "b9f05d6ddef6f82e7ede9a705228085ee6cc04fd17aa67d7adf905b734433175",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 9.409587025642395,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d2/result.json",
+      "sha256": "9b4a7dae60385bcd026746d7ab6afa037bd5af9359797d471f219b0f2e02d940",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 5.31520402431488,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p1/result.json",
+      "sha256": "76a105451e873284e59ba2557dc892eca3b9d74580d92b150bdf5a47ac3f4a76",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p2/result.json",
+      "sha256": "be72583e6927aa11b301ea7c9828c350a33b92a65d05b5783c67edd626ff6e61",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p3/result.json",
+      "sha256": "da3112681efba870ee735a4745a6443a926655afe976429666a204a13d138769",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/round7-default/test_round7_mutation_fails_its1/result.json",
+      "sha256": "9759ce963b83a7cdfc65ff373d142ba5fd1f49ce50018d048fbb625f0c41bd10",
+      "layout": {
+        "text_scale": 1,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": [
+        {
+          "at": 3.1716729402542114,
+          "event": "reveal_end_visible"
+        }
+      ]
+    },
+    {
+      "path": "cases/baseline-resizes/test_base_pin_resize_schedule_0/marker-reader/result.json",
+      "sha256": "7e6859b3815a4bf0ccd0acedf0305e5cc922088facf9c0c3c49a7ea1dd069cb5",
+      "layout": {
+        "text_scale": 1,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 13.09787404537201,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d3/result.json",
+      "sha256": "1bc0f48a60fc77a97f3c9a1fd76677a778c7ac885a542b020a33e5efd26b2f00",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 5.323967933654785,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d4/result.json",
+      "sha256": "b7bfc37303e59e49abe3315d29a13e2030ac39ed2d3889955afdf05c67078bcd",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 18.30047595500946,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d5/result.json",
+      "sha256": "763d68f5f5f1de2c91e400d1d4f2fb345a395a2a20e71c26c5f468dcc353d067",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 7.230144023895264,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p4/result.json",
+      "sha256": "7358791097c3913480f6c8225bfbcea07bb519305202f52d8c4bd988757c164b",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p5/result.json",
+      "sha256": "1a7e5980a78b5e1574a41ff9dc07f81e4c1e1f89d68e3b8e8dc32ca76f143df6",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d6/result.json",
+      "sha256": "812721cc08052ed77a796395624496e3a9e6556940340751ecb1a717e32fa54e",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 10.01123595237732,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d7/result.json",
+      "sha256": "982d060b069777f1de1d1278f31a842dc942d44766735c088979fa3f8d5c2b11",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 8.235911011695862,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p6/result.json",
+      "sha256": "b7b682d8edd97e75a4af0a2891056b4f7be51bd9c8ca5724b6095f4117a1b146",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p7/result.json",
+      "sha256": "a3900cd24deecc85cd16fb8a1d1d66cc8c6142a8e4f42fc9b21b28834b46c603",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p8/result.json",
+      "sha256": "d14c4a5fab88628662f1e58b2c3f32b4478e60b36a3c30a21bf60f9c4a96db21",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    },
+    {
+      "path": "cases/round7-default/test_round7_mutation_fails_its2/result.json",
+      "sha256": "759b0da31745b4bc5b32f49d0188944fcdfd6c898b0397651e510c6b6dfc6e60",
+      "layout": {
+        "text_scale": 1,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": []
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d8/result.json",
+      "sha256": "cb3636a8479ba49648d96a739f2cd0188ba6635400da02b2fba9eab759da5726",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 9.336757063865662,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_after_a_d9/result.json",
+      "sha256": "7a22cedc83cddcd445b9e53fbb25648a9e685cedfca829d5b3798158bbf83dda",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {
+        "landed": 1
+      },
+      "real_releases": [
+        {
+          "at": 10.172659039497375,
+          "event": "marker_appeared"
+        }
+      ]
+    },
+    {
+      "path": "cases/repeat-larger/test_document_shrink_under_a_p9/result.json",
+      "sha256": "9cc11f5b6a4f95e74a6c21dbe935f6aa4130808a89e363f1e73e0c58e27dcc79",
+      "layout": {
+        "text_scale": 1.728,
+        "window_height": 760
+      },
+      "step_reveals": {},
+      "real_releases": []
+    }
+  ],
+  "pin_inputs": {},
+  "navigation": {
+    "a_pending": true,
+    "a_suspended": true,
+    "a_trace": [
+      {
+        "at_bottom": true,
+        "event": "reveal",
+        "suspended": true
+      },
+      {
+        "distance": 93,
+        "event": "reveal_check",
+        "presented": false,
+        "source": "document",
+        "target": "person:m000100"
+      }
+    ],
+    "b_caught_up": true,
+    "b_position": {
+      "content": 14985,
+      "from_end": 25,
+      "offset": 14406,
+      "viewport": 554
+    },
+    "b_trace": [
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 0,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 0,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 127,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 127,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 0,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 127,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 127,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 135,
+        "old_length": 0,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 135,
+        "old_length": 135,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 17,
+        "old_length": 135,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 17,
+        "old_length": 17,
+        "settling": true,
+        "suspended": false
+      }
+    ],
+    "pin_replaced": true
+  },
+  "two_reveal_input": {
+    "before_catchup": {
+      "content": 50308,
+      "from_end": 0,
+      "offset": 49825,
+      "viewport": 483
+    },
+    "documents": [
+      {
+        "at": 5.228687047958374,
+        "caught_up": false,
+        "content": 42966,
+        "cursor": 0,
+        "history_pages": 1,
+        "items": 121,
+        "position": {
+          "content": 42966,
+          "from_end": 0,
+          "offset": 42483,
+          "viewport": 483
+        },
+        "previous": 50308,
+        "resets": 0,
+        "rows": 121
+      },
+      {
+        "at": 5.24182403087616,
+        "caught_up": false,
+        "content": 43313,
+        "cursor": 0,
+        "history_pages": 1,
+        "items": 121,
+        "position": {
+          "content": 43313,
+          "from_end": 347,
+          "offset": 42483,
+          "viewport": 483
+        },
+        "previous": 42966,
+        "resets": 0,
+        "rows": 121
+      },
+      {
+        "at": 5.5617430210113525,
+        "caught_up": false,
+        "content": 41876,
+        "cursor": 0,
+        "history_pages": 1,
+        "items": 121,
+        "position": {
+          "content": 41876,
+          "from_end": 0,
+          "offset": 41393,
+          "viewport": 483
+        },
+        "previous": 43313,
+        "resets": 0,
+        "rows": 121
+      },
+      {
+        "at": 5.573479056358337,
+        "caught_up": false,
+        "content": 42008,
+        "cursor": 0,
+        "history_pages": 1,
+        "items": 121,
+        "position": {
+          "content": 42008,
+          "from_end": 132,
+          "offset": 41393,
+          "viewport": 483
+        },
+        "previous": 41876,
+        "resets": 0,
+        "rows": 121
+      },
+      {
+        "at": 5.919376015663147,
+        "caught_up": false,
+        "content": 40910,
+        "cursor": 0,
+        "history_pages": 1,
+        "items": 121,
+        "position": {
+          "content": 40910,
+          "from_end": 0,
+          "offset": 40427,
+          "viewport": 483
+        },
+        "previous": 42008,
+        "resets": 0,
+        "rows": 121
+      },
+      {
+        "at": 5.9251930713653564,
+        "caught_up": false,
+        "content": 40842,
+        "cursor": 0,
+        "history_pages": 1,
+        "items": 121,
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "previous": 40910,
+        "resets": 0,
+        "rows": 121
+      },
+      {
+        "at": 6.365953087806702,
+        "caught_up": false,
+        "content": 51513,
+        "cursor": 0,
+        "history_pages": 1,
+        "items": 121,
+        "position": {
+          "content": 51513,
+          "from_end": 10671,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "previous": 40842,
+        "resets": 0,
+        "rows": 121
+      },
+      {
+        "at": 7.224287033081055,
+        "caught_up": false,
+        "content": 54766,
+        "cursor": 40,
+        "history_pages": 1,
+        "items": 134,
+        "position": {
+          "content": 54766,
+          "from_end": 13796,
+          "offset": 40487,
+          "viewport": 483
+        },
+        "previous": 51513,
+        "resets": 0,
+        "rows": 134
+      },
+      {
+        "at": 8.057663083076477,
+        "caught_up": false,
+        "content": 56437,
+        "cursor": 80,
+        "history_pages": 1,
+        "items": 148,
+        "position": {
+          "content": 56437,
+          "from_end": 1695,
+          "offset": 54259,
+          "viewport": 483
+        },
+        "previous": 54766,
+        "resets": 0,
+        "rows": 148
+      },
+      {
+        "at": 8.202660083770752,
+        "caught_up": false,
+        "content": 56023,
+        "cursor": 80,
+        "history_pages": 1,
+        "items": 148,
+        "position": {
+          "content": 56023,
+          "from_end": 0,
+          "offset": 55540,
+          "viewport": 483
+        },
+        "previous": 56437,
+        "resets": 0,
+        "rows": 148
+      },
+      {
+        "at": 9.148941993713379,
+        "caught_up": false,
+        "content": 57535,
+        "cursor": 120,
+        "history_pages": 1,
+        "items": 161,
+        "position": {
+          "content": 57535,
+          "from_end": 1536,
+          "offset": 55516,
+          "viewport": 483
+        },
+        "previous": 56023,
+        "resets": 0,
+        "rows": 161
+      },
+      {
+        "at": 9.156491041183472,
+        "caught_up": false,
+        "content": 57405,
+        "cursor": 120,
+        "history_pages": 1,
+        "items": 161,
+        "position": {
+          "content": 57405,
+          "from_end": 0,
+          "offset": 56922,
+          "viewport": 483
+        },
+        "previous": 57535,
+        "resets": 0,
+        "rows": 161
+      },
+      {
+        "at": 9.829560995101929,
+        "caught_up": false,
+        "content": 58876,
+        "cursor": 160,
+        "history_pages": 1,
+        "items": 174,
+        "position": {
+          "content": 58876,
+          "from_end": 1496,
+          "offset": 56897,
+          "viewport": 483
+        },
+        "previous": 57405,
+        "resets": 0,
+        "rows": 174
+      },
+      {
+        "at": 9.869671106338501,
+        "caught_up": false,
+        "content": 58762,
+        "cursor": 160,
+        "history_pages": 1,
+        "items": 174,
+        "position": {
+          "content": 58762,
+          "from_end": 0,
+          "offset": 58279,
+          "viewport": 483
+        },
+        "previous": 58876,
+        "resets": 0,
+        "rows": 174
+      },
+      {
+        "at": 10.680155038833618,
+        "caught_up": false,
+        "content": 60319,
+        "cursor": 200,
+        "history_pages": 1,
+        "items": 188,
+        "position": {
+          "content": 60319,
+          "from_end": 1581,
+          "offset": 58255,
+          "viewport": 483
+        },
+        "previous": 58762,
+        "resets": 0,
+        "rows": 188
+      },
+      {
+        "at": 10.777225017547607,
+        "caught_up": false,
+        "content": 60209,
+        "cursor": 200,
+        "history_pages": 1,
+        "items": 188,
+        "position": {
+          "content": 60209,
+          "from_end": 0,
+          "offset": 59726,
+          "viewport": 483
+        },
+        "previous": 60319,
+        "resets": 0,
+        "rows": 188
+      },
+      {
+        "at": 11.64867901802063,
+        "caught_up": false,
+        "content": 61634,
+        "cursor": 240,
+        "history_pages": 1,
+        "items": 201,
+        "position": {
+          "content": 61634,
+          "from_end": 1450,
+          "offset": 59701,
+          "viewport": 483
+        },
+        "previous": 60209,
+        "resets": 0,
+        "rows": 201
+      },
+      {
+        "at": 11.663843989372253,
+        "caught_up": false,
+        "content": 61561,
+        "cursor": 240,
+        "history_pages": 1,
+        "items": 201,
+        "position": {
+          "content": 61561,
+          "from_end": 0,
+          "offset": 61078,
+          "viewport": 483
+        },
+        "previous": 61634,
+        "resets": 0,
+        "rows": 201
+      },
+      {
+        "at": 12.713932991027832,
+        "caught_up": false,
+        "content": 62970,
+        "cursor": 280,
+        "history_pages": 1,
+        "items": 214,
+        "position": {
+          "content": 62970,
+          "from_end": 1434,
+          "offset": 61053,
+          "viewport": 483
+        },
+        "previous": 61561,
+        "resets": 0,
+        "rows": 214
+      },
+      {
+        "at": 12.735019087791443,
+        "caught_up": false,
+        "content": 62913,
+        "cursor": 280,
+        "history_pages": 1,
+        "items": 214,
+        "position": {
+          "content": 62913,
+          "from_end": 0,
+          "offset": 62430,
+          "viewport": 483
+        },
+        "previous": 62970,
+        "resets": 0,
+        "rows": 214
+      },
+      {
+        "at": 13.27787709236145,
+        "caught_up": false,
+        "content": 64800,
+        "cursor": 320,
+        "history_pages": 1,
+        "items": 228,
+        "position": {
+          "content": 64800,
+          "from_end": 1912,
+          "offset": 62405,
+          "viewport": 483
+        },
+        "previous": 62913,
+        "resets": 0,
+        "rows": 228
+      },
+      {
+        "at": 13.476493000984192,
+        "caught_up": false,
+        "content": 65017,
+        "cursor": 320,
+        "history_pages": 1,
+        "items": 228,
+        "position": {
+          "content": 65017,
+          "from_end": 217,
+          "offset": 64317,
+          "viewport": 483
+        },
+        "previous": 64800,
+        "resets": 0,
+        "rows": 228
+      },
+      {
+        "at": 14.074434995651245,
+        "caught_up": false,
+        "content": 66254,
+        "cursor": 360,
+        "history_pages": 1,
+        "items": 241,
+        "position": {
+          "content": 66254,
+          "from_end": 1454,
+          "offset": 64317,
+          "viewport": 483
+        },
+        "previous": 65017,
+        "resets": 0,
+        "rows": 241
+      },
+      {
+        "at": 14.136499047279358,
+        "caught_up": false,
+        "content": 67310,
+        "cursor": 360,
+        "history_pages": 1,
+        "items": 241,
+        "position": {
+          "content": 67310,
+          "from_end": 1056,
+          "offset": 65771,
+          "viewport": 483
+        },
+        "previous": 66254,
+        "resets": 0,
+        "rows": 241
+      },
+      {
+        "at": 14.282657027244568,
+        "caught_up": false,
+        "content": 67833,
+        "cursor": 360,
+        "history_pages": 1,
+        "items": 241,
+        "position": {
+          "content": 67833,
+          "from_end": 523,
+          "offset": 66827,
+          "viewport": 483
+        },
+        "previous": 67310,
+        "resets": 0,
+        "rows": 241
+      },
+      {
+        "at": 14.830931067466736,
+        "caught_up": false,
+        "content": 67947,
+        "cursor": 362,
+        "history_pages": 1,
+        "items": 242,
+        "position": {
+          "content": 67947,
+          "from_end": 637,
+          "offset": 66827,
+          "viewport": 483
+        },
+        "previous": 67833,
+        "resets": 0,
+        "rows": 242
+      },
+      {
+        "at": 15.3368901014328,
+        "caught_up": true,
+        "content": 67934,
+        "cursor": 362,
+        "history_pages": 1,
+        "items": 242,
+        "position": {
+          "content": 67934,
+          "from_end": 25,
+          "offset": 67426,
+          "viewport": 483
+        },
+        "previous": 67947,
+        "resets": 0,
+        "rows": 242
+      }
+    ],
+    "geometry": [
+      {
+        "at": 3.0278520584106445,
+        "position": {
+          "content": 50308,
+          "from_end": 6641,
+          "offset": 43184,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 3.1810179948806763,
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 5.2284780740737915,
+        "position": {
+          "content": 42966,
+          "from_end": 0,
+          "offset": 42483,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 5.561570048332214,
+        "position": {
+          "content": 41876,
+          "from_end": 0,
+          "offset": 41393,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 5.919165015220642,
+        "position": {
+          "content": 40910,
+          "from_end": 0,
+          "offset": 40427,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 5.925014019012451,
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 6.36996603012085,
+        "position": {
+          "content": 51513,
+          "from_end": 10543.13675213675,
+          "offset": 40486.86324786325,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 6.37018609046936,
+        "position": {
+          "content": 51513,
+          "from_end": 10543,
+          "offset": 40487,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 7.228321075439453,
+        "position": {
+          "content": 54766,
+          "from_end": 0,
+          "offset": 54283,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 7.369289040565491,
+        "position": {
+          "content": 54766,
+          "from_end": 24,
+          "offset": 54259,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 8.060431003570557,
+        "position": {
+          "content": 56437,
+          "from_end": 45,
+          "offset": 55909,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 8.202308058738708,
+        "position": {
+          "content": 56023,
+          "from_end": 0,
+          "offset": 55540,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 8.485743045806885,
+        "position": {
+          "content": 56023,
+          "from_end": 24,
+          "offset": 55516,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 9.151475071907043,
+        "position": {
+          "content": 57535,
+          "from_end": 34,
+          "offset": 57018,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 9.156313061714172,
+        "position": {
+          "content": 57405,
+          "from_end": 0,
+          "offset": 56922,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 9.271034002304077,
+        "position": {
+          "content": 57405,
+          "from_end": 25,
+          "offset": 56897,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 9.84949803352356,
+        "position": {
+          "content": 58876,
+          "from_end": 27,
+          "offset": 58366,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 9.869442105293274,
+        "position": {
+          "content": 58762,
+          "from_end": 0,
+          "offset": 58279,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 10.0155690908432,
+        "position": {
+          "content": 58762,
+          "from_end": 24,
+          "offset": 58255,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 10.704279065132141,
+        "position": {
+          "content": 60319,
+          "from_end": 28,
+          "offset": 59808,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 10.759993076324463,
+        "position": {
+          "content": 60209,
+          "from_end": 0,
+          "offset": 59726,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 10.9601891040802,
+        "position": {
+          "content": 60209,
+          "from_end": 25,
+          "offset": 59701,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 11.650454044342041,
+        "position": {
+          "content": 61634,
+          "from_end": 18,
+          "offset": 61133,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 11.663695096969604,
+        "position": {
+          "content": 61561,
+          "from_end": 0,
+          "offset": 61078,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 11.783738017082214,
+        "position": {
+          "content": 61561,
+          "from_end": 25,
+          "offset": 61053,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 12.717404007911682,
+        "position": {
+          "content": 62970,
+          "from_end": 15,
+          "offset": 62472,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 12.734816074371338,
+        "position": {
+          "content": 62913,
+          "from_end": 0,
+          "offset": 62430,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 12.845117092132568,
+        "position": {
+          "content": 62913,
+          "from_end": 25,
+          "offset": 62405,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 13.281535029411316,
+        "position": {
+          "content": 64800,
+          "from_end": 368,
+          "offset": 63949,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 13.468538045883179,
+        "position": {
+          "content": 64800,
+          "from_end": 0,
+          "offset": 64317,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 14.077311038970947,
+        "position": {
+          "content": 66254,
+          "from_end": 0,
+          "offset": 65771,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 14.268323063850403,
+        "position": {
+          "content": 67310,
+          "from_end": 0,
+          "offset": 66827,
+          "viewport": 483
+        }
+      },
+      {
+        "at": 14.836893081665039,
+        "position": {
+          "content": 67947,
+          "from_end": 38,
+          "offset": 67426,
+          "viewport": 483
+        }
+      }
+    ],
+    "held_before_reveal": true,
+    "inset": 40000,
+    "layout": {
+      "text_scale": 1.728,
+      "window_height": 760
+    },
+    "mode": "landed",
+    "readiness_waits": [
+      {
+        "elapsed": 5.4955482482910156e-05,
+        "wait": "scene.catchup_held_at_end"
+      },
+      {
+        "away_from_end": false,
+        "elapsed": 0.4268449544906616,
+        "stable": 3,
+        "wait": "stablePosition"
+      },
+      {
+        "elapsed": 0.9847400188446045,
+        "wait": "shrink.reveal_consumed"
+      },
+      {
+        "away_from_end": false,
+        "elapsed": 0.344291090965271,
+        "stable": 3,
+        "wait": "stablePosition"
+      },
+      {
+        "elapsed": 0.9908690452575684,
+        "wait": "shrink.reveal_consumed"
+      },
+      {
+        "away_from_end": false,
+        "elapsed": 0.31682395935058594,
+        "stable": 3,
+        "wait": "stablePosition"
+      },
+      {
+        "elapsed": 1.1195279359817505,
+        "wait": "shrink.clamped"
+      },
+      {
+        "elapsed": 0.050956010818481445,
+        "wait": "shrink.regrown"
+      },
+      {
+        "elapsed": 0.5483200550079346,
+        "wait": "shrink.settling_tick"
+      },
+      {
+        "elapsed": 6.977357983589172,
+        "wait": "shrink.caught_up"
+      }
+    ],
+    "shrinks": [
+      {
+        "amount": 7560,
+        "applied": {
+          "content": 43313,
+          "from_end": 347,
+          "offset": 42483,
+          "viewport": 483
+        },
+        "at": 5.245995044708252,
+        "before": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "inset_before": 40000
+      },
+      {
+        "amount": 1313,
+        "applied": {
+          "content": 42008,
+          "from_end": 132,
+          "offset": 41393,
+          "viewport": 483
+        },
+        "at": 5.58671510219574,
+        "before": {
+          "content": 43313,
+          "from_end": 347,
+          "offset": 42483,
+          "viewport": 483
+        },
+        "inset_before": 32440
+      },
+      {
+        "amount": 1098,
+        "applied": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "at": 5.9431880712509155,
+        "before": {
+          "content": 42008,
+          "from_end": 132,
+          "offset": 41393,
+          "viewport": 483
+        },
+        "inset_before": 31127
+      }
+    ],
+    "steps": [
+      {
+        "at": 2.5810130834579468,
+        "position": {
+          "content": 50308,
+          "from_end": 0,
+          "offset": 49825,
+          "viewport": 483
+        },
+        "readiness": {
+          "catchup_pending": true,
+          "caught_up": false,
+          "cursor": 0,
+          "last_seq": 362,
+          "position": {
+            "content": 50308,
+            "from_end": 0,
+            "offset": 49825,
+            "viewport": 483
+          },
+          "reveal_pending": false,
+          "scene": "shrink-landed"
+        },
+        "reveal": {
+          "ended_by": "no request",
+          "outstanding": false
+        },
+        "stable": 3,
+        "step": "opened"
+      },
+      {
+        "at": 5.218158006668091,
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "readiness": {
+          "catchup_pending": true,
+          "caught_up": false,
+          "cursor": 0,
+          "last_seq": 362,
+          "position": {
+            "content": 50308,
+            "from_end": 6594,
+            "offset": 43231,
+            "viewport": 483
+          },
+          "reveal_pending": false,
+          "scene": "shrink-landed"
+        },
+        "reveal": {
+          "ended_at": 4.894196033477783,
+          "ended_by": "reveal_landed",
+          "outstanding": false,
+          "requested_at": 4.889609098434448
+        },
+        "reveals": 2,
+        "stable": 3,
+        "step": "landed"
+      },
+      {
+        "at": 5.218409061431885,
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "readiness": {
+          "catchup_pending": true,
+          "caught_up": false,
+          "cursor": 0,
+          "last_seq": 362,
+          "position": {
+            "content": 50308,
+            "from_end": 6594,
+            "offset": 43231,
+            "viewport": 483
+          },
+          "reveal_pending": false,
+          "scene": "shrink-landed"
+        },
+        "reveal": {
+          "ended_at": 4.894196033477783,
+          "ended_by": "reveal_landed",
+          "outstanding": false,
+          "requested_at": 4.889609098434448
+        },
+        "step": "shrinking"
+      },
+      {
+        "at": 6.33822500705719,
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "readiness": {
+          "catchup_pending": true,
+          "caught_up": false,
+          "cursor": 0,
+          "last_seq": 362,
+          "position": {
+            "content": 40842,
+            "from_end": 0,
+            "offset": 40359,
+            "viewport": 483
+          },
+          "reveal_pending": false,
+          "scene": "shrink-landed"
+        },
+        "reveal": {
+          "ended_at": 4.894196033477783,
+          "ended_by": "reveal_landed",
+          "outstanding": false,
+          "requested_at": 4.889609098434448
+        },
+        "shrinks": [
+          {
+            "amount": 7560,
+            "applied": {
+              "content": 43313,
+              "from_end": 347,
+              "offset": 42483,
+              "viewport": 483
+            },
+            "at": 5.245995044708252,
+            "before": {
+              "content": 50308,
+              "from_end": 6594,
+              "offset": 43231,
+              "viewport": 483
+            },
+            "inset_before": 40000
+          },
+          {
+            "amount": 1313,
+            "applied": {
+              "content": 42008,
+              "from_end": 132,
+              "offset": 41393,
+              "viewport": 483
+            },
+            "at": 5.58671510219574,
+            "before": {
+              "content": 43313,
+              "from_end": 347,
+              "offset": 42483,
+              "viewport": 483
+            },
+            "inset_before": 32440
+          },
+          {
+            "amount": 1098,
+            "applied": {
+              "content": 40842,
+              "from_end": 0,
+              "offset": 40359,
+              "viewport": 483
+            },
+            "at": 5.9431880712509155,
+            "before": {
+              "content": 42008,
+              "from_end": 132,
+              "offset": 41393,
+              "viewport": 483
+            },
+            "inset_before": 31127
+          }
+        ],
+        "step": "shrunk"
+      },
+      {
+        "at": 6.690643072128296,
+        "position": {
+          "content": 51513,
+          "from_end": 10543,
+          "offset": 40487,
+          "viewport": 483
+        },
+        "readiness": {
+          "catchup_pending": true,
+          "caught_up": false,
+          "cursor": 0,
+          "last_seq": 362,
+          "position": {
+            "content": 51513,
+            "from_end": 10543,
+            "offset": 40487,
+            "viewport": 483
+          },
+          "reveal_pending": false,
+          "scene": "shrink-landed"
+        },
+        "reveal": {
+          "ended_at": 4.894196033477783,
+          "ended_by": "reveal_landed",
+          "outstanding": false,
+          "requested_at": 4.889609098434448
+        },
+        "step": "regrown"
+      },
+      {
+        "at": 6.690868020057678,
+        "position": {
+          "content": 51513,
+          "from_end": 10543,
+          "offset": 40487,
+          "viewport": 483
+        },
+        "readiness": {
+          "catchup_pending": true,
+          "caught_up": false,
+          "cursor": 0,
+          "last_seq": 362,
+          "position": {
+            "content": 51513,
+            "from_end": 10543,
+            "offset": 40487,
+            "viewport": 483
+          },
+          "reveal_pending": false,
+          "scene": "shrink-landed"
+        },
+        "reveal": {
+          "ended_at": 4.894196033477783,
+          "ended_by": "reveal_landed",
+          "outstanding": false,
+          "requested_at": 4.889609098434448
+        },
+        "step": "tick"
+      },
+      {
+        "at": 8.40359103679657,
+        "position": {
+          "content": 56023,
+          "from_end": 0,
+          "offset": 55540,
+          "viewport": 483
+        },
+        "readiness": {
+          "catchup_pending": false,
+          "caught_up": false,
+          "cursor": 80,
+          "last_seq": 362,
+          "position": {
+            "content": 56023,
+            "from_end": 0,
+            "offset": 55540,
+            "viewport": 483
+          },
+          "reveal_pending": false,
+          "scene": "shrink-landed"
+        },
+        "reveal": {
+          "ended_at": 4.894196033477783,
+          "ended_by": "reveal_landed",
+          "outstanding": false,
+          "requested_at": 4.889609098434448
+        },
+        "step": "after_tick"
+      },
+      {
+        "at": 16.121950030326843,
+        "position": {
+          "content": 67934,
+          "from_end": 25,
+          "offset": 67426,
+          "viewport": 483
+        },
+        "readiness": {
+          "catchup_pending": false,
+          "caught_up": true,
+          "cursor": 362,
+          "last_seq": 362,
+          "position": {
+            "content": 67934,
+            "from_end": 25,
+            "offset": 67426,
+            "viewport": 483
+          },
+          "reveal_pending": false,
+          "scene": "shrink-landed"
+        },
+        "reveal": {
+          "ended_at": 4.894196033477783,
+          "ended_by": "reveal_landed",
+          "outstanding": false,
+          "requested_at": 4.889609098434448
+        },
+        "step": "caught_up"
+      }
+    ],
+    "target": "person:m000040",
+    "trace": [
+      {
+        "at": 1.9513460397720337,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {},
+        "suspended": false
+      },
+      {
+        "at": 2.9876821041107178,
+        "at_bottom": true,
+        "event": "reveal",
+        "position": {
+          "content": 50308,
+          "from_end": 0,
+          "offset": 49825,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 3.0388340950012207,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 50308,
+          "from_end": 6641,
+          "offset": 43184,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 3.0390020608901978,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 50308,
+          "from_end": 6641,
+          "offset": 43184,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 3.147113084793091,
+        "distance": 6641,
+        "event": "reveal_check",
+        "position": {
+          "content": 50308,
+          "from_end": 6641,
+          "offset": 43184,
+          "viewport": 483
+        },
+        "presented": true,
+        "source": "completion",
+        "target": "person:m000040"
+      },
+      {
+        "at": 3.150628089904785,
+        "at_bottom": false,
+        "event": "reveal_landed",
+        "position": {
+          "content": 50308,
+          "from_end": 6641,
+          "offset": 43184,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 3.5592859983444214,
+        "at_bottom": false,
+        "event": "reveal",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 3.564296007156372,
+        "distance": 6594,
+        "event": "reveal_check",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "presented": true,
+        "source": "completion",
+        "target": "person:m000040"
+      },
+      {
+        "at": 3.5645591020584106,
+        "at_bottom": false,
+        "event": "reveal_landed",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 4.228257060050964,
+        "at_bottom": false,
+        "event": "reveal",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 4.232629060745239,
+        "distance": 6594,
+        "event": "reveal_check",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "presented": true,
+        "source": "completion",
+        "target": "person:m000040"
+      },
+      {
+        "at": 4.232786059379578,
+        "at_bottom": false,
+        "event": "reveal_landed",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 4.889609098434448,
+        "at_bottom": false,
+        "event": "reveal",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 4.894049048423767,
+        "distance": 6594,
+        "event": "reveal_check",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "presented": true,
+        "source": "completion",
+        "target": "person:m000040"
+      },
+      {
+        "at": 4.894196033477783,
+        "at_bottom": false,
+        "event": "reveal_landed",
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "suspended": true
+      },
+      {
+        "at": 5.9286789894104,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 6.0289130210876465,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 6.362612009048462,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 6.362771034240723,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 7.215463995933533,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 0,
+        "position": {
+          "content": 51513,
+          "from_end": 10543,
+          "offset": 40487,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 7.2368550300598145,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 54766,
+          "from_end": 0,
+          "offset": 54283,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 7.368497014045715,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 54766,
+          "from_end": 0,
+          "offset": 54283,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 7.370720028877258,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 54766,
+          "from_end": 24,
+          "offset": 54259,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 8.038745999336243,
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 0,
+        "position": {
+          "content": 54766,
+          "from_end": 24,
+          "offset": 54259,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 8.04643201828003,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 54766,
+          "from_end": 24,
+          "offset": 54259,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 8.04660701751709,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 54766,
+          "from_end": 24,
+          "offset": 54259,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 8.151937007904053,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 56437,
+          "from_end": 45,
+          "offset": 55909,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 8.483651995658875,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 56023,
+          "from_end": 0,
+          "offset": 55540,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 8.487837076187134,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 56023,
+          "from_end": 24,
+          "offset": 55516,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 9.131814002990723,
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 127,
+        "position": {
+          "content": 56023,
+          "from_end": 24,
+          "offset": 55516,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 9.140707015991211,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 56023,
+          "from_end": 24,
+          "offset": 55516,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 9.140802025794983,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 56023,
+          "from_end": 24,
+          "offset": 55516,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 9.15477705001831,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 57535,
+          "from_end": 34,
+          "offset": 57018,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 9.26974105834961,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 57405,
+          "from_end": 0,
+          "offset": 56922,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 9.273669004440308,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 57405,
+          "from_end": 25,
+          "offset": 56897,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 9.73867404460907,
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 127,
+        "position": {
+          "content": 57405,
+          "from_end": 25,
+          "offset": 56897,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 9.808634996414185,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 57405,
+          "from_end": 25,
+          "offset": 56897,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 9.808897018432617,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 57405,
+          "from_end": 25,
+          "offset": 56897,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 9.86727499961853,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 58876,
+          "from_end": 27,
+          "offset": 58366,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 10.014952063560486,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 58762,
+          "from_end": 0,
+          "offset": 58279,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 10.01659607887268,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 58762,
+          "from_end": 24,
+          "offset": 58255,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 10.52807605266571,
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 0,
+        "position": {
+          "content": 58762,
+          "from_end": 24,
+          "offset": 58255,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 10.532043099403381,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 58762,
+          "from_end": 24,
+          "offset": 58255,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 10.532281994819641,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 58762,
+          "from_end": 24,
+          "offset": 58255,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 10.755409002304077,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 60319,
+          "from_end": 28,
+          "offset": 59808,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 10.959601044654846,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 60209,
+          "from_end": 0,
+          "offset": 59726,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 10.960792064666748,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 60209,
+          "from_end": 25,
+          "offset": 59701,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 11.634465098381042,
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 127,
+        "position": {
+          "content": 60209,
+          "from_end": 25,
+          "offset": 59701,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 11.642194032669067,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 60209,
+          "from_end": 25,
+          "offset": 59701,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 11.642354011535645,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 60209,
+          "from_end": 25,
+          "offset": 59701,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 11.662185072898865,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 61634,
+          "from_end": 18,
+          "offset": 61133,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 11.782087087631226,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 61561,
+          "from_end": 0,
+          "offset": 61078,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 11.809706091880798,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 61561,
+          "from_end": 25,
+          "offset": 61053,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 12.674360990524292,
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 127,
+        "position": {
+          "content": 61561,
+          "from_end": 25,
+          "offset": 61053,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 12.706289052963257,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 61561,
+          "from_end": 25,
+          "offset": 61053,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 12.7064950466156,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 61561,
+          "from_end": 25,
+          "offset": 61053,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 12.7327880859375,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 62970,
+          "from_end": 15,
+          "offset": 62472,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 12.844555020332336,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 62913,
+          "from_end": 0,
+          "offset": 62430,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 12.846361994743347,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 62913,
+          "from_end": 25,
+          "offset": 62405,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 13.255537033081055,
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 135,
+        "old_length": 0,
+        "position": {
+          "content": 62913,
+          "from_end": 25,
+          "offset": 62405,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 13.257766008377075,
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "position": {
+          "content": 62913,
+          "from_end": 25,
+          "offset": 62405,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 13.25792908668518,
+        "at_bottom": false,
+        "event": "marker_false",
+        "position": {
+          "content": 62913,
+          "from_end": 25,
+          "offset": 62405,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 14.05270004272461,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 135,
+        "old_length": 135,
+        "position": {
+          "content": 65017,
+          "from_end": 217,
+          "offset": 64317,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 14.819001078605652,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 17,
+        "old_length": 135,
+        "position": {
+          "content": 67833,
+          "from_end": 523,
+          "offset": 66827,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 14.842007994651794,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 67947,
+          "from_end": 38,
+          "offset": 67426,
+          "viewport": 483
+        },
+        "suspended": false
+      },
+      {
+        "at": 15.321906089782715,
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 17,
+        "old_length": 17,
+        "position": {
+          "content": 67947,
+          "from_end": 38,
+          "offset": 67426,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at": 15.46087908744812,
+        "at_bottom": true,
+        "event": "reveal_end_visible",
+        "position": {
+          "content": 67934,
+          "from_end": 25,
+          "offset": 67426,
+          "viewport": 483
+        },
+        "suspended": false
+      }
+    ],
+    "visible_windows": 0
+  },
+  "two_reveal_comparison": {
+    "reveals": 2,
+    "old_exact_one_assertion": "rejected",
+    "new_permitted_range_assertion": "passed",
+    "old_release_count": 41,
+    "real_release_count": 1
+  },
+  "attempt2_comparison": {
+    "old_order": "rejected",
+    "new_order": "accepted",
+    "old_behavior": "passed",
+    "new_behavior": "passed",
+    "pending": {
+      "ended_at": -1,
+      "ended_by": "",
+      "outstanding": true,
+      "requested_at": 0.576464056968689
+    },
+    "geometry_checks": [
+      {
+        "at": 1.26322603225708,
+        "distance": 0,
+        "event": "reveal_check",
+        "position": {
+          "content": 48691,
+          "from_end": 0,
+          "offset": 48208,
+          "viewport": 483
+        },
+        "presented": false,
+        "source": "clip",
+        "target": "person:m000040"
+      }
+    ]
+  },
+  "mutation_kill_messages": [
+    {
+      "run": "round7-default",
+      "message": "marker_releases_pending_reveal killed by assert_shrink_releases_nothing: {\"before_catchup\": {\"content\": 49666, \"from_end\": 0, \"offset\": 49112, \"viewport\": 554}, \"documents\": [{\"at\": 4.036356091499329, \"caught_up\": false, \"content\": 49592, \"cursor\": 0, \"history_pages\": 1, \"items\": 121, \"position\": {\"content\": 49592, \"from_end\": 0, \"offset\": 49038, \"viewport\": 554}, \"previ"
+    },
+    {
+      "run": "round7-default",
+      "message": "confirm_by_distance_only killed by assert_shrink_releases_nothing: {\"before_catchup\": {\"content\": 49592, \"from_end\": 0, \"offset\": 49038, \"viewport\": 554}, \"documents\": [{\"at\": 2.315418004989624, \"caught_up\": false, \"content\": 49592, \"cursor\": 0, \"history_pages\": 1, \"items\": 121, \"position\": {\"content\": 49592, \"from_end\": 0, \"offset\": 49038, \"viewport\": 554}, \"previ"
+    },
+    {
+      "run": "round7-default",
+      "message": "reveal_never_lands killed by assert_landed_shrink_releases: {\"before_catchup\": {\"content\": 49666, \"from_end\": 0, \"offset\": 49112, \"viewport\": 554}, \"documents\": [{\"at\": 4.1475750207901, \"caught_up\": false, \"content\": 49592, \"cursor\": 0, \"history_pages\": 1, \"items\": 121, \"position\": {\"content\": 49592, \"from_end\": 0, \"offset\": 49038, \"viewport\": 554}, \"previou"
+    }
+  ],
+  "resource": {
+    "current_load": [
+      50.53271484375,
+      47.24658203125,
+      45.02294921875
+    ],
+    "max_reported_child_rss_bytes": 1308835840
+  }
+}

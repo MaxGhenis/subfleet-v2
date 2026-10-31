@@ -29,8 +29,8 @@ suspension. The new native `resizeSchedule` scene presents a target in a 12,000 
 AppKit document and applies `[-11000, 2000, -2500, 1000]` without remounting a lazy
 marker. At base, both clamps reach zero but deliver zero confirmations; the
 landed regression fails. The pending control passes. The small product correction
-retains the landed request for subsequent geometry checks, until input, another
-reveal, abandonment, an own send or removal supersedes it. ConversationView keeps
+retains the landed request for subsequent geometry checks, until timeline scroll input, another reveal, matching abandonment,
+an own send, a conversation change or pin teardown supersedes it. ConversationView keeps
 its own pending-reveal guard on these later confirmations.
 
 The old landed CI capture still fails the fixed behavioural assertion. Accepting
@@ -74,12 +74,9 @@ before a shrink or reply can repair its effect.
 
 ## Invariant and synchronization
 
-For every resize schedule, while a reveal's target remains unpresented and no
-person input supersedes it, showing the end by shrinking the document must not
-release its suspension. After that target has landed, a shrink exposing the end
-must confirm it independently of whether a lazy marker remounts. Once released,
-catch-up follows the end. The full-view replay checks the suspension decisions
-and caught-up position as before.
+While the same request and conversation remain current and its watch has not been cancelled, a shrink exposing the end releases nothing before the target is presented. After landing, it confirms the end independently of a marker remount.
+
+The full-view replay checks the suspension decisions and caught-up position as before.
 
 A deterministic Hypothesis property runs 12 generated schedules per invocation,
 each beginning with the clamp and followed by up to eight signed resizes. It
@@ -94,7 +91,7 @@ reported callback. Other shrink cases require presented geometry instead of
 assuming that callback exists. Existing readiness deadlines and tolerances are
 unchanged. The isolated growth response uses a 0.5 pt bound.
 
-## Validation
+## Original-build validation (historical)
 
 **201 final-source checks passed, with no failing assertion or skip.** The whole fix10 file completed in one pytest invocation (40 passed); its hold then exited cooperatively before the next file. The 80 required repetitions completed as 33 + 27 + 20, retaining completed items and deselecting them from continuation holds. The first repetition hold was interrupted before 20 minutes after a cold build consumed most of its allocation; its incomplete item is excluded. No failed assertion was rerun unchanged.
 
@@ -163,13 +160,13 @@ branch is checked out in the caller's worktree. Commits are therefore made on
 as read-only alternates, and delivered as a verified bundle. The assigned
 checkout's shared HEAD remains at the base. The caller's checkout was not written. The final delivery is `qt-larger-text-217.bundle` in the assigned workspace; its ref is verified against the base repository.
 
-No fetch, merge, push, GitHub call, live store, real CLI/provider, sub-agent,
-retry-to-pass loop, skip, xfail or sleep-based fix was used. Every test hold contains
+The original build used no fetch, merge, push, GitHub call, live store, real
+CLI/provider, sub-agent, retry-to-pass loop, skip, xfail or sleep-based fix. Every test hold contains
 one serial pytest. `test_core_live.py` was not run: the lane rules prohibit it;
 its person-only daemon gate is for CI. Cleanup removes scratch with the required
 `/sf-` guard, plus this job's generated frontend cache in the workspace.
 
-## Proposed PR
+## Original proposed PR (historical)
 
 Title: **Fix shrink confirmation and growth-mutant coverage on release/217**
 
@@ -184,3 +181,66 @@ repin. Add deterministic native counterexamples and a bounded Hypothesis resize
 property. Validation details are in this report and its evidence JSON. Final validation: 201 passing checks; all six guarded mutants rejected.
 
 Local Python was 3.14.7. The full CI matrix, Python 3.12, a CI macOS 15 image, the live app's rendered animations and unnamed mutant cases were not run. No requested local check remains unrun.
+
+## Review r1 and fix round r1
+
+Fix round r1b resumes validation after the reboot at inherited head `98924e35c1fd`.
+All results below will be earned again in this worktree. The baseline hold began
+at 02:39:12 UTC on 2026-10-31, load 28.07. Validation is in progress; incremental
+records and the PR body draft are retained in `qt-larger-text-r1b/`.
+
+### Decision audit (validation in progress)
+
+1. Changed identity clears pending and landed requests; unchanged identity keeps
+   both. The pending/landed identity strict marks are removed. Native queued
+   checks and the app's identity-boundary suspension input are being rerun.
+2. All four end-distance formulas call the private `distanceFromEnd` helper.
+   The existing 25/26 pt controls cover both orientations.
+3. Accept the scene's one-to-three reveal attempts while requiring the landed
+   order and release behavior. A native two-reveal input is being rerun; the
+   existing replay also rejects zero reveals. No regular scene was changed.
+4. Count only suspended-to-resumed transitions, carrying state across the
+   cutoff. The release-count strict mark is removed. Every dependent shrink
+   case and named round-7 mutant is in the fresh run selection.
+5. The quiet-landing missed-growth scene and strict mark remain. Its 600 pt
+   missed growth followed by a compensating shrink is a listed difference.
+   Forced failure and normal expected failure will be reported separately.
+6. The #282 attempt-2 fixture exactly matches the supplied diagnostic JSON.
+   The old/new order and behavior comparison is in the diagnostic hold.
+7. The qualified invariant and cancellation terms above are corrected; a full
+   proposed PR body with `Next: review r2` is retained in the body draft.
+
+No production or regular scene changes have been needed during this audit.
+
+### Earned suspension result
+
+The native navigation input passed. A had a pending reveal and suspension on.
+Crossing the app's `.id(conversation_id)` boundary replaced the pin; all recorded
+B states were resumed and all eleven catch-up movements jumped. B finished
+25 pt from the end, within the existing 30 pt control bound. Clearing a pin
+request does not resume the old owner; the app replaces that owner, so B does
+not inherit its suspension. No additional suspension repair or route was added.
+
+The whole fix10 file passed all 40 items. Fix8 view passed all six items, and
+repeated file collection produced twenty passing larger-text shrink invocations:
+ten per case, independently checked at collection and completion.
+
+<!-- r1b-live-results -->
+### Validation checkpoint (still in progress)
+
+All starts are UTC on 2026-10-31. Final totals and the full proposed PR body
+will follow after the remaining named holds.
+
+| Run | Start | Load | Earned outcomes | State |
+| --- | --- | ---: | --- | --- |
+| `baseline-pin-remaining` | 03:11:26 | 42.11 | test_review_pr284_pin.py: 3 passed, 4 failed | complete |
+| `baseline-red` | 02:39:12 | 28.07 | test_review_pr284_pin.py: 6 passed, 2 failed | complete |
+| `baseline-resizes` | 03:22:04 | 50.53 | test_review_pr284_resizes.py: 1 passed | in progress |
+| `diagnostics-safety-setup` | 02:44:23 | 65.54 | no completed cases | complete |
+| `diagnostics` | 02:58:21 | 65.17 | diagnostics.py: 3 passed | complete |
+| `fix10-whole` | 02:59:42 | 59.15 | test_review_r219_fix10_view.py: 40 passed | complete |
+| `fix8-view` | 03:18:36 | 33.05 | test_review_r219_fix8_view.py: 6 passed | complete |
+| `fixed-pin-forced` | queued |  | no completed cases | in progress |
+| `repeat-larger` | 03:22:13 | 49.44 | test_review_r219_fix10_view.py: 20 passed | complete |
+| `round7-default` | 03:13:41 | 37.36 | test_review_r219_fix8_mutations.py: 3 passed | complete |
+| `round7-larger` | queued |  | no completed cases | in progress |
