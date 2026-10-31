@@ -284,15 +284,32 @@ open, not where an assignment lasts, or a command that defines a function), and 
 words an earlier loop over its name left instead of replacing them (decision 3), since the loop may run
 in a scope of its own: after `for d in ~/.subfleet/*; do :; done`, a loop over `src` in a `bash -c`
 script, a `$(…)`, a `<(…)`, a function body, a subshell, a quoted `$(…)` or a piped `while read` no
-longer hides the root from the `rg foo "$d"` after it, and the shells walk it. A loop at the top of the
-command still replaces the words. The over-blocks of all three are listed under "stricter" below, and
-what stays open under "let through".
+longer hides the root from the `rg foo "$d"` after it, and the shells walk it. A `for` loop at the top of
+the command still replaces the words; the top is where a plain assignment would last (r7 decision 5: outside
+a subshell, a substitution and a nested script, before any `case` pattern, and after `;`, a newline,
+`&` or nothing), with no other compound command open, no keyword before the loop and no function
+defined in the command. Anywhere else, at the top of a nested script or substitution included, it joins
+them. The over-blocks of all three are listed under "stricter" below, and what stays open under "let
+through".
+
+Its r12 (2026-10-30) closes the findings of the hub's review r11. What find's `-exec` `{}` stands for
+costs steps of the shared 20,000-step budget as a loop variable's words do, a step for each word and
+for each 16 bytes (decision 1): r11 charged nothing for it, so 300 roots and 300 `{}` (2.3 KB) cost
+26 s of CPU and 400 of each ran past 120 s, and both are now too complex to judge in about 0.2 s;
+100 of each are still read. The same charge now applies to each round of a `printf` format after the
+first, to the script `eval` or `source` runs, and to the script a shell runs from a pipe, a
+substitution or its arguments (decision 2). Before it, a 16 KB format repeated for 64 words and piped
+into bash, and 8 KB echoed through 1,000 shells, each ran past 40 s (the hub's runs at `82df89ded`);
+both are now too complex to judge in under 1 s. A shell's own here-string or heredoc is text of the
+command itself, read once already (a heredoc's lines cost steps), so it is not charged again. The
+message names find's `{}`, printf's repeated format and text piped into a shell. This round looked for
+no other place that turns one word into many.
 
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
 globs and computed list of folders a glob reads, and the command reading follows its keywords,
 wrapper table, shell options, `eval`, stdin scripts, stdin model and print-and-exit forms. Their
-shared limits are in the report's known limits. Known differences that remain after r11, read from
+shared limits are in the report's known limits. Known differences that remain after r12, read from
 the code as it stands, with review r5's check 8 forms marked (snapshot-5 read from its frozen
 `.ref`: `for` at `:2179-2187`, `read` at `:2192-2197`, shells at `:2227-2252`):
 
@@ -371,7 +388,19 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
   - A loop a pipe or `&` runs in a subshell, over an earlier root loop's name (found in r11): `for d in
     ~/.subfleet/*; do :; done; for d in src; do :; done | cat; rg foo "$d"`, and the same with `& wait`
     for `| cat`, pass, and both shells walk the root. The loop sits at the top of the command, where its
-    reading replaces the words (`R11_KNOWN_OPEN`).
+    reading replaces the words (`R11_KNOWN_OPEN`). Review r11 found more spellings of it, each passing:
+    `|& cat` and `&| cat`, which only zsh walks, and `&!`, `2>&1 | cat`, `& rg foo "$d"` (the loop run in
+    the background before the search), a pipe continued on a new line and `| while read x; do :; done`,
+    which both shells walk (all but `&|` pinned in `REVIEW_R11_OPEN`). None is modeled.
+  - A loop whose list expands to nothing, after a root loop over its name (review r11; since r6): `for d
+    in ~/.subfleet/*; do :; done; for d in $nothing; do :; done; rg foo "$d"` passes, and both shells
+    walk the root, since a loop over nothing leaves the earlier value. The prep reads the second loop's
+    words as written (`$nothing`) and replaces the root's with them (`REVIEW_R11_OPEN`). The same after
+    `for d in $(true)` is denied, and both shells walk it (`REVIEW_R11_DENIED`).
+  - A redirection, a heredoc operator or a `$((…))` between a searcher and its root (review r11):
+    `find 2>&1 / -name x`, `rg --files 2>/dev/null ~/.subfleet`, `rg --files &>/dev/null ~/.subfleet`,
+    `rg --files <<EOF ~/.subfleet⏎x⏎EOF` and `rg --files $((1<<2)) ~/.subfleet` pass, and both shells
+    walk the root; the installed hook lets them through too (`REVIEW_R11_OPEN`).
   - Loop shapes other than a `for` list or a piped `while read` whose variable is a searcher's whole
     operand: `while read d; do …; done < list`, `until`, `select`, a loop variable in a nested
     script, `for d in $(…)` (the prep splits the word at its `(`), and `xargs -a <(…)` or a `>(…)`;
@@ -450,7 +479,15 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     is each 16 bytes of them, so a `bash <<'EOF2'` script with `for d in src; do :; done` and 162 lines
     of `d=src/mN; rg -n foo "$d"` is too complex to judge, though no shell walks a root (each value
     joins the loop's words in a nested script, so each search reads all of them; 161 lines are read;
-    `R11_STRICTER`).
+    `R11_STRICTER`). Since r12 decisions 1 and 2 the same charge, a step for each word and each 16
+    bytes, applies to what find's `{}` stands for, to each round of a `printf` format after the first,
+    to the script `eval` or `source` runs, and to the script a shell runs from a pipe, a substitution or
+    its arguments; this round looked for no other place that turns one word into many. So `cat <<'EOF' |
+    bash` with 4,000 lines of `rg -n foo src/x` (64 KB) is too complex to judge, though no shell walks a
+    root, because the pipe's text costs steps on top of the heredoc's lines (2,500 lines, 40 KB, are
+    read, and so is `bash <<'EOF'` with the same 4,000 lines; `R12_PIPED_MOVED`). Under the budget, cost
+    still grows with the line: a 64 KB command of short words, distinct path words or globs costs
+    2.5–11 s of CPU (installed 0.3 s; review r11).
   - A component bash can match against `..` is read as its parent in zsh's reading too, and a word
     with more than three such components is denied unread.
   - A pipe into a shell given no script reads every earlier stage's words as its script, also for a
@@ -499,14 +536,17 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     foo "$d"; done`, and the same with the inner loop in a `bash -c` script, a subshell, a `$(…)`, a
     quoted `$(…)`, a function body or a `<(…)` (review r10 counted five such; r11's probes found
     seven). So is a search after a loop the shells run in place where the prep reads it as joining:
-    inside an `if` or a brace group, after `!` or `time`, nested in another loop, or in a command that
-    defines a function (`for d in ~/.subfleet/*; do :; done; if true; then for d in src; do :; done; fi;
-    rg foo "$d"`). Neither shell walks a root on any (`R11_STRICTER`).
+    inside an `if`, a `case` arm or a brace group, after `!`, `time`, `&&` or `||`, in an `eval` script,
+    nested in another loop, in a command that defines a function, or at the top of a nested script or
+    substitution after a root loop over the same name there (`for d in ~/.subfleet/*; do :; done; if
+    true; then for d in src; do :; done; fi; rg foo "$d"`, and review r11's thirteen, among them `bash -c
+    'for d in ~/*; do du -sh "$d"; done; for d in src tests; do rg -n foo "$d"; done'`). Neither shell
+    walks a root on any (`R11_STRICTER`, `REVIEW_R11_STRICTER`).
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `7bba4822e4e850e97ef851b1d29d8024d601ebf64610224401bf89a93b7be102` |
-| `TRUST` | `4e270e5b7b1f65dc16f7afbf67fb5fa71085f007c70d11896a47c617ebce14f8` |
+| `never-rules-hook.sh` | `e5b387c4cf19f1bb6333ae9306e9657f5904a8b13f3d9c0f7d282d45b0a062d7` |
+| `TRUST` | `c91e21b4d571f0453ead3ed49a6ad8afe931d74617de5be38fd6948418a48fd7` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one
