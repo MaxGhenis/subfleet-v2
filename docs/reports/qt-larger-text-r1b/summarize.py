@@ -57,7 +57,7 @@ def build():
         initial.write_text(json.dumps(hashes, indent=2) + '\n')
     assert hashes == read(initial), 'source changed during validation'
     native = []
-    for path in sorted((SCRATCH / 'cases').glob('**/result.json')):
+    for path in sorted((SCRATCH / 'cases').glob('**/*result.json')):
         if path.parent.is_symlink():
             continue
         result = read(path)
@@ -92,6 +92,7 @@ def build():
         'private_git_metadata': '.git-local',
         'bundle': 'docs/reports/qt-larger-text-217-r1b.bundle',
         'source_sha256': hashes, 'runs': runs, 'native_results': native,
+        'source_provenance': read(HERE / 'source-provenance.json'),
         'pin_inputs': pin_inputs,
         'navigation': read(HERE / 'navigation-input.json'),
         'two_reveal_input': read(HERE / 'two-reveal-input.json'),

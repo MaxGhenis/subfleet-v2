@@ -184,63 +184,188 @@ Local Python was 3.14.7. The full CI matrix, Python 3.12, a CI macOS 15 image, t
 
 ## Review r1 and fix round r1
 
-Fix round r1b resumes validation after the reboot at inherited head `98924e35c1fd`.
-All results below will be earned again in this worktree. The baseline hold began
-at 02:39:12 UTC on 2026-10-31, load 28.07. Validation is in progress; incremental
-records and the PR body draft are retained in `qt-larger-text-r1b/`.
+Fix round r1b starts from `98924e35c1fd`, the byte-for-byte recovery of round r1's
+code and tests after the reboot. Every result below was earned again. The
+production pin, regular probe scenes and inherited tests required no further change.
 
-### Decision audit (validation in progress)
+1. A changed `conversationID` clears both `outstanding` and `landedRequest`.
+   Assigning the same ID preserves them. Immediate and already queued inputs in
+   both document orientations produce zero old-request callbacks after changing
+   IDs; same-ID controls still deliver callbacks. The identity-reset mutant is
+   rejected. Both identity strict marks were removed by the inherited fix.
+2. One private `distanceFromEnd` helper supplies all four distance calculations
+   without changing the formula. Both orientations retain 25 pt acceptance and
+   26 pt rejection controls.
+3. The existing scene permits up to three reveal attempts. The assertion accepts
+   one through three and still requires the landed order and release behavior.
+   This preserves the existing scene. A fresh native input forces two permitted
+   attempts: `reveals=2` passes, while the former exact-one check rejects that
+   value. The saved replay passes for 1, 2 and 3; zero reveals is rejected.
+4. `releases_after` carries suspension state across the cutoff and counts only
+   true-to-false transitions, including transitions recorded on movement events.
+   Repeated resumed confirmations and entries without suspension data add none.
+   The fresh two-reveal trace changes the old count of 41 entries
+   to one real release, on `marker_appeared`. All dependent default/larger
+   shrink controls and all six round-7 mutation executions pass; no mutant
+   survives the corrected count. Only the release-count strict mark was removed.
+5. **Listed difference retained:** quiet-landing cases lack an independent
+   growth probe. Their reply-only rule accepts a measured missed 600 pt growth
+   followed by a compensating shrink to zero. Its scene and strict mark remain.
+   With `--runxfail`, this is an intentional assertion failure; the separate
+   normal run reports a strict expected failure. These outcomes are counted
+   separately below.
+6. The saved #282 attempt-2 fixture exactly matches the supplied log's JSON.
+   Executing it rejects the old marker-based order helper and passes the current
+   geometry-based helper: a zero-distance reveal check occurs during the measured
+   clamp while the target remains outstanding. Both original and corrected
+   suspension/behavior assertions pass. A replay claiming landing before the
+   shrink remains rejected.
+7. The report and full proposed body use the qualified current-watch invariant,
+   name pin teardown, add conversation change to watch cancellation, and send
+   the next review to r2. No hub decision was changed.
 
-1. Changed identity clears pending and landed requests; unchanged identity keeps
-   both. The pending/landed identity strict marks are removed. Native queued
-   checks and the app's identity-boundary suspension input are being rerun.
-2. All four end-distance formulas call the private `distanceFromEnd` helper.
-   The existing 25/26 pt controls cover both orientations.
-3. Accept the scene's one-to-three reveal attempts while requiring the landed
-   order and release behavior. A native two-reveal input is being rerun; the
-   existing replay also rejects zero reveals. No regular scene was changed.
-4. Count only suspended-to-resumed transitions, carrying state across the
-   cutoff. The release-count strict mark is removed. Every dependent shrink
-   case and named round-7 mutant is in the fresh run selection.
-5. The quiet-landing missed-growth scene and strict mark remain. Its 600 pt
-   missed growth followed by a compensating shrink is a listed difference.
-   Forced failure and normal expected failure will be reported separately.
-6. The #282 attempt-2 fixture exactly matches the supplied diagnostic JSON.
-   The old/new order and behavior comparison is in the diagnostic hold.
-7. The qualified invariant and cancellation terms above are corrected; a full
-   proposed PR body with `Next: review r2` is retained in the body draft.
+### Suspension input and navigation
 
-No production or regular scene changes have been needed during this audit.
+Clearing the pin's request does not call a resume callback on the old owner.
+The app mounts `ConversationView(...).id(conversation_id)`, so navigation disposes
+that owner's state and pin. The executed input leaves A with a pending reveal
+and suspension enabled, then crosses that same identity boundary to B. The pin
+is replaced, B's recorded states are resumed, catch-up jumps, and B finishes
+25 pt from the end, within the existing 30 pt control. B inherits no
+suspension, so no additional repair or new navigation route was added.
 
-### Earned suspension result
+### Fresh red and green validation
 
-The native navigation input passed. A had a pending reveal and suspension on.
-Crossing the app's `.id(conversation_id)` boundary replaced the pin; all recorded
-B states were resumed and all eleven catch-up movements jumped. B finished
-25 pt from the end, within the existing 30 pt control bound. Clearing a pin
-request does not resume the old owner; the app replaces that owner, so B does
-not inherit its suspension. No additional suspension repair or route was added.
+The baseline is `26ee5d6f2`; final product/test sources are inherited
+`98924e35c1fd`. Every hold contains one serial pytest and a 19-minute boundary.
+The first hold began within one hour of this job's 02:34:34 UTC start.
 
-The whole fix10 file passed all 40 items. Fix8 view passed all six items, and
-repeated file collection produced twenty passing larger-text shrink invocations:
-ten per case, independently checked at collection and completion.
+Final selections: **170 passing repository test invocations**, plus **three
+passing diagnostics**. Baseline results are separate. The quiet-landing forced
+failure and normal strict expected failure are also separate.
+Ten baseline source/fixture files match their `26ee5d6f2` Git blobs, and the
+inherited product and test sources remain unchanged from `98924e35c1fd`.
 
-<!-- r1b-live-results -->
-### Validation checkpoint (still in progress)
+Baseline `--runxfail`: **9 passed / 6 intended failures** in the pin file and
+**3 passed** in the resize file. The cold baseline reached its 19-minute boundary
+with six passing controls and two identity failures; its continuation ran only
+unfinished cases. An initial diagnostic compile was stopped before producing
+a native binary so its docs-path collection could explicitly load the repository's
+home-isolation guard; the corrected hold passed all three diagnostics. Two queued
+controllers were restarted while correcting the direct-run handoff, with their
+original wait times preserved. Another queued controller was split into two
+independent named-mutation sequences, and its larger-text environment was aligned
+with the test's existing scale-only layout before admission. Those restarts also
+retain the original wait time. These setup attempts add no passing checks.
 
-All starts are UTC on 2026-10-31. Final totals and the full proposed PR body
-will follow after the remaining named holds.
+| File | Final passing invocations | Other outcomes |
+| --- | ---: | --- |
+| `tests/fake/test_state_contract.py` | 37 | none |
+| `tests/frontend/test_review_pr284_pin.py` | 21 | 1 failed, 1 xfailed |
+| `tests/frontend/test_review_pr284_resizes.py` | 8 | none |
+| `tests/frontend/test_review_r219_fix10_view.py` | 60 | none |
+| `tests/frontend/test_review_r219_fix8_mutations.py` | 12 | none |
+| `tests/frontend/test_review_r219_fix8_view.py` | 6 | none |
+| `tests/unit/test_invariants_index.py` | 25 | none |
+| `tests/unit/test_test_module_names.py` | 1 | none |
 
-| Run | Start | Load | Earned outcomes | State |
-| --- | --- | ---: | --- | --- |
-| `baseline-pin-remaining` | 03:11:26 | 42.11 | test_review_pr284_pin.py: 3 passed, 4 failed | complete |
-| `baseline-red` | 02:39:12 | 28.07 | test_review_pr284_pin.py: 6 passed, 2 failed | complete |
-| `baseline-resizes` | 03:22:04 | 50.53 | test_review_pr284_resizes.py: 1 passed | in progress |
-| `diagnostics-safety-setup` | 02:44:23 | 65.54 | no completed cases | complete |
-| `diagnostics` | 02:58:21 | 65.17 | diagnostics.py: 3 passed | complete |
-| `fix10-whole` | 02:59:42 | 59.15 | test_review_r219_fix10_view.py: 40 passed | complete |
-| `fix8-view` | 03:18:36 | 33.05 | test_review_r219_fix8_view.py: 6 passed | complete |
-| `fixed-pin-forced` | queued |  | no completed cases | in progress |
-| `repeat-larger` | 03:22:13 | 49.44 | test_review_r219_fix10_view.py: 20 passed | complete |
-| `round7-default` | 03:13:41 | 37.36 | test_review_r219_fix8_mutations.py: 3 passed | complete |
-| `round7-larger` | queued |  | no completed cases | in progress |
+All starts below are UTC on 2026-10-31; loads use `os.getloadavg()` at pytest
+start because the wrapper's `sysctl` display is denied.
+
+| Start | Load | Run and counts per file | Seconds |
+| --- | ---: | --- | ---: |
+| 02:39:12 | 28.07 | `baseline-red`: test_review_pr284_pin.py: 6 passed, 2 failed; interrupted compile | 1140.00 |
+| 02:44:23 | 65.54 | `diagnostics-safety-setup`: no completed cases; interrupted compile | 662.94 |
+| 02:58:21 | 65.17 | `diagnostics`: diagnostics.py: 3 passed | 589.25 |
+| 02:59:42 | 59.15 | `fix10-whole`: test_review_r219_fix10_view.py: 40 passed | 850.00 |
+| 03:11:26 | 42.11 | `baseline-pin-remaining`: test_review_pr284_pin.py: 3 passed, 4 failed | 425.86 |
+| 03:13:41 | 37.36 | `round7-default`: test_review_r219_fix8_mutations.py: 3 passed | 854.32 |
+| 03:18:36 | 33.05 | `fix8-view`: test_review_r219_fix8_view.py: 6 passed | 211.42 |
+| 03:22:04 | 50.53 | `baseline-resizes`: test_review_pr284_resizes.py: 3 passed | 989.70 |
+| 03:22:13 | 49.44 | `repeat-larger`: test_review_r219_fix10_view.py: 20 passed | 463.50 |
+| 03:39:56 | 34.25 | `fixed-pin-forced`: test_review_pr284_pin.py: 21 passed, 1 failed | 538.48 |
+| 03:42:29 | 40.52 | `round10-growth`: test_review_r219_fix8_mutations.py: 2 passed | 268.55 |
+| 03:47:01 | 31.17 | `round10-window`: test_review_r219_fix8_mutations.py: 1 passed | 252.07 |
+| 03:48:59 | 37.70 | `fixed-resizes`: test_review_pr284_resizes.py: 8 passed | 464.53 |
+| 03:58:30 | 37.90 | `round7-larger`: test_review_r219_fix8_mutations.py: 3 passed | 71.25 |
+| 04:15:01 | 31.99 | `guards-quiet`: test_state_contract.py: 37 passed; test_test_module_names.py: 1 passed; test_invariants_index.py: 25 passed; test_review_pr284_pin.py: 1 xfailed | 54.69 |
+| 04:16:44 | 26.14 | `round10-quiet`: test_review_r219_fix8_mutations.py: 3 passed | 253.18 |
+
+Repeated file collection, with a narrow selector, collected exactly 20 items:
+the pending and landed `[larger_text]` cases ten times each. Both collected and
+passing per-node counts are checked; repeated node IDs were not used. The
+whole fix10 file additionally covers both layouts, the person-scroll control
+and the 12-schedule deterministic Hypothesis property.
+
+| Mutant | Executions | Result |
+| --- | ---: | --- |
+| `marker_releases_pending_reveal` | 2, default/larger | rejected by pending suspension rule |
+| `confirm_by_distance_only` | 2, default/larger | rejected by pending suspension rule |
+| `reveal_never_lands` | 2, default/larger | rejected by landed release rule |
+| `quiet_landing_ends_following` | 3 named scenes | rejected; separate listed reply-only counterexample remains |
+| `growth_repins_dropped` | 2 named checks | rejected for measured growth before compensation |
+| `quiet_window_0ms` | 1 | rejected by settled-position rule |
+
+All six named mutants are rejected. The independent reset, person-scroll
+cancellation and dropped-landed-watch mutants are also rejected by the review
+files. Mutation setup/order checks remain outside their expected assertion
+failure blocks.
+
+After 30 minutes without admission, only the owned waiters were stopped and these selections ran directly: round7-default. The other runs used the suite wrapper. Largest reported child RSS was
+1.309 GB, below 8 GB.
+The final checkpoint records scratch at 799.8 MiB and this job's frontend cache at 149.9 MiB. Guarded cleanup removed scratch and this job's generated frontend cache and bytecode. Every managed tool command was awaited to completion.
+Darwin scratch creation was denied, so `/private/tmp/sf-fix284r1b` held the
+venv, uv cache, compiler cache and per-hold TMPDIR. Shared Git metadata denied
+the index lock. Commits use `.git-local` in this worktree on
+`fix/qt-larger-text-217`; each is delivered immediately in the verified
+`docs/reports/qt-larger-text-217-r1b.bundle`, based on `98924e35c1fd`.
+The assigned checkout's shared HEAD remains at that inherited commit.
+
+The [evidence JSON](2026-10-30-qt-larger-text-r1b-evidence.json) retains source
+hashes, collection counts, each test result, actual native inputs and reduced
+native outputs. The [full body draft](qt-larger-text-r1b/pr-body-draft.md),
+runner and diagnostic sources are retained in the worktree.
+
+Not run: prohibited `tests/frontend/test_core_live.py`, a fresh CI matrix,
+Python 3.12, or a CI macOS image. CI owns the live test's person-only daemon
+gate. No requested local selection remains unrun. No fetch, merge, push,
+GitHub call, live store, real CLI/provider, sub-agent or host-loading process
+was used.
+
+### Full proposed PR body for review r2
+
+```markdown
+**D-QT-FLAKE1: the conversation view's shrink cases and a growth mutant fail shards on open PRs on `release/217`, none of which touches a frontend file.** #282, #279 and #277 each lost a 30-minute shard to them, and #282 lost the same shard twice at one head. This PR comes from lane build `20261030-115759-qt-larger-text-b1`, on `release/217` at `a093fb4b6`.
+
+**Causes, from the report (`docs/reports/2026-10-30-qt-larger-text.md`):**
+
+- **Shrink under a pending reveal:** a test error. The test required a new `marker_appeared` between `shrinking` and `shrunk`, and none occurs. Its behavioural rule already passed. Replaying the failed CI capture fails the old order check and passes the geometry-based one.
+- **Shrink after a distant reveal lands:** a product race. `OpeningPinView` stopped observing a request once its target landed, so a later shrink could show the end with no event to release follow suspension. A native no-remount scene shows it: at base both clamps reach zero and deliver no confirmation.
+- **The growth mutant:** the reply-only rule let a compensating shrink or an ordinary reply jump hide a missed repin. A quiet own-send landing followed by `[600, -900]` leaves a measured 600 pt gap, then clamps it to zero. At base the rule accepts that run.
+
+**The fix:**
+
+- `OpeningPinView` keeps a landed request (`landedRequest`) and keeps checking geometry after landing. Timeline scroll input, another reveal, matching abandonment, an own send, a conversation change or pin teardown ends the watch. A conversation change clears pending and landed requests; queued geometry checks read that cleared state.
+- `ConversationView` takes the new `onLandedEndVisible` callback and resumes follow only when no reveal is pending, so the pending-reveal guard stays in force.
+- The shrink cases check presented geometry instead of a marker callback. The marker mutant's replay reaches the real `endAppeared()` handler through a notification that only `SUBFLEET_VIEW_TEST` builds compile.
+- The growth rule checks each resize's response before the next resize or reply, with a 0.5 pt bound.
+
+**Invariant:** While the same request and conversation remain current and its watch has not been cancelled, a shrink exposing the end releases nothing before the target is presented. After landing, it confirms the end independently of a marker remount.
+
+**Evidence:**
+
+- A deterministic Hypothesis property over signed resize schedules, 12 generated schedules per invocation.
+- Original build: native red run with 2 intended failures and 1 passing control; 201 passing checks, including the changed cases 80 times.
+- Review r1 and fix round r1: clear pending and landed requests on conversation changes, count real suspension transitions, and accept the existing scene's one-to-three reveal attempts while still requiring landing. The native `reveals=2` input and zero-reveal rejection are revalidated in round r1b.
+- Fresh fix-round r1b validation: 170 passing repository test invocations and three passing diagnostics. The larger-text shrink cases ran ten times each after a 20-item collection-count check. With `--runxfail`, only the listed quiet-landing counterexample fails; normally it is a strict expected failure. All repaired cases pass.
+- The saved #282 attempt-2 pending capture fails the old marker-based order helper, passes the new geometry-based helper because it measures a clamp while the target remains pending, and passes both original and corrected behavioral helpers.
+- The named regression cases reject all six guarded mutants: `marker_releases_pending_reveal`, `confirm_by_distance_only`, `reveal_never_lands`, `quiet_landing_ends_following`, `growth_repins_dropped`, `quiet_window_0ms`.
+
+**Listed difference:** quiet-landing cases still lack an independent growth probe. Measured missed growth of 600 pt followed by a compensating shrink can satisfy their reply-only rule. The strict expected-failure mark and scene stay in place for a follow-up. Repeated confirmations count as no further releases.
+
+**Not shown or not run:** these schedules force the failing orders; they don't reproduce the exact SwiftUI estimation sequence. The original pending failure didn't recur naturally on the lane host, so its evidence is the CI capture and the forced order. `tests/frontend/test_core_live.py`, the CI matrix and Python 3.12 didn't run on the lane; CI runs them.
+
+**Next:** review r2. Its APPROVE and completed CI are the merge gates.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
