@@ -1,0 +1,335 @@
+{
+  "name": "archive-4",
+  "start": "2026-10-31T10:09:36.483057+00:00",
+  "load": [
+    31.79296875,
+    33.3369140625,
+    34.66943359375
+  ],
+  "args": [
+    "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+    "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+    "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+    "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+    "tests/unit/test_retention_archive.py::test_registration_locked_by_someone_else_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_rollback_into_an_occupied_path_keeps_both_and_the_lock",
+    "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+    "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+    "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+    "tests/unit/test_retention_archive.py::test_retention_command_lists_checks_and_restores"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.6846162089968857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7359374580009899,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005763166998804081,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.506621874999837,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.0733702079996874,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004791666000528494,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.39233524999872316,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0717675410014635,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002603958000690909,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.41562812499978463,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.054202333001740044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002136874998541316,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.31541462499808404,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.27935566599990125,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009972166000807192,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3932615829980932,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2057028750023164,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0014002919997437857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_registration_locked_by_someone_else_keeps_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.29709845799879986,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_registration_locked_by_someone_else_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1774602080004115,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_registration_locked_by_someone_else_keeps_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0019184170014341362,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_rollback_into_an_occupied_path_keeps_both_and_the_lock",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.29705545799879474,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_rollback_into_an_occupied_path_keeps_both_and_the_lock",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9360756669993862,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_rollback_into_an_occupied_path_keeps_both_and_the_lock",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024946250014181715,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.34451262499715085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4635902080008236,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00226666600065073,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.33910329100035597,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6466057090001414,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0028658329974859953,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.32247633400038467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.829050415999518,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:1553: in test_survey_is_read_only_and_predicts_the_pass\n    assert report[\"would_retire\"][\"omittable_bytes_upper_bound\"] > 0\nE   assert 0 > 0"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001654041996516753,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_retention_command_lists_checks_and_restores",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.350786834002065,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_retention_command_lists_checks_and_restores",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.2341308329996536,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_retention_command_lists_checks_and_restores",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002830540997820208,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+    "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+    "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+    "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+    "tests/unit/test_retention_archive.py::test_registration_locked_by_someone_else_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_rollback_into_an_occupied_path_keeps_both_and_the_lock",
+    "tests/unit/test_retention_archive.py::test_archive_check_detects_damage",
+    "tests/unit/test_retention_archive.py::test_byte_copy_path_when_clones_are_unavailable",
+    "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+    "tests/unit/test_retention_archive.py::test_retention_command_lists_checks_and_restores"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "d4d8dcb9d4cf11e75318b49837393308d5a589cb7959f7ce13e0d4faa1adf512",
+  "end": "2026-10-31T10:10:03.511735+00:00",
+  "seconds": 27.028284084000916,
+  "peak_rss_mib": 115.625,
+  "exit": 1
+}

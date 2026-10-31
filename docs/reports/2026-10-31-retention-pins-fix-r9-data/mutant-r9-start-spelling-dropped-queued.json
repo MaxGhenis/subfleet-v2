@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:13:32.373217+00:00",
+  "args": [
+    "--mutant",
+    "r9-start-spelling-dropped",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r9/real-tmp/mutant-r9-start-spelling-dropped",
+  "linked": false,
+  "driver_pid": 14608,
+  "lock_process_group": 14680
+}

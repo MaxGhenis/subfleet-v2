@@ -1,0 +1,283 @@
+{
+  "name": "archive-6",
+  "start": "2026-10-31T10:10:40.001061+00:00",
+  "load": [
+    33.18994140625,
+    33.5849609375,
+    34.669921875
+  ],
+  "args": [
+    "tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+    "tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names",
+    "tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now",
+    "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name",
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does",
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.33533266700033,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.02058470799966,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002671750000445172,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.40388166699995054,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3504696670024714,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0026226669979223516,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.32832425000015064,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6174137500020151,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017518329987069592,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.34450254200055497,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.518475542001397,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020707080002466682,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014597080007661134,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00014287500016507693,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0001381660003971774,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4327020410019031,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.133893457998056,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008721791997231776,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009300541001721285,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00031858299917075783,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00032012500014388934,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.332368375002261,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.39291133399819955,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018940830013889354,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4022205410001334,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7661181249968649,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0021952920033072587,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.38436462500249036,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3053879580002103,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024010420020204037,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+    "tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names",
+    "tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now",
+    "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name",
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does",
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "d4d8dcb9d4cf11e75318b49837393308d5a589cb7959f7ce13e0d4faa1adf512",
+  "end": "2026-10-31T10:11:04.552866+00:00",
+  "seconds": 24.55138779200206,
+  "peak_rss_mib": 116.75,
+  "exit": 0
+}

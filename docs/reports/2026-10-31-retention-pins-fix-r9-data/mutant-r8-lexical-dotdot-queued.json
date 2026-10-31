@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:12:01.870280+00:00",
+  "args": [
+    "--mutant",
+    "r8-lexical-dotdot",
+    "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r9/real-tmp/mutant-r8-lexical-dotdot",
+  "linked": false,
+  "driver_pid": 95990,
+  "lock_process_group": 96003
+}
