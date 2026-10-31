@@ -93,8 +93,14 @@ def run(name, root, args):
         'uv', 'run', '--no-sync', 'python', str(Path(__file__).resolve()),
         'admitted', name, root, *args,
     ]
-    queued = time.monotonic()
-    write(ARTIFACTS / f'{name}.queued.json', {'queued': now(), 'root': root, 'args': args})
+    queued_file = ARTIFACTS / f'{name}.queued.json'
+    if not queued_file.exists():
+        write(queued_file, {'queued': now(), 'root': root, 'args': args})
+    queued_record = json.loads(queued_file.read_text())
+    assert queued_record['root'] == root and queued_record['args'] == args
+    elapsed_queue = (datetime.datetime.now(datetime.timezone.utc)
+                     - datetime.datetime.fromisoformat(queued_record['queued'])).total_seconds()
+    queued = time.monotonic() - elapsed_queue
     direct = False
     while True:
         start_file = ARTIFACTS / f'{name}.start.json'
@@ -118,7 +124,7 @@ def run(name, root, args):
                     if admitted_at is not None and time.monotonic() - admitted_at > 1140:
                         write(ARTIFACTS / f'{name}.boundary.json', {'at': now(), 'seconds': 1140})
                         break
-                    if admitted_at is None and time.monotonic() - queued > 1800:
+                    if admitted_at is None and not direct and time.monotonic() - queued > 1800:
                         direct = True
                         write(ARTIFACTS / f'{name}.outside-lock.json', {'at': now(), 'reason': '30 minutes without admission'})
                         break
