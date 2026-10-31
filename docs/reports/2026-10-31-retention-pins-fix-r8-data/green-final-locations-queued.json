@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:28:27.013625+00:00",
+  "args": [
+    "tests/unit/test_retention_location_inputs.py",
+    "tests/unit/test_retention_locations.py",
+    "tests/fake/test_retention_dependency_review_r8.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/green-final-locations",
+  "linked": true
+}

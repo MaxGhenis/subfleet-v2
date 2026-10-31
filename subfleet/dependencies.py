@@ -192,16 +192,16 @@ class _Aliases:
                     # Spell the parent only: spelling entry would follow the link.
                     location = os.path.join(folders.canonical(parent), part)
                     links.append((location, target, (info.st_dev, info.st_ino)))
-                    if len(links) > 64:
-                        return os.path.realpath(path), tuple(links)
                     if os.path.isabs(target):
                         parent = os.path.sep
                     pending.extendleft(reversed(target.split(os.sep)))
+                    if len(links) >= 64:
+                        return os.path.normpath(os.path.join(parent, *pending)), tuple(links)
                 else:
                     parent = os.path.normpath(entry)
             except OSError as exc:
                 if exc.errno in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
-                    return os.path.realpath(path), tuple(links)
+                    return os.path.normpath(os.path.join(parent, part, *pending)), tuple(links)
                 raise
         return parent, tuple(links)
 
@@ -261,9 +261,12 @@ class _Aliases:
     def locations(self, start: str, recorded: list[str]) -> list[str]:
         """Keep physical entries without following them again during spelling."""
         ancestors = {start, *folders.above(start)}
-        return sorted(place for place in self.links | self.files | self.entries
-                      if os.path.dirname(place) not in ancestors
-                      and not any(folders.within(place, each) for each in recorded))
+        locations = {place for place in self.links | self.files
+                     if os.path.dirname(place) not in ancestors}
+        # A resolved storage target can be a sibling of the checkout. Its
+        # parent being an ancestor does not make that target part of the job.
+        return sorted(place for place in locations | self.entries
+                      if not any(folders.within(place, each) for each in recorded))
 
     def check(self, incomplete: list[dict[str, str]] | None) -> None:
         if incomplete is not None:

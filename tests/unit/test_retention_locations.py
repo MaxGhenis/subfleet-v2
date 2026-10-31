@@ -2,6 +2,7 @@
 import errno
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -150,3 +151,43 @@ def test_routine_records_are_exactly_unchanged(tmp_path, layout, record_property
     recorded = dependencies.record(str(checkout))
     assert recorded == expected
     record_property("routine", json.dumps(dict(layout=layout, recorded=recorded), sort_keys=True))
+
+
+def test_scanned_storage_target_beside_checkout_is_still_recorded(tmp_path):
+    base = tmp_path.resolve()
+    checkout = repo(base / "checkout")
+    owner = base / "owner"
+    refs = checkout / ".git" / "refs"
+    refs.rename(owner)
+    refs.symlink_to(owner)
+    before = git("-C", checkout, "show", "HEAD:f.txt")
+    assert before.returncode == 0
+    recorded = dependencies.record(str(checkout))
+    assert not recorded.get("incomplete"), recorded
+    assert str(owner) in recorded["git"], recorded
+    shutil.rmtree(owner)
+    assert git("-C", checkout, "show", "HEAD:f.txt").returncode != 0
+
+
+
+def test_component_walk_has_a_64_hop_bound(tmp_path, monkeypatch):
+    base = tmp_path.resolve()
+    target = repo(base / "stable") / ".git"
+    for n in reversed(range(66)):
+        link = base / f"hop{n}"
+        link.symlink_to(target)
+        target = link
+    real = dependencies.os.readlink
+    calls = []
+    def reading(path, *args, **kwargs):
+        calls.append(path)
+        return real(path, *args, **kwargs)
+    monkeypatch.setattr(dependencies.os, "readlink", reading)
+    aliases = dependencies._Aliases()
+    aliases.resolve(str(target))
+    assert len(calls) <= 64
+    calls.clear()
+    errors = []
+    aliases.check(errors)
+    assert not errors
+    assert len(calls) <= 64
