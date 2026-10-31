@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T10:38:41.380250+00:00",
+  "args": [
+    "--audit-spelling",
+    "tests/unit/test_retention_pointer_inputs.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/audit-pointer-inputs",
+  "linked": false,
+  "driver_pid": 22895,
+  "lock_process_group": 22985
+}

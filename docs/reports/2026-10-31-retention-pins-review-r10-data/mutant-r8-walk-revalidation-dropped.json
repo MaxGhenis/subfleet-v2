@@ -1,0 +1,58 @@
+{
+  "name": "mutant-r8-walk-revalidation-dropped",
+  "start": "2026-10-31T10:43:20.876798+00:00",
+  "load": [
+    42.04931640625,
+    39.33447265625,
+    37.17431640625
+  ],
+  "args": [
+    "--mutant",
+    "r8-walk-revalidation-dropped",
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.3367061669996474,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.09163283299858449,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_locations.py:59: in test_changed_link_chain_with_the_same_final_target_is_incomplete\n    assert any(error[\"file\"] == str(alias) for error in errors), errors\nE   AssertionError: []\nE   assert False\nE    +  where False = any(<generator object test_changed_link_chain_with_the_same_final_target_is_incomplete.<locals>.<genexpr> at 0x1088749a0>)"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004373082996607991,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+      "mutated": "5fcea7d994543e023d52d22723b3fa1abcfd1e74668b87f1cba27799bf5dc471"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:43:27.824213+00:00",
+  "seconds": 6.9471677920009824,
+  "peak_rss_mib": 111.6875,
+  "exit": 1
+}

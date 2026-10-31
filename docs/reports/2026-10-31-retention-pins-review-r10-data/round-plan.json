@@ -1,0 +1,32 @@
+[
+  [
+    "r9",
+    [
+      "tests/fake/test_retention_dependency_review_r9.py"
+    ]
+  ],
+  [
+    "spelling",
+    [
+      "tests/unit/test_retention_location_spelling.py"
+    ]
+  ],
+  [
+    "locations",
+    [
+      "tests/unit/test_retention_locations.py"
+    ]
+  ],
+  [
+    "location-inputs",
+    [
+      "tests/unit/test_retention_location_inputs.py"
+    ]
+  ],
+  [
+    "pointer-inputs",
+    [
+      "tests/unit/test_retention_pointer_inputs.py"
+    ]
+  ]
+]

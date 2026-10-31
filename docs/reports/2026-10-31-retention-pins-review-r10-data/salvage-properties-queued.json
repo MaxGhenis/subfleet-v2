@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T11:14:42.368154+00:00",
+  "args": [
+    "tests/unit/test_retention_salvage_properties.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/salvage-properties",
+  "linked": false,
+  "driver_pid": 61671,
+  "lock_process_group": 61742
+}

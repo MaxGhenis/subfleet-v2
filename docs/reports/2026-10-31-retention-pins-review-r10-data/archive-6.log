@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 11:13:02Z slot A load 
+..........                                                               [100%]
+10 passed in 21.53s
+{"name": "archive-6", "start": "2026-10-31T11:13:03.842006+00:00", "load": [37.5986328125, 38.68310546875, 38.162109375], "seconds": 22.558803915999306, "exit": 0}

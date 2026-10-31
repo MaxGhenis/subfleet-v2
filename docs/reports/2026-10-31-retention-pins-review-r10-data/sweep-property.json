@@ -1,0 +1,51 @@
+{
+  "name": "sweep-property",
+  "start": "2026-10-31T11:21:42.918861+00:00",
+  "load": [
+    44.44873046875,
+    44.3212890625,
+    41.13330078125
+  ],
+  "args": [
+    "tests/unit/test_retention_sweep_race.py",
+    "-k",
+    "test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.6518323330019484,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 253.2602561670028,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005460829997900873,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T11:26:12.765305+00:00",
+  "seconds": 269.8430730830005,
+  "peak_rss_mib": 117.484375,
+  "exit": 0
+}

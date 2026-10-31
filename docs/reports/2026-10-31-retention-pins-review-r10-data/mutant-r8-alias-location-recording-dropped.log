@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:41:59Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_running_job_keeps_tree_containing_required_git_pointer[admin-path] ____
+tests/fake/test_retention_dependency_review_r8.py:44: in test_running_job_keeps_tree_containing_required_git_pointer
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r10/real-tmp/mutant-r8-alias-location-recording-dropped/pytest-of-maxghenis/pytest-0/te...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48852, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]
+1 failed in 7.97s
+{"name": "mutant-r8-alias-location-recording-dropped", "start": "2026-10-31T10:42:01.015531+00:00", "load": [38.2734375, 38.29541015625, 36.64111328125], "seconds": 9.443274332999863, "exit": 1}

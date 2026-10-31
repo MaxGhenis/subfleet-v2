@@ -1,0 +1,330 @@
+[
+  {
+    "name": "aliases-census",
+    "absent": true
+  },
+  {
+    "name": "audit-location-inputs",
+    "absent": true
+  },
+  {
+    "name": "audit-locations",
+    "absent": true
+  },
+  {
+    "name": "audit-pointer-inputs",
+    "absent": true
+  },
+  {
+    "name": "audit-r9",
+    "absent": true
+  },
+  {
+    "name": "audit-spelling",
+    "absent": true
+  },
+  {
+    "name": "changed-targets",
+    "absent": true
+  },
+  {
+    "name": "cycle-base-comparison",
+    "absent": true
+  },
+  {
+    "name": "deep-and-unused",
+    "absent": true
+  },
+  {
+    "name": "dependencies-light",
+    "absent": true
+  },
+  {
+    "name": "dependency-property-0",
+    "absent": true
+  },
+  {
+    "name": "dependency-property-1",
+    "absent": true
+  },
+  {
+    "name": "dependency-property-2",
+    "absent": true
+  },
+  {
+    "name": "dependency-property-3",
+    "absent": true
+  },
+  {
+    "name": "edges-final",
+    "absent": true
+  },
+  {
+    "name": "edges",
+    "absent": true
+  },
+  {
+    "name": "guards",
+    "absent": true
+  },
+  {
+    "name": "linked-test_retention_dependencies",
+    "absent": true
+  },
+  {
+    "name": "linked-test_retention_dependency_review_r8",
+    "absent": true
+  },
+  {
+    "name": "linked-test_retention_dependency_review_r9",
+    "absent": true
+  },
+  {
+    "name": "linked-test_retention_dependency_units",
+    "absent": true
+  },
+  {
+    "name": "linked-test_retention_location_inputs",
+    "absent": true
+  },
+  {
+    "name": "linked-test_retention_location_spelling",
+    "absent": true
+  },
+  {
+    "name": "linked-test_retention_locations",
+    "absent": true
+  },
+  {
+    "name": "linked-test_retention_pointer_inputs",
+    "absent": true
+  },
+  {
+    "name": "listed-reader-differences",
+    "absent": true
+  },
+  {
+    "name": "location-inputs",
+    "absent": true
+  },
+  {
+    "name": "locations",
+    "absent": true
+  },
+  {
+    "name": "loop-growth",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-alias-location-recording-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-intermediate-link-walk-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-lexical-dotdot",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-link-location-followed",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-parent-hint-scanned",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-pointer-file-location-recording-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-routine-skip-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-top-level-links-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r8-walk-revalidation-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r9-alternates-canonicalization-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r9-scan-canonicalization-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r9-start-spelling-dropped",
+    "absent": true
+  },
+  {
+    "name": "mutant-r9-text-canonicalization-dropped",
+    "absent": true
+  },
+  {
+    "name": "nested-leases",
+    "absent": true
+  },
+  {
+    "name": "pointer-inputs",
+    "absent": true
+  },
+  {
+    "name": "quiet-final",
+    "absent": true
+  },
+  {
+    "name": "r10-end-to-end",
+    "absent": true
+  },
+  {
+    "name": "r10-green",
+    "absent": true
+  },
+  {
+    "name": "r10-invariant-red",
+    "absent": true
+  },
+  {
+    "name": "r10-trial",
+    "absent": true
+  },
+  {
+    "name": "r9",
+    "absent": true
+  },
+  {
+    "name": "regressions-r1",
+    "absent": true
+  },
+  {
+    "name": "regressions-r4-r2",
+    "absent": true
+  },
+  {
+    "name": "regressions-r5",
+    "absent": true
+  },
+  {
+    "name": "regressions-r7-r6",
+    "absent": true
+  },
+  {
+    "name": "revert-r9-alternates-canonicalization-dropped",
+    "absent": true
+  },
+  {
+    "name": "revert-r9-scan-canonicalization-dropped",
+    "absent": true
+  },
+  {
+    "name": "revert-r9-start-spelling-dropped",
+    "absent": true
+  },
+  {
+    "name": "revert-r9-text-canonicalization-dropped",
+    "absent": true
+  },
+  {
+    "name": "shared-examples",
+    "absent": true
+  },
+  {
+    "name": "shared-property-0",
+    "absent": true
+  },
+  {
+    "name": "shared-property-1",
+    "absent": true
+  },
+  {
+    "name": "shared-property-2",
+    "absent": true
+  },
+  {
+    "name": "shared-property-3",
+    "absent": true
+  },
+  {
+    "name": "spelling",
+    "absent": true
+  },
+  {
+    "name": "start-and-routine",
+    "absent": true
+  },
+  {
+    "name": "test_turn_retention_cwd",
+    "absent": true
+  },
+  {
+    "name": "test_turn_retention_cwd_properties",
+    "absent": true
+  },
+  {
+    "name": "test_turn_retention_job_directory",
+    "absent": true
+  },
+  {
+    "name": "test_turn_retention_job_properties",
+    "absent": true
+  },
+  {
+    "name": "test_turn_retention_quarantine",
+    "absent": true
+  },
+  {
+    "name": "transactions-and-r8-controls",
+    "absent": true
+  },
+  {
+    "name": "archive-0",
+    "absent": true
+  },
+  {
+    "name": "archive-1",
+    "absent": true
+  },
+  {
+    "name": "archive-2",
+    "absent": false
+  },
+  {
+    "name": "archive-3",
+    "absent": true
+  },
+  {
+    "name": "archive-4",
+    "absent": true
+  },
+  {
+    "name": "archive-5",
+    "absent": true
+  },
+  {
+    "name": "archive-6",
+    "absent": true
+  },
+  {
+    "name": "archive-properties",
+    "absent": true
+  },
+  {
+    "name": "notes",
+    "absent": true
+  },
+  {
+    "name": "salvage-properties",
+    "absent": true
+  },
+  {
+    "name": "sweep-examples",
+    "absent": true
+  }
+]

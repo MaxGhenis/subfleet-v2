@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:37:30Z slot A load 
+...........                                                              [100%]
+11 passed in 22.00s
+{"name": "audit-spelling", "start": "2026-10-31T10:37:32.523595+00:00", "load": [41.06689453125, 38.14404296875, 36.01513671875], "seconds": 23.177247458999773, "exit": 0}

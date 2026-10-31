@@ -1,0 +1,51 @@
+{
+  "name": "shared-property-0",
+  "start": "2026-10-31T10:53:38.570096+00:00",
+  "load": [
+    42.05078125,
+    40.896484375,
+    38.84228515625
+  ],
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.2581571670016274,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.645889999999781,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000415000002249144,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:53:57.660335+00:00",
+  "seconds": 19.089696709001146,
+  "peak_rss_mib": 119.921875,
+  "exit": 0
+}

@@ -1,0 +1,74 @@
+{
+  "name": "salvage-properties",
+  "start": "2026-10-31T11:14:47.497257+00:00",
+  "load": [
+    33.76904296875,
+    37.46728515625,
+    37.771484375
+  ],
+  "args": [
+    "tests/unit/test_retention_salvage_properties.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.617443707997154,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 81.32467070799976,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006117090015322901,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0025884590031637345,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 143.0409877500024,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006555420004588086,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T11:18:39.660530+00:00",
+  "seconds": 232.15964299999905,
+  "peak_rss_mib": 114.6875,
+  "exit": 0
+}

@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T11:12:37.800813+00:00",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass"
+  ],
+  "tmpdir": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/sf-r272r10-fixtures",
+  "linked": false,
+  "driver_pid": 34722,
+  "lock_process_group": 34726
+}

@@ -1,0 +1,571 @@
+{
+  "name": "revert-r9-start-spelling-dropped",
+  "start": "2026-10-31T10:46:06.092402+00:00",
+  "load": [
+    39.138671875,
+    39.3095703125,
+    37.5576171875
+  ],
+  "args": [
+    "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.930290166001214,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 18.25950533300056,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_spelling.py:201: in test_spelling_inputs_keep_the_places_real_git_traverses\n    suppress_health_check=[HealthCheck.function_scoped_fixture])\n         ^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_spelling.py:206: in test_spelling_inputs_keep_the_places_real_git_traverses\n    observation = check_spelling_input(Path(directory), data)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/review-r10-data/run.py:134: in observed\n    result = original(base, data)\n             ^^^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_spelling.py:190: in check_spelling_input\n    assert str(checkout / \".git\") not in recorded.get(\"git\", []), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/stable/container/admin', '/pri...d/tmpxvdk45jt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/own\u00e9r/hop1']}\nE   assert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/stable/container/admin', '/private/tmp...ed/tmpxvdk45jt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/own\u00e9r/hop1']\nE    +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/check\u00f3ut') / '.git'))\nE    +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/stable/container/admin', '/private/tmp...ed/tmpxvdk45jt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/own\u00e9r/hop1'] = <built-in method get of dict object at 0x109c91f00>('git', [])\nE    +    where <built-in method get of dict object at 0x109c91f00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/stable/container/admin', '/pri...d/tmpxvdk45jt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/own\u00e9r/hop1']}.get\nE   Failing test case: test_spelling_inputs_keep_the_places_real_git_traverses(\nE       record_property=append_property,\nE       data={'position': 'gitfile-target', 'spelling': 'data-volume', 'named': False},  # or any other generated value\nE   )\nE   {'position': 'gitfile-target', 'spelling': 'data-volume', 'named': False}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00041391699778614566,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses"
+  ],
+  "product_file": "/private/tmp/sf-r272r10/reversion-r9-start-spelling-dropped/subfleet/dependencies.py",
+  "product_sha256": "f63754b75fee662aa29d72780cb58794f00b7c78ee7ce718a3e8b8981a4a01d2",
+  "attempts": [
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/stable/container/admin', '/pri...d/tmpwcvybj_o/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/stable/container/admin', '/private/tmp...ed/tmpwcvybj_o/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/stable/container/admin', '/private/tmp...ed/tmpwcvybj_o/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/own\u00e9r/hop1'] = <built-in method get of dict object at 0x107fb5f00>('git', [])\n +    where <built-in method get of dict object at 0x107fb5f00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/stable/container/admin', '/pri...d/tmpwcvybj_o/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwcvybj_o/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/stable/container/worktrees/slo...8yeb/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/stable/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/stable/container/worktrees/slot', '/pr...w8yeb/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/stable/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/stable/container/worktrees/slot', '/pr...w8yeb/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/stable/hop0', ...] = <built-in method get of dict object at 0x107b437c0>('git', [])\n +    where <built-in method get of dict object at 0x107b437c0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/stable/container/worktrees/slo...8yeb/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4yhw8yeb/stable/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-line",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/stable/container/admin', '/pri...d/tmp1eqzw4kr/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/stable/container/admin', '/private/tmp...ed/tmp1eqzw4kr/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/stable/container/admin', '/private/tmp...ed/tmp1eqzw4kr/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/own\u00e9r/hop1'] = <built-in method get of dict object at 0x107aebd40>('git', [])\n +    where <built-in method get of dict object at 0x107aebd40> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/stable/container/admin', '/pri...d/tmp1eqzw4kr/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1eqzw4kr/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/stable/container/admin', '/pri...d/tmpcjcqojwn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/stable/container/admin', '/private/tmp...ed/tmpcjcqojwn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/stable/container/admin', '/private/tmp...ed/tmpcjcqojwn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/own\u00e9r/hop1'] = <built-in method get of dict object at 0x108206e40>('git', [])\n +    where <built-in method get of dict object at 0x108206e40> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/stable/container/admin', '/pri...d/tmpcjcqojwn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcjcqojwn/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/stable/container/admin', '/pri...tmpvil9610_/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/stable/container/admin', '/private/tmp.../tmpvil9610_/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/stable/container/admin', '/private/tmp.../tmpvil9610_/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/stable/hop1'] = <built-in method get of dict object at 0x1085c0ac0>('git', [])\n +    where <built-in method get of dict object at 0x1085c0ac0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/stable/container/admin', '/pri...tmpvil9610_/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpvil9610_/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/check\u00f3ut/.git', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/check\u00f3ut/.git', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/check\u00f3ut/.git', ...] = <built-in method get of dict object at 0x10860db40>('git', [])\n +    where <built-in method get of dict object at 0x10860db40> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq90ki1yd/check\u00f3ut/.git', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/stable/container/admin', '/pri...tmp07_82a0m/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/stable/container/admin', '/private/tmp.../tmp07_82a0m/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/stable/container/admin', '/private/tmp.../tmp07_82a0m/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/stable/hop1'] = <built-in method get of dict object at 0x108802ac0>('git', [])\n +    where <built-in method get of dict object at 0x108802ac0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/stable/container/admin', '/pri...tmp07_82a0m/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp07_82a0m/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/stable/container/admin', '/pri...tmpdr3uiu7w/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/stable/container/admin', '/private/tmp.../tmpdr3uiu7w/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/stable/container/admin', '/private/tmp.../tmpdr3uiu7w/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/stable/hop1'] = <built-in method get of dict object at 0x1087856c0>('git', [])\n +    where <built-in method get of dict object at 0x1087856c0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/stable/container/admin', '/pri...tmpdr3uiu7w/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpdr3uiu7w/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/stable/container/admin', '/pri...d/tmprizaj4bg/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/stable/container/admin', '/private/tmp...ed/tmprizaj4bg/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/stable/container/admin', '/private/tmp...ed/tmprizaj4bg/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/own\u00e9r/hop1'] = <built-in method get of dict object at 0x108740640>('git', [])\n +    where <built-in method get of dict object at 0x108740640> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/stable/container/admin', '/pri...d/tmprizaj4bg/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmprizaj4bg/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/stable/container/admin', '/pri...d/tmp1qtllukx/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/stable/container/admin', '/private/tmp...ed/tmp1qtllukx/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/stable/container/admin', '/private/tmp...ed/tmp1qtllukx/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/own\u00e9r/hop1'] = <built-in method get of dict object at 0x108a41b80>('git', [])\n +    where <built-in method get of dict object at 0x108a41b80> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/stable/container/admin', '/pri...d/tmp1qtllukx/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1qtllukx/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/stable/container/admin', '/pri...d/tmppmexhctn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/stable/container/admin', '/private/tmp...ed/tmppmexhctn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/stable/container/admin', '/private/tmp...ed/tmppmexhctn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/own\u00e9r/hop1'] = <built-in method get of dict object at 0x108aa40c0>('git', [])\n +    where <built-in method get of dict object at 0x108aa40c0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/stable/container/admin', '/pri...d/tmppmexhctn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmppmexhctn/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/stable/container/worktrees/slo...cloao/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/own\u00e9r/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/stable/container/worktrees/slot', '/pr...jcloao/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/own\u00e9r/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/stable/container/worktrees/slot', '/pr...jcloao/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/own\u00e9r/hop0', ...] = <built-in method get of dict object at 0x108af0440>('git', [])\n +    where <built-in method get of dict object at 0x108af0440> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/stable/container/worktrees/slo...cloao/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8ijcloao/own\u00e9r/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/stable/container/worktrees/slo...4ovqg/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/own\u00e9r/HOP0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/stable/container/worktrees/slot', '/pr...14ovqg/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/own\u00e9r/HOP0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/stable/container/worktrees/slot', '/pr...14ovqg/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/own\u00e9r/HOP0', ...] = <built-in method get of dict object at 0x108f68700>('git', [])\n +    where <built-in method get of dict object at 0x108f68700> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/stable/container/worktrees/slo...4ovqg/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpoo14ovqg/own\u00e9r/HOP0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/stable/container/admin', '/pri...03pn/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/stable/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/stable/container/admin', '/private/tmp...i03pn/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/stable/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/stable/container/admin', '/private/tmp...i03pn/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/stable/hop0', ...] = <built-in method get of dict object at 0x108fbce00>('git', [])\n +    where <built-in method get of dict object at 0x108fbce00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/stable/container/admin', '/pri...03pn/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp2_zi03pn/stable/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-line",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/stable/container/admin', '/pri...d/tmpinsy5rdt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/stable/container/admin', '/private/tmp...ed/tmpinsy5rdt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/stable/container/admin', '/private/tmp...ed/tmpinsy5rdt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/own\u00e9r/hop1'] = <built-in method get of dict object at 0x10900b980>('git', [])\n +    where <built-in method get of dict object at 0x10900b980> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/stable/container/admin', '/pri...d/tmpinsy5rdt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpinsy5rdt/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/check\u00f3ut/.git', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/check\u00f3ut/.git', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/check\u00f3ut/.git', ...] = <built-in method get of dict object at 0x109060ac0>('git', [])\n +    where <built-in method get of dict object at 0x109060ac0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp0ttlh68d/check\u00f3ut/.git', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/stable/container/worktrees/slo...e6li/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/own\u00e9r/entry', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/stable/container/worktrees/slot', '/pr...0e6li/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/own\u00e9r/entry', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/stable/container/worktrees/slot', '/pr...0e6li/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/own\u00e9r/entry', ...] = <built-in method get of dict object at 0x109088500>('git', [])\n +    where <built-in method get of dict object at 0x109088500> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/stable/container/worktrees/slo...e6li/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpcj00e6li/own\u00e9r/entry', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/stable/container/admin', '/pri...tmpgdvxi1so/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/stable/container/admin', '/private/tmp.../tmpgdvxi1so/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/stable/container/admin', '/private/tmp.../tmpgdvxi1so/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/stable/hop1'] = <built-in method get of dict object at 0x109122bc0>('git', [])\n +    where <built-in method get of dict object at 0x109122bc0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/stable/container/admin', '/pri...tmpgdvxi1so/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpgdvxi1so/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/stable/container/worktrees/slo...c_oh/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/own\u00e9r/packs', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/stable/container/worktrees/slot', '/pr...ic_oh/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/own\u00e9r/packs', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/stable/container/worktrees/slot', '/pr...ic_oh/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/own\u00e9r/packs', ...] = <built-in method get of dict object at 0x10916cdc0>('git', [])\n +    where <built-in method get of dict object at 0x10916cdc0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/stable/container/worktrees/slo...c_oh/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpazpic_oh/own\u00e9r/packs', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/stable/container/admin', '/pri...d/tmp8tsh7dmo/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/stable/container/admin', '/private/tmp...ed/tmp8tsh7dmo/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/stable/container/admin', '/private/tmp...ed/tmp8tsh7dmo/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/own\u00e9r/hop1'] = <built-in method get of dict object at 0x1091cddc0>('git', [])\n +    where <built-in method get of dict object at 0x1091cddc0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/stable/container/admin', '/pri...d/tmp8tsh7dmo/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8tsh7dmo/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/stable/container/admin', '/pri...iias/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/stable/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/stable/container/admin', '/private/tmp...eiias/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/stable/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/stable/container/admin', '/private/tmp...eiias/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/stable/hop0', ...] = <built-in method get of dict object at 0x109222b00>('git', [])\n +    where <built-in method get of dict object at 0x109222b00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/stable/container/admin', '/pri...iias/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpe8yeiias/stable/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/stable/container/admin', '/pri...5rkm08mq/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/own\u00e9r/hop1', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/stable/container/admin', '/private/tmp...p5rkm08mq/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/own\u00e9r/hop1', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/stable/container/admin', '/private/tmp...p5rkm08mq/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/own\u00e9r/hop1', ...] = <built-in method get of dict object at 0x10927aec0>('git', [])\n +    where <built-in method get of dict object at 0x10927aec0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/stable/container/admin', '/pri...5rkm08mq/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp5rkm08mq/own\u00e9r/hop1', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/stable/container/worktrees/slo...2t/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/own\u00e9r/pointer', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/stable/container/worktrees/slot', '/pr...q2t/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/own\u00e9r/pointer', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/stable/container/worktrees/slot', '/pr...q2t/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/own\u00e9r/pointer', ...] = <built-in method get of dict object at 0x10925b800>('git', [])\n +    where <built-in method get of dict object at 0x10925b800> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/stable/container/worktrees/slo...2t/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp4ofvjq2t/own\u00e9r/pointer', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/stable/container/admin', '/pri...d/tmp6xqsahn1/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/stable/container/admin', '/private/tmp...ed/tmp6xqsahn1/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/stable/container/admin', '/private/tmp...ed/tmp6xqsahn1/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/own\u00e9r/hop1'] = <built-in method get of dict object at 0x109320c00>('git', [])\n +    where <built-in method get of dict object at 0x109320c00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/stable/container/admin', '/pri...d/tmp6xqsahn1/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp6xqsahn1/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/stable/container/admin', '/pri...y7ok/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/stable/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/stable/container/admin', '/private/tmp...jy7ok/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/stable/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/stable/container/admin', '/private/tmp...jy7ok/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/stable/hop0', ...] = <built-in method get of dict object at 0x10937e480>('git', [])\n +    where <built-in method get of dict object at 0x10937e480> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/stable/container/admin', '/pri...y7ok/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpq16jy7ok/stable/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/stable/container/admin', '/pri...tmpm53o3_64/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/stable/container/admin', '/private/tmp.../tmpm53o3_64/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/stable/container/admin', '/private/tmp.../tmpm53o3_64/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/stable/hop1'] = <built-in method get of dict object at 0x1093898c0>('git', [])\n +    where <built-in method get of dict object at 0x1093898c0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/stable/container/admin', '/pri...tmpm53o3_64/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpm53o3_64/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/stable/container/admin', '/pri...tmp_vey_014/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/stable/container/admin', '/private/tmp.../tmp_vey_014/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/stable/container/admin', '/private/tmp.../tmp_vey_014/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/stable/hop1'] = <built-in method get of dict object at 0x109434a00>('git', [])\n +    where <built-in method get of dict object at 0x109434a00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/stable/container/admin', '/pri...tmp_vey_014/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp_vey_014/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/stable/container/admin', '/pri...op4t/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/stable/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/stable/container/admin', '/private/tmp...7op4t/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/stable/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/stable/container/admin', '/private/tmp...7op4t/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/stable/hop0', ...] = <built-in method get of dict object at 0x10946c240>('git', [])\n +    where <built-in method get of dict object at 0x10946c240> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/stable/container/admin', '/pri...op4t/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpokg7op4t/stable/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/stable/container/admin', '/pri...tmp9ei5s_sp/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/stable/container/admin', '/private/tmp.../tmp9ei5s_sp/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/stable/container/admin', '/private/tmp.../tmp9ei5s_sp/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/stable/hop1'] = <built-in method get of dict object at 0x10942a8c0>('git', [])\n +    where <built-in method get of dict object at 0x10942a8c0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/stable/container/admin', '/pri...tmp9ei5s_sp/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9ei5s_sp/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/stable/container/admin', '/pri...67_tnaka/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/own\u00e9r/hop1', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/stable/container/admin', '/private/tmp...p67_tnaka/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/own\u00e9r/hop1', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/stable/container/admin', '/private/tmp...p67_tnaka/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/own\u00e9r/hop1', ...] = <built-in method get of dict object at 0x10952ee00>('git', [])\n +    where <built-in method get of dict object at 0x10952ee00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/stable/container/admin', '/pri...67_tnaka/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp67_tnaka/own\u00e9r/hop1', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/stable/container/worktrees/slo...d/tmp8dxq5kbg/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/stable/container/worktrees/slot', '/pr...ed/tmp8dxq5kbg/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/stable/container/worktrees/slot', '/pr...ed/tmp8dxq5kbg/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/own\u00e9r/hop1'] = <built-in method get of dict object at 0x109568bc0>('git', [])\n +    where <built-in method get of dict object at 0x109568bc0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/stable/container/worktrees/slo...d/tmp8dxq5kbg/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8dxq5kbg/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/check\u00f3ut/.git', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/check\u00f3ut/.git', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/check\u00f3ut/.git', ...] = <built-in method get of dict object at 0x109589800>('git', [])\n +    where <built-in method get of dict object at 0x109589800> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpsxx9qw7f/check\u00f3ut/.git', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/stable/container/admin', '/pri...zthvva4j/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/own\u00e9r/hop1', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/stable/container/admin', '/private/tmp...pzthvva4j/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/own\u00e9r/hop1', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/stable/container/admin', '/private/tmp...pzthvva4j/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/own\u00e9r/hop1', ...] = <built-in method get of dict object at 0x10955dd00>('git', [])\n +    where <built-in method get of dict object at 0x10955dd00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/stable/container/admin', '/pri...zthvva4j/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzthvva4j/own\u00e9r/hop1', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/stable/container/worktrees/slo...uqmhn/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/own\u00e9r/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/stable/container/worktrees/slot', '/pr...guqmhn/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/own\u00e9r/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/stable/container/worktrees/slot', '/pr...guqmhn/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/own\u00e9r/hop0', ...] = <built-in method get of dict object at 0x1095ce0c0>('git', [])\n +    where <built-in method get of dict object at 0x1095ce0c0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/stable/container/worktrees/slo...uqmhn/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp9_guqmhn/own\u00e9r/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/stable/container/admin', '/pri...5pbp/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/stable/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/stable/container/admin', '/private/tmp...m5pbp/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/stable/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/stable/container/admin', '/private/tmp...m5pbp/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/stable/hop0', ...] = <built-in method get of dict object at 0x109643340>('git', [])\n +    where <built-in method get of dict object at 0x109643340> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/stable/container/admin', '/pri...5pbp/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzv2m5pbp/stable/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-line",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/check\u00f3ut/.git', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/check\u00f3ut/.git', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/check\u00f3ut/.git', ...] = <built-in method get of dict object at 0x1096ba300>('git', [])\n +    where <built-in method get of dict object at 0x1096ba300> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpp_h8ja6m/check\u00f3ut/.git', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/stable/container/worktrees/slo...d/tmpv8r3k616/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/stable/container/worktrees/slot', '/pr...ed/tmpv8r3k616/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/stable/container/worktrees/slot', '/pr...ed/tmpv8r3k616/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/own\u00e9r/hop1'] = <built-in method get of dict object at 0x10973c880>('git', [])\n +    where <built-in method get of dict object at 0x10973c880> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/stable/container/worktrees/slo...d/tmpv8r3k616/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpv8r3k616/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/stable/container/admin', '/pri...tmpkwzxty1x/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/stable/container/admin', '/private/tmp.../tmpkwzxty1x/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/stable/container/admin', '/private/tmp.../tmpkwzxty1x/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/stable/hop1'] = <built-in method get of dict object at 0x1097b1680>('git', [])\n +    where <built-in method get of dict object at 0x1097b1680> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/stable/container/admin', '/pri...tmpkwzxty1x/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpkwzxty1x/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-line",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/stable/container/admin', '/pri...d/tmp1ykcvbnn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/stable/container/admin', '/private/tmp...ed/tmp1ykcvbnn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/stable/container/admin', '/private/tmp...ed/tmp1ykcvbnn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/own\u00e9r/hop1'] = <built-in method get of dict object at 0x1097af1c0>('git', [])\n +    where <built-in method get of dict object at 0x1097af1c0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/stable/container/admin', '/pri...d/tmp1ykcvbnn/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp1ykcvbnn/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/stable/container/admin', '/pri...d/tmp8jbyuvfz/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/stable/container/admin', '/private/tmp...ed/tmp8jbyuvfz/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/stable/container/admin', '/private/tmp...ed/tmp8jbyuvfz/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/own\u00e9r/hop1'] = <built-in method get of dict object at 0x10984ac80>('git', [])\n +    where <built-in method get of dict object at 0x10984ac80> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/stable/container/admin', '/pri...d/tmp8jbyuvfz/own\u00e9r/HOP0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp8jbyuvfz/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/check\u00f3ut/.git', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/check\u00f3ut/.git', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/stable/container/worktrees/slot', '/pr...urce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/check\u00f3ut/.git', ...] = <built-in method get of dict object at 0x10983b300>('git', [])\n +    where <built-in method get of dict object at 0x10983b300> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/stable/container/worktrees/slo...rce/.git/objects', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpzub1awic/check\u00f3ut/.git', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/stable/container/worktrees/slo...5vlh/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/own\u00e9r/entry', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/stable/container/worktrees/slot', '/pr...85vlh/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/own\u00e9r/entry', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/stable/container/worktrees/slot', '/pr...85vlh/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/own\u00e9r/entry', ...] = <built-in method get of dict object at 0x10989cf00>('git', [])\n +    where <built-in method get of dict object at 0x10989cf00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/stable/container/worktrees/slo...5vlh/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmptbp85vlh/own\u00e9r/entry', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/stable/container/worktrees/slo...1hwg/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/own\u00e9r/packs', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/stable/container/worktrees/slot', '/pr...r1hwg/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/own\u00e9r/packs', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/stable/container/worktrees/slot', '/pr...r1hwg/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/own\u00e9r/packs', ...] = <built-in method get of dict object at 0x109953640>('git', [])\n +    where <built-in method get of dict object at 0x109953640> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/stable/container/worktrees/slo...1hwg/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl_ir1hwg/own\u00e9r/packs', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/stable/container/admin', '/pri...d/tmpqma1sa5d/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/stable/container/admin', '/private/tmp...ed/tmpqma1sa5d/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/stable/container/admin', '/private/tmp...ed/tmpqma1sa5d/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/own\u00e9r/hop1'] = <built-in method get of dict object at 0x10993fd40>('git', [])\n +    where <built-in method get of dict object at 0x10993fd40> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/stable/container/admin', '/pri...d/tmpqma1sa5d/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpqma1sa5d/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/stable/container/worktrees/slo...jvg7v/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/own\u00e9r/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/stable/container/worktrees/slot', '/pr...sjvg7v/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/own\u00e9r/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/stable/container/worktrees/slot', '/pr...sjvg7v/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/own\u00e9r/hop0', ...] = <built-in method get of dict object at 0x1099b7f80>('git', [])\n +    where <built-in method get of dict object at 0x1099b7f80> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/stable/container/worktrees/slo...jvg7v/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpmfsjvg7v/own\u00e9r/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/stable/container/worktrees/slo...uxu0/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/stable/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/stable/container/worktrees/slot', '/pr...buxu0/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/stable/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/stable/container/worktrees/slot', '/pr...buxu0/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/stable/hop0', ...] = <built-in method get of dict object at 0x109a54780>('git', [])\n +    where <built-in method get of dict object at 0x109a54780> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/stable/container/worktrees/slo...uxu0/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpl6kbuxu0/stable/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/stable/container/admin', '/pri...d/tmph3ykxlu7/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/stable/container/admin', '/private/tmp...ed/tmph3ykxlu7/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/stable/container/admin', '/private/tmp...ed/tmph3ykxlu7/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/own\u00e9r/hop1'] = <built-in method get of dict object at 0x109a42e80>('git', [])\n +    where <built-in method get of dict object at 0x109a42e80> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/stable/container/admin', '/pri...d/tmph3ykxlu7/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmph3ykxlu7/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/stable/container/admin', '/pri...tmpy3ep2417/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/stable/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/stable/container/admin', '/private/tmp.../tmpy3ep2417/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/stable/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/stable/container/admin', '/private/tmp.../tmpy3ep2417/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/stable/hop1'] = <built-in method get of dict object at 0x109af90c0>('git', [])\n +    where <built-in method get of dict object at 0x109af90c0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/stable/container/admin', '/pri...tmpy3ep2417/stable/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpy3ep2417/stable/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/stable/container/worktrees/slo...j3pd5/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/own\u00e9r/HOP0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/stable/container/worktrees/slot', '/pr...wj3pd5/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/own\u00e9r/HOP0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/stable/container/worktrees/slot', '/pr...wj3pd5/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/own\u00e9r/HOP0', ...] = <built-in method get of dict object at 0x109b4fcc0>('git', [])\n +    where <built-in method get of dict object at 0x109b4fcc0> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/stable/container/worktrees/slo...j3pd5/check\u00f3ut/.git', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpd8wj3pd5/own\u00e9r/HOP0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/stable/container/admin', '/pri...gaht/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/stable/hop0', ...]}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/stable/container/admin', '/private/tmp..._gaht/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/stable/hop0', ...]\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/stable/container/admin', '/private/tmp..._gaht/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/stable/hop0', ...] = <built-in method get of dict object at 0x109b32b00>('git', [])\n +    where <built-in method get of dict object at 0x109b32b00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/stable/container/admin', '/pri...gaht/own\u00e9r/pointer', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpwq3_gaht/stable/hop0', ...]}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/stable/container/admin', '/pri...d/tmp97aj35pm/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/stable/container/admin', '/private/tmp...ed/tmp97aj35pm/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/stable/container/admin', '/private/tmp...ed/tmp97aj35pm/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/own\u00e9r/hop1'] = <built-in method get of dict object at 0x109bb8040>('git', [])\n +    where <built-in method get of dict object at 0x109bb8040> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/stable/container/admin', '/pri...d/tmp97aj35pm/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmp97aj35pm/own\u00e9r/hop1']}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/stable/container/admin', '/pri...d/tmpxvdk45jt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/own\u00e9r/hop1']}\nassert '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/check\u00f3ut/.git' not in ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/stable/container/admin', '/private/tmp...ed/tmpxvdk45jt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/own\u00e9r/hop1']\n +  where '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/check\u00f3ut/.git' = str((PosixPath('/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/check\u00f3ut') / '.git'))\n +  and   ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/stable/container/admin', '/private/tmp...ed/tmpxvdk45jt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/own\u00e9r/hop1'] = <built-in method get of dict object at 0x109c91f00>('git', [])\n +    where <built-in method get of dict object at 0x109c91f00> = {'git': ['/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/stable/container/admin', '/pri...d/tmpxvdk45jt/own\u00e9r/hop0', '/private/tmp/sf-r272r10/real-tmp/revert-r9-start-spelling-dropped/tmpxvdk45jt/own\u00e9r/hop1']}.get"
+    }
+  ],
+  "end": "2026-10-31T10:46:31.195472+00:00",
+  "seconds": 25.10250970799825,
+  "peak_rss_mib": 137.53125,
+  "exit": 1
+}

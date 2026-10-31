@@ -1,0 +1,51 @@
+{
+  "name": "shared-property-2",
+  "start": "2026-10-31T10:57:24.750541+00:00",
+  "load": [
+    43.037109375,
+    42.427734375,
+    39.96044921875
+  ],
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7076680409991241,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 103.85130529099843,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011942500022996683,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:59:26.831337+00:00",
+  "seconds": 122.07904329099983,
+  "peak_rss_mib": 117.03125,
+  "exit": 0
+}

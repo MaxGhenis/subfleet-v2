@@ -1,0 +1,850 @@
+{
+  "name": "pointer-inputs",
+  "start": "2026-10-31T10:35:35.760544+00:00",
+  "load": [
+    39.3037109375,
+    36.92724609375,
+    35.34912109375
+  ],
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.2514236249990063,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 24.84049049999885,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005154159989615437,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001767665999068413,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.0506835840024,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006309590025921352,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmped1__6k0/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp5tx9f48r/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18, 1], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmppiqi12u7/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18, 2], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmplok7d1m6/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18, 9], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpodb2sdb_/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [13], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpqztt3epp/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65298], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpqbl6u7a3/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65554], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpg7ettvfo/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65547], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpe8tmlimx/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65290, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [9, 65281], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [13], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65291, 2], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10, 1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [9, 3], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65545, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65540], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [2], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65538, 2], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpfazc429p/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [12, 65542], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65546], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65555, 1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65541, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpnttfddzm/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65556], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65546, 1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18, 65549], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpi8fnh4qg/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [11], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpdkp0l2cr/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65549], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [16], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65288], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpwgrq5v8w/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpoydla9g9/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [9], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65546, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmprzg2nq1k/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [11], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [16, 3], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65546, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp79_io3nw/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65298, 11], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65548, 2], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [4, 65539], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpi5iplo7e/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [19], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpei3sy0ne/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"blank\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpd4uvk3xm/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [4], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp05af36fd/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpjho5phah/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [11], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpswrrpwxl/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"blank\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65539], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpy4erfjlq/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [3], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpxfmth8lj/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [16, 65547], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [9, 1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65281], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65282], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65283, 1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17, 1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpopzvymei/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65539], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65281], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [11], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpknccm4i_/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [2], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1, 65281], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17, 65540], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [4], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [4, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpkyogy2l2/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65281], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp87ve5h66/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65539], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpa8wel8_5/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65556, 2], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [8, 65281], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpk5w1dz7j/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65539], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [4, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmphac138bi/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [13, 4], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [2], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [4, 65542], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpou9n_dok/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65284], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [3], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpne1l2j3o/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65281], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65553, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmprmwyiubj/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": true, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65540], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [11, 65540], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": true, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65553], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65280], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpspfclgnz/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmptxo1syvr/container/worktrees/0/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 0}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpsaxrrcvg/container/worktrees/23390/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 23390}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpv06ydf_l/container/worktrees/23390/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 23390}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpkmg43kp7/container/worktrees/438/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 438}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpgb796q04/container/worktrees/438/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 438}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp5b9rtmel/container/worktrees/1276/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 1276}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpgox1kqx8/container/worktrees/1098/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 1098}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp4x2szwaw/container/worktrees/65535/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 65535}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpx2xlsne4/container/worktrees/3630/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 3630}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpd3pjqjbf/container/worktrees/2055/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 2055}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmptdlmyzq7/container/worktrees/162/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 162}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpz0itn1v5/container/worktrees/27/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 27}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpv5vosqrl/container/worktrees/1055/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"unrelated-commondir\", \"slot\": 1055}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpa_hkvpxx/container/worktrees/681/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 681}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp32bvs573/container/worktrees/1814/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"not-repository\", \"slot\": 1814}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmprrxsdlbi/container/worktrees/329/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"not-repository\", \"slot\": 329}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp5ofee959/container/worktrees/147/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"unrelated-commondir\", \"slot\": 147}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpr450ucnl/container/worktrees/213/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 213}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmph9cl7stk/container/worktrees/143/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 143}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp_vi87a8w/container/worktrees/29834/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"repository\", \"slot\": 29834}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpm05gytw4/container/worktrees/93/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 93}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpj6xnewmu/container/worktrees/3935/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"unrelated-commondir\", \"slot\": 3935}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp4faz1ana/container/worktrees/1403/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 1403}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpeu23l0xe/container/worktrees/23608/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 23608}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp8bvc0il4/container/worktrees/1265/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 1265}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp2h_te9v2/container/worktrees/4751/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 4751}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpk_pt_p77/container/worktrees/513/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"not-repository\", \"slot\": 513}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpqit99sne/container/worktrees/392/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 392}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmp5bii5w0_/container/worktrees/291/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 291}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpu7jz1dnr/container/worktrees/902/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 902}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpqm9f1wq8/container/worktrees/3096/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 3096}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpuaim9g_x/container/worktrees/157/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 157}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpb6shdx3q/container/worktrees/366/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 366}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpm43ywmwy/container/worktrees/8148/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"repository\", \"slot\": 8148}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpmf_xyuzy/container/worktrees/5016/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"unrelated-commondir\", \"slot\": 5016}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpm_1_dy34/container/worktrees/5918/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 5918}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpdj60_hkm/container/worktrees/65314/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 65314}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpxi5cpub4/container/worktrees/618/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 618}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpz_2_cfhj/container/worktrees/798/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 798}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r10/real-tmp/pointer-inputs/tmpak9axzi9/container/worktrees/49233/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 49233}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:36:17.254917+00:00",
+  "seconds": 41.49366754199946,
+  "peak_rss_mib": 113.359375,
+  "exit": 0
+}
