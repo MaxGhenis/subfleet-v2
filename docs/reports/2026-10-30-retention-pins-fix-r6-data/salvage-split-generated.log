@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 23:42:27Z slot B load 
+START salvage-split-generated 2026-10-30T23:42:31.868532+00:00 load=(54.96435546875, 61.501953125, 66.69775390625)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes:
+
+  - during generate phase (394.18 seconds):
+    - Typical runtimes: ~ 5604-26224 ms, of which ~ 0-1 ms in data generation
+    - 24 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=24
+
+
+1 passed in 400.27s (0:06:40)

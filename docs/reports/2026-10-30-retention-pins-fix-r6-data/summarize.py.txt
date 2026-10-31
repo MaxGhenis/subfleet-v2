@@ -25,29 +25,47 @@ for run in runs:
         continue
     if run['label']=='red-r6':
         continue
-    if run['exit']!=0:
+    if run.get('handoff'):
         continue
-    collected.update(run['all_nodes'])
+    collected.update(run['nodes'] if run['label']=='parent-controls' else run['all_nodes'])
     for test in run['tests']:
-        if test['phase']!='call' or test['outcome']!='passed':continue
+        if (test['phase']!='call' or test['outcome']!='passed'
+            or run['phases'].get(test['nodeid'],{}).get('teardown')!='passed'):continue
         node=test['nodeid'];filename=node.split('::')[0]
         row=files.setdefault(filename,dict(file=filename,nodes=set(),start=run['start'],loads=run['loads'],runs=[]))
         row['nodes'].add(node); passed.add(node); executions+=1
         if run['label'] not in row['runs']:row['runs'].append(run['label'])
+incomplete_phases = []
+successful_labels = {r['label'] for r in runs if r['exit']==0}
+phase_requirements = {
+    'tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine': (
+        'shared-folders-400-explicit' in successful_labels,
+        any(n.startswith('shared-folders-400-') and n.endswith('-generated') for n in successful_labels)),
+    'tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes': (
+        'salvage-split-explicit' in successful_labels, 'salvage-split-generated' in successful_labels),
+    'tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree': (
+        'retention_sweep_race-explicit' in successful_labels, 'retention_sweep_race-generated' in successful_labels),
+}
+for node, phases in phase_requirements.items():
+    if node in collected and not all(phases):
+        incomplete_phases.append(node)
+        passed.discard(node)
+        if node.split('::')[0] in files: files[node.split('::')[0]]['nodes'].discard(node)
 rows=[]
 for row in files.values():
     row['passed']=len(row.pop('nodes'));rows.append(row)
 missing=sorted(n for n in collected-passed if 'test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree' not in n)
-summary=dict(ordinary_unique_passes=len(passed),ordinary_pass_executions=executions,files=rows,mutants=mutants,missing_collected=missing,completed_holds=len(runs),peak_pytest_rss_mib=max(r['rss'] for r in runs)/1024**2,longest_pytest_seconds=max(r['seconds'] for r in runs),all_completed_locked=all(r['locked'] for r in runs))
+summary=dict(ordinary_unique_passes=len(passed),ordinary_pass_executions=executions,files=rows,mutants=mutants,missing_collected=missing,completed_holds=len(runs),incomplete_phases=incomplete_phases,peak_pytest_rss_mib=max(r['rss'] for r in runs)/1024**2,longest_pytest_seconds=max(r['seconds'] for r in runs),all_completed_locked=all(r['locked'] for r in runs))
 (root/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
 lines=['| File | Passed | First start UTC | Load (1/5/15 min) |','|---|---:|---|---|']
 for row in rows:
     name=row['file'].replace('tests/fake/','F/').replace('tests/unit/','U/').replace('/private/tmp/sf-fix272r6/','Scratch/')
-    lines.append('| '+name+' | '+str(row['passed'])+' | '+row['start'][11:19]+' | '+' / '.join(f'{n:.2f}' for n in row['loads'])+' |')
+    if name in {'probes.py','pointer_matrix.py'}:name='Scratch/'+name
+    lines.append('| '+name+' | '+str(row['passed'])+' | '+row['start'][:10]+' '+row['start'][11:19]+' | '+' / '.join(f'{n:.2f}' for n in row['loads'])+' |')
 (root/'file-results.md').write_text('\n'.join(lines)+'\n')
 lines=['| Mutant | Named killer | Result |','|---|---|---|']
 for row in mutants:
-    killer=row['killer'].replace('tests/fake/test_retention_dependency_review_','R').replace('tests/unit/test_retention_pointer_whitespace.py','W').replace('tests/fake/test_retention_pointer_failures.py','PF').replace('/private/tmp/sf-fix272r6/probes.py','P').replace('.py::','::')
+    killer=row['killer'].replace('tests/fake/test_retention_dependency_review_r','R').replace('tests/unit/test_retention_pointer_whitespace.py','W').replace('tests/fake/test_retention_pointer_failures.py','PF').replace('/private/tmp/sf-fix272r6/probes.py','P').replace('probes.py','P').replace('.py::','::')
     lines.append('| '+row['name']+' | '+killer+' | Killed |')
 (root/'mutant-results.md').write_text('\n'.join(lines)+'\n')
 print(json.dumps({k:v for k,v in summary.items() if k not in ('files','mutants','missing_collected')},indent=2))

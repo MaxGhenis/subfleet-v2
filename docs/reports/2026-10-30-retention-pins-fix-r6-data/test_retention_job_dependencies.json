@@ -1,0 +1,203 @@
+{
+  "label": "test_retention_job_dependencies",
+  "start": "2026-10-30T22:37:04.421046+00:00",
+  "loads": [
+    26.2607421875,
+    45.0634765625,
+    36.66845703125
+  ],
+  "seconds": 62.81463370900019,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.954465667004115,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.48955924999609124,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.17167683299339842,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1621971249987837,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.480220792000182,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5132832090021111,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6701802080060588,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3258809170074528,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.2158060419897083,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7156714169977931,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.5005152909870958,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3041823329986073,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence"
+  ],
+  "phases": {
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 120111104
+}

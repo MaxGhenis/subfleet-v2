@@ -630,6 +630,14 @@ filesystem decoding and resolving relative alternates against the objects
 directory, five levels deep). Gitfiles require the literal `gitdir: ` prefix;
 their targets and `commondir` targets lose only trailing CR and LF, preserving
 all other pathname bytes, including leading/trailing spaces and tabs.
+If `commondir` is absent or blank after CR/LF removal and a named admin sits
+under `worktrees/<id>`, discovery records both its own objects/alternates and
+the inferred parent's storage. Both stores' original spellings are resolved
+and revalidated. Pointer reads keep a 64 KiB bound: oversized files and every
+other nonmissing `OSError` or `ValueError` report incomplete evidence. Only
+`FileNotFoundError` on a path that does not lexically exist, or
+`NotADirectoryError`, counts as missing. A dangling link is incomplete; a stale
+gitfile whose target vanished remains routine and does not globally pin trees.
 Alternates files are streamed to their end with
 no whole-file cap and a 1 MiB per-line bound (256 times a 4096-byte PATH_MAX).
 Read errors, overlong lines, invalid quotes and detected changes during discovery
@@ -691,6 +699,15 @@ quarantine has made a recorded tail unspellable; only retention-held
 place (C-6.5, C-6.11). A written export keeps
 nothing: retention may archive a tree a finished export wrote into, the file
 with it.
+
+### Listed differences
+
+Review r6 executed these older readers outside dependency discovery; they remain unchanged.
+
+- **D-R6-1:** Outside discovery, archive and survey retain legacy whitespace parsing: some valid spaced admin/common pointer spellings are missed or select a trimmed twin.
+- **D-R6-2:** Nested gitfile classification still strips target bytes and can treat a whitespace-suffixed external admin as internal.
+- **D-R6-3:** Registration cleanup still strips common-directory output and can act on a whitespace target's trimmed twin.
+- **D-R6-4:** Bundle verification still strips common targets when constructing its alternate; a complete pack can verify without using that alternate.
 
 ## 11. Accounting
 

@@ -65,8 +65,29 @@ class Observer:
     def pytest_collection_finish(self, session):
         nodes.extend(item.nodeid for item in session.items)
         for item in session.items:
+            if label.startswith("shared-folders-400-"):
+                # This property's settings decorator is defined inside the test.
+                # Split only phases; retain its full 400 generated examples.
+                original_settings = item.module.settings
+                def phase_settings(*args, _item=item, **kwargs):
+                    configured = original_settings(*args, **kwargs)
+                    if configured.max_examples != 400:
+                        return configured
+                    from hypothesis import settings as hs, Phase, Verbosity
+                    phases = ((Phase.explicit,) if label.endswith("-explicit") else
+                              tuple(p for p in configured.phases if p != Phase.explicit))
+                    selected = hs(parent=configured, phases=phases, verbosity=Verbosity.verbose)
+                    def decorate(fn):
+                        result = selected(fn)
+                        property_settings[_item.nodeid] = dict(max_examples=selected.max_examples,
+                            derandomize=selected.derandomize, database_none=selected.database is None,
+                            phases=[str(p) for p in selected.phases],
+                            explicit_examples=len(getattr(result, "hypothesis_explicit_examples", [])))
+                        return result
+                    return decorate
+                item.module.settings = phase_settings
             configured = getattr(item.obj, "_hypothesis_internal_use_settings", None)
-            if configured is not None and label in {"retention_sweep_race-explicit", "retention_sweep_race-generated"}:
+            if configured is not None and (label.startswith("retention_sweep_race-") or label.startswith("salvage-split-")):
                 from hypothesis import settings as hypothesis_settings, Phase, Verbosity
                 selected = ((Phase.explicit,) if label.endswith("-explicit") else tuple(p for p in configured.phases if p != Phase.explicit))
                 configured = hypothesis_settings(parent=configured, phases=selected, verbosity=Verbosity.verbose)
@@ -78,8 +99,8 @@ class Observer:
         if report.when == 'call' or report.failed:
             results.append({'nodeid': report.nodeid, 'phase': report.when, 'outcome': report.outcome,
                             'wasxfail': getattr(report, 'wasxfail', None), 'duration': report.duration, 'properties': report.user_properties})
-signal.signal(signal.SIGALRM, lambda *a: (_ for _ in ()).throw(KeyboardInterrupt('570 second hold bound')))
-signal.alarm(570)
+signal.signal(signal.SIGALRM, lambda *a: (_ for _ in ()).throw(KeyboardInterrupt('480 second hold bound')))
+signal.alarm(480)
 print(f'START {label} {started} load={loads}', flush=True)
 code = 99
 t0 = time.monotonic()

@@ -1,0 +1,51 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 00:09:46Z slot A load 
+START test_task_holds 2026-10-31T00:09:53.312955+00:00 load=(49.91064453125, 40.11328125, 42.42138671875)
+.................................................................        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_task_holds.py::test_a_note_is_kept_exactly_when_it_is_one_printable_line_within_the_limit:
+
+  - during generate phase (1.37 seconds):
+    - Typical runtimes: ~ 0-17 ms, of which < 1ms in data generation
+    - 300 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=300
+
+
+tests/unit/test_task_holds.py::test_a_control_anywhere_is_refused_before_anything_is_trimmed:
+
+  - during generate phase (1.52 seconds):
+    - Typical runtimes: ~ 0-19 ms, of which < 1ms in data generation
+    - 300 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=300
+
+
+tests/unit/test_task_holds.py::test_an_end_is_kept_to_the_second_exactly_when_it_is_later_than_now:
+
+  - during generate phase (4.26 seconds):
+    - Typical runtimes: ~ 0-61 ms, of which ~ 0-12 ms in data generation
+    - 300 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=300
+
+
+tests/unit/test_task_holds.py::test_only_task_hold_rows_before_their_end_are_in_force:
+
+  - during generate phase (13.82 seconds):
+    - Typical runtimes: ~ 1-112 ms, of which ~ 0-98 ms in data generation
+    - 300 passing, 0 failing, and 24 invalid test cases
+
+  - Stopped because settings.max_examples=300
+
+
+tests/unit/test_task_holds.py::test_any_task_comes_back_whole_from_its_release_hint:
+
+  - during generate phase (3.01 seconds):
+    - Typical runtimes: ~ 0-31 ms, of which < 1ms in data generation
+    - 300 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=300
+
+
+65 passed in 46.43s

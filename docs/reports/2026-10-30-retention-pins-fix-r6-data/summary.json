@@ -1,6 +1,6 @@
 {
-  "ordinary_unique_passes": 190,
-  "ordinary_pass_executions": 190,
+  "ordinary_unique_passes": 947,
+  "ordinary_pass_executions": 950,
   "files": [
     {
       "file": "tests/fake/test_retention_dependency_review_r6.py",
@@ -131,6 +131,437 @@
         "test_retention_alternates_review_r2"
       ],
       "passed": 15
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r1.py",
+      "start": "2026-10-30T22:29:07.230708+00:00",
+      "loads": [
+        36.66552734375,
+        24.4384765625,
+        22.0908203125
+      ],
+      "runs": [
+        "test_retention_dependency_review_r1"
+      ],
+      "passed": 18
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_incomplete.py",
+      "start": "2026-10-30T22:30:07.042929+00:00",
+      "loads": [
+        53.8642578125,
+        31.5107421875,
+        24.89111328125
+      ],
+      "runs": [
+        "test_retention_dependency_incomplete"
+      ],
+      "passed": 19
+    },
+    {
+      "file": "tests/unit/test_retention_alternates.py",
+      "start": "2026-10-30T22:34:23.503275+00:00",
+      "loads": [
+        66.228515625,
+        55.64501953125,
+        37.77099609375
+      ],
+      "runs": [
+        "test_retention_alternates"
+      ],
+      "passed": 23
+    },
+    {
+      "file": "tests/unit/test_retention_dependency_aliases.py",
+      "start": "2026-10-30T22:36:47.614109+00:00",
+      "loads": [
+        30.01904296875,
+        46.71484375,
+        37.09033203125
+      ],
+      "runs": [
+        "test_retention_dependency_aliases"
+      ],
+      "passed": 10
+    },
+    {
+      "file": "tests/unit/test_retention_job_dependencies.py",
+      "start": "2026-10-30T22:37:04.421046+00:00",
+      "loads": [
+        26.2607421875,
+        45.0634765625,
+        36.66845703125
+      ],
+      "runs": [
+        "test_retention_job_dependencies"
+      ],
+      "passed": 12
+    },
+    {
+      "file": "tests/fake/test_retention_dependencies.py",
+      "start": "2026-10-30T22:38:22.417358+00:00",
+      "loads": [
+        16.490234375,
+        37.525390625,
+        34.54052734375
+      ],
+      "runs": [
+        "test_retention_dependencies"
+      ],
+      "passed": 30
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_spelling.py",
+      "start": "2026-10-30T22:40:46.230556+00:00",
+      "loads": [
+        41.9541015625,
+        40.52978515625,
+        36.251953125
+      ],
+      "runs": [
+        "test_retention_dependency_spelling"
+      ],
+      "passed": 16
+    },
+    {
+      "file": "tests/fake/test_retention_recovery_census.py",
+      "start": "2026-10-30T22:41:46.046111+00:00",
+      "loads": [
+        42.73388671875,
+        41.17724609375,
+        36.7939453125
+      ],
+      "runs": [
+        "test_retention_recovery_census"
+      ],
+      "passed": 2
+    },
+    {
+      "file": "tests/unit/test_retention_dependency_units.py",
+      "start": "2026-10-30T22:42:29.851796+00:00",
+      "loads": [
+        45.77587890625,
+        41.9482421875,
+        37.28662109375
+      ],
+      "runs": [
+        "test_retention_dependency_units"
+      ],
+      "passed": 19
+    },
+    {
+      "file": "tests/unit/test_retention_folded_pin.py",
+      "start": "2026-10-30T22:44:04.663399+00:00",
+      "loads": [
+        35.912109375,
+        40.60546875,
+        37.3193359375
+      ],
+      "runs": [
+        "test_retention_folded_pin"
+      ],
+      "passed": 38
+    },
+    {
+      "file": "pointer_matrix.py",
+      "start": "2026-10-30T22:47:16.338103+00:00",
+      "loads": [
+        41.9833984375,
+        41.91162109375,
+        38.60107421875
+      ],
+      "runs": [
+        "parent-controls"
+      ],
+      "passed": 5
+    },
+    {
+      "file": "tests/unit/test_retention_dependency_properties.py",
+      "start": "2026-10-30T22:50:06.687979+00:00",
+      "loads": [
+        39.6142578125,
+        42.4697265625,
+        39.501953125
+      ],
+      "runs": [
+        "test_retention_dependency_properties",
+        "dependency-properties-remaining-1",
+        "dependency-properties-remaining-2"
+      ],
+      "passed": 4
+    },
+    {
+      "file": "tests/fake/test_detached_retention_fence.py",
+      "start": "2026-10-30T22:55:56.064830+00:00",
+      "loads": [
+        31.51953125,
+        36.47998046875,
+        37.66748046875
+      ],
+      "runs": [
+        "test_detached_retention_fence-part1",
+        "test_detached_retention_fence-part3",
+        "test_detached_retention_fence-part5",
+        "test_detached_retention_fence-part2",
+        "test_detached_retention_fence-part4",
+        "test_detached_retention_fence-part6"
+      ],
+      "passed": 89
+    },
+    {
+      "file": "tests/fake/test_writer_retention_fence.py",
+      "start": "2026-10-30T22:59:26.275147+00:00",
+      "loads": [
+        35.87158203125,
+        37.01904296875,
+        37.66357421875
+      ],
+      "runs": [
+        "test_writer_retention_fence-part1"
+      ],
+      "passed": 23
+    },
+    {
+      "file": "tests/unit/test_retention_archive.py",
+      "start": "2026-10-30T23:01:29.016349+00:00",
+      "loads": [
+        27.49609375,
+        34.32958984375,
+        36.5546875
+      ],
+      "runs": [
+        "test_retention_archive-part2",
+        "test_retention_archive-part4",
+        "test_retention_archive-part6",
+        "test_retention_archive-part1",
+        "test_retention_archive-part3",
+        "test_retention_archive-part5"
+      ],
+      "passed": 108
+    },
+    {
+      "file": "tests/unit/test_retention_shared_folders.py",
+      "start": "2026-10-30T23:11:12.652846+00:00",
+      "loads": [
+        34.15576171875,
+        33.28759765625,
+        34.43603515625
+      ],
+      "runs": [
+        "test_retention_shared_folders",
+        "shared-folders-isolated-1",
+        "shared-folders-isolated-2",
+        "shared-folders-isolated-3",
+        "shared-folders-isolated-4",
+        "shared-folders-400-explicit",
+        "shared-folders-remaining-2",
+        "shared-folders-remaining-3",
+        "shared-folders-remaining-4",
+        "shared-folders-remaining-5",
+        "shared-folders-remaining-6",
+        "shared-folders-400-retry-generated"
+      ],
+      "passed": 62
+    },
+    {
+      "file": "tests/unit/test_retention_nested_leases.py",
+      "start": "2026-10-30T23:14:05.210923+00:00",
+      "loads": [
+        70.32470703125,
+        48.53515625,
+        40.5244140625
+      ],
+      "runs": [
+        "retention_nested_leases",
+        "nested-leases-remaining-1"
+      ],
+      "passed": 27
+    },
+    {
+      "file": "tests/unit/test_retention_salvage_properties.py",
+      "start": "2026-10-30T23:39:54.960204+00:00",
+      "loads": [
+        43.1962890625,
+        65.9931640625,
+        69.0849609375
+      ],
+      "runs": [
+        "salvage-split-explicit",
+        "salvage-split-generated",
+        "test_retention_salvage_properties-0"
+      ],
+      "passed": 2
+    },
+    {
+      "file": "tests/unit/test_retention_sweep_race.py",
+      "start": "2026-10-30T23:49:34.952179+00:00",
+      "loads": [
+        39.68115234375,
+        50.35546875,
+        59.705078125
+      ],
+      "runs": [
+        "retention_sweep_race-explicit",
+        "retention_sweep_race-examples",
+        "retention_sweep_race-generated"
+      ],
+      "passed": 13
+    },
+    {
+      "file": "tests/unit/test_retention_81_notes.py",
+      "start": "2026-10-31T00:00:18.635779+00:00",
+      "loads": [
+        40.51611328125,
+        38.00537109375,
+        46.87890625
+      ],
+      "runs": [
+        "retention_81_notes"
+      ],
+      "passed": 38
+    },
+    {
+      "file": "tests/fake/test_turn_retention_cwd_properties.py",
+      "start": "2026-10-31T00:06:56.474573+00:00",
+      "loads": [
+        37.61669921875,
+        34.90673828125,
+        41.6005859375
+      ],
+      "runs": [
+        "test_turn_retention_cwd_properties"
+      ],
+      "passed": 1
+    },
+    {
+      "file": "tests/fake/test_turn_retention_job_properties.py",
+      "start": "2026-10-31T00:08:20.406189+00:00",
+      "loads": [
+        41.0380859375,
+        36.55126953125,
+        41.5830078125
+      ],
+      "runs": [
+        "test_turn_retention_job_properties"
+      ],
+      "passed": 1
+    },
+    {
+      "file": "tests/unit/test_task_holds.py",
+      "start": "2026-10-31T00:09:53.312955+00:00",
+      "loads": [
+        49.91064453125,
+        40.11328125,
+        42.42138671875
+      ],
+      "runs": [
+        "test_task_holds"
+      ],
+      "passed": 65
+    },
+    {
+      "file": "tests/unit/test_retention_archive_properties.py",
+      "start": "2026-10-31T00:10:18.059866+00:00",
+      "loads": [
+        46.05078125,
+        39.97802734375,
+        42.30419921875
+      ],
+      "runs": [
+        "retention_archive_properties"
+      ],
+      "passed": 2
+    },
+    {
+      "file": "tests/fake/test_state_contract.py",
+      "start": "2026-10-31T00:10:59.851389+00:00",
+      "loads": [
+        46.97607421875,
+        41.18359375,
+        42.63330078125
+      ],
+      "runs": [
+        "test_state_contract"
+      ],
+      "passed": 37
+    },
+    {
+      "file": "tests/unit/test_invariants_index.py",
+      "start": "2026-10-31T00:12:13.980419+00:00",
+      "loads": [
+        28.92138671875,
+        36.537109375,
+        40.73583984375
+      ],
+      "runs": [
+        "test_invariants_index"
+      ],
+      "passed": 25
+    },
+    {
+      "file": "tests/fake/test_turn_retention_cwd.py",
+      "start": "2026-10-31T00:21:55.841598+00:00",
+      "loads": [
+        47.31103515625,
+        42.712890625,
+        41.6953125
+      ],
+      "runs": [
+        "test_turn_retention_cwd"
+      ],
+      "passed": 6
+    },
+    {
+      "file": "tests/fake/test_turn_retention_job_directory.py",
+      "start": "2026-10-31T00:22:43.344940+00:00",
+      "loads": [
+        40.7021484375,
+        41.75341796875,
+        41.4013671875
+      ],
+      "runs": [
+        "test_turn_retention_job_directory"
+      ],
+      "passed": 2
+    },
+    {
+      "file": "tests/fake/test_turn_retention_quarantine.py",
+      "start": "2026-10-31T00:23:16.114221+00:00",
+      "loads": [
+        37.85693359375,
+        40.87548828125,
+        41.09130859375
+      ],
+      "runs": [
+        "test_turn_retention_quarantine"
+      ],
+      "passed": 10
+    },
+    {
+      "file": "tests/fake/test_task_hold_admission.py",
+      "start": "2026-10-31T00:24:16.389121+00:00",
+      "loads": [
+        48.5009765625,
+        43.68115234375,
+        42.140625
+      ],
+      "runs": [
+        "test_task_hold_admission"
+      ],
+      "passed": 49
+    },
+    {
+      "file": "tests/unit/test_test_module_names.py",
+      "start": "2026-10-31T00:24:50.875016+00:00",
+      "loads": [
+        50.6826171875,
+        44.72119140625,
+        42.578125
+      ],
+      "runs": [
+        "test_test_module_names"
+      ],
+      "passed": 1
     }
   ],
   "mutants": [
@@ -323,8 +754,9 @@
     }
   ],
   "missing_collected": [],
-  "completed_holds": 28,
-  "peak_pytest_rss_mib": 123.140625,
-  "longest_pytest_seconds": 340.6479977079871,
+  "completed_holds": 90,
+  "incomplete_phases": [],
+  "peak_pytest_rss_mib": 319.53125,
+  "longest_pytest_seconds": 610.3077075409965,
   "all_completed_locked": true
 }

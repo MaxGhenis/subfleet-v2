@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 23:37:48Z slot A load 
+START shared-folders-isolated-4 2026-10-30T23:37:55.078034+00:00 load=(59.20166015625, 78.82861328125, 73.51416015625)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn:
+
+  - during generate phase (216.96 seconds):
+    - Typical runtimes: ~ 1-11075 ms, of which ~ 0-12 ms in data generation
+    - 40 passing, 0 failing, and 5 invalid test cases
+
+  - Stopped because settings.max_examples=40
+
+
+1 passed in 256.01s (0:04:16)
