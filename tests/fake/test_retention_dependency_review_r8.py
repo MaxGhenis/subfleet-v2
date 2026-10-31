@@ -11,7 +11,6 @@ from tests.unit.test_retention_dependency_units import repo
 from tests.unit.test_retention_pointer_whitespace import git
 
 
-@pytest.mark.xfail(strict=True, reason="R8-F1: resolved storage omits required pointer-file and alias locations")
 @pytest.mark.parametrize("layout", ["admin-path", "gitfile"])
 def test_running_job_keeps_tree_containing_required_git_pointer(world, layout, record_property):
     tree = world.job("owner")

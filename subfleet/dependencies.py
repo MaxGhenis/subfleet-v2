@@ -33,9 +33,11 @@ transaction (`legacy`), since every such job is older than the pass.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import stat
+from collections import deque
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
@@ -144,7 +146,8 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
             if gitdir is not None:
                 found.extend(_storage(gitdir, named=True, incomplete=incomplete, aliases=aliases))
     aliases.check(incomplete)
-    return list(dict.fromkeys(folders.canonical(each) for each in found))
+    recorded = list(dict.fromkeys(folders.canonical(each) for each in found))
+    return recorded + aliases.locations(start, recorded)
 
 
 def _text(path: str) -> str | None:
@@ -166,30 +169,69 @@ class _Aliases:
         self.paths: dict[str, tuple] = {}
         self.pointers: dict[str, str | None] = {}
         self.errors: dict[str, str] = {}
+        self.files: set[str] = set()
+        self.links: set[str] = set()
+        self.entries: set[str] = set()
+        self.scanned: set[str] = set()
+
+    @staticmethod
+    def _walk(path: str) -> tuple[str, tuple]:
+        # Do not abspath/normpath first: a/link/../b follows link before "..".
+        pending = deque((path if os.path.isabs(path) else os.path.join(os.getcwd(), path)).split(os.sep))
+        parent = os.path.sep
+        links = []
+        while pending:
+            part = pending.popleft()
+            if not part:
+                continue
+            entry = os.path.join(parent, part)
+            try:
+                info = os.lstat(entry)
+                if stat.S_ISLNK(info.st_mode):
+                    target = os.readlink(entry)
+                    # Spell the parent only: spelling entry would follow the link.
+                    location = os.path.join(folders.canonical(parent), part)
+                    links.append((location, target, (info.st_dev, info.st_ino)))
+                    if len(links) > 64:
+                        return os.path.realpath(path), tuple(links)
+                    if os.path.isabs(target):
+                        parent = os.path.sep
+                    pending.extendleft(reversed(target.split(os.sep)))
+                else:
+                    parent = os.path.normpath(entry)
+            except OSError as exc:
+                if exc.errno in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
+                    return os.path.realpath(path), tuple(links)
+                raise
+        return parent, tuple(links)
 
     @staticmethod
     def _target(path: str) -> tuple:
-        resolved = os.path.realpath(path)
+        resolved, links = _Aliases._walk(path)
         try:
             info = os.stat(path)
             identity = (info.st_dev, info.st_ino)
-        except (FileNotFoundError, NotADirectoryError):
+        except OSError as exc:
+            if exc.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
+                raise
             identity = None        # a gitdir target may already be absent
-        return resolved, identity
+        return resolved, identity, links
 
     def resolve(self, path: str) -> str:
         try:
             target = self._target(path)
         except (OSError, ValueError) as exc:
             self.errors.setdefault(path, str(exc))
-            target = (os.path.abspath(path), None)
+            target = (os.path.abspath(path), None, ())
+        self.links.update(link[0] for link in target[2])
         self.paths.setdefault(path, target)
         return target[0]
 
     def text(self, path: str) -> str | None:
-        self.resolve(path)
+        resolved = self.resolve(path)
         try:
             value = os.fsdecode(read_regular(path, limit=_FILE_LIMIT))
+            self.files.add(resolved)
         except NotADirectoryError:
             value = None
         except (OSError, ValueError) as exc:
@@ -199,6 +241,29 @@ class _Aliases:
             value = None
         self.pointers.setdefault(path, value)
         return value
+
+    def scan(self, directory: str, incomplete: list[dict[str, str]] | None) -> None:
+        """One level of links in actual storage; never scan an inferred parent."""
+        if directory in self.scanned:
+            return
+        self.scanned.add(directory)
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if entry.is_symlink():
+                        self.entries.add(self.resolve(entry.path))
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            if incomplete is not None:
+                incomplete.append({"file": directory, "reason": str(exc)})
+
+    def locations(self, start: str, recorded: list[str]) -> list[str]:
+        """Keep physical entries without following them again during spelling."""
+        ancestors = {start, *folders.above(start)}
+        return sorted(place for place in self.links | self.files | self.entries
+                      if os.path.dirname(place) not in ancestors
+                      and not any(folders.within(place, each) for each in recorded))
 
     def check(self, incomplete: list[dict[str, str]] | None) -> None:
         if incomplete is not None:
@@ -229,6 +294,7 @@ def _gitfile(dotgit: str, folder: str, *, aliases: _Aliases) -> str | None:
 def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | None = None,
              aliases: _Aliases) -> list[str]:
     """`gitdir`, its common directory, and the alternates of that repository's objects."""
+    aliases.scan(gitdir, incomplete)
     common = gitdir
     pointer = aliases.text(os.path.join(gitdir, "commondir"))
     pointer = pointer.rstrip("\r\n") if pointer is not None else None
@@ -241,13 +307,16 @@ def _storage(gitdir: str, *, named: bool, incomplete: list[dict[str, str]] | Non
         inferred = os.path.dirname(os.path.dirname(gitdir))
         own_objects = os.path.join(gitdir, "objects")
         own = aliases.resolve(own_objects)
+        aliases.scan(own, incomplete)
         parent_objects = os.path.join(inferred, "objects")
         parent = [inferred, aliases.resolve(parent_objects),
-                  *_alternates(parent_objects, incomplete=incomplete, aliases=aliases)]
+                  *_alternates(parent_objects, incomplete=incomplete, aliases=aliases, scan=False)]
         alternates = _alternates(own_objects, incomplete=incomplete, aliases=aliases)
         return list(dict.fromkeys([gitdir, *parent, own, *alternates]))
+    aliases.scan(common, incomplete)
     objects = os.path.join(common, "objects")
     target = aliases.resolve(objects)
+    aliases.scan(target, incomplete)
     return list(dict.fromkeys([gitdir, common, target, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))
 
 
@@ -295,7 +364,7 @@ def _alternate_paths(line: bytes) -> Iterable[bytes]:
 
 
 def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None,
-                aliases: _Aliases | None = None) -> list[str]:
+                aliases: _Aliases | None = None, scan: bool = True) -> list[str]:
     """Stream complete alternates files, at most one bounded byte line at a time.
 
     The returned paths and traversal frontier grow with distinct dependencies;
@@ -311,10 +380,12 @@ def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None,
         following: list[str] = []
         for directory in level:
             filename = os.path.join(directory, "info", "alternates")
+            resolved = aliases.resolve(filename)
             opened = False
             try:
                 with open_regular(filename) as stream:
                     opened = True
+                    aliases.files.add(resolved)
                     before = os.fstat(stream.fileno())
                     while line := stream.readline(_ALTERNATE_LINE_LIMIT + 1):
                         if len(line) > _ALTERNATE_LINE_LIMIT:
@@ -324,6 +395,8 @@ def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None,
                             if each not in seen:
                                 seen.add(each)
                                 found.append(each)
+                                if scan:
+                                    aliases.scan(each, incomplete)
                                 following.append(each)
                     after = os.fstat(stream.fileno())
                     named = os.stat(filename)

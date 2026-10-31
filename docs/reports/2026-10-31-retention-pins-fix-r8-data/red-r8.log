@@ -1,0 +1,21 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:07:35Z slot B load 
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___ test_running_job_keeps_tree_containing_required_git_pointer[admin-path] ____
+tests/fake/test_retention_dependency_review_r8.py:45: in test_running_job_keeps_tree_containing_required_git_pointer
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r8/real-tmp/red-r8/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co0/indep...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48782, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+_____ test_running_job_keeps_tree_containing_required_git_pointer[gitfile] _____
+tests/fake/test_retention_dependency_review_r8.py:45: in test_running_job_keeps_tree_containing_required_git_pointer
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r8/real-tmp/red-r8/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co1/indep...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48791, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]
+FAILED tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]
+2 failed in 8.19s
+{"name": "red-r8", "start": "2026-10-31T07:07:37.175840+00:00", "load": [35.01513671875, 34.9892578125, 35.0712890625], "seconds": 8.761641375000181, "exit": 1}
