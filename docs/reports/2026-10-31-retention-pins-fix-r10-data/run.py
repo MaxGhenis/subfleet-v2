@@ -30,6 +30,26 @@ signal.signal(signal.SIGTERM, stopping)
 
 if sys.argv[1] != '--admitted':
     name, *args = sys.argv[1:]
+    if datetime.datetime.now(datetime.UTC) >= datetime.datetime.fromisoformat('2026-10-31T15:33:45+00:00'):
+        (DATA / (name + '-unrun.json')).write_text(json.dumps(dict(args=args, reason='Four-hour hold cutoff')))
+        sys.exit(4)
+    split_path = DATA / 'split-holds.json'
+    splits = json.loads(split_path.read_text()) if split_path.exists() else {}
+    if name in splits:
+        receipts = []
+        for child_name, child_args in splits[name]:
+            child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), child_name, *child_args],
+                                     env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+            try:
+                code = child.wait()
+            except KeyboardInterrupt:
+                if child.poll() is None:
+                    child.send_signal(signal.SIGINT)
+                child.wait()
+                raise
+            receipts.append(dict(name=child_name, exit=code))
+        (DATA / (name + '-split.json')).write_text(json.dumps(dict(name=name, split_into=receipts), indent=2))
+        sys.exit(max(r['exit'] for r in receipts))
     linked = '--linked' in args
     if linked:
         args.remove('--linked')
@@ -79,7 +99,12 @@ SOURCE = Path(os.environ.get("SF_R8_SOURCE", str(ROOT)))
 os.chdir(SOURCE)
 sys.path.insert(0, str(SOURCE))
 import pytest
-record = dict(name=name, start=now(), load=os.getloadavg(), args=args, phases=[], observations=[],
+# Keep the harness's failure-root pruning and any copied fake stores inside
+# this job's scratch, rather than inspecting other pytest processes' roots.
+from tests import failed_keep
+failed_keep.ROOT = SCRATCH / 'failed-keep'
+record = dict(name=name, start=now(), load=os.getloadavg(), pytest_pid=os.getpid(),
+              failure_root=str(failed_keep.ROOT), args=args, phases=[], observations=[],
               locked=os.environ.get('SF_FIX_R10_DIRECT') != '1')
 start = time.monotonic()
 

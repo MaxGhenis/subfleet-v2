@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T12:59:30.613611+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r2.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/regressions-r2",
+  "linked": false,
+  "driver_pid": 81789,
+  "lock_process_group": 82057
+}

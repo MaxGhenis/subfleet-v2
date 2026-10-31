@@ -1,4 +1,5 @@
 """Durable byte checks and final source/delivery manifest."""
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -31,5 +32,21 @@ assert before != kept and kept == (ROOT / path).read_bytes()
 checks[path] = dict(only_strict_mark_removed=True, sha256=digest(kept))
 assert (DATA / 'base-dependencies.py.txt').read_bytes() == old('subfleet/dependencies.py')
 checks['baseline_snapshot'] = dict(sha256=digest(old('subfleet/dependencies.py')), base=BASE)
+before = old('subfleet/dependencies.py').decode()
+current = (ROOT / 'subfleet/dependencies.py').read_text()
+def functions(source):
+    tree = ast.parse(source)
+    return {node.name: ast.get_source_segment(source, node)
+            for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+old_functions, new_functions = functions(before), functions(current)
+for name in ['_walk', '_target', 'scan', 'resolve', 'text', '_alternates', 'check', 'record']:
+    assert old_functions[name] == new_functions[name], name
+checks['untouched_reader_functions'] = {name: digest(new_functions[name].encode())
+    for name in ['_walk', '_target', 'scan', 'resolve', 'text', '_alternates', 'check', 'record']}
+doc = 'docs/desktop/retention-archive.md'
+def differences(text):
+    return text.split('### Listed differences', 1)[1].split('## 11. Accounting', 1)[0]
+assert differences(old(doc).decode()) == differences((ROOT / doc).read_text())
+checks['listed_differences_unchanged'] = True
 (DATA / 'byte-audit.json').write_text(json.dumps(checks, indent=2) + '\n')
 print(json.dumps(checks, indent=2))
