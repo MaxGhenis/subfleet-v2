@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T18:03:45.818435+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r11.py",
+    "--runxfail"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/red-review-r11",
+  "linked": false,
+  "driver_pid": 29936,
+  "lock_process_group": 29992
+}

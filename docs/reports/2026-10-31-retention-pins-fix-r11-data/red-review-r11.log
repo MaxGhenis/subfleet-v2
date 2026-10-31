@@ -1,0 +1,26 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:03:46Z slot A load 
+..FF                                                                     [100%]
+=================================== FAILURES ===================================
+____ test_return_filter_keeps_readable_store_across_case_rename[alternates] ____
+tests/fake/test_retention_dependency_review_r11.py:106: in test_return_filter_keeps_readable_store_across_case_rename
+    check_case_rename(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r11.py:94: in check_case_rename
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_rea...ce/.git/objects
+E     fatal: path 'owner-only.txt' exists on disk, but not in '1ab7d6c038c154c52adefa3db11417824e4d503d'
+E     ")
+E   assert ('owner' not in ['owner'])
+_______ test_return_filter_keeps_readable_store_across_case_rename[scan] _______
+tests/fake/test_retention_dependency_review_r11.py:106: in test_return_filter_keeps_readable_store_across_case_rename
+    check_case_rename(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r11.py:94: in check_case_rename
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_rea...'bytes_after': 0, ...}, b"fatal: path 'owner-only.txt' does not exist in '90ecb5d1be580efc3dd3f270b8c153e8241d2435'
+E     ")
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]
+FAILED tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]
+2 failed, 2 passed in 48.91s
+{"name": "red-review-r11", "start": "2026-10-31T18:03:52.578259+00:00", "load": [69.54296875, 57.294921875, 52.28759765625], "seconds": 53.65037825000036, "exit": 1}
