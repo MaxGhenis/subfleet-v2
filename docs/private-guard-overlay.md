@@ -310,12 +310,15 @@ shell xargs runs has `-c` and no script, or a `-c` script that only runs its arg
 -c '"$@"' _`. Before it, the hook took 51 s to read 8 KB echoed through 1,000 `| xargs -0 bash -c`
 stages and ran past 75 s on 32 KB through 1,500, where its timeout is 60 s (the hub's runs at
 `307e2373c`); it now denies those rows, and 1 KB through 100 such stages, as too complex to judge in
-under 1 s of CPU (0.37–0.79 s across r12d's and review r12's runs). It still reads 1 KB through 10, and still allows `echo 'rg -n foo src' | xargs -0
-bash -c`. The message's "piped into a shell" covers this text. The hub read the seven places in
-`simple()` and `execs` where the prep reads a script, and review r12 read the other four, in
-`spans()` and `prep()`. Each one reads the command's own text, already spends, or reads what a
-substitution's commands write (`subout`). The prep reads that text with no script door open, so it
-is bounded by the substitution's own text and printf's charged rounds.
+under 1 s of CPU (0.37–0.79 s across r12d's and review r12's runs). It still reads 1 KB through 10,
+and still allows `echo 'rg -n foo src' | xargs -0 bash -c`. The message's "piped into a shell"
+covers this text. The hub read the seven places in `simple()` and `execs` where the prep reads a
+script, and review r12 read the other four, in `spans()` and `prep()`. Each one reads the command's
+own text, already spends, or reads what a substitution's commands write (`subout`). `subout` reads
+the substitution with no script door open, so the substitution's own text and words that already
+spend (printf's later rounds and the words a loop variable stands for) bound what it writes. At the
+hook's `:2168` the quote reader has already put a loop variable's words into a shell's `-c` word,
+and they spent there (`:2038`).
 
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
@@ -416,7 +419,8 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
   - A raw 0x01 byte in the text a pipe gives a shell (review r12; older than r12): `echo '<0x01>; rg
     --files ~/.subfleet' | bash`, the same through `| xargs -0 bash -c`, and `printf '<0x01>; %s\n'
     'rg --files ~/.subfleet' | bash` pass, and both shells walk the root. The same byte in `eval '…'`,
-    in `bash -c '…'` and at the top of the command is denied. No lane writes this byte.
+    in `bash -c '…'` and at the top of the command is denied. No command pinned in the test file
+    holds this byte.
   - Loop shapes other than a `for` list or a piped `while read` whose variable is a searcher's whole
     operand: `while read d; do …; done < list`, `until`, `select`, a loop variable in a nested
     script, `for d in $(…)` (the prep splits the word at its `(`), and `xargs -a <(…)` or a `>(…)`;
