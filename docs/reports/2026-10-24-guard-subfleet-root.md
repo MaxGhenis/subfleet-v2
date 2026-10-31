@@ -25,7 +25,7 @@ closes those of the hub's review r4 (REQUEST_CHANGES at `6afb5ce19`): a long wor
 bodies, a depth bound beside xargs or `-exec`, a root before a closing backtick, bash's `.*` and `.?`,
 the data volume's alias before a mount, commands too long to read, `~{…}`, `~$NAME` and `~$(…)`,
 zsh's `=cmd`, pipes into a shell, `"$@"` scripts, `eval $(…)` and `<&0`. Rounds r6 and r7 (2026-10-28) close the
-findings of the hub's reviews r5 and r6, rounds r8 and r9 (2026-10-29) those of reviews r7 and r8, and round r10 (2026-10-30) those of review r9 (below). Nothing here touches the live guard; the hub installs it with the steps below.
+findings of the hub's reviews r5 and r6, rounds r8 and r9 (2026-10-29) those of reviews r7 and r8, round r10 (2026-10-30) those of review r9, and rounds r11 and r12 (2026-10-30) those of reviews r10 and r11 (below). Nothing here touches the live guard; the hub installs it with the steps below.
 
 ## What changed
 
@@ -2184,6 +2184,207 @@ control. A kill counts only the named test.
   granularities, judging at each place, review r10's V3 form), the shell and over-block probes, the recount (r10 and
   this head over 977 list commands and 46 pins) and the timing rows. Every test and mutant ran under the lock.
 - No Bash call moved to the background, and no process of mine outlived its run.
+
+## r12: review r11's findings closed (2026-10-30)
+
+The hub's review r11 (REQUEST_CHANGES at `c134c83bf`) found one P2 and three P3s. The hub committed its test and two
+mutants as `0d2401f07`, and an earlier job for this round committed decision 1's code as `82df89ded` before it stopped.
+A second job (r12b) committed the rest of the code, its pins, the mutants, TRUST and the doc (`27ad3e5d7` to
+`44995a5d1`), and a cold boot ended it while its holds ran. A third job (r12c) checked that head against the hub's
+decisions, reran every hold, mutant and timing run at `44995a5d1` (whose hook, tests and driver are this head's) and
+wrote this section. Every pin is review r11's table or a row the hub named, judged through the whole hook in the
+fixture (`test_r12_*`). The hub's decisions forbade a search for other places and new cost inputs, so this round built
+none beyond the two door edges below, which decision 6's mutants need.
+
+**Decisions as built.**
+
+1. **What find's `{}` stands for costs steps of the shared budget** (review r11's P2-1).
+   - *Before:* `execs` made each `{}` all of find's roots, and a `{}` inside a word the first root, and nothing charged
+     either. Review r11 measured 150 roots and 150 `{}` (1.1 KB) at 2.6 s of CPU, 300 of each at 26 s, and 400 past
+     120 s of wall time; `find /<3,000 a> -exec rg x b{}…×1000 \;` took 10.4 s.
+   - *Now:* `execs` spends what each `{}` stands for (`spend`, decision 2's helper: a step for each word and each 16
+     bytes, on the one 20,000-step budget). Past the budget the prep stops, and the command is too complex to judge.
+     The message names find's `{}` ("… or find's {} standing for more paths …").
+   - Every row of review r11's table is denied as too complex in at most 1 s of child CPU (`R12_BRACES`, bound
+     `R11_COST_CPU_S`): in H3, at load 31.8, 0.10-0.13 s, where the installed hook took 0.11-0.13 s and allows each.
+   - The budget's edges are exact (`R12_BRACE_EDGE`): 100 roots `a` (199 bytes, 112 steps a `{}`) read 178 times are
+     19,936 steps, read, and 179 times 20,048, too complex; one 1,600-byte root (101 steps) read 198 times is 19,998
+     steps, and 199 times 20,099.
+   - 100 roots and 100 `{}` stay read (0.67 s of CPU in H3; bound `R11_UNDER_CPU_S`). Routine forms don't move:
+     `-exec grep -l foo {} +`, `-exec sh -c 'rg -n TODO "$1"' _ {} \;` and `-exec rg -l foo {} +` over four roots are
+     allowed by this hook and the installed one, and `find ~/.subfleet … -exec rg foo {} …` is denied as a root, not as
+     too complex (`R12_BRACES_ALLOWED`, `R12_BRACES_DENIED`).
+   - Review r11's test loses only its strict expected-failure mark, and passes (H3).
+2. **printf's repeat and the script a shell, `eval` or `source` reads cost steps too.**
+   - *Before:* `pfmt` repeated a printf format while words remained (up to 64 rounds), and a pipe into a shell carried
+     every earlier stage's text into each later shell; nothing charged either. The hub ran four of the rows below at
+     `82df89ded` (all but the 63 KB row and the two `<(…)` rows): each ran past 40 s, at 29-40 s of CPU when stopped.
+   - *Now:* one helper, `spend(s)`, charges `s` to the budget as the loop variables' charge does (words plus
+     `length / 16`). `pfmt` spends its format on each round after the first; `eval` spends its script; `source <(…)`
+     spends what the substitution writes; a shell spends what a pipe or a substitution gives it, and the words a `-c`
+     script that runs its arguments runs. `execs` uses it too. The loop substitution's own line stays as it was, since
+     its mutants name that text. The message names printf's repeat and text piped into a shell ("… or more text from
+     printf's repeated format or piped into a shell …").
+   - *Deviation, smallest change:* a shell doesn't spend its own here-string or heredoc. The hub's trial spent whatever
+     script a shell reads. On a scratch copy with the trial's door, that moves two commands beyond the one the hub
+     named, both executed this round: r11's pinned batch row, `bash <<'EOF2'` with `for d in src; do :; done` and 161
+     lines of `d=src/mN; rg -n foo "$d"` (`R11_BUDGET_READ`, which r11's tests hold read, since no shell walks a root),
+     goes from read to too complex, and so does `bash <<'EOF'` with 4,000 lines of `rg -n foo src/x` (64 KB). Both are
+     text of the command, whose heredoc lines the budget already counts. The door reads `(st["ps"] == "" && hstr hd !=
+     "") || spend(scr)`, with no new local in `simple()`. At this head the 161-line row is read (0.44 s, probe) and the
+     162-line row too complex, as at r11, and the 4,000-line heredoc is read (0.99 s, probe).
+   - Each of the hub's rows is denied as too complex (`R12_PIPED`), in at most 3 s of child CPU, or 10 s for the two
+     64 KB rows (`R12_PIPED_CPU_S`, `R12_LONG_CPU_S`). In H3, at load 32.3-32.6; the installed hook allows each:
+
+     | Row | Bytes | This head | Installed |
+     | --- | --- | --- | --- |
+     | `printf` 16 KB format, 64 rounds, `\| bash` | 16,664 | 0.32 s | 0.05 s |
+     | the same in `eval "$(…)"` | 16,667 | 0.34 s | 0.04 s |
+     | `source <(…)` of the same | 16,667 | 0.28 s | 0.03 s |
+     | `bash <(…)` of the same | 16,665 | 0.31 s | 0.05 s |
+     | `echo` 8 KB through 1,000 shells | 15,199 | 0.39 s | 0.14 s |
+     | `printf` 63 KB format, 64 rounds, `\| bash` | 63,280 | 1.53 s | 0.07 s |
+     | `echo` 32 KB through 4,600 shells | 64,975 | 0.69 s | 0.20 s |
+
+     Most of the 63 KB row's cost comes before any charge, in reading its 31,500 short words: the same format as one
+     63 KB word is denied in 0.25 s (probe), and review r11 measured 64 KB of short words with no printf at 2.47 s (its
+     listed difference 3).
+   - *Deviation for decision 6, the door edges:* on the rows above, `pfmt`'s charge alone spends the budget, so neither
+     the `eval` door's charge nor the `source` door's decides one of them. Executed on scratch copies: with `eval`'s
+     charge removed, the `eval` row is still too complex (0.29 s), and with `source`'s removed, the `source` row is too
+     (0.33 s). So each door's mutant needs an input of its own, and the test pins each door's exact edge
+     (`R12_DOOR_EDGE`). `eval 'rg x'` with K words `a` is K + 2 words in 2K + 4 bytes: K = 17,776 is 20,000 steps, read,
+     and 17,777 is 20,001, too complex, so nothing else in the command costs a step. What `source` reads from `<(echo
+     'rg x …')` is 2K + 3 words in 4K + 7 bytes, after 4 steps spent before it (traced on a scratch copy: 17,775 words
+     and 35,551 bytes at K = 8,886), so K = 8,886 is 20,000 steps, read, and 8,887 is 20,003. Each copy without its
+     door's charge allows that door's 20,001- or 20,003-step edge. The installed hook and r11 allow all four edges.
+   - These stay read (`R12_PIPED_READ`): `echo 'rg -n foo src' | bash`, `printf 'rg foo %s\n' src tests | sh`, `cat
+     <<'EOF' | bash` with one line, `bash <<'EOF'` with 3,333 lines (53 KB), `bash -c` and `eval` with a 60 KB script,
+     1 KB through 10 shells, a printf format of about 100 bytes, and 2,500 lines (40 KB) through `cat <<'EOF' | bash`.
+   - *The one move, intended:* `cat <<'EOF' | bash` with 4,000 lines of `rg -n foo src/x` (64 KB, the hub's "60 KB"
+     row), which r11 reads (0.91 s) and the installed hook allows, is too complex to judge, because the pipe's text now
+     costs steps on top of the heredoc's lines (`R12_PIPED_MOVED`). Its only search is `rg -n foo src/x`. The overlay
+     doc lists it under "stricter".
+   - `echo 'rg foo ~/.subfleet' | bash` is still denied as a root, not as too complex (`R12_PIPED_ROOT`).
+3. **Nothing else in this class.** This round looked for no other place that turns one word into many, and built no
+   cost input beyond the hub's rows and the two door edges. The doc's budget line names the charged places: find's `{}`,
+   each round of a printf format after the first, the script `eval` or `source` runs, and the script a shell runs from
+   a pipe, a substitution or its arguments.
+   - *Met while reading the shell doors, not executed and not charged* (decision 3 and the stop rule): a shell under
+     xargs whose `-c` script runs its arguments, or a `-c` with no script, runs what xargs reads (`script(pin, …)` after
+     the `-c` arguments door), and nothing spends it. It is listed for review r12.
+4. **The P3s need no code.** P3-1 closed with `0d2401f07` (review r11's test and its two mutants, killed in MB1). P3-2:
+   the overlay doc's list of loops the prep reads as joining takes review r11's corrected kinds (an `if`, a `case` arm
+   or a brace group; after `!`, `time`, `&&` or `||`; an `eval` script; another loop; a command that defines a
+   function; the top of a nested script or substitution after a root loop over the same name there), and "a `for` loop
+   at the top of the command still replaces the words" now says where the top is: where a plain assignment would last
+   (r7 decision 5), with no other compound command open, no keyword before the loop and no function defined in the
+   command. That is the code's condition (`st["ka"] || ld > 1 || !st["vt"] || FN` joins; `ld` counts the loop itself).
+   The forms are pinned in `REVIEW_R11_STRICTER`. P3-3 is the PR body.
+5. **Listed differences.** The overlay doc's "let through" takes review r11's lines: a redirection, a heredoc operator
+   or a `$((…))` between a searcher and its root (`find 2>&1 / -name x`), and a loop whose list expands to nothing
+   after a root loop over its name. Its budget line takes the third: a 64 KB command of short words, distinct path words
+   or globs costs 2.5-11 s of CPU (installed 0.3 s). r11's subshell-loop gap now names review r11's spellings: `|&` and
+   `&|` (zsh only), `&!`, `2>&1 | cat`, `& R`, a pipe continued on a new line and `| while read x`. None is modeled;
+   all but `&|` are pinned open in `REVIEW_R11_OPEN`.
+6. **Mutants.**
+   - One per term of `spend` (`r12-word-charge-dropped`, `r12-byte-charge-dropped`) and `execs`' charge
+     (`r12-execs-uncharged`), each named against the `{}` test.
+   - One per door (`r12-eval-door-uncharged`, `r12-shell-door-uncharged`, `r12-source-door-uncharged`), `pfmt`'s charge
+     (`r12-pfmt-uncharged`) and the message (`r12-message-unnamed`, which drops both of r12's clauses), each named
+     against the printf and piped-text test. The shell door's mutant drops the charge where a shell reads a pipe or a
+     substitution; the `-c` arguments door's charge has no row of its own among the hub's, and no mutant names it.
+   - Retargeted to this round's lines: `r3c-eval-unwrap-dropped` (eval's line now spends first) and
+     `r11-message-loop-unnamed` (it drops the loop clause from the longer message).
+   - The driver holds 127 mutants, and each of its 119 edits matches its file exactly once.
+7. **TRUST and the hashes.** TRUST changes only `hook_sha256`, to the r12 hook's `e5b387c4…62d7`; TRUST is
+   `c91e21b4…8fd7`. The new pair goes into TRUST, the overlay doc's table, install steps 0 and 2 and this report, and
+   the pins that check those carry it too: the overlay test, the subfleet-root test's `NEW_HOOK_SHA256` and the mutant
+   driver's. The rollback stays `a60d1c51…`/`b3193b97…`.
+
+**The recount at this head** (outside the lock, from the scoped cwd, in the fixture): over the 1,127 commands that name
+a searcher (the hook's searcher pattern) in the test's 187 R2-R11 and review R2-R11 constants, the r11 hook
+(`0d2401f07`, `7bba4822…`) denies 697 and this head 699. The two that move are review r11's own P2 rows
+(`REVIEW_R11_BRACES`), from allowed to too complex. Over r12's 38 pinned commands, this head denies 20, 17 of them as
+too complex, and the installed hook allows every one of the hub's rows and edges. S1: the installed hook denies 119 of
+779 commands and this head 313, as at r11 (H1).
+
+**Holds** (one pytest or driver each, `-k` selections of `test_guard_subfleet_root.py` unless named, home
+`/Users/tester`, all at `44995a5d1`). r12c started at 02:35Z on 10-31 and queued its first hold at 02:51Z; recent holds
+had waited 12-30 minutes for the lock. H4's and H3's waiters (queued 03:24:50Z and 03:34:16Z) were not admitted within
+30 minutes: the lock admits whichever waiter polls first, and other holds, among them this job's H2b, H5b, MB3, HAB and
+MB2, took the slots that came free. So each was stopped with no test run under it, and its selection ran directly,
+outside the lock (the lane rules' fallback). H5a's first try (03:38:35Z, slot B) ran no test, because its `-k` list held
+parametrized ids, which pytest refuses (exit 4). It was queued again with the tests' names. Every other hold ran under
+the lock.
+
+| Hold | Admitted (slot, load) | Selection | Result, time |
+| --- | --- | --- | --- |
+| H1 | 03:08:11Z (A, 33.0) | S1 | 1 passed, 174 s |
+| H2a | 03:20:56Z (B, 44.1) | the review's inputs, r2's tests, TRUST's and the fence | 16 passed, 53 s |
+| H2b | 03:29:58Z (A, 41.5) | S1's second test, S2, S3, the cwd list, the known limits, S5, S4 | 8 passed, 2 skipped (S4), 250 s |
+| H3 | outside the lock, 04:05:12Z (load 37.8) | r7's to r12's tests, reviews r7 to r11 | 38 passed, 188 s |
+| H4 | outside the lock, 03:57:45Z (load 35.4) | r4's to r6's tests, reviews r4 to r6 | 40 passed, 125 s |
+| H5a | 04:16:14Z (A, 26.7) | r3's tests | 28 passed, 246 s |
+| H5b | 03:52:09Z (A, 40.6) | r3b's and r3c's tests | 26 passed, 425 s |
+| HAB | 03:59:42Z (B, 36.3) | `test_guard_overlay.py` (22), `test_guard_trust.py` (105) and the three guards (37, 1, 25) | 190 passed, 128 s |
+| MB1-MB6 | 03:59:19Z to 04:36:34Z (A and B, load 32.7-43.3) | the 127 mutants | below |
+
+H1 to H5b cover all 159 items of `test_guard_subfleet_root.py` exactly once (checked against `--collect-only`): 157
+passed and S4's 2 skipped. The overlay and TRUST tests passed 127, and the three guards 63.
+
+**Timing** (the 300-path command, child CPU in seconds, three runs of five interleaved pairs with the installed hook,
+outside the lock, 03:45:30-03:45:45Z):
+
+| Run | Load | This head | Installed | Median ratio |
+| --- | --- | --- | --- | --- |
+| 1 | 35.0 | 0.219-0.245 | 0.137-0.153 | 1.52× |
+| 2 | 34.0 | 0.203-0.248 | 0.135-0.166 | 1.57× |
+| 3 | 33.6 | 0.229-0.246 | 0.147-0.157 | 1.57× |
+
+Both hooks allow the command. The 300-path test itself (`test_r4_absolute_paths_cost_at_most_twice_the_installed_hook`,
+H4, load 37.9) gave a median of 0.227 s against 0.153 s, **1.48×**. The cost pins are decisions 1's and 2's above.
+
+**Mutants** (`tools/guard_subfleet_root_mutations.py`, one `git archive` of HEAD each, the named test and the fence,
+all under the lock; each batch's control passed every named test and the fence):
+
+| Mutants | Killing test | Batch |
+| --- | --- | --- |
+| `rv11-key-ctx-dropped`, `rv11-key-cd-dropped` | `test_review_r11_pins_r11s_unpinned_readings` | MB1 |
+| `r12-word-charge-dropped`, `r12-byte-charge-dropped`, `r12-execs-uncharged` | `test_r12_find_exec_braces_cost_steps_of_the_shared_budget` | MB1 |
+| `r12-eval-door-uncharged`, `r12-shell-door-uncharged`, `r12-source-door-uncharged`, `r12-pfmt-uncharged`, `r12-message-unnamed` | `test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget` | MB1 |
+| `r11-message-loop-unnamed` (retargeted), `r11-word-charge-dropped`, `r11-byte-charge-dropped` | `test_r11_loop_variable_words_cost_steps_of_the_shared_budget` | MB1 |
+| `r3c-eval-unwrap-dropped` (retargeted) | `test_r4_every_shell_and_eval_script_is_judged` | MB5 |
+| review r10's two and r11's other seven | each one's named test | MB1 |
+
+| Batch (admitted, slot, load) | Mutants | Result |
+| --- | --- | --- |
+| MB1 (04:20:39Z, A, 32.7) | review r11's two, r12's eight, review r10's two, r11's ten | 22 killed |
+| MB2 (04:01:57Z, B, 34.3) | r10's two, review r9's, review r8's three, r9's two, review r7's, r8's ten, r7's first three | 22 killed |
+| MB3 (03:59:19Z, A, 37.3) | review r6's, r7's other three, review r5's two, r6's twelve, r5's first four | 22 killed |
+| MB4 (04:36:34Z, A, 43.3) | r5's other eight, review r4's four, r4's nine, r3c's first | 22 killed |
+| MB5 (04:09:57Z, B, 36.6) | r3c's other eleven, r3b's eleven | 21 killed, 1 survived |
+| MB6 (04:10:39Z, A, 37.9) | r3's ten, r1's four, the two TRUST mutants, r2's | 17 killed |
+
+The tests kill 126 of the 127. `stall-mount-listed` (r3b) survives, as it has since r3c, where it became
+equivalent; r12 doesn't touch its code. The fence fails, as designed, on the six mutants whose edit is a line the fence
+itself undoes (r1's and r2's five root edits and `r6-span-backtick-dropped`), and passes on the other 121 and on every
+control. A kill counts only the named test.
+
+**Unrun at this head:**
+- S4's two items, which need the operator's Claude hook, so they skip here;
+- `tests/frontend/test_core_live.py`, which can't run on a lane. CI runs both.
+- This round made no GitHub calls, so it read no CI.
+
+**Disclosures.**
+- Outside the lock: H3 and H4 (above), and all probes: the hub's rows through this head, r11 and the installed hook;
+  the scratch copies (the trial's shell door, each door without its charge, the `source` trace); the PR body's
+  examples; the recount; and the timing rows.
+- MB4 held the lock for 21 min 48 s (04:36:34Z-04:58:22Z), past the lane rules' 20 minutes: its last mutant finished at
+  about 04:56:30Z, and the driver's removal of its exports ran in disk wait until 04:58:22Z. Every other hold stayed
+  under 20 minutes; MB1, at 16 min, was the next longest.
+- The tool's 600 s limit moved six Bash calls to its background: H1, H2a, the three chains of holds and H5a's second
+  try. Each was polled to completion in the foreground, and no process of mine outlived its run.
 
 ## Invariants and how they were checked
 
