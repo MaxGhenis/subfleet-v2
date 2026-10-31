@@ -1,0 +1,2245 @@
+{
+  "base": "b20cf84add6aa8c76e411bcca83f6f0eb9867b8d",
+  "test_head": "5aa93271d807ceb69c664b4317b10ec321288c69",
+  "started_utc": "2026-10-30T03:02:34+00:00",
+  "holds": {
+    "archive1": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_archive.py",
+        "-m",
+        "not real_lsof",
+        "-k",
+        "test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit or test_bundle_alone_restores_the_commits_in_a_fresh_clone or test_scratch_source_clone_deleted_after_retirement_is_still_restorable or test_clone_of_a_local_repository_carries_its_whole_history or test_temporary_directory_source_is_scratch_by_default or test_blob_only_in_a_local_branch_is_archived_not_omitted or test_local_path_remote_is_not_a_remote or test_borrowed_or_shallow_object_store_is_scratch or test_a_remote_on_this_machine_is_no_network_remote or test_network_url_classification or test_corrupted_loose_object_is_not_trusted_for_omission or test_object_reader_hashes_every_byte or test_anchor_is_deterministic_and_create_is_idempotent or test_rollback_after_anchoring_then_next_pass_retires or test_pinned_at_commit_rolls_back_then_retires_when_unpinned or test_every_commit_only_the_admin_directory_names_survives_gc or test_file_written_after_the_final_check_is_kept_in_conflicts or test_new_file_before_commit_rolls_back_the_job or test_parked_jobs_take_turns_at_the_pass_time or test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass or test_a_busy_oldest_job_does_not_block_the_queue or test_a_failed_process_listing_defers_the_batch or test_batch_bounds_a_pass_and_takes_the_oldest_first or test_a_pool_over_its_count_is_pruned_without_sizing_everything or test_an_unmeasurable_job_is_decided_and_backs_off or test_a_persistent_error_keeps_the_cache_and_backs_off or test_a_slice_moves_forward_when_one_file_outlasts_it or test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it or test_interrupted_removal_resumes_and_leaves_no_half_tree or test_a_crash_at_any_step_is_recovered_by_the_next_pass"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_archive.py": {
+          "start": "2026-10-30T03:20:56.117491+00:00",
+          "load": [
+            22.85986328125,
+            24.14306640625,
+            25.02978515625
+          ],
+          "counts": {
+            "passed": 38
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:20:54.637418+00:00",
+      "load": [
+        22.85986328125,
+        24.14306640625,
+        25.02978515625
+      ],
+      "pid": 93569,
+      "max_rss": 115736576,
+      "seconds": 136.47624208399793,
+      "exitstatus": 0,
+      "admission": "hold 03:20:49Z slot A load "
+    },
+    "archive2": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_archive.py",
+        "-m",
+        "not real_lsof",
+        "-k",
+        "not (test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit or test_bundle_alone_restores_the_commits_in_a_fresh_clone or test_scratch_source_clone_deleted_after_retirement_is_still_restorable or test_clone_of_a_local_repository_carries_its_whole_history or test_temporary_directory_source_is_scratch_by_default or test_blob_only_in_a_local_branch_is_archived_not_omitted or test_local_path_remote_is_not_a_remote or test_borrowed_or_shallow_object_store_is_scratch or test_a_remote_on_this_machine_is_no_network_remote or test_network_url_classification or test_corrupted_loose_object_is_not_trusted_for_omission or test_object_reader_hashes_every_byte or test_anchor_is_deterministic_and_create_is_idempotent or test_rollback_after_anchoring_then_next_pass_retires or test_pinned_at_commit_rolls_back_then_retires_when_unpinned or test_every_commit_only_the_admin_directory_names_survives_gc or test_file_written_after_the_final_check_is_kept_in_conflicts or test_new_file_before_commit_rolls_back_the_job or test_parked_jobs_take_turns_at_the_pass_time or test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass or test_a_busy_oldest_job_does_not_block_the_queue or test_a_failed_process_listing_defers_the_batch or test_batch_bounds_a_pass_and_takes_the_oldest_first or test_a_pool_over_its_count_is_pruned_without_sizing_everything or test_an_unmeasurable_job_is_decided_and_backs_off or test_a_persistent_error_keeps_the_cache_and_backs_off or test_a_slice_moves_forward_when_one_file_outlasts_it or test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it or test_interrupted_removal_resumes_and_leaves_no_half_tree or test_a_crash_at_any_step_is_recovered_by_the_next_pass)"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_archive.py": {
+          "start": "2026-10-30T03:23:15.173291+00:00",
+          "load": [
+            20.08740234375,
+            22.982421875,
+            24.44970703125
+          ],
+          "counts": {
+            "passed": 70
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:23:14.622311+00:00",
+      "load": [
+        20.08740234375,
+        22.982421875,
+        24.44970703125
+      ],
+      "pid": 32431,
+      "max_rss": 115605504,
+      "seconds": 236.53313970899762,
+      "exitstatus": 0,
+      "admission": "hold 03:23:13Z slot A load "
+    },
+    "cleanup312-final": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_cleanup.py"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "tests/unit/test_retention_descriptor_cleanup.py": {
+          "start": "2026-10-30T03:24:32.977113+00:00",
+          "load": [
+            20.08154296875,
+            22.24658203125,
+            24.03955078125
+          ],
+          "counts": {
+            "passed": 47
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:24:31.633925+00:00",
+      "load": [
+        20.08154296875,
+        22.24658203125,
+        24.03955078125
+      ],
+      "pid": 45625,
+      "max_rss": 104087552,
+      "seconds": 2.7315072089986643,
+      "exitstatus": 0,
+      "admission": "hold 03:24:30Z slot B load "
+    },
+    "cleanup312-head": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_cleanup.py"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "tests/unit/test_retention_descriptor_cleanup.py": {
+          "start": "2026-10-30T03:29:02.659534+00:00",
+          "load": [
+            18.92529296875,
+            21.38623046875,
+            23.2451171875
+          ],
+          "counts": {
+            "passed": 48
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:28:57.740301+00:00",
+      "load": [
+        19.5283203125,
+        21.544921875,
+        23.3115234375
+      ],
+      "pid": 85087,
+      "max_rss": 104235008,
+      "seconds": 6.255911416999879,
+      "exitstatus": 0,
+      "admission": "hold 03:28:49Z slot B load "
+    },
+    "cleanup312": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_cleanup.py"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "tests/unit/test_retention_descriptor_cleanup.py": {
+          "start": "2026-10-30T03:18:22.454023+00:00",
+          "load": [
+            24.88037109375,
+            26.2265625,
+            25.88232421875
+          ],
+          "counts": {
+            "passed": 46
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:18:21.633472+00:00",
+      "load": [
+        24.88037109375,
+        26.2265625,
+        25.88232421875
+      ],
+      "pid": 72247,
+      "max_rss": 105431040,
+      "seconds": 1.527571041999181,
+      "exitstatus": 0,
+      "admission": "hold 03:18:21Z slot A load "
+    },
+    "cleanup314-final": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_cleanup.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_cleanup.py": {
+          "start": "2026-10-30T03:22:25.874392+00:00",
+          "load": [
+            20.63330078125,
+            23.36181640625,
+            24.65478515625
+          ],
+          "counts": {
+            "passed": 47
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:22:24.991631+00:00",
+      "load": [
+        20.63330078125,
+        23.36181640625,
+        24.65478515625
+      ],
+      "pid": 24148,
+      "max_rss": 113360896,
+      "seconds": 1.6417522080009803,
+      "exitstatus": 0,
+      "admission": "hold 03:22:23Z slot B load "
+    },
+    "cleanup314-head": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_cleanup.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_cleanup.py": {
+          "start": "2026-10-30T03:28:47.615136+00:00",
+          "load": [
+            20.658203125,
+            21.8203125,
+            23.42822265625
+          ],
+          "counts": {
+            "passed": 48
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:28:46.456277+00:00",
+      "load": [
+        20.658203125,
+        21.8203125,
+        23.42822265625
+      ],
+      "pid": 84525,
+      "max_rss": 113426432,
+      "seconds": 2.345057916998485,
+      "exitstatus": 0,
+      "admission": "hold 03:28:45Z slot B load "
+    },
+    "cleanup314": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_cleanup.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_cleanup.py": {
+          "start": "2026-10-30T03:18:19.966304+00:00",
+          "load": [
+            24.88037109375,
+            26.2265625,
+            25.88232421875
+          ],
+          "counts": {
+            "passed": 46
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:18:19.097449+00:00",
+      "load": [
+        24.88037109375,
+        26.2265625,
+        25.88232421875
+      ],
+      "pid": 72104,
+      "max_rss": 117374976,
+      "seconds": 1.6504231250000885,
+      "exitstatus": 0,
+      "admission": "hold 03:18:18Z slot A load "
+    },
+    "fake-leaks": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/fake/test_attempt_tmpdir_leaks_daemon.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/fake/test_attempt_tmpdir_leaks_daemon.py": {
+          "start": "2026-10-30T03:38:16.267864+00:00",
+          "load": [
+            23.33935546875,
+            21.4091796875,
+            21.859375
+          ],
+          "counts": {
+            "passed": 8
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:38:12.945193+00:00",
+      "load": [
+        23.4560546875,
+        21.3994140625,
+        21.85888671875
+      ],
+      "pid": 77715,
+      "max_rss": 119373824,
+      "seconds": 6.06995412499964,
+      "exitstatus": 0,
+      "admission": "hold 03:38:09Z slot A load "
+    },
+    "fake-tmpdir": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/fake/test_attempt_tmpdir_daemon.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/fake/test_attempt_tmpdir_daemon.py": {
+          "start": "2026-10-30T03:37:39.918660+00:00",
+          "load": [
+            24.63671875,
+            21.302734375,
+            21.83984375
+          ],
+          "counts": {
+            "passed": 24
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:37:36.829428+00:00",
+      "load": [
+        24.60546875,
+        21.24072265625,
+        21.8212890625
+      ],
+      "pid": 55843,
+      "max_rss": 121487360,
+      "seconds": 30.969932750002044,
+      "exitstatus": 0,
+      "admission": "hold 03:37:35Z slot A load "
+    },
+    "green312": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_review_r2.py"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "tests/unit/test_retention_descriptor_review_r2.py": {
+          "start": "2026-10-30T03:15:05.712412+00:00",
+          "load": [
+            26.39404296875,
+            26.93505859375,
+            25.955078125
+          ],
+          "counts": {
+            "passed": 8
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:15:03.608194+00:00",
+      "load": [
+        26.39404296875,
+        26.93505859375,
+        25.955078125
+      ],
+      "pid": 61820,
+      "max_rss": 104284160,
+      "seconds": 3.3485372499999357,
+      "exitstatus": 0,
+      "admission": "hold 03:14:54Z slot B load "
+    },
+    "green314": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_review_r2.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review_r2.py": {
+          "start": "2026-10-30T03:14:50.315542+00:00",
+          "load": [
+            26.4228515625,
+            26.96728515625,
+            25.94921875
+          ],
+          "counts": {
+            "passed": 8
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:14:46.495200+00:00",
+      "load": [
+        26.80810546875,
+        27.05126953125,
+        25.97265625
+      ],
+      "pid": 56416,
+      "max_rss": 116310016,
+      "seconds": 6.212058082997828,
+      "exitstatus": 0,
+      "admission": "hold 03:14:43Z slot B load "
+    },
+    "guard-invariants": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_invariants_index.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_invariants_index.py": {
+          "start": "2026-10-30T03:41:40.442468+00:00",
+          "load": [
+            16.64453125,
+            19.16357421875,
+            20.8369140625
+          ],
+          "counts": {
+            "passed": 25
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:41:40.290098+00:00",
+      "load": [
+        16.64453125,
+        19.16357421875,
+        20.8369140625
+      ],
+      "pid": 68070,
+      "max_rss": 103366656,
+      "seconds": 1.0382806250017893,
+      "exitstatus": 0,
+      "admission": "hold 03:41:39Z slot B load "
+    },
+    "guard-names": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_test_module_names.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_test_module_names.py": {
+          "start": "2026-10-30T03:41:36.259855+00:00",
+          "load": [
+            16.875,
+            19.2509765625,
+            20.87744140625
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:41:36.133123+00:00",
+      "load": [
+        16.875,
+        19.2509765625,
+        20.87744140625
+      ],
+      "pid": 67032,
+      "max_rss": 105103360,
+      "seconds": 1.5118300829999498,
+      "exitstatus": 0,
+      "admission": "hold 03:41:34Z slot B load "
+    },
+    "guard-state": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/fake/test_state_contract.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/fake/test_state_contract.py": {
+          "start": "2026-10-30T03:41:05.457523+00:00",
+          "load": [
+            14.14208984375,
+            19.234375,
+            20.94140625
+          ],
+          "counts": {
+            "passed": 37
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:41:03.849540+00:00",
+      "load": [
+        14.14208984375,
+        19.234375,
+        20.94140625
+      ],
+      "pid": 58444,
+      "max_rss": 113377280,
+      "seconds": 29.06658737500038,
+      "exitstatus": 0,
+      "admission": "hold 03:41:01Z slot B load "
+    },
+    "handoff": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_review_r2.py",
+        "tests/unit/test_retention_descriptor_review.py",
+        "-k",
+        "failed_handoff_close or descent_close_failure"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review_r2.py": {
+          "start": "2026-10-30T03:15:10.149471+00:00",
+          "load": [
+            26.4423828125,
+            26.93603515625,
+            25.9609375
+          ],
+          "counts": {
+            "passed": 6
+          }
+        },
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-30T03:15:11.195360+00:00",
+          "load": [
+            26.4423828125,
+            26.93603515625,
+            25.9609375
+          ],
+          "counts": {
+            "passed": 6
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:15:08.704747+00:00",
+      "load": [
+        26.4423828125,
+        26.93603515625,
+        25.9609375
+      ],
+      "pid": 70994,
+      "max_rss": 115671040,
+      "seconds": 2.5519062079983996,
+      "exitstatus": 0,
+      "admission": "hold 03:15:07Z slot B load "
+    },
+    "lifecycle-control": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "/private/tmp/sf-fix279r2/probes/test_lifecycle_counterexample.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "test_lifecycle_counterexample.py": {
+          "start": "2026-10-30T03:40:38.536573+00:00",
+          "load": [
+            20.34130859375,
+            20.77734375,
+            21.52734375
+          ],
+          "counts": {
+            "failed": 2
+          }
+        }
+      },
+      "failed": [
+        "test_lifecycle_counterexample.py::test_lifecycle_existing_counterexample[current]",
+        "test_lifecycle_counterexample.py::test_lifecycle_existing_counterexample[b20cf84ad]"
+      ],
+      "start": "2026-10-30T03:40:38.521140+00:00",
+      "load": [
+        20.34130859375,
+        20.77734375,
+        21.52734375
+      ],
+      "pid": 49554,
+      "max_rss": 67600384,
+      "seconds": 1.4989497500027937,
+      "exitstatus": 1,
+      "admission": "hold 03:40:37Z slot B load "
+    },
+    "mutant-M1": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=M1",
+        "tests/unit/test_retention_walk_descriptors.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:19:30.943336+00:00",
+          "load": [
+            19.44873046875,
+            24.26953125,
+            25.16650390625
+          ],
+          "counts": {
+            "failed": 4,
+            "passed": 16
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_walk_descriptors.py::test_hub_low_soft_limit_reproduction[1]",
+        "tests/unit/test_retention_walk_descriptors.py::test_hub_low_soft_limit_reproduction[2]",
+        "tests/unit/test_retention_walk_descriptors.py::test_walk_failure_preserves_descriptors_and_exception",
+        "tests/unit/test_retention_walk_descriptors.py::test_walk_other_exits_preserve_descriptors[unreadable]"
+      ],
+      "start": "2026-10-30T03:19:29.873695+00:00",
+      "load": [
+        19.44873046875,
+        24.26953125,
+        25.16650390625
+      ],
+      "pid": 83168,
+      "max_rss": 117997568,
+      "seconds": 2.538615084002231,
+      "exitstatus": 1,
+      "admission": "hold 03:19:28Z slot B load "
+    },
+    "mutant-M2": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=M2",
+        "tests/unit/test_retention_walk_descriptors.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:19:34.871711+00:00",
+          "load": [
+            19.89306640625,
+            24.28125,
+            25.16552734375
+          ],
+          "counts": {
+            "failed": 11,
+            "passed": 9
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_walk_descriptors.py::test_hub_low_soft_limit_reproduction[1]",
+        "tests/unit/test_retention_walk_descriptors.py::test_hub_low_soft_limit_reproduction[2]",
+        "tests/unit/test_retention_walk_descriptors.py::test_walk_failure_preserves_descriptors_and_exception",
+        "tests/unit/test_retention_walk_descriptors.py::test_walk_other_exits_preserve_descriptors[unreadable]",
+        "tests/unit/test_retention_walk_descriptors.py::test_open_dir_failed_validation_closes_descriptor[error0]",
+        "tests/unit/test_retention_walk_descriptors.py::test_open_dir_failed_validation_closes_descriptor[error1]",
+        "tests/unit/test_retention_walk_descriptors.py::test_open_path_failed_descent_closes_intermediate_descriptors[a/missing]",
+        "tests/unit/test_retention_walk_descriptors.py::test_open_path_failed_descent_closes_intermediate_descriptors[a/b/missing]",
+        "tests/unit/test_retention_walk_descriptors.py::test_conflict_dir_failed_descent_closes_descriptor[error0-mkdir]",
+        "tests/unit/test_retention_walk_descriptors.py::test_conflict_dir_failed_descent_closes_descriptor[error1-mkdir]",
+        "tests/unit/test_retention_walk_descriptors.py::test_conflict_dir_failed_descent_closes_descriptor[error1-open]"
+      ],
+      "start": "2026-10-30T03:19:33.921963+00:00",
+      "load": [
+        19.89306640625,
+        24.28125,
+        25.16552734375
+      ],
+      "pid": 83497,
+      "max_rss": 117489664,
+      "seconds": 2.6081489999996847,
+      "exitstatus": 1,
+      "admission": "hold 03:19:32Z slot B load "
+    },
+    "mutant-MA": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MA",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_interrupt_after_registration_closes_child_once"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review_r2.py": {
+          "start": "2026-10-30T03:20:30.450982+00:00",
+          "load": [
+            20.595703125,
+            23.8203125,
+            24.94384765625
+          ],
+          "counts": {
+            "failed": 2
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_review_r2.py::test_interrupt_after_registration_closes_child_once[walk]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_interrupt_after_registration_closes_child_once[repository]"
+      ],
+      "start": "2026-10-30T03:20:28.316076+00:00",
+      "load": [
+        20.595703125,
+        23.8203125,
+        24.94384765625
+      ],
+      "pid": 90821,
+      "max_rss": 112017408,
+      "seconds": 3.9993538330018055,
+      "exitstatus": 1,
+      "admission": "hold 03:20:27Z slot A load "
+    },
+    "mutant-MC": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MC",
+        "tests/unit/test_retention_walk_descriptors.py::test_conflict_dir_failed_descent_closes_descriptor"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:20:12.416179+00:00",
+          "load": [
+            19.8046875,
+            23.89794921875,
+            24.9970703125
+          ],
+          "counts": {
+            "failed": 3,
+            "passed": 1
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_walk_descriptors.py::test_conflict_dir_failed_descent_closes_descriptor[error0-mkdir]",
+        "tests/unit/test_retention_walk_descriptors.py::test_conflict_dir_failed_descent_closes_descriptor[error1-mkdir]",
+        "tests/unit/test_retention_walk_descriptors.py::test_conflict_dir_failed_descent_closes_descriptor[error1-open]"
+      ],
+      "start": "2026-10-30T03:20:10.296354+00:00",
+      "load": [
+        19.8046875,
+        23.89794921875,
+        24.9970703125
+      ],
+      "pid": 88635,
+      "max_rss": 114638848,
+      "seconds": 3.7273578329986776,
+      "exitstatus": 1,
+      "admission": "hold 03:20:08Z slot B load "
+    },
+    "mutant-MD": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MD",
+        "tests/unit/test_retention_descriptor_review.py::test_walk_cleanup_interruption_closes_remaining_children",
+        "tests/unit/test_retention_descriptor_review.py::test_repository_cleanup_interruption_closes_remaining_children"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-30T03:20:22.429098+00:00",
+          "load": [
+            20.06494140625,
+            23.83154296875,
+            24.96142578125
+          ],
+          "counts": {
+            "failed": 3
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_review.py::test_walk_cleanup_interruption_closes_remaining_children[close]",
+        "tests/unit/test_retention_descriptor_review.py::test_walk_cleanup_interruption_closes_remaining_children[throw]",
+        "tests/unit/test_retention_descriptor_review.py::test_repository_cleanup_interruption_closes_remaining_children"
+      ],
+      "start": "2026-10-30T03:20:21.443838+00:00",
+      "load": [
+        20.06494140625,
+        23.83154296875,
+        24.96142578125
+      ],
+      "pid": 90006,
+      "max_rss": 113803264,
+      "seconds": 1.8145677089996752,
+      "exitstatus": 1,
+      "admission": "hold 03:20:20Z slot B load "
+    },
+    "mutant-ME": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=ME",
+        "tests/unit/test_retention_descriptor_cleanup.py::test_open_dir_swapped_identity_survives_close_error"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_cleanup.py": {
+          "start": "2026-10-30T03:20:36.471839+00:00",
+          "load": [
+            21.0283203125,
+            23.8564453125,
+            24.94970703125
+          ],
+          "counts": {
+            "failed": 1
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_cleanup.py::test_open_dir_swapped_identity_survives_close_error"
+      ],
+      "start": "2026-10-30T03:20:34.344623+00:00",
+      "load": [
+        21.0283203125,
+        23.8564453125,
+        24.94970703125
+      ],
+      "pid": 91416,
+      "max_rss": 111378432,
+      "seconds": 3.7356027080022614,
+      "exitstatus": 1,
+      "admission": "hold 03:20:32Z slot A load "
+    },
+    "mutant-MH": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MH",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-30T03:20:17.721529+00:00",
+          "load": [
+            20.94140625,
+            24.0654296875,
+            25.0498046875
+          ],
+          "counts": {
+            "failed": 6
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[False-path]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[False-conflict]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[False-set-aside]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[True-path]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[True-conflict]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[True-set-aside]"
+      ],
+      "start": "2026-10-30T03:20:16.193097+00:00",
+      "load": [
+        20.94140625,
+        24.0654296875,
+        25.0498046875
+      ],
+      "pid": 89555,
+      "max_rss": 115359744,
+      "seconds": 3.272024041001714,
+      "exitstatus": 1,
+      "admission": "hold 03:20:14Z slot B load "
+    },
+    "mutant-MI": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MI",
+        "tests/unit/test_retention_descriptor_review.py::test_in_repository_registration_failure_closes_descriptor"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-30T03:19:54.862136+00:00",
+          "load": [
+            21.26611328125,
+            24.38818359375,
+            25.1875
+          ],
+          "counts": {
+            "failed": 1
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_review.py::test_in_repository_registration_failure_closes_descriptor"
+      ],
+      "start": "2026-10-30T03:19:50.190156+00:00",
+      "load": [
+        22.07275390625,
+        24.59765625,
+        25.265625
+      ],
+      "pid": 84839,
+      "max_rss": 116342784,
+      "seconds": 7.37866883300012,
+      "exitstatus": 1,
+      "admission": "hold 03:19:46Z slot B load "
+    },
+    "mutant-ML": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=ML",
+        "tests/unit/test_retention_descriptor_review.py::test_layout_allocation_before_open"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-30T03:19:44.524381+00:00",
+          "load": [
+            23.7333984375,
+            24.96240234375,
+            25.39697265625
+          ],
+          "counts": {
+            "failed": 1
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_review.py::test_layout_allocation_before_open"
+      ],
+      "start": "2026-10-30T03:19:43.179440+00:00",
+      "load": [
+        23.7333984375,
+        24.96240234375,
+        25.39697265625
+      ],
+      "pid": 84195,
+      "max_rss": 116801536,
+      "seconds": 2.4418865840016224,
+      "exitstatus": 1,
+      "admission": "hold 03:19:41Z slot B load "
+    },
+    "mutant-MO": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MO",
+        "tests/unit/test_retention_walk_descriptors.py::test_open_dir_failed_validation_closes_descriptor"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:19:39.725431+00:00",
+          "load": [
+            22.1435546875,
+            24.6748046875,
+            25.29931640625
+          ],
+          "counts": {
+            "failed": 2
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_walk_descriptors.py::test_open_dir_failed_validation_closes_descriptor[error0]",
+        "tests/unit/test_retention_walk_descriptors.py::test_open_dir_failed_validation_closes_descriptor[error1]"
+      ],
+      "start": "2026-10-30T03:19:38.428558+00:00",
+      "load": [
+        22.1435546875,
+        24.6748046875,
+        25.29931640625
+      ],
+      "pid": 83851,
+      "max_rss": 115589120,
+      "seconds": 2.325954083000397,
+      "exitstatus": 1,
+      "admission": "hold 03:19:37Z slot B load "
+    },
+    "mutant-MP": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MP",
+        "tests/unit/test_retention_walk_descriptors.py::test_open_path_failed_descent_closes_intermediate_descriptors"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:20:05.145053+00:00",
+          "load": [
+            19.61376953125,
+            23.93017578125,
+            25.01513671875
+          ],
+          "counts": {
+            "failed": 2
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_walk_descriptors.py::test_open_path_failed_descent_closes_intermediate_descriptors[a/missing]",
+        "tests/unit/test_retention_walk_descriptors.py::test_open_path_failed_descent_closes_intermediate_descriptors[a/b/missing]"
+      ],
+      "start": "2026-10-30T03:20:02.825321+00:00",
+      "load": [
+        20.36376953125,
+        24.14892578125,
+        25.09814453125
+      ],
+      "pid": 86956,
+      "max_rss": 113491968,
+      "seconds": 4.856569125000533,
+      "exitstatus": 1,
+      "admission": "hold 03:19:58Z slot B load "
+    },
+    "mutant-MR": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MR",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number",
+        "-k",
+        "path"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review_r2.py": {
+          "start": "2026-10-30T03:20:25.855096+00:00",
+          "load": [
+            20.2998046875,
+            23.8173828125,
+            24.94970703125
+          ],
+          "counts": {
+            "failed": 2
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[keyboard-path]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[os-path]"
+      ],
+      "start": "2026-10-30T03:20:24.866829+00:00",
+      "load": [
+        20.2998046875,
+        23.8173828125,
+        24.94970703125
+      ],
+      "pid": 90418,
+      "max_rss": 112443392,
+      "seconds": 2.0481686659986735,
+      "exitstatus": 1,
+      "admission": "hold 03:20:23Z slot B load "
+    },
+    "mutant-MX": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "tools.retention_descriptor_mutants",
+        "--retention-descriptor-mutant=MX",
+        "tests/unit/test_retention_descriptor_cleanup.py::test_set_aside_cleanup_cancellation_overrides_handoff_oserror"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_cleanup.py": {
+          "start": "2026-10-30T03:20:44.093263+00:00",
+          "load": [
+            23.30419921875,
+            24.25439453125,
+            25.078125
+          ],
+          "counts": {
+            "failed": 1
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_cleanup.py::test_set_aside_cleanup_cancellation_overrides_handoff_oserror"
+      ],
+      "start": "2026-10-30T03:20:41.897250+00:00",
+      "load": [
+        22.54736328125,
+        24.1240234375,
+        25.03759765625
+      ],
+      "pid": 91966,
+      "max_rss": 116195328,
+      "seconds": 5.454549792000762,
+      "exitstatus": 1,
+      "admission": "hold 03:20:38Z slot A load "
+    },
+    "parity312": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "/private/tmp/sf-fix279r2/probes/test_parity.py",
+        "-s"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "test_parity.py": {
+          "start": "2026-10-30T03:22:17.141603+00:00",
+          "load": [
+            21.9560546875,
+            23.69873046875,
+            24.787109375
+          ],
+          "counts": {
+            "failed": 1,
+            "passed": 3
+          }
+        }
+      },
+      "failed": [
+        "test_parity.py::test_33_walk_plans"
+      ],
+      "start": "2026-10-30T03:22:16.296758+00:00",
+      "load": [
+        21.9560546875,
+        23.69873046875,
+        24.787109375
+      ],
+      "pid": 23121,
+      "max_rss": 65437696,
+      "seconds": 7.209248708000814,
+      "exitstatus": 1,
+      "admission": "hold 03:22:15Z slot B load "
+    },
+    "parity314-fixed": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "/private/tmp/sf-fix279r2/probes/test_parity.py",
+        "-s"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "test_parity.py": {
+          "start": "2026-10-30T03:22:08.485564+00:00",
+          "load": [
+            20.12451171875,
+            23.373046875,
+            24.68017578125
+          ],
+          "counts": {
+            "failed": 1,
+            "passed": 3
+          }
+        }
+      },
+      "failed": [
+        "test_parity.py::test_33_walk_plans"
+      ],
+      "start": "2026-10-30T03:22:07.453125+00:00",
+      "load": [
+        20.9189453125,
+        23.58203125,
+        24.76123046875
+      ],
+      "pid": 22179,
+      "max_rss": 70942720,
+      "seconds": 7.23573954099993,
+      "exitstatus": 1,
+      "admission": "hold 03:22:05Z slot B load "
+    },
+    "parity314": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "/private/tmp/sf-fix279r2/probes/test_parity.py",
+        "-s"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "test_parity.py": {
+          "start": "2026-10-30T03:18:25.060957+00:00",
+          "load": [
+            25.1298828125,
+            26.255859375,
+            25.89453125
+          ],
+          "counts": {
+            "failed": 1,
+            "passed": 3
+          }
+        }
+      },
+      "failed": [
+        "test_parity.py::test_33_walk_plans"
+      ],
+      "start": "2026-10-30T03:18:24.144187+00:00",
+      "load": [
+        25.1298828125,
+        26.255859375,
+        25.89453125
+      ],
+      "pid": 72679,
+      "max_rss": 70074368,
+      "seconds": 5.022615333000431,
+      "exitstatus": 1,
+      "admission": "hold 03:18:23Z slot A load "
+    },
+    "readback": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_readback.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_readback.py": {
+          "start": "2026-10-30T03:32:07.306441+00:00",
+          "load": [
+            17.58642578125,
+            19.0966796875,
+            21.85546875
+          ],
+          "counts": {
+            "passed": 37
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:32:06.907373+00:00",
+      "load": [
+        17.58642578125,
+        19.0966796875,
+        21.85546875
+      ],
+      "pid": 15360,
+      "max_rss": 123109376,
+      "seconds": 110.29166633299974,
+      "exitstatus": 0,
+      "admission": "hold 03:32:01Z slot A load "
+    },
+    "red312": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_review_r2.py",
+        "--runxfail"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "tests/unit/test_retention_descriptor_review_r2.py": {
+          "start": "2026-10-30T03:11:47.850187+00:00",
+          "load": [
+            32.87646484375,
+            27.72998046875,
+            25.90673828125
+          ],
+          "counts": {
+            "failed": 8
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[keyboard-path]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[keyboard-conflict]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[keyboard-set-aside]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[os-path]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[os-conflict]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[os-set-aside]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_interrupt_after_registration_closes_child_once[walk]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_interrupt_after_registration_closes_child_once[repository]"
+      ],
+      "start": "2026-10-30T03:11:43.945449+00:00",
+      "load": [
+        33.30126953125,
+        27.7255859375,
+        25.89453125
+      ],
+      "pid": 87011,
+      "seconds": 7.675223457998072,
+      "exitstatus": 1,
+      "admission": "hold 03:11:39Z slot B load "
+    },
+    "red314": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_review_r2.py",
+        "--runxfail"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review_r2.py": {
+          "start": "2026-10-30T03:05:55.097710+00:00",
+          "load": [
+            19.40771484375,
+            21.22265625,
+            23.59619140625
+          ],
+          "counts": {
+            "failed": 8
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[keyboard-path]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[keyboard-conflict]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[keyboard-set-aside]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[os-path]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[os-conflict]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[os-set-aside]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_interrupt_after_registration_closes_child_once[walk]",
+        "tests/unit/test_retention_descriptor_review_r2.py::test_interrupt_after_registration_closes_child_once[repository]"
+      ],
+      "start": "2026-10-30T03:05:52.132497+00:00",
+      "load": [
+        20.22705078125,
+        21.41259765625,
+        23.6767578125
+      ],
+      "pid": 29574,
+      "seconds": 5.362092291998124,
+      "exitstatus": 1,
+      "admission": "hold 03:05:47Z slot A load "
+    },
+    "regenerable-properties": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_regenerable_properties.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_regenerable_properties.py": {
+          "start": "2026-10-30T03:36:11.160878+00:00",
+          "load": [
+            20.708984375,
+            19.58154296875,
+            21.34814453125
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:36:09.218053+00:00",
+      "load": [
+        20.708984375,
+        19.58154296875,
+        21.34814453125
+      ],
+      "pid": 14477,
+      "max_rss": 115720192,
+      "seconds": 75.06954441700145,
+      "exitstatus": 0,
+      "admission": "hold 03:36:06Z slot A load "
+    },
+    "regenerable": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_regenerable.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_regenerable.py": {
+          "start": "2026-10-30T03:34:11.675338+00:00",
+          "load": [
+            19.5546875,
+            19.404296875,
+            21.58984375
+          ],
+          "counts": {
+            "passed": 26
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:34:11.333514+00:00",
+      "load": [
+        19.5546875,
+        19.404296875,
+        21.58984375
+      ],
+      "pid": 44429,
+      "max_rss": 109051904,
+      "seconds": 99.80028099999981,
+      "exitstatus": 0,
+      "admission": "hold 03:34:10Z slot A load "
+    },
+    "review312": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_review.py"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-30T03:15:21.905430+00:00",
+          "load": [
+            28.8818359375,
+            27.44677734375,
+            26.1533203125
+          ],
+          "counts": {
+            "passed": 47
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:15:20.631004+00:00",
+      "load": [
+        28.8818359375,
+        27.44677734375,
+        26.1533203125
+      ],
+      "pid": 75547,
+      "max_rss": 102744064,
+      "seconds": 3.216079041001649,
+      "exitstatus": 0,
+      "admission": "hold 03:15:19Z slot B load "
+    },
+    "review314": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_descriptor_review.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-30T03:15:15.473019+00:00",
+          "load": [
+            28.08837890625,
+            27.26904296875,
+            26.083984375
+          ],
+          "counts": {
+            "passed": 47
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:15:14.192058+00:00",
+      "load": [
+        28.08837890625,
+        27.26904296875,
+        26.083984375
+      ],
+      "pid": 73043,
+      "max_rss": 113852416,
+      "seconds": 3.784698583000136,
+      "exitstatus": 0,
+      "admission": "hold 03:15:12Z slot B load "
+    },
+    "sweep-examples": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_sweep_race.py",
+        "-k",
+        "not test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_sweep_race.py": {
+          "start": "2026-10-30T03:27:44.517737+00:00",
+          "load": [
+            22.421875,
+            22.4267578125,
+            23.75244140625
+          ],
+          "counts": {
+            "passed": 12
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:27:41.470978+00:00",
+      "load": [
+        22.19775390625,
+        22.3837890625,
+        23.7451171875
+      ],
+      "pid": 54786,
+      "max_rss": 113868800,
+      "seconds": 68.59806949999984,
+      "exitstatus": 0,
+      "admission": "hold 03:27:40Z slot A load "
+    },
+    "sweep-explicit": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_sweep_race.py",
+        "-k",
+        "test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+        "-p",
+        "sf_phase"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_sweep_race.py": {
+          "start": "2026-10-30T03:28:59.343596+00:00",
+          "load": [
+            18.92529296875,
+            21.38623046875,
+            23.2451171875
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:28:57.773912+00:00",
+      "load": [
+        19.5283203125,
+        21.544921875,
+        23.3115234375
+      ],
+      "pid": 85616,
+      "max_rss": 117555200,
+      "seconds": 42.2135960830019,
+      "exitstatus": 0,
+      "admission": "hold 03:28:54Z slot A load "
+    },
+    "sweep-generated": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_sweep_race.py",
+        "-k",
+        "test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+        "-p",
+        "sf_phase"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_sweep_race.py": {
+          "start": "2026-10-30T03:29:43.052206+00:00",
+          "load": [
+            15.69677734375,
+            20.2275390625,
+            22.7333984375
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:29:42.606927+00:00",
+      "load": [
+        15.69677734375,
+        20.2275390625,
+        22.7333984375
+      ],
+      "pid": 92873,
+      "max_rss": 117899264,
+      "seconds": 136.84471491699878,
+      "exitstatus": 0,
+      "admission": "hold 03:29:40Z slot A load "
+    },
+    "timers": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_timers_retention.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_timers_retention.py": {
+          "start": "2026-10-30T03:37:26.647368+00:00",
+          "load": [
+            24.6513671875,
+            21.13134765625,
+            21.7900390625
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:37:26.257329+00:00",
+      "load": [
+        24.6513671875,
+        21.13134765625,
+        21.7900390625
+      ],
+      "pid": 52399,
+      "max_rss": 109690880,
+      "seconds": 6.459611500002211,
+      "exitstatus": 0,
+      "admission": "hold 03:37:24Z slot A load "
+    },
+    "turns": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_turns.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_turns.py": {
+          "start": "2026-10-30T03:27:30.746204+00:00",
+          "load": [
+            20.90966796875,
+            22.1572265625,
+            23.68359375
+          ],
+          "counts": {
+            "passed": 7
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:27:29.803219+00:00",
+      "load": [
+        20.90966796875,
+        22.1572265625,
+        23.68359375
+      ],
+      "pid": 49456,
+      "max_rss": 107888640,
+      "seconds": 7.166735416998563,
+      "exitstatus": 0,
+      "admission": "hold 03:27:26Z slot A load "
+    },
+    "unit-guardian": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_attempt_tmpdir_guardian.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_guardian.py": {
+          "start": "2026-10-30T03:38:20.915296+00:00",
+          "load": [
+            22.43115234375,
+            21.2529296875,
+            21.80126953125
+          ],
+          "counts": {
+            "passed": 2
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:38:20.733798+00:00",
+      "load": [
+        22.43115234375,
+        21.2529296875,
+        21.80126953125
+      ],
+      "pid": 85789,
+      "max_rss": 107282432,
+      "seconds": 1.5457748339977115,
+      "exitstatus": 0,
+      "admission": "hold 03:38:19Z slot A load "
+    },
+    "unit-leaks": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_attempt_tmpdir_leaks.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_leaks.py": {
+          "start": "2026-10-30T03:38:26.208403+00:00",
+          "load": [
+            22.15625,
+            21.21533203125,
+            21.78466796875
+          ],
+          "counts": {
+            "passed": 197
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:38:25.016490+00:00",
+      "load": [
+        22.15625,
+        21.21533203125,
+        21.78466796875
+      ],
+      "pid": 87283,
+      "max_rss": 118161408,
+      "seconds": 23.754384666000988,
+      "exitstatus": 0,
+      "admission": "hold 03:38:23Z slot A load "
+    },
+    "unit-lifecycle-retry": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_lifecycle.py": {
+          "start": "2026-10-30T03:40:34.956946+00:00",
+          "load": [
+            20.34130859375,
+            20.77734375,
+            21.52734375
+          ],
+          "counts": {
+            "failed": 1
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority"
+      ],
+      "start": "2026-10-30T03:40:33.353389+00:00",
+      "load": [
+        18.71728515625,
+        20.4697265625,
+        21.4248046875
+      ],
+      "pid": 48584,
+      "max_rss": 113524736,
+      "seconds": 3.1062014999988605,
+      "exitstatus": 1,
+      "admission": "hold 03:40:31Z slot B load "
+    },
+    "unit-lifecycle": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_attempt_tmpdir_lifecycle.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_lifecycle.py": {
+          "start": "2026-10-30T03:38:56.121953+00:00",
+          "load": [
+            22.54345703125,
+            21.42578125,
+            21.841796875
+          ],
+          "counts": {
+            "passed": 34,
+            "failed": 1
+          }
+        }
+      },
+      "failed": [
+        "tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority"
+      ],
+      "start": "2026-10-30T03:38:54.705741+00:00",
+      "load": [
+        22.54345703125,
+        21.42578125,
+        21.841796875
+      ],
+      "pid": 479,
+      "max_rss": 160940032,
+      "seconds": 11.088169624999864,
+      "exitstatus": 1,
+      "admission": "hold 03:38:49Z slot A load "
+    },
+    "unit-mutations": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_attempt_tmpdir_mutations.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_mutations.py": {
+          "start": "2026-10-30T03:40:43.723461+00:00",
+          "load": [
+            17.96337890625,
+            20.25634765625,
+            21.33349609375
+          ],
+          "counts": {
+            "passed": 85
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:40:41.867483+00:00",
+      "load": [
+        19.35302734375,
+        20.56494140625,
+        21.44775390625
+      ],
+      "pid": 50891,
+      "max_rss": 117440512,
+      "seconds": 4.586552458000369,
+      "exitstatus": 0,
+      "admission": "hold 03:40:40Z slot B load "
+    },
+    "unit-retention": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_attempt_tmpdir_retention.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_retention.py": {
+          "start": "2026-10-30T03:40:49.367829+00:00",
+          "load": [
+            16.92529296875,
+            20.0029296875,
+            21.2373046875
+          ],
+          "counts": {
+            "passed": 6
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:40:48.966760+00:00",
+      "load": [
+        16.92529296875,
+        20.0029296875,
+        21.2373046875
+      ],
+      "pid": 52109,
+      "max_rss": 105070592,
+      "seconds": 1.3746323749983276,
+      "exitstatus": 0,
+      "admission": "hold 03:40:47Z slot B load "
+    },
+    "unit-sandboxes": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_attempt_tmpdir_sandboxes.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_sandboxes.py": {
+          "start": "2026-10-30T03:40:58.352607+00:00",
+          "load": [
+            15.89013671875,
+            19.73681640625,
+            21.13623046875
+          ],
+          "counts": {
+            "passed": 12
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:40:57.638704+00:00",
+      "load": [
+        15.89013671875,
+        19.73681640625,
+        21.13623046875
+      ],
+      "pid": 54638,
+      "max_rss": 107397120,
+      "seconds": 1.808223416999681,
+      "exitstatus": 0,
+      "admission": "hold 03:40:52Z slot B load "
+    },
+    "walk-plans312": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "/private/tmp/sf-fix279r2/probes/test_parity.py::test_33_walk_plans",
+        "-s"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "test_parity.py": {
+          "start": "2026-10-30T03:24:29.807808+00:00",
+          "load": [
+            20.08154296875,
+            22.24658203125,
+            24.03955078125
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:24:27.989562+00:00",
+      "load": [
+        19.4794921875,
+        22.16650390625,
+        24.0224609375
+      ],
+      "pid": 45128,
+      "max_rss": 59719680,
+      "seconds": 2.1053907919995254,
+      "exitstatus": 0,
+      "admission": "hold 03:24:26Z slot B load "
+    },
+    "walk-plans314": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "/private/tmp/sf-fix279r2/probes/test_parity.py::test_33_walk_plans",
+        "-s"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "test_parity.py": {
+          "start": "2026-10-30T03:24:25.600469+00:00",
+          "load": [
+            19.4794921875,
+            22.16650390625,
+            24.0224609375
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:24:24.056788+00:00",
+      "load": [
+        19.4794921875,
+        22.16650390625,
+        24.0224609375
+      ],
+      "pid": 44582,
+      "max_rss": 66240512,
+      "seconds": 1.7550844170000346,
+      "exitstatus": 0,
+      "admission": "hold 03:24:22Z slot B load "
+    },
+    "walk312": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_walk_descriptors.py"
+      ],
+      "python": "3.12.14",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:18:16.263720+00:00",
+          "load": [
+            24.8701171875,
+            26.24755859375,
+            25.8876953125
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:18:15.104562+00:00",
+      "load": [
+        24.8701171875,
+        26.24755859375,
+        25.8876953125
+      ],
+      "pid": 71803,
+      "max_rss": 102432768,
+      "seconds": 2.9164898339986394,
+      "exitstatus": 0,
+      "admission": "hold 03:18:13Z slot A load "
+    },
+    "walk314-1": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_walk_descriptors.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:15:27.754499+00:00",
+          "load": [
+            28.89111328125,
+            27.47216796875,
+            26.169921875
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:15:25.939127+00:00",
+      "load": [
+        28.89111328125,
+        27.47216796875,
+        26.169921875
+      ],
+      "pid": 77745,
+      "max_rss": 115310592,
+      "seconds": 5.591977791998943,
+      "exitstatus": 0,
+      "admission": "hold 03:15:24Z slot B load "
+    },
+    "walk314-2": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_walk_descriptors.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:15:36.188236+00:00",
+          "load": [
+            27.42431640625,
+            27.2080078125,
+            26.09130859375
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:15:34.246745+00:00",
+      "load": [
+        27.42431640625,
+        27.2080078125,
+        26.09130859375
+      ],
+      "pid": 80953,
+      "max_rss": 116408320,
+      "seconds": 6.836593457999697,
+      "exitstatus": 0,
+      "admission": "hold 03:15:32Z slot B load "
+    },
+    "walk314-3": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_walk_descriptors.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:15:48.974807+00:00",
+          "load": [
+            28.58740234375,
+            27.47412109375,
+            26.20556640625
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:15:45.196639+00:00",
+      "load": [
+        27.7685546875,
+        27.296875,
+        26.13623046875
+      ],
+      "pid": 86864,
+      "max_rss": 111984640,
+      "seconds": 7.887544708002679,
+      "exitstatus": 0,
+      "admission": "hold 03:15:42Z slot B load "
+    },
+    "walk314-4": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_walk_descriptors.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:16:02.408621+00:00",
+          "load": [
+            27.74072265625,
+            27.32666015625,
+            26.16748046875
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:15:58.685038+00:00",
+      "load": [
+        27.74072265625,
+        27.32666015625,
+        26.16748046875
+      ],
+      "pid": 97183,
+      "max_rss": 115785728,
+      "seconds": 7.957776416998968,
+      "exitstatus": 0,
+      "admission": "hold 03:15:54Z slot B load "
+    },
+    "walk314-5": {
+      "args": [
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_retention_walk_descriptors.py"
+      ],
+      "python": "3.14.7",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-30T03:18:11.895441+00:00",
+          "load": [
+            25.46826171875,
+            26.38720703125,
+            25.9345703125
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "failed": [],
+      "start": "2026-10-30T03:18:10.950789+00:00",
+      "load": [
+        25.46826171875,
+        26.38720703125,
+        25.9345703125
+      ],
+      "pid": 71415,
+      "max_rss": 114556928,
+      "seconds": 2.620002374998876,
+      "exitstatus": 0,
+      "admission": "hold 03:18:09Z slot A load "
+    }
+  },
+  "mutant_killing_tests": {
+    "M1": "tests/unit/test_retention_walk_descriptors.py::test_hub_low_soft_limit_reproduction[1]",
+    "M2": "tests/unit/test_retention_walk_descriptors.py::test_hub_low_soft_limit_reproduction[1]",
+    "MO": "tests/unit/test_retention_walk_descriptors.py::test_open_dir_failed_validation_closes_descriptor[error0]",
+    "ML": "tests/unit/test_retention_descriptor_review.py::test_layout_allocation_before_open",
+    "MI": "tests/unit/test_retention_descriptor_review.py::test_in_repository_registration_failure_closes_descriptor",
+    "MP": "tests/unit/test_retention_walk_descriptors.py::test_open_path_failed_descent_closes_intermediate_descriptors[a/missing]",
+    "MC": "tests/unit/test_retention_walk_descriptors.py::test_conflict_dir_failed_descent_closes_descriptor[error0-mkdir]",
+    "MH": "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[True-set-aside]",
+    "MD": "tests/unit/test_retention_descriptor_review.py::test_walk_cleanup_interruption_closes_remaining_children[close]",
+    "MR": "tests/unit/test_retention_descriptor_review_r2.py::test_failed_handoff_close_never_closes_a_reused_number[keyboard-path]",
+    "MA": "tests/unit/test_retention_descriptor_review_r2.py::test_interrupt_after_registration_closes_child_once[walk]",
+    "ME": "tests/unit/test_retention_descriptor_cleanup.py::test_open_dir_swapped_identity_survives_close_error",
+    "MX": "tests/unit/test_retention_descriptor_cleanup.py::test_set_aside_cleanup_cancellation_overrides_handoff_oserror"
+  },
+  "distinct_maintained_passes": 766,
+  "pre_existing_failure": "test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority: start, swap, vanish",
+  "lifecycle_control_source": "\"\"\"Replay the untouched lifecycle model against current and starting retention_fs.\"\"\"\nimport subprocess\nimport sys\nimport types\nimport pytest\n\n@pytest.mark.parametrize('revision',['current','b20cf84ad'])\ndef test_lifecycle_existing_counterexample(monkeypatch,revision):\n    if revision != 'current':\n        from subfleet import attempt_tmp\n        name='subfleet.retention_fs_lifecycle_base'\n        module=types.ModuleType(name)\n        sys.modules[name]=module\n        source=subprocess.run(['git','show',revision+':subfleet/retention_fs.py'],capture_output=True,text=True,check=True).stdout\n        exec(compile(source,'<retention_fs at '+revision+'>','exec'),module.__dict__)\n        monkeypatch.setattr(attempt_tmp,'rfs',module)\n    from tests.unit.test_attempt_tmpdir_lifecycle import test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n    test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority.hypothesis.inner_test(\n        steps=[('start',0,False),('swap',0,False),('vanish',0,False)])\n",
+  "probe_source": "\"\"\"Execute review r2's fixed plans and its unchanged 400-case differentials.\"\"\"\nimport sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).parent))\nimport p2_drain as p\nimport p2b_diff as diff\nfrom common import MODULES, DEEPER, patched\n\nPLANS = [{}, {1:'KI'}, {1:'OS'}, {2:'KI'}, {1:'KI',2:'OS'}, {1:'OS',2:'KI'},\n         {1:'KI',2:'KI'}, {1:'OS',2:'OS'}, {1:'KI',3:'OS'}, {2:'C',3:'KI'}, {1:'RT',2:'OS',3:'KI'}]\n\ndef test_33_walk_plans():\n    for action in ('close','throw','list'):\n        for plan in PLANS:\n            out=[]\n            for name in ('d3a','head'):\n                m=MODULES[name]\n                with patched(m,'MAX_DEPTH',3 if action=='list' else m.MAX_DEPTH):\n                    out.append(p.walk_drain(m,DEEPER,0 if action=='list' else 5,plan,action))\n            a,b=out\n            assert not b['leaked'] and b['root_ok'], (action,plan,b)\n            cancellation=next((kind for at,kind in sorted(plan.items()) if at <= b['closes'] and kind in ('KI','C')),None)\n            if cancellation:\n                assert b['caught'][0] == {'KI':'KeyboardInterrupt','C':'Custom'}[cancellation], (action,plan,b)\n            elif action=='throw':\n                assert b['caught'] == ('RuntimeError',None,None,'caller'), (action,plan,b)\n            elif action=='list':\n                assert b['caught'][:2] == ('TreeError','too-deep'), (action,plan,b)\n            else:\n                assert b['caught'] is None, (action,plan,b)\n            if not plan or (action=='close' and len(plan)==1 and cancellation):\n                assert a['caught'] == b['caught'], (action,plan,out)\n    print('33 walk plans: precedence, ownership and single-failure parity passed')\n\ndef test_33_repository_plans():\n    for git_at in (None,'a/b/c','a/b'):\n        for plan in PLANS:\n            a,b=[p.repo_drain(MODULES[name],DEEPER,'a/b/c',plan,True,git_at) for name in ('d3a','head')]\n            assert not b['leaked'], (git_at,plan,b)\n            assert a['caught'] == b['caught'] and a['value'] == b['value'], (git_at,plan,a,b)\n    print('33 repository plans: precedence, ownership and single-failure parity passed')\n\ndef test_400_walk_differentials():\n    diff.test_walk_same()\n    assert diff.stats['cases']==400\n    print('walk differentials',diff.stats)\n\ndef test_400_repository_differentials():\n    diff.test_repo_same()\n    assert diff.stats['repo']==400\n    print('repository differentials',diff.stats)\n",
+  "baseline_regeneration": {
+    "rfs_d3a.py": "git show d3a48269a:subfleet/retention_fs.py",
+    "rfs_base.py": "git show bc108d3ad:subfleet/retention_fs.py"
+  },
+  "production_sha256": "5dd00e690ac46e5bf6f6e3b5eb52525978d6bd374744e7f86eadeb6a8cabea00",
+  "lifecycle_failure_logs": {
+    "unit-lifecycle": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nhold 03:38:49Z slot A load \nEVIDENCE_START {\"args\": [\"-q\", \"-p\", \"no:cacheprovider\", \"tests/unit/test_attempt_tmpdir_lifecycle.py\"], \"python\": \"3.14.7\", \"files\": {}, \"failed\": [], \"start\": \"2026-10-30T03:38:54.705741+00:00\", \"load\": [22.54345703125, 21.42578125, 21.841796875], \"pid\": 479}\n.................................F.                                      [100%]EVIDENCE_END {\"args\": [\"-q\", \"-p\", \"no:cacheprovider\", \"tests/unit/test_attempt_tmpdir_lifecycle.py\"], \"python\": \"3.14.7\", \"failed\": [\"tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\"], \"start\": \"2026-10-30T03:38:54.705741+00:00\", \"load\": [22.54345703125, 21.42578125, 21.841796875], \"pid\": 479, \"max_rss\": 160940032, \"seconds\": 11.088169624999864, \"exitstatus\": 1}\n\n=================================== FAILURES ===================================\n__ test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority ___\n\n    @settings(max_examples=40, deadline=None)\n>   @given(st.lists(st.tuples(st.sampled_from(OPERATIONS), st.integers(0, 4), st.booleans()),\n                   ^^^\n                    min_size=1, max_size=35))\n\ntests/unit/test_attempt_tmpdir_lifecycle.py:348: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_attempt_tmpdir_lifecycle.py:424: in test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n    assert (victim / \"victim\").read_text() == \"dummy\", \"a swapped-in folder is never removed\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py:787: in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-unit-lifecycle/attempt-model-e5y_7x9i/user-temp/subfleet-attempt-job-0-a1-rppyv8eo/victim')\nmode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None\n\n    def open(self, mode='r', buffering=-1, encoding=None,\n             errors=None, newline=None):\n        \"\"\"\n        Open the file pointed to by this path and return a file object, as\n        the built-in open() function does.\n        \"\"\"\n        if \"b\" not in mode:\n            encoding = io.text_encoding(encoding)\n>       return io.open(self, mode, buffering, encoding, errors, newline)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-unit-lifecycle/attempt-model-e5y_7x9i/user-temp/subfleet-attempt-job-0-a1-rppyv8eo/victim'\nE       Failing test case: test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority(\nE           # The test always failed when commented parts were varied together.\nE           steps=[(\nE                'start',\nE                0,\nE                False,  # or any other generated value\nE            ), (\nE                'swap',\nE                0,\nE                False,  # or any other generated value\nE            ), (\nE                'vanish',\nE                0,\nE                False,  # or any other generated value\nE            )],\nE       )\n\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py:771: FileNotFoundError\n------------------------------ Captured log call -------------------------------\nWARNING  subfleet.attempt_tmp:attempt_tmp.py:325 TMPDIR /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-unit-lifecycle/attempt-model-q67_q6xi/user-temp/subfleet-attempt-job-0-a1-55o7r1tl for job-0/a1 is replaced; nothing removed\n=========================== short test summary info ============================\nFAILED tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n1 failed, 34 passed in 11.09s\n",
+    "unit-lifecycle-retry": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nhold 03:40:31Z slot B load \nEVIDENCE_START {\"args\": [\"-q\", \"-p\", \"no:cacheprovider\", \"tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\"], \"python\": \"3.14.7\", \"files\": {}, \"failed\": [], \"start\": \"2026-10-30T03:40:33.353389+00:00\", \"load\": [18.71728515625, 20.4697265625, 21.4248046875], \"pid\": 48584}\nF                                                                        [100%]EVIDENCE_END {\"args\": [\"-q\", \"-p\", \"no:cacheprovider\", \"tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\"], \"python\": \"3.14.7\", \"failed\": [\"tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\"], \"start\": \"2026-10-30T03:40:33.353389+00:00\", \"load\": [18.71728515625, 20.4697265625, 21.4248046875], \"pid\": 48584, \"max_rss\": 113524736, \"seconds\": 3.1062014999988605, \"exitstatus\": 1}\n\n=================================== FAILURES ===================================\n__ test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority ___\n\n    @settings(max_examples=40, deadline=None)\n>   @given(st.lists(st.tuples(st.sampled_from(OPERATIONS), st.integers(0, 4), st.booleans()),\n                   ^^^\n                    min_size=1, max_size=35))\n\ntests/unit/test_attempt_tmpdir_lifecycle.py:348: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_attempt_tmpdir_lifecycle.py:424: in test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n    assert (victim / \"victim\").read_text() == \"dummy\", \"a swapped-in folder is never removed\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py:787: in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-unit-lifecycle-retry/attempt-model-pibfuhtc/user-temp/subfleet-attempt-job-0-a1-ucfa46mi/victim')\nmode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None\n\n    def open(self, mode='r', buffering=-1, encoding=None,\n             errors=None, newline=None):\n        \"\"\"\n        Open the file pointed to by this path and return a file object, as\n        the built-in open() function does.\n        \"\"\"\n        if \"b\" not in mode:\n            encoding = io.text_encoding(encoding)\n>       return io.open(self, mode, buffering, encoding, errors, newline)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-unit-lifecycle-retry/attempt-model-pibfuhtc/user-temp/subfleet-attempt-job-0-a1-ucfa46mi/victim'\nE       Failing test case: test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority(\nE           steps=[('start', 0, False), ('swap', 0, False), ('vanish', 0, False)],\nE       )\n\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py:771: FileNotFoundError\n=========================== short test summary info ============================\nFAILED tests/unit/test_attempt_tmpdir_lifecycle.py::test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n1 failed in 3.10s\n",
+    "lifecycle-control": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nhold 03:40:37Z slot B load \nEVIDENCE_START {\"args\": [\"-q\", \"-p\", \"no:cacheprovider\", \"/private/tmp/sf-fix279r2/probes/test_lifecycle_counterexample.py\"], \"python\": \"3.14.7\", \"files\": {}, \"failed\": [], \"start\": \"2026-10-30T03:40:38.521140+00:00\", \"load\": [20.34130859375, 20.77734375, 21.52734375], \"pid\": 49554}\nFF                                                                       [100%]EVIDENCE_END {\"args\": [\"-q\", \"-p\", \"no:cacheprovider\", \"/private/tmp/sf-fix279r2/probes/test_lifecycle_counterexample.py\"], \"python\": \"3.14.7\", \"failed\": [\"test_lifecycle_counterexample.py::test_lifecycle_existing_counterexample[current]\", \"test_lifecycle_counterexample.py::test_lifecycle_existing_counterexample[b20cf84ad]\"], \"start\": \"2026-10-30T03:40:38.521140+00:00\", \"load\": [20.34130859375, 20.77734375, 21.52734375], \"pid\": 49554, \"max_rss\": 67600384, \"seconds\": 1.4989497500027937, \"exitstatus\": 1}\n\n=================================== FAILURES ===================================\n_______________ test_lifecycle_existing_counterexample[current] ________________\n\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108f24d60>\nrevision = 'current'\n\n    @pytest.mark.parametrize('revision',['current','b20cf84ad'])\n    def test_lifecycle_existing_counterexample(monkeypatch,revision):\n        if revision != 'current':\n            from subfleet import attempt_tmp\n            name='subfleet.retention_fs_lifecycle_base'\n            module=types.ModuleType(name)\n            sys.modules[name]=module\n            source=subprocess.run(['git','show',revision+':subfleet/retention_fs.py'],capture_output=True,text=True,check=True).stdout\n            exec(compile(source,'<retention_fs at '+revision+'>','exec'),module.__dict__)\n            monkeypatch.setattr(attempt_tmp,'rfs',module)\n        from tests.unit.test_attempt_tmpdir_lifecycle import test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n>       test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority.hypothesis.inner_test(\n            steps=[('start',0,False),('swap',0,False),('vanish',0,False)])\n\n/private/tmp/sf-fix279r2/probes/test_lifecycle_counterexample.py:18: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_attempt_tmpdir_lifecycle.py:424: in test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n    assert (victim / \"victim\").read_text() == \"dummy\", \"a swapped-in folder is never removed\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py:787: in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-lifecycle-control/attempt-model-06z42pro/user-temp/subfleet-attempt-job-0-a1-z9f3mgdu/victim')\nmode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None\n\n    def open(self, mode='r', buffering=-1, encoding=None,\n             errors=None, newline=None):\n        \"\"\"\n        Open the file pointed to by this path and return a file object, as\n        the built-in open() function does.\n        \"\"\"\n        if \"b\" not in mode:\n            encoding = io.text_encoding(encoding)\n>       return io.open(self, mode, buffering, encoding, errors, newline)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-lifecycle-control/attempt-model-06z42pro/user-temp/subfleet-attempt-job-0-a1-z9f3mgdu/victim'\n\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py:771: FileNotFoundError\n______________ test_lifecycle_existing_counterexample[b20cf84ad] _______________\n\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108f249d0>\nrevision = 'b20cf84ad'\n\n    @pytest.mark.parametrize('revision',['current','b20cf84ad'])\n    def test_lifecycle_existing_counterexample(monkeypatch,revision):\n        if revision != 'current':\n            from subfleet import attempt_tmp\n            name='subfleet.retention_fs_lifecycle_base'\n            module=types.ModuleType(name)\n            sys.modules[name]=module\n            source=subprocess.run(['git','show',revision+':subfleet/retention_fs.py'],capture_output=True,text=True,check=True).stdout\n            exec(compile(source,'<retention_fs at '+revision+'>','exec'),module.__dict__)\n            monkeypatch.setattr(attempt_tmp,'rfs',module)\n        from tests.unit.test_attempt_tmpdir_lifecycle import test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n>       test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority.hypothesis.inner_test(\n            steps=[('start',0,False),('swap',0,False),('vanish',0,False)])\n\n/private/tmp/sf-fix279r2/probes/test_lifecycle_counterexample.py:18: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_attempt_tmpdir_lifecycle.py:424: in test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority\n    assert (victim / \"victim\").read_text() == \"dummy\", \"a swapped-in folder is never removed\"\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py:787: in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-lifecycle-control/attempt-model-g1d_fv25/user-temp/subfleet-attempt-job-0-a1-dr8rh_be/victim')\nmode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None\n\n    def open(self, mode='r', buffering=-1, encoding=None,\n             errors=None, newline=None):\n        \"\"\"\n        Open the file pointed to by this path and return a file object, as\n        the built-in open() function does.\n        \"\"\"\n        if \"b\" not in mode:\n            encoding = io.text_encoding(encoding)\n>       return io.open(self, mode, buffering, encoding, errors, newline)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222805-pr279-fix-r2-a1-s00b1foa/sf-fix279r2/hold-lifecycle-control/attempt-model-g1d_fv25/user-temp/subfleet-attempt-job-0-a1-dr8rh_be/victim'\n\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py:771: FileNotFoundError\n=========================== short test summary info ============================\nFAILED ../../../../../private/tmp/sf-fix279r2/probes/test_lifecycle_counterexample.py::test_lifecycle_existing_counterexample[current]\nFAILED ../../../../../private/tmp/sf-fix279r2/probes/test_lifecycle_counterexample.py::test_lifecycle_existing_counterexample[b20cf84ad]\n2 failed in 1.50s\n"
+  }
+}

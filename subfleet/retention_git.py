@@ -680,24 +680,25 @@ def admin_objects(admin: Path, fmt: str, *, timeout: float = 300,
     """
     tokens: set[str] = set()
     pattern = _token_pattern(fmt)
-    fd = os.open(admin, rfs.O_DIR)
-    try:
-        for rel, st, parent, name in rfs.walk(fd):
-            if not rel or rel == "index" or rel.split("/")[0] == "modules" or not stat.S_ISREG(st.st_mode):
-                continue
-            if st.st_size > 256 * 1024 * 1024:
-                continue
-            try:
-                handle = os.open(name, rfs.O_FILE, dir_fd=parent)
-            except OSError:
-                continue
-            try:
-                data = b"".join(iter(lambda: os.read(handle, rfs.CHUNK), b""))
-            finally:
-                os.close(handle)
-            tokens.update(m.decode() for m in pattern.findall(data))
-    finally:
-        os.close(fd)
+    with rfs._cleanup([None]) as owner:
+        owner.resources[0] = os.open(admin, rfs.O_DIR)
+        fd = owner.resources[0]
+        iterator = rfs.walk(fd)
+        with rfs._cleanup((iterator,), close=lambda it: it.close()):
+            for rel, st, parent, name in iterator:
+                if not rel or rel == "index" or rel.split("/")[0] == "modules" or not stat.S_ISREG(st.st_mode):
+                    continue
+                if st.st_size > 256 * 1024 * 1024:
+                    continue
+                try:
+                    handle = os.open(name, rfs.O_FILE, dir_fd=parent)
+                except OSError:
+                    continue
+                try:
+                    data = b"".join(iter(lambda: os.read(handle, rfs.CHUNK), b""))
+                finally:
+                    os.close(handle)
+                tokens.update(m.decode() for m in pattern.findall(data))
     refs = run(["for-each-ref", "--format=%(objectname)", *WORKTREE_REF_PREFIXES], git_dir=admin, ok=(0, 1),
                timeout=timeout, cancel=cancel).stdout.decode().split()
     tokens.update(refs)

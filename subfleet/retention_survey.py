@@ -70,29 +70,31 @@ def _walk_sizes(path: Path, omit: dict[str, dict[str, int]] | None) -> dict[str,
     the manifest would spend on the tree's entries (every file as stored)."""
     out = {"bytes": 0, "files": 0, "omittable_upper": 0, "nested_gitfiles": [], "error": None,
            "manifest_bytes": 0}
-    try:
-        fd = rfs.open_dir(path)
-    except FileNotFoundError:
-        return out
-    except OSError as exc:
-        out["error"] = str(exc)
-        return out
-    try:
-        for rel, st, parent, name in rfs.walk(fd):
-            out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
-            if not rel or stat.S_ISDIR(st.st_mode):
-                continue
-            out["bytes"] += st.st_size
-            out["files"] += 1
-            if stat.S_ISREG(st.st_mode):
-                if omit and rel in omit and st.st_size in omit[rel].values() and st.st_nlink == 1:
-                    out["omittable_upper"] += st.st_size
-                if name.lower() == ".git" and "/" in rel:
-                    out["nested_gitfiles"].append(rel)
-    except rfs.TreeError as exc:
-        out["error"] = str(exc)
-    finally:
-        os.close(fd)
+    with rfs._cleanup([None]) as owner:
+        try:
+            owner.resources[0] = rfs.open_dir(path)
+            fd = owner.resources[0]
+        except FileNotFoundError:
+            return out
+        except OSError as exc:
+            out["error"] = str(exc)
+            return out
+        try:
+            iterator = rfs.walk(fd)
+            with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                for rel, st, parent, name in iterator:
+                    out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
+                    if not rel or stat.S_ISDIR(st.st_mode):
+                        continue
+                    out["bytes"] += st.st_size
+                    out["files"] += 1
+                    if stat.S_ISREG(st.st_mode):
+                        if omit and rel in omit and st.st_size in omit[rel].values() and st.st_nlink == 1:
+                            out["omittable_upper"] += st.st_size
+                        if name.lower() == ".git" and "/" in rel:
+                            out["nested_gitfiles"].append(rel)
+        except rfs.TreeError as exc:
+            out["error"] = str(exc)
     return out
 
 
@@ -495,78 +497,80 @@ def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignore
     out: dict[str, Any] = {"bytes": 0, "files": 0, "archived_bytes": 0, "omitted_bytes": 0, "omitted_disk": 0,
                            "regenerable_bytes": 0, "regenerable_disk": 0, "regenerable": [], "hashed_bytes": 0,
                            "omission_exact": True, "regenerable_exact": True, "error": None, "manifest_bytes": 0}
-    try:
-        fd = rfs.open_dir(path)
-    except FileNotFoundError:
-        return out
-    except OSError as exc:
-        out["error"] = str(exc)
-        return out
-    regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
-    try:
-        for rel, st, parent, name in rfs.walk(fd):
-            verdict = regen.classify(rel, st, parent, name) if regen is not None else False
-            if isinstance(verdict, rfs.Verify):
-                # As the archive: a file a RECORD lists goes only if it hashes
-                # as the RECORD says; past the hash budget its size is taken
-                # for a match (an upper bound: `regenerable_exact` False).
-                expected, verdict = verdict.sha256, False
-                if out["hashed_bytes"] + st.st_size <= hash_budget:
-                    try:
-                        handle = os.open(name, rfs.O_FILE, dir_fd=parent)
-                        try:
-                            digest, _ = rfs.read_hashes(handle, st.st_size, None)
-                        finally:
-                            os.close(handle)
-                        out["hashed_bytes"] += st.st_size
-                        verdict = digest == expected
-                    except (OSError, rfs.TreeError):
-                        verdict = False
-                else:
-                    out["regenerable_exact"], verdict = False, True
-                if verdict:
-                    assert regen is not None and name is not None
-                    regen.confirm(rel, st, parent, name)
-                    out["manifest_bytes"] += len(',"sha256":""') + 64
-            if verdict:
-                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "regen")
-                if stat.S_ISREG(st.st_mode):
+    with rfs._cleanup([None]) as owner:
+        try:
+            owner.resources[0] = rfs.open_dir(path)
+            fd = owner.resources[0]
+        except FileNotFoundError:
+            return out
+        except OSError as exc:
+            out["error"] = str(exc)
+            return out
+        regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
+        try:
+            iterator = rfs.walk(fd)
+            with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                for rel, st, parent, name in iterator:
+                    verdict = regen.classify(rel, st, parent, name) if regen is not None else False
+                    if isinstance(verdict, rfs.Verify):
+                        # As the archive: a file a RECORD lists goes only if it hashes
+                        # as the RECORD says; past the hash budget its size is taken
+                        # for a match (an upper bound: `regenerable_exact` False).
+                        expected, verdict = verdict.sha256, False
+                        if out["hashed_bytes"] + st.st_size <= hash_budget:
+                            try:
+                                handle = os.open(name, rfs.O_FILE, dir_fd=parent)
+                                try:
+                                    digest, _ = rfs.read_hashes(handle, st.st_size, None)
+                                finally:
+                                    os.close(handle)
+                                out["hashed_bytes"] += st.st_size
+                                verdict = digest == expected
+                            except (OSError, rfs.TreeError):
+                                verdict = False
+                        else:
+                            out["regenerable_exact"], verdict = False, True
+                        if verdict:
+                            assert regen is not None and name is not None
+                            regen.confirm(rel, st, parent, name)
+                            out["manifest_bytes"] += len(',"sha256":""') + 64
+                    if verdict:
+                        out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "regen")
+                        if stat.S_ISREG(st.st_mode):
+                            out["bytes"] += st.st_size
+                            out["files"] += 1
+                        continue
+                    if not rel or stat.S_ISDIR(st.st_mode):
+                        out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "dir")
+                        continue
                     out["bytes"] += st.st_size
                     out["files"] += 1
-                continue
-            if not rel or stat.S_ISDIR(st.st_mode):
-                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "dir")
-                continue
-            out["bytes"] += st.st_size
-            out["files"] += 1
-            if not stat.S_ISREG(st.st_mode):
-                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
-                continue
-            size_ok = bool(omit and rel in omit and st.st_size in omit[rel].values()
-                           and st.st_nlink == 1 and fmt is not None)
-            if size_ok and out["hashed_bytes"] + st.st_size <= hash_budget:
-                try:
-                    handle = os.open(name, rfs.O_FILE, dir_fd=parent)
-                    try:
-                        _, blob = rfs.read_hashes(handle, st.st_size, fmt)
-                    finally:
-                        os.close(handle)
-                    out["hashed_bytes"] += st.st_size
-                    size_ok = blob in omit[rel]
-                except (OSError, rfs.TreeError):
-                    size_ok = False
-            elif size_ok:
-                out["omission_exact"] = False           # past the budget: an upper bound
-            if size_ok:
-                out["omitted_bytes"] += st.st_size
-                out["omitted_disk"] += rfs.private_bytes(parent, name, st)
-            else:
-                out["archived_bytes"] += st.st_size
-            out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "omit" if size_ok else "store", fmt)
-    except rfs.TreeError as exc:
-        out["error"] = str(exc)
-    finally:
-        os.close(fd)
+                    if not stat.S_ISREG(st.st_mode):
+                        out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
+                        continue
+                    size_ok = bool(omit and rel in omit and st.st_size in omit[rel].values()
+                                   and st.st_nlink == 1 and fmt is not None)
+                    if size_ok and out["hashed_bytes"] + st.st_size <= hash_budget:
+                        try:
+                            handle = os.open(name, rfs.O_FILE, dir_fd=parent)
+                            try:
+                                _, blob = rfs.read_hashes(handle, st.st_size, fmt)
+                            finally:
+                                os.close(handle)
+                            out["hashed_bytes"] += st.st_size
+                            size_ok = blob in omit[rel]
+                        except (OSError, rfs.TreeError):
+                            size_ok = False
+                    elif size_ok:
+                        out["omission_exact"] = False           # past the budget: an upper bound
+                    if size_ok:
+                        out["omitted_bytes"] += st.st_size
+                        out["omitted_disk"] += rfs.private_bytes(parent, name, st)
+                    else:
+                        out["archived_bytes"] += st.st_size
+                    out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "omit" if size_ok else "store", fmt)
+        except rfs.TreeError as exc:
+            out["error"] = str(exc)
     records = regen.summary() if regen is not None else []
     out["manifest_bytes"] += sum(rarch.entry_bytes(r) for r in records)
     out["regenerable_bytes"] = sum(r["bytes"] for r in records)

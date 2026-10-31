@@ -828,22 +828,24 @@ class Retirement:
                 raise Defer("changed after archive", DEFER_CHANGED_S, f"{label} appeared")
             entries = {e["p"]: e for e in tree["entries"]}
             seen = 0
-            fd = rfs.open_dir(path)
-            try:
-                for rel, st, parent, name in rfs.walk(fd, self.ctx.check):
-                    entry = entries.get(rel)
-                    if entry is None or not rfs.still_archived(entry, st, parent, name, self.ctx.check):
-                        raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
-                    # Recovery of an archived journal bypasses the builder;
-                    # its coverage proof must still precede row deletion.
-                    _require_file_bytes(entry, label)
-                    if stat.S_ISLNK(st.st_mode) and os.fsdecode(os.readlink(name, dir_fd=parent)) != entry.get("link"):
-                        raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
-                    seen += 1
-            except rfs.TreeError as exc:
-                raise Defer("changed after archive", DEFER_CHANGED_S, str(exc)) from exc
-            finally:
-                os.close(fd)
+            with rfs._cleanup([None]) as owner:
+                owner.resources[0] = rfs.open_dir(path)
+                fd = owner.resources[0]
+                try:
+                    iterator = rfs.walk(fd, self.ctx.check)
+                    with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                        for rel, st, parent, name in iterator:
+                            entry = entries.get(rel)
+                            if entry is None or not rfs.still_archived(entry, st, parent, name, self.ctx.check):
+                                raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
+                            # Recovery of an archived journal bypasses the builder;
+                            # its coverage proof must still precede row deletion.
+                            _require_file_bytes(entry, label)
+                            if stat.S_ISLNK(st.st_mode) and os.fsdecode(os.readlink(name, dir_fd=parent)) != entry.get("link"):
+                                raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
+                            seen += 1
+                except rfs.TreeError as exc:
+                    raise Defer("changed after archive", DEFER_CHANGED_S, str(exc)) from exc
             if seen != len(entries):
                 raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}: {len(entries) - seen} entries vanished")
         for label in manifest["trees"]:
@@ -1125,30 +1127,34 @@ class Retirement:
         entries = {e["p"]: e for e in tree["entries"]}
         changed: list[str] = []
         data: list[bytes] = []
-        fd = rfs.open_dir(admin)
-        try:
-            for rel, st, parent, name in rfs.walk(fd, self.ctx.check):
-                entry = entries.get(rel)
-                if entry is not None and rfs.still_archived(entry, st, parent, name, self.ctx.check):
-                    continue
-                changed.append(rel)
-                if stat.S_ISREG(st.st_mode) and rel != "index" and st.st_size < 64 << 20:
-                    try:
-                        data.append(rfs.read_regular(admin / rel, limit=64 << 20))
-                    except OSError:
-                        pass
-        except rfs.TreeError as exc:
-            changed.append(f"(walk: {exc})")
-        finally:
-            os.close(fd)
+        with rfs._cleanup([None]) as owner:
+            owner.resources[0] = rfs.open_dir(admin)
+            fd = owner.resources[0]
+            try:
+                iterator = rfs.walk(fd, self.ctx.check)
+                with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                    for rel, st, parent, name in iterator:
+                        entry = entries.get(rel)
+                        if entry is not None and rfs.still_archived(entry, st, parent, name, self.ctx.check):
+                            continue
+                        changed.append(rel)
+                        if stat.S_ISREG(st.st_mode) and rel != "index" and st.st_size < 64 << 20:
+                            try:
+                                data.append(rfs.read_regular(admin / rel, limit=64 << 20))
+                            except OSError:
+                                pass
+            except rfs.TreeError as exc:
+                changed.append(f"(walk: {exc})")
         present = set()
-        fd = rfs.open_dir(admin)
-        try:
-            present = {rel for rel, _, _, _ in rfs.walk(fd)}
-        except rfs.TreeError:
-            pass
-        finally:
-            os.close(fd)
+        with rfs._cleanup([None]) as owner:
+            owner.resources[0] = rfs.open_dir(admin)
+            fd = owner.resources[0]
+            try:
+                iterator = rfs.walk(fd)
+                with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                    present = {rel for rel, _, _, _ in iterator}
+            except rfs.TreeError:
+                pass
         vanished = [p for p in entries if p not in present]
         if not changed and not vanished:
             return None
@@ -1674,52 +1680,54 @@ class _Builder:
         entries: list[dict[str, Any]] = []
         links: dict[tuple[int, int], str] = {}
         admin = self.j.get("admin")
-        try:
-            fd = rfs.open_dir(path)
-        except (FileNotFoundError, NotADirectoryError) as exc:
-            raise Defer("tree vanished", DEFER_CHANGED_S, f"{label}: {exc}") from exc
-        regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
-        try:
-            for rel, st, parent, name in rfs.walk(fd, self._tick):
-                entry: dict[str, Any] = {"p": rel, "sig": rfs.signature(st)}
-                t = entry["sig"]["t"]
-                totals["entries"] += 1
-                verdict = regen.classify(rel, st, parent, name) if regen is not None else False
-                if isinstance(verdict, rfs.Verify):
-                    # A file an installed distribution's RECORD lists: dropped
-                    # only if its bytes are the ones the RECORD names (N3).
-                    digest = self._digest(entry, st, parent, name)
-                    verdict = digest == verdict.sha256
-                    if verdict:
-                        assert regen is not None and name is not None
-                        regen.confirm(rel, st, parent, name)
-                        entry["sha256"] = digest
-                if verdict:
-                    entry["regen"] = True
-                    totals["regenerable_entries"] += 1
-                    if t == "l":
-                        entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
-                    elif t == "f":
-                        entry["size"] = st.st_size
-                        if st.st_nlink > 1 and "sha256" not in entry:
-                            entry["sha256"] = self._digest(entry, st, parent, name)
-                    entries.append(entry)
-                    continue
-                if t == "l":
-                    entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
-                elif t == "f" and rel:
-                    if label == "worktree" and name.lower() == ".git" and "/" in rel:
-                        self._nested_gitfile(parent, name, rel, admin)
-                    self._file(entry, st, parent, name, omit.get(rel), fmt, files_fd, links, totals)
-                elif t == "d" and rel and label == "worktree" and name.lower() == ".git":
-                    pass       # a nested repository: archived byte for byte like everything else
-                entries.append(entry)
-        except rfs.TreeError as exc:
-            seconds = (DEFER_CHANGED_S if exc.reason in ("changed", "swapped", "low-space")
-                       else DEFER_PERMANENT_S)
-            raise Defer(exc.reason, seconds, f"{label}: {exc.detail}") from exc
-        finally:
-            os.close(fd)
+        with rfs._cleanup([None]) as owner:
+            try:
+                owner.resources[0] = rfs.open_dir(path)
+                fd = owner.resources[0]
+            except (FileNotFoundError, NotADirectoryError) as exc:
+                raise Defer("tree vanished", DEFER_CHANGED_S, f"{label}: {exc}") from exc
+            regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
+            try:
+                iterator = rfs.walk(fd, self._tick)
+                with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                    for rel, st, parent, name in iterator:
+                        entry: dict[str, Any] = {"p": rel, "sig": rfs.signature(st)}
+                        t = entry["sig"]["t"]
+                        totals["entries"] += 1
+                        verdict = regen.classify(rel, st, parent, name) if regen is not None else False
+                        if isinstance(verdict, rfs.Verify):
+                            # A file an installed distribution's RECORD lists: dropped
+                            # only if its bytes are the ones the RECORD names (N3).
+                            digest = self._digest(entry, st, parent, name)
+                            verdict = digest == verdict.sha256
+                            if verdict:
+                                assert regen is not None and name is not None
+                                regen.confirm(rel, st, parent, name)
+                                entry["sha256"] = digest
+                        if verdict:
+                            entry["regen"] = True
+                            totals["regenerable_entries"] += 1
+                            if t == "l":
+                                entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
+                            elif t == "f":
+                                entry["size"] = st.st_size
+                                if st.st_nlink > 1 and "sha256" not in entry:
+                                    entry["sha256"] = self._digest(entry, st, parent, name)
+                            entries.append(entry)
+                            continue
+                        if t == "l":
+                            entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
+                        elif t == "f" and rel:
+                            if label == "worktree" and name.lower() == ".git" and "/" in rel:
+                                self._nested_gitfile(parent, name, rel, admin)
+                            self._file(entry, st, parent, name, omit.get(rel), fmt, files_fd, links, totals)
+                        elif t == "d" and rel and label == "worktree" and name.lower() == ".git":
+                            pass       # a nested repository: archived byte for byte like everything else
+                        entries.append(entry)
+            except rfs.TreeError as exc:
+                seconds = (DEFER_CHANGED_S if exc.reason in ("changed", "swapped", "low-space")
+                           else DEFER_PERMANENT_S)
+                raise Defer(exc.reason, seconds, f"{label}: {exc.detail}") from exc
         if regen is None:
             return entries, []
         # A directory under a tool's entry whose every entry was dropped goes too.
