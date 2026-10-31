@@ -1813,6 +1813,10 @@ pw_prep_awk="$pw_lib_awk"'
       i = j + 1
     }
   }
+  # spend(s): r12 decision 2: text the reader reads again (a script eval, a shell or source runs, each round of a
+  # printf format after the first, what a find -exec {} stands for) costs a step of the shared budget (pst) for each
+  # of its words and each 16 bytes of it, as the words of a loop variable do; 0 once the budget is spent (cplx), else 1
+  function spend(s) { if (cplx || (pst += gsub(/[^[:space:]]+/, "&", s) + int(length(s) / 16)) > 20000) { cplx = 1; return 0 }; return 1 }
   # subout(s, depth, ctx): what the commands of s write, each read as a pipe producer is (r5 decision 11)
   function subout(s, depth, ctx,   sv, o) {
     if (depth >= 4) { if (named(s)) deep = 1; return "" }
@@ -1823,7 +1827,7 @@ pw_prep_awk="$pw_lib_awk"'
   }
   # pfmt(val, rd, k, nt): what printf writes for its format (the first word from k) and the words after it: each
   # conversion takes the next word (%b with its escapes decoded), the format repeating while words remain (r5
-  # decision 11)
+  # decision 11); r12 decision 2: each round after the first spends the format
   function pfmt(val, rd, k, nt,   f, o, i, n, a, m, j, used, r) {
     while (k <= nt && rd[k]) k++
     if (k > nt) return ""
@@ -1840,7 +1844,7 @@ pw_prep_awk="$pw_lib_awk"'
         }
         o = o "%"; i++
       }
-    } while (used && j <= m && ++r < 64)
+    } while (used && j <= m && ++r < 64 && spend(f))
     return o
   }
   function btend(t, i,   n, c) {
@@ -2145,7 +2149,7 @@ pw_prep_awk="$pw_lib_awk"'
     if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; lastps = st["lp"]; lastroots = proots(val[t], fw, prod); if (collect) coll = coll "\n" prod; return out }
     lastprod = prod; lastps = st["lp"]; lastroots = proots(val[t], fw, prod)
     if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]
-    # the scripts a shell or eval runs (r4 decision 3), each judged as its own lines
+    # the scripts a shell or eval runs (r4 decision 3), each judged as its own lines; r12 decision 2: each spent first
     if (!noext) {
       if (t <= nt && val[t] == "eval") {
         scr = ""; ev = 0
@@ -2154,7 +2158,7 @@ pw_prep_awk="$pw_lib_awk"'
           if (!ev && val[k] == "--") { ev = 1; continue }
           ev = 1; scr = scr (scr == "" ? "" : " ") val[k]
         }
-        if (scr != "") script(scr, ctx, depth)
+        if (scr != "" && spend(scr)) script(scr, ctx, depth)
         # r5 decision 11: what a command substitution in eval arguments writes is a script too
         if (scr ~ /\$\(|`/) spans(scr, ctx, depth, 1)
       }
@@ -2165,19 +2169,21 @@ pw_prep_awk="$pw_lib_awk"'
       if (mode == "prep" && st["a"] && st["s"] && st["c"] && st["g"] && pwn(val[st["g"]])) xsh = 1
       if (st["s"] && !st["c"] && (!st["f"] || st["S"])) {
         # its process substitution (r6 decision 9: bash <(...), bash < <(...)), here-string, heredoc (r5 decision
-        # 2) or what every earlier stage of its pipeline writes (r5 decision 11)
+        # 2) or what every earlier stage of its pipeline writes (r5 decision 11); r12 decision 2: what a substitution
+        # or the pipe writes is spent, while its own here-string or heredoc is text of the command, whose lines the
+        # budget already counts
         scr = (st["ps"] != "") ? st["ps"] : (hstr != "") ? hstr : (hd != "") ? hd : pin
-        if (scr != "") script(scr, sx(st, scr), depth)
+        if (scr != "" && ((st["ps"] == "" && hstr hd != "") || spend(scr))) script(scr, sx(st, scr), depth)
       }
-      # r6 decision 9: source <(...) and . <(...) run what the substitution writes in this shell
-      if (t <= nt && (val[t] == "source" || val[t] == ".") && st["ps"] != "") script(st["ps"], ctx, depth)
+      # r6 decision 9: source <(...) and . <(...) run what the substitution writes in this shell (spent, r12 decision 2)
+      if (t <= nt && (val[t] == "source" || val[t] == ".") && st["ps"] != "" && spend(st["ps"])) script(st["ps"], ctx, depth)
       # r5 decision 11: a -c script that only runs its arguments ("$@", $@, "$1", $*) runs the words after its
       # name operand; under xargs such a script, or a -c with no script, runs what xargs reads
       # (st["g"]: the script word; st["a"]: xargs runs the shell)
       k = st["g"]
       if (k && val[k] ~ /^"?\$\{?[@*1]\}?"?$/) {
         scr = ""; for (k += 2; k <= nt; k++) if (!rd[k]) scr = scr (scr == "" ? "" : " ") tk[k]
-        if (scr != "") script(scr, sx(st, scr), depth)
+        if (scr != "" && spend(scr)) script(scr, sx(st, scr), depth)
       }
       k = st["g"]
       if (st["a"] && st["s"] && pin != "" && (k ? val[k] ~ /^"?\$\{?[@*1]\}?"?$/ : st["c"])) script(pin, sx(st, pin), depth)
@@ -2194,16 +2200,16 @@ pw_prep_awk="$pw_lib_awk"'
   # 9): the roots of find (. when it names none), any other command its words
   function proots(b, fw, prod) { return (b == "find") ? ((fw == "") ? "." : fw) : prod }
   # execs(tk, val, ex, t, nt, roots, ctx, depth): each command the find at t runs (ex 2) judged as its own lines,
-  # {} as roots (a {} inside a word as the first root); 1 when there was one (r5 decision 3). r12 decision 1: each
-  # word a {} stands for costs a step of the shared budget (pst), and so does each 16 bytes of them, as for a loop
-  # variable, so a {} standing for more than the budget holds makes the command too complex to judge
+  # {} as roots (a {} inside a word as the first root); 1 when there was one (r5 decision 3). r12 decision 1: what
+  # each {} stands for is spent (spend), so a {} standing for more than the budget holds makes the command too
+  # complex to judge
   function execs(tk, val, ex, t, nt, roots, ctx, depth,   k, cmd, q, x, any) {
     cmd = ""; x = roots; sub(/ .*/, "", x); x = value(x); gsub(/&/, "\\\\&", x)
     for (k = t + 1; k <= nt + 1; k++) {
       if (k <= nt && ex[k] == 2) {
         q = tk[k]
         if (val[k] == "{}") q = roots; else if (index(q, "{}")) gsub(/\{\}/, x, q)
-        if (q != tk[k] && (cplx || (pst += gsub(/[^[:space:]]+/, "&", q) + int(length(q) / 16)) > 20000)) { cplx = 1; return any }
+        if (q != tk[k] && !spend(q)) return any
         cmd = cmd (cmd == "" ? "" : " ") q; any = 1; continue
       }
       if (cmd != "") { script(cmd, ctx, depth); cmd = "" }
@@ -2442,8 +2448,9 @@ if pw_named "$command"; then
   # r6 decisions 4, 5 and 9: a command whose $(...), $((...)), ((...)), <(...) and heredoc forms take the prep past
   # its step budget (parend, shared) is too complex to judge; the prep stops there and ends with \003C\003. r11
   # decision 1: so is one whose loop variables stand for more than the budget holds, and the message names them;
-  # r12 decision 1: and one whose find -exec {} does, named too
-  case "$pw_cmd" in *$'\003C\003') block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more nested \$(...), \$((...)), <(...) and heredoc forms, or loop variables standing for more text, or find's {} standing for more paths, than the guard reads, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth." ;; esac
+  # r12 decisions 1 and 2: and one whose find -exec {}, printf's repeated format or text piped into a shell does,
+  # each named too
+  case "$pw_cmd" in *$'\003C\003') block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more nested \$(...), \$((...)), <(...) and heredoc forms, or loop variables standing for more text, or find's {} standing for more paths, or more text from printf's repeated format or piped into a shell, than the guard reads, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth." ;; esac
   [ -n "$pw_cmd" ] || pw_cmd=$command
   # r6 decision 2: the xargs rule below also judges xargs running a shell whose -c script names a searcher
   case "$pw_cmd" in *$'\n\003X\003'*) pw_xsh=1 ;; esac

@@ -6543,7 +6543,6 @@ REVIEW_R11_BRACES = {
 }
 
 
-@pytest.mark.xfail(strict=True, reason="review r11 P2-1: find's -exec {} is not charged to the step budget")
 def test_review_r11_find_exec_braces_cost_steps_of_the_shared_budget():
     """Each row is denied as too complex to judge in at most R11_COST_CPU_S of child CPU, as review r10's loop rows are
     (strict xfail at c134c83bf: each is allowed after seconds of CPU; the fix makes it pass)."""
@@ -6552,3 +6551,177 @@ def test_review_r11_find_exec_braces_cost_steps_of_the_shared_budget():
         assert rule(out) == "unscoped-search", name
         assert "too complex to judge" in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"], name
         assert cpu <= R11_COST_CPU_S, (name, cpu)
+
+
+# ---------------------------------------------------------------- round r12
+
+# Round r12 (2026-10-30) builds the hub's decisions on review r11 (REQUEST_CHANGES at c134c83bf: one P2, three P3s):
+#   1. P2-1: what find's -exec {} stands for costs steps of the shared 20,000-step budget, as a loop variable's words
+#      do: each of its words, and each 16 bytes of it (spend);
+#   2. so does each round of a printf format after the first, and the script eval, source or a shell reads from a pipe
+#      or a substitution (a shell's own here-string or heredoc is text of the command, whose lines the budget already
+#      counts: a deviation, see the report);
+#   3-5. nothing else in this class; the P3s and review r11's listed differences are text (the overlay doc).
+
+
+def r12_braces(n: int) -> str:
+    """Review r11's P2-1 shape: find over n roots running rg on n {}."""
+    return "find " + " ".join(f"a{i}" for i in range(n)) + " -exec rg x " + "{} " * n + "\\;"
+
+
+#: Decision 1: the budget's edges for a {}, exact: 100 roots "a" (199 bytes: 100 + 12 steps a {}) read 178 times is
+#: 19,936 steps, read, and 179 times 20,048, too complex; one root of 1,600 bytes (1 + 100 steps) read 198 times is
+#: 19,998, and 199 times 20,099. Nothing else in these commands costs a step ...
+R12_BRACE_EDGE = {
+    "read": ["find " + " ".join(["a"] * 100) + " -exec rg x " + "{} " * 178 + "\\;",
+             "find " + "b" * 1600 + " -exec rg x " + "{} " * 198 + "\\;"],
+    "unread": ["find " + " ".join(["a"] * 100) + " -exec rg x " + "{} " * 179 + "\\;",
+               "find " + "b" * 1600 + " -exec rg x " + "{} " * 199 + "\\;"],
+}
+#: ... review r11's table, each row denied as too complex in at most R11_COST_CPU_S of child CPU (c134c83bf took
+#: 2.6 s, 6.4 s and 26 s on the first three, ran past 120 s of wall time on the fourth, and took 10.4 s on the last;
+#: the installed hook 0.15-0.19 s) ...
+R12_BRACES = {
+    "150 roots x 150 {}": r12_braces(150),
+    "200 roots x 200 {}": r12_braces(200),
+    "300 roots x 300 {}": r12_braces(300),
+    "400 roots x 400 {}": r12_braces(400),
+    "a 3 KB root x 1,000 b{}": "find /" + "a" * 3000 + " -exec rg x " + "b{} " * 1000 + "\\;",
+}
+#: ... while 100 roots and 100 {} stay read, in at most R11_UNDER_CPU_S, and routine -exec forms don't move: these
+#: are allowed by this hook and the installed one ...
+R12_BRACES_READ = r12_braces(100)
+R12_BRACES_ALLOWED = [
+    "find . -name '*.py' -exec grep -l foo {} +",
+    "find src -name '*.md' -exec sh -c 'rg -n TODO \"$1\"' _ {} \\;",
+    "find src tests docs tools -type f -exec rg -l foo {} +",
+]
+#: ... and these, where find or the rg it runs walks ~/.subfleet, are denied as a root, not as too complex (the
+#: installed hook, which predates the ~/.subfleet roots, allows them).
+R12_BRACES_DENIED = ["find ~/.subfleet -name x -exec rg foo {} +", "find ~/.subfleet -maxdepth 0 -exec rg foo {} \\;"]
+#: The text the "too complex" message names find's {} by.
+R12_COMPLEX_BRACES = "or find's {} standing for more paths"
+
+
+def test_r12_find_exec_braces_cost_steps_of_the_shared_budget(hooks):
+    """Decision 1: the budget's edges for a {} are exact; each row of review r11's table is denied as too complex to
+    judge in at most R11_COST_CPU_S of child CPU, and the message names find's {} (one run each; the installed hook's
+    CPU and the load reported); 100 roots and 100 {} stay read, and routine -exec forms don't move."""
+    outs = judged(HOOK, R12_BRACE_EDGE["read"] + R12_BRACE_EDGE["unread"], S_)
+    assert [c[:40] for c in R12_BRACE_EDGE["read"] if rule(outs[c]) is not None] == []
+    for c in R12_BRACE_EDGE["unread"]:
+        assert rule(outs[c]) == "unscoped-search", c[:40]
+        assert R12_COMPLEX_BRACES in json.loads(outs[c])["hookSpecificOutput"]["permissionDecisionReason"], c[:40]
+    rows = {}
+    for name, command in R12_BRACES.items():
+        cpu, wall, out = hook_cpu(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "too complex to judge" in reason and R12_COMPLEX_BRACES in reason, name
+        old_cpu, old_wall, _ = hook_cpu(hooks["old"], command)
+        rows[name] = {"cpu": [round(cpu, 2), round(old_cpu, 2)], "wall": [round(wall, 2), round(old_wall, 2)],
+                      "load": round(os.getloadavg()[0], 1)}
+        assert cpu <= R11_COST_CPU_S, (name, rows[name])
+    cpu, wall, out = hook_cpu(HOOK, R12_BRACES_READ)
+    rows["100 roots x 100 {} (read)"] = {"cpu": round(cpu, 2), "wall": round(wall, 2),
+                                         "load": round(os.getloadavg()[0], 1)}
+    report("braces-r12", rows)
+    assert rule(out) is None and cpu <= R11_UNDER_CPU_S, rows["100 roots x 100 {} (read)"]
+    new, old = judged(HOOK, R12_BRACES_ALLOWED + R12_BRACES_DENIED, S_), judged(hooks["old"], R12_BRACES_ALLOWED, S_)
+    assert [c for c in R12_BRACES_ALLOWED if rule(new[c]) is not None or rule(old[c]) is not None] == []
+    assert [c for c in R12_BRACES_DENIED if rule(new[c]) != "unscoped-search"
+            or "too complex" in json.loads(new[c])["hookSpecificOutput"]["permissionDecisionReason"]] == []
+
+
+def r12_script(nbytes: int) -> str:
+    """nbytes of a scoped search script, "rg -n foo src/x; " repeated."""
+    unit = "rg -n foo src/x; "
+    return (unit * (nbytes // len(unit) + 1))[:nbytes]
+
+
+def r12_shells(nbytes: int, n: int) -> str:
+    """echo of an nbytes script, piped through n shells: each shell reads what every earlier stage writes."""
+    return "echo '" + r12_script(nbytes) + "'" + " | bash" * n
+
+
+def r12_printf(fbytes: int, tail: str = " | bash") -> str:
+    """printf with a format of about fbytes of short words, repeated for 64 words (64 rounds), then tail."""
+    return ("printf 'rg -n foo src/%s; " + "a " * (fbytes // 2) + "' " + " ".join(f"w{i}" for i in range(64))
+            + tail)
+
+
+#: Decision 2: the hub's rows, each denied as too complex in at most R12_PIPED_CPU_S of child CPU, or R12_LONG_CPU_S
+#: for the two 64 KB rows (82df89ded ran each it ran past 40 s of wall time, 29-40 s of CPU when stopped; this round
+#: measured 0.34-0.53 s and 0.65-2.14 s at load 40-52, where reading 64 KB of short words at all costs about 2 s,
+#: review r11's listed difference) ...
+R12_PIPED = {
+    "printf: a 16 KB format, 64 rounds, | bash": r12_printf(16384),
+    'the same in eval "$(...)"': 'eval "$(' + r12_printf(16384, "") + ')"',
+    "source <(the same)": "source <(" + r12_printf(16384, "") + ")",
+    "bash <(the same)": "bash <(" + r12_printf(16384, "") + ")",
+    "echo: 8 KB through 1,000 shells": r12_shells(8192, 1000),
+    "printf: a 63 KB format, 64 rounds, | bash": r12_printf(63000),
+    "echo: 32 KB through 4,600 shells": r12_shells(32 * 1024, 4600),
+}
+R12_PIPED_CPU_S = 3.0
+R12_LONG_CPU_S = 10.0
+#: ... and the edges of the eval and source doors, exact (decision 6 needs them: on the rows above, printf's charge
+#: alone spends the budget, so neither door's charge decides one). eval's script "rg x" and K words "a" is K + 2
+#: words in 2K + 4 bytes, the only steps the command costs, so K = 17,776 is 20,000 steps, read, and 17,777 is 20,001.
+#: What source reads from <(echo 'rg x' and K words "a") is the rg's operands and the echo's words as the reader
+#: collects them (2K + 3 words in 4K + 7 bytes), after 4 steps spent before it (traced), so K = 8,886 is 20,000,
+#: read, and 8,887 is 20,003 ...
+R12_DOOR_EDGE = {
+    "read": ["eval 'rg x" + " a" * 17776 + "'", "source <(echo 'rg x" + " a" * 8886 + "')"],
+    "unread": ["eval 'rg x" + " a" * 17777 + "'", "source <(echo 'rg x" + " a" * 8887 + "')"],
+}
+#: ... while these stay read: routine pipes and heredocs into a shell, a 50 KB heredoc into bash, bash -c and eval
+#: with a 60 KB script, 1 KB through 10 shells, a 100-byte printf format, and 40 KB through cat into bash ...
+R12_PIPED_READ = [
+    "echo 'rg -n foo src' | bash",
+    "printf 'rg foo %s\\n' src tests | sh",
+    "cat <<'EOF' | bash\nrg -n foo src\nEOF",
+    "bash <<'EOF'\n" + "rg -n foo src/x\n" * 3333 + "EOF",
+    "bash -c '" + "rg -n foo src/x; " * 3500 + "'",
+    "eval '" + "rg -n foo src/x; " * 3500 + "'",
+    r12_shells(1024, 10),
+    r12_printf(100),
+    "cat <<'EOF' | bash\n" + "rg -n foo src/x\n" * 2500 + "EOF",
+]
+#: ... and the one intended move: 60 KB through cat into bash, read before (the installed hook allows it too), is too
+#: complex, because the pipe's text now costs steps on top of the heredoc's lines. A root piped into a shell keeps
+#: its scope verdict.
+R12_PIPED_MOVED = "cat <<'EOF' | bash\n" + "rg -n foo src/x\n" * 4000 + "EOF"
+R12_PIPED_ROOT = "echo 'rg foo ~/.subfleet' | bash"
+#: The text the "too complex" message names printf's repeat and piped text by.
+R12_COMPLEX_PIPED = "or more text from printf's repeated format or piped into a shell"
+
+
+def test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget(hooks):
+    """Decision 2: the eval and source doors' edges are exact; each of the hub's rows is denied as too complex to judge
+    in at most R12_PIPED_CPU_S (R12_LONG_CPU_S at 64 KB) of child CPU, and the message names printf's repeat and piped
+    text (one run each; the installed hook's CPU and the load reported); the routine and long forms stay read, the
+    60 KB heredoc through cat is the one move, and a root piped into a shell keeps its scope verdict."""
+    outs = judged(HOOK, R12_DOOR_EDGE["read"] + R12_DOOR_EDGE["unread"], S_)
+    assert [c[:40] for c in R12_DOOR_EDGE["read"] if rule(outs[c]) is not None] == []
+    for c in R12_DOOR_EDGE["unread"]:
+        assert rule(outs[c]) == "unscoped-search", c[:40]
+        assert "too complex to judge" in json.loads(outs[c])["hookSpecificOutput"]["permissionDecisionReason"], c[:40]
+    rows = {}
+    for name, command in R12_PIPED.items():
+        cpu, wall, out = hook_cpu(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "too complex to judge" in reason and R12_COMPLEX_PIPED in reason, name
+        old_cpu, old_wall, _ = hook_cpu(hooks["old"], command)
+        rows[name] = {"cpu": [round(cpu, 2), round(old_cpu, 2)], "wall": [round(wall, 2), round(old_wall, 2)],
+                      "load": round(os.getloadavg()[0], 1)}
+        assert cpu <= (R12_LONG_CPU_S if len(command) > 32768 else R12_PIPED_CPU_S), (name, rows[name])
+    report("piped-r12", rows)
+    outs = judged(HOOK, R12_PIPED_READ + [R12_PIPED_MOVED, R12_PIPED_ROOT], S_)
+    assert [c[:60] for c in R12_PIPED_READ if rule(outs[c]) is not None] == []
+    assert rule(outs[R12_PIPED_MOVED]) == "unscoped-search"
+    assert "too complex to judge" in json.loads(outs[R12_PIPED_MOVED])["hookSpecificOutput"]["permissionDecisionReason"]
+    assert rule(run_hook(hooks["old"], R12_PIPED_MOVED, S_)) is None
+    assert rule(outs[R12_PIPED_ROOT]) == "unscoped-search"
+    assert "too complex" not in json.loads(outs[R12_PIPED_ROOT])["hookSpecificOutput"]["permissionDecisionReason"]
