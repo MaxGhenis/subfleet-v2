@@ -1,0 +1,202 @@
+[
+  {
+    "run": "round7-marker",
+    "mutation": "marker_releases_pending_reveal",
+    "order": "passed",
+    "failed_rule": "assert_shrink_releases_nothing",
+    "cutoff": 11.245423078536987,
+    "release_count": 1,
+    "release_triggers": [
+      "marker_appeared"
+    ],
+    "tick": {
+      "at": 16.218951106071472,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 0,
+      "position": {
+        "content": 48861,
+        "from_end": 2885,
+        "offset": 45422,
+        "viewport": 554
+      },
+      "settling": true,
+      "suspended": false
+    },
+    "caught_up": {
+      "content": 60096,
+      "from_end": 25,
+      "offset": 59517,
+      "viewport": 554
+    }
+  },
+  {
+    "run": "round7-distance",
+    "mutation": "confirm_by_distance_only",
+    "order": "passed",
+    "failed_rule": "assert_shrink_releases_nothing",
+    "cutoff": 3.1844249963760376,
+    "release_count": 1,
+    "release_triggers": [
+      "reveal_end_visible"
+    ],
+    "tick": {
+      "at": 5.2947999238967896,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 0,
+      "position": {
+        "content": 48861,
+        "from_end": 2885,
+        "offset": 45422,
+        "viewport": 554
+      },
+      "settling": true,
+      "suspended": false
+    },
+    "caught_up": {
+      "content": 60096,
+      "from_end": 25,
+      "offset": 59517,
+      "viewport": 554
+    }
+  },
+  {
+    "run": "round7-never-lands",
+    "mutation": "reveal_never_lands",
+    "order": "passed",
+    "failed_rule": "assert_landed_shrink_releases",
+    "cutoff": 4.91579806804657,
+    "release_count": 0,
+    "release_triggers": [],
+    "tick": {
+      "at": 9.389050006866455,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "stay",
+      "new_length": 0,
+      "old_length": 0,
+      "position": {
+        "content": 49031,
+        "from_end": 16761,
+        "offset": 31716,
+        "viewport": 554
+      },
+      "settling": true,
+      "suspended": true
+    },
+    "caught_up": {
+      "content": 70525,
+      "from_end": 38255,
+      "offset": 31716,
+      "viewport": 554
+    }
+  },
+  {
+    "run": "round7-larger",
+    "mutation": "marker_releases_pending_reveal",
+    "order": "passed",
+    "failed_rule": "assert_shrink_releases_nothing",
+    "cutoff": 4.091984987258911,
+    "release_count": 1,
+    "release_triggers": [
+      "marker_appeared"
+    ],
+    "tick": {
+      "at": 7.19576096534729,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 0,
+      "position": {
+        "content": 50765,
+        "from_end": 5260,
+        "offset": 45022,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    "caught_up": {
+      "content": 64221,
+      "from_end": 24,
+      "offset": 63714,
+      "viewport": 483
+    }
+  },
+  {
+    "run": "round7-larger",
+    "mutation": "confirm_by_distance_only",
+    "order": "passed",
+    "failed_rule": "assert_shrink_releases_nothing",
+    "cutoff": 4.526628017425537,
+    "release_count": 1,
+    "release_triggers": [
+      "reveal_end_visible"
+    ],
+    "tick": {
+      "at": 7.566411972045898,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 0,
+      "position": {
+        "content": 50739,
+        "from_end": 5250,
+        "offset": 45006,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    "caught_up": {
+      "content": 64161,
+      "from_end": 25,
+      "offset": 63653,
+      "viewport": 483
+    }
+  },
+  {
+    "run": "round7-larger",
+    "mutation": "reveal_never_lands",
+    "order": "passed",
+    "failed_rule": "assert_landed_shrink_releases",
+    "cutoff": 3.411607027053833,
+    "release_count": 0,
+    "release_triggers": [],
+    "tick": {
+      "at": 5.582705974578857,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "stay",
+      "new_length": 0,
+      "old_length": 0,
+      "position": {
+        "content": 51513,
+        "from_end": 10543,
+        "offset": 40487,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": true
+    },
+    "caught_up": {
+      "content": 72845,
+      "from_end": 32075,
+      "offset": 40287,
+      "viewport": 483
+    }
+  }
+]

@@ -27,6 +27,9 @@ from tests.frontend.test_review_r219_fix10_view import (
     assert_replayed_shrink_order,
     assert_shrink_releases_nothing,
     shrink_replay,
+    resize_schedule,
+    assert_resize_order,
+    assert_growth_resizes_follow,
 )
 from tests.frontend.test_review_r219_fix12_view import (
     assert_mark_probes_order,
@@ -226,8 +229,14 @@ def test_settling_mutation_fails_each_named_regression(settling_mutant, name):
 def test_round7_mutation_fails_its_named_regression(mutation, tmp_path):
     binary, _ = compile_mutation(mutation, tmp_path)
     mode, order, rule = ROUND7[mutation]
-    result, steps, _ = shrink_replay(binary, tmp_path, mode)
+    result, steps, _ = shrink_replay(binary, tmp_path, mode,
+                                    replay_marker=mutation == "marker_releases_pending_reveal")
     order(result, steps)
+    if mutation == "marker_releases_pending_reveal":
+        callback = steps["marker_callback"]
+        assert callback["reveal"]["outstanding"] and callback["position"]["from_end"] <= END, result
+        assert any(e["event"] == "marker_appeared" and e["at"] >= callback["at"]
+                   for e in result["trace"]), result
     with pytest.raises(AssertionError) as rejected:
         rule(result, steps)
     print(f"{mutation} killed by {rule.__name__}: {str(rejected.value)[:300]}")
@@ -271,7 +280,30 @@ def round10_order(mode):
 def round10_rule(mode):
     if mode == "stale-glide":
         return assert_rests_at_the_end
-    return assert_landing_follows
+    return assert_growth_and_reply_follow
+
+
+def assert_growth_and_reply_follow(result, steps):
+    # A later shrink or the reply's ordinary follow jump can repair a missed
+    # repin. Measure each scripted growth before either can mask it.
+    if "resizes" in result:
+        assert_growth_resizes_follow(result)
+    if "resize_probe" in result:
+        probe = result["resize_probe"]
+        assert_growth_and_reply_follow(probe, {s["step"]: s for s in probe["steps"]})
+    assert_landing_follows(result, steps)
+
+
+def test_scripted_regrow_then_shrink_reaches_the_growth_mutant_check(tmp_path):
+    binary, _ = compile_mutation("growth_repins_dropped", tmp_path)
+    result = resize_schedule(binary, tmp_path, "growth", [600, -900])
+    assert_resize_order(result)
+    assert result["resizes"][0]["applied"]["from_end"] == 600, result
+    steps = {step["step"]: step for step in result["steps"]}
+    # The old reply-only rule accepts this mutant: shrink clamps the clip before
+    # the reply sample. Only a check of the growth's own response can reject it.
+    with pytest.raises(AssertionError):
+        round10_rule("quiet-regrow")(result, steps)
 
 
 @pytest.mark.parametrize("mutation,mode", ROUND10_CASES)
@@ -279,6 +311,9 @@ def test_round10_mutation_fails_its_named_regression(mutation, mode, tmp_path):
     binary, _ = compile_mutation(mutation, tmp_path)
     result, steps, _ = landing_run(binary, tmp_path, mode)
     round10_order(mode)(result, steps)
+    if mutation == "growth_repins_dropped":
+        result["resize_probe"] = resize_schedule(binary, tmp_path, "growth", [600, -900, 1300])
+        assert_resize_order(result["resize_probe"])
     rule = round10_rule(mode)
     with pytest.raises(AssertionError) as rejected:
         rule(result, steps)

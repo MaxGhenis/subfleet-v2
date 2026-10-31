@@ -537,6 +537,13 @@ let readinessDeadline = 120.0
         NSApplication.shared.setActivationPolicy(.prohibited)
         NSApp.finishLaunching()
         NSApp.setActivationPolicy(.accessory)
+        if CommandLine.arguments.last == "fix10-resize-schedule" {
+            let root = URL(fileURLWithPath: CommandLine.arguments[1])
+            let input = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("schedule.json"))) as! [String: Any]
+            let result = await resizeSchedule(input)
+            print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+            return
+        }
         if let mode = CommandLine.arguments.last, mode.hasPrefix("fix11-") {
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
             let result = mode == "fix11-live-turn" ? await suspendedLiveTurn(root)
@@ -1471,6 +1478,17 @@ struct SettlingPageView: View {
             if shrinks.count >= 16 { exhausted = true; return false }
             shrinkUnderClip()
             return false
+        }
+        // Replay delivery to the real marker handler at the measured clamp.
+        // Replacing a lazy row's identity does not guarantee another onAppear.
+        // Other scenes allow either lifecycle order and use presented geometry.
+        if ProcessInfo.processInfo.environment["R219_PROBE_REPLAY_END_APPEARANCE"] == "1" {
+            let from = trace.count
+            step("marker_callback")
+            NotificationCenter.default.post(name: ConversationFollowTest.endAppearance, object: name)
+            await waitReady("shrink.marker_replayed", view: scene.host, state: state) {
+                trace[from...].contains { $0["event"] as? String == "marker_appeared" }
+            }
         }
         step("shrunk", ["shrinks": shrinks])
         if mode == "replay" {
@@ -2569,4 +2587,82 @@ final class FlippedDocument: NSView { override var isFlipped: Bool { true } }
         FileHandle.standardError.write(Data("unknown fix12 mode \(mode)\n".utf8))
         exit(64)
     }
+}
+
+// Script document measurements independently of SwiftUI's lazy estimates. No marker
+// is mounted or remounted by these frame changes. This is the missing-callback order
+// in the shrink logs, and the compensating shrink in the growth-mutant log.
+@MainActor func resizeSchedule(_ input: [String: Any]) async -> [String: Any] {
+    let kind = input["kind"] as! String
+    let schedule = input["deltas"] as! [Double]
+    let cid = "resize-" + kind
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 550), styleMask: [.borderless],
+                          backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 550))
+    let document = FlippedDocument(frame: NSRect(x: 0, y: 0, width: 400, height: 12000))
+    scroll.documentView = document
+    let pin = OpeningPinView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+    pin.conversationID = cid
+    var landed = 0, visible = 0, ownLanded = 0, revisions = 0
+    pin.onRevealLanded = { _ in landed += 1 }
+    pin.onRevealEndVisible = { _ in visible += 1 }
+    pin.onOwnSendLanded = { ownLanded += 1 }
+    document.addSubview(pin)
+    let mark = RevealTargetView(frame: NSRect(x: 0, y: kind == "pending" ? 100000 : 1000, width: 400, height: 100))
+    mark.conversationID = cid
+    mark.itemID = "target"
+    document.addSubview(mark)
+    window.contentView = scroll
+    mountOffscreen(window)
+    let observer = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification,
+                                                          object: document, queue: nil) { _ in
+        MainActor.assumeIsolated { revisions += 1 }
+    }
+    defer {
+        NotificationCenter.default.removeObserver(observer)
+        pin.detach()
+        window.contentView = nil
+        window.close()
+    }
+    // Drain the observer's coalesced main-queue work, including schedulePin's two
+    // turns. There is no timer or guessed duration in this geometry-only scene.
+    func drain() async {
+        for _ in 0..<4 {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
+    await waitReady("resize.opened", view: scroll) { abs(sample(scroll)["from_end"] ?? 1e9) <= 0.5 }
+    if kind == "growth" {
+        pin.ownSendLanding = true
+        await waitReady("resize.own_landed", view: scroll) { ownLanded == 1 }
+        pin.ownSendLanding = false
+    } else {
+        _ = ConversationOpeningPin.revealRow(in: cid, target: "target")
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: kind == "pending" ? 7000 : 1000))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        await drain()
+    }
+    let prepared: [String: Any] = ["position": sample(scroll), "landed": landed, "visible": visible,
+                                   "own_landed": ownLanded]
+    var samples: [[String: Any]] = []
+    for delta in schedule {
+        let before = sample(scroll), revision = revisions, confirmations = visible
+        document.setFrameSize(NSSize(width: 400, height: max(800, document.frame.height + delta)))
+        // AppKit's clamp, without person input or a SwiftUI onAppear. A shrinking
+        // document constrains the clip to its new end; growth leaves its offset alone.
+        scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(scroll.contentView.bounds).origin)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let applied = sample(scroll)
+        await drain()
+        samples.append(["delta": delta, "before": before, "applied": applied, "after": sample(scroll),
+                        "revisions": revisions - revision, "landed": landed, "visible": visible,
+                        "confirmations": visible - confirmations])
+    }
+    let reply: [String: Any] = ["step": "reply", "position": sample(scroll)]
+    window.close()
+    return ["kind": kind, "schedule": schedule, "prepared": prepared, "resizes": samples,
+            "steps": [reply], "visible_windows": NSApp.windows.filter(\.isVisible).count]
 }

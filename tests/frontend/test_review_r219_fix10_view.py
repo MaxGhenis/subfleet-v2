@@ -3,6 +3,7 @@ import json
 import os
 
 import pytest
+from hypothesis import Phase, given, settings, strategies as st
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.test_review_r219_fix8_view import END, fix8_view_binary
@@ -136,13 +137,79 @@ def test_completion_before_scroll_cannot_release_a_distant_opening_reveal(fix8_v
 LAYOUTS = {"default": {}, "larger_text": {"R219_PROBE_TEXT_SCALE": "1.728"}}
 
 
-def shrink_replay(binary, root, mode, layout="default"):
+def resize_schedule(binary, root, kind, deltas):
+    write_json(root / "schedule.json", {"kind": kind, "deltas": deltas})
+    result = run_probe(binary, root, "fix10-resize-schedule", timeout=60)
+    write_json(root / "resize-result.json", result)
+    print("resize schedule: " + json.dumps(result, sort_keys=True))
+    return result
+
+
+def assert_resize_order(result):
+    assert result["visible_windows"] == 0, result
+    prepared = result["prepared"]
+    if result["kind"] == "growth":
+        assert prepared["own_landed"] == 1 and prepared["position"]["from_end"] == 0, result
+    else:
+        assert prepared["landed"] == int(result["kind"] == "landed"), result
+        assert prepared["visible"] == 0 and prepared["position"]["from_end"] > DISTANT, result
+    for resize in result["resizes"]:
+        assert resize["revisions"] == int(resize["before"]["content"] != resize["applied"]["content"]), result
+        assert resize["applied"]["content"] == max(800, resize["before"]["content"] + resize["delta"]), result
+
+
+def assert_resize_reveal_invariant(result):
+    """Every resize preserves an outstanding reveal; after landing, a clamped end
+    is confirmed independently of whether the lazy marker remounts."""
+    for resize in result["resizes"]:
+        assert resize["landed"] == int(result["kind"] == "landed"), result
+        if result["kind"] == "pending":
+            assert resize["visible"] == 0, result
+        elif resize["after"]["from_end"] == 0:
+            assert resize["visible"] > 0, result
+            if resize["revisions"]:
+                assert resize["confirmations"] > 0, result
+
+
+def assert_growth_resizes_follow(result):
+    assert result["kind"] == "growth", result
+    for resize in result["resizes"]:
+        assert abs(resize["after"]["from_end"]) <= 0.5, result
+
+
+def test_scripted_growth_is_followed_before_a_compensating_shrink(fix8_view_binary, tmp_path):
+    result = resize_schedule(fix8_view_binary, tmp_path, "growth", [600, -900, 1300])
+    assert_resize_order(result)
+    assert_growth_resizes_follow(result)
+
+
+@pytest.mark.parametrize("kind", ["pending", "landed"])
+def test_scripted_document_resizes_without_a_marker_remount(fix8_view_binary, tmp_path, kind):
+    result = resize_schedule(fix8_view_binary, tmp_path, kind, [-11000, 2000, -2500, 1000])
+    assert_resize_order(result)
+    assert_resize_reveal_invariant(result)
+
+
+@settings(max_examples=12, deadline=None, derandomize=True, phases=(Phase.generate,))
+@given(kind=st.sampled_from(["pending", "landed"]),
+       deltas=st.lists(st.integers(-2500, 2500), min_size=0, max_size=8))
+def test_reveal_invariant_for_resize_schedules(fix8_view_binary, tmp_path_factory, kind, deltas):
+    root = tmp_path_factory.mktemp("resize-property")
+    result = resize_schedule(fix8_view_binary, root, kind, [-11000, *deltas])
+    assert_resize_order(result)
+    assert_resize_reveal_invariant(result)
+
+
+def shrink_replay(binary, root, mode, layout="default", *, replay_marker=False):
     """Round 7's schedule (`shrinkReplay` in the probe), with its own steps and trace, its shrink
     measured since round 8's continuation. A failed wait's whole report (steps, traces, layout)
     is printed, so CI's log keeps it."""
     load = os.getloadavg()[0]
     try:
-        result = run_probe(binary, root, f"fix10-shrink-{mode}", env=LAYOUTS[layout], timeout=240)
+        environment = dict(LAYOUTS[layout])
+        if replay_marker:
+            environment["R219_PROBE_REPLAY_END_APPEARANCE"] = "1"
+        result = run_probe(binary, root, f"fix10-shrink-{mode}", env=environment, timeout=240)
     except AssertionError:
         failure = root / "probe-failure.json"
         if failure.is_file():
@@ -165,9 +232,15 @@ def shrink_replay(binary, root, mode, layout="default"):
 
 
 def releases_after(result, at):
-    """Each trace entry from `at` on that turns suspension off."""
-    return [e for e in result["trace"] if e["at"] >= at and "suspended" in e and not e["suspended"]
-            and e["event"] != "move"]
+    """Suspended-to-resumed transitions from `at`, including state before the cutoff."""
+    released, suspended = [], False
+    for entry in result["trace"]:
+        if "suspended" not in entry:
+            continue
+        if suspended and not entry["suspended"] and entry["at"] >= at:
+            released.append(entry)
+        suspended = entry["suspended"]
+    return released
 
 
 def settling_ticks(result, steps):
@@ -214,7 +287,8 @@ def assert_replayed_shrink_order(result, steps):
     assert steps["shrunk"]["reveal"]["outstanding"], diagnostic
     assert_measured_shrinks(result, steps)
     assert steps["shrunk"]["position"]["from_end"] <= END, diagnostic
-    assert any(e["event"] == "marker_appeared" and steps["shrinking"]["at"] <= e["at"] <= steps["shrunk"]["at"]
+    assert any(e["event"] == "reveal_check" and e["distance"] <= END
+               and steps["shrinking"]["at"] <= e["at"] <= steps["shrunk"]["at"]
                for e in result["trace"]), diagnostic
     assert steps["late_completion"]["position"]["from_end"] <= END, diagnostic
     assert steps["regrown"]["position"]["from_end"] > DISTANT, diagnostic
@@ -272,20 +346,20 @@ def assert_landed_shrink_order(result, steps):
 
 
 def assert_landed_shrink_releases(result, steps):
-    """With no reveal outstanding, the marker an end shown by a shrink mounts releases
-    suspension, and catch-up's settling tick follows the end."""
+    """After landing, an end shown by a shrink releases suspension through either
+    the marker or measured geometry, and catch-up's settling tick follows."""
     diagnostic = json.dumps(result, sort_keys=True)
     released = releases_after(result, steps["shrinking"]["at"])
-    assert released and released[0]["event"] == "marker_appeared", diagnostic
+    assert released and released[0]["event"] in {"marker_appeared", "reveal_end_visible"}, diagnostic
     assert_catchup_follows_the_end(result, steps)
 
 
 @pytest.mark.parametrize("layout", LAYOUTS)
 def test_document_shrink_after_a_distant_reveal_lands_releases(fix8_view_binary, tmp_path, layout):
     """Round 7's control: once the reveal has landed on its row, none is outstanding, and an end
-    shown by the same shrink releases suspension through the marker, as before."""
+    shown by the same shrink releases suspension even without a marker remount."""
     result, steps, diagnostic = shrink_replay(fix8_view_binary, tmp_path, "landed", layout)
-    assert steps["landed"]["reveals"] == 1, diagnostic
+    assert 1 <= steps["landed"]["reveals"] <= 3, diagnostic
     assert_landed_shrink_order(result, steps)
     assert_landed_shrink_releases(result, steps)
 

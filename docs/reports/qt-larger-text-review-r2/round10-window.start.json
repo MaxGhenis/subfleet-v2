@@ -1,0 +1,17 @@
+{
+  "name": "round10-window",
+  "start": "2026-10-31T06:47:22.547458+00:00",
+  "load": [
+    39.236328125,
+    37.68896484375,
+    36.18798828125
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_r219_fix8_mutations.py",
+    "-k",
+    "test_round10_mutation_fails_its_named_regression and quiet_window_0ms",
+    "-s"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

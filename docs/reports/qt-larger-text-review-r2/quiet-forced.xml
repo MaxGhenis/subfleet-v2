@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="29.311" timestamp="2026-10-31T02:51:24.677918-04:00" hostname="Mac.lan"><testcase classname="tests.frontend.test_review_pr284_pin" name="test_quiet_landing_rule_rejects_a_measured_missed_growth" time="28.530"><failure message="AssertionError: measured missed growth was accepted after compensation: {'action': 'growth_after_input', 'at26': 0, 'callbacks': 0, 'conversation': 'A', 'first': 0, 'flipped': True, 'growth_gap': 600, 'landed': 1, 'landed_after': 1, 'offset_after': 11150, 'offset_before': 11450, 'own_landed': 1, 'releases': 0, 'reply_gap': 0, 'same_request': False}">tmp_path = PosixPath('/private/tmp/sf-r284r2/cases/quiet-forced/test_quiet_landing_rule_reject0')
+
+    @pytest.mark.xfail(strict=True, raises=AssertionError,
+                       reason="Listed-P3-quiet-reply: quiet-landing cases still accept a compensating shrink")
+    def test_quiet_landing_rule_rejects_a_measured_missed_growth(tmp_path):
+        from tests.frontend.test_review_r219_fix8_mutations import MUTATIONS, round10_rule
+    
+        source = (ROOT / "app/Sources/ConversationOpeningPin.swift").read_text()
+        _, edits = MUTATIONS["quiet_landing_ends_following"]
+        for old, new in edits:
+            if source.count(old) != 1:
+                raise RuntimeError("quiet-landing mutant no longer applies")
+            source = source.replace(old, new)
+        path = tmp_path / "ConversationOpeningPin.swift"
+        path.write_text(source)
+        binary = tmp_path / "probe"
+        built = subprocess.run(["xcrun", "swiftc", "-Xfrontend", "-disable-sandbox", "-parse-as-library",
+                                str(path), str(ROOT / "tests/frontend/ReviewPR284PinProbe.swift"), "-o", str(binary)],
+                               capture_output=True, text=True, timeout=900)
+        if built.returncode:
+            raise RuntimeError(built.stderr)
+        try:
+            result = run_probe(binary, timeout=60)
+        except AssertionError as error:
+            raise RuntimeError("quiet-landing mutant setup failed") from error
+        [growth] = [r for r in result if r["action"] == "growth_after_input"]
+        if not (growth["own_landed"] == 1 and growth["growth_gap"] == 600 and growth["reply_gap"] == 0):
+            raise RuntimeError(f"quiet-landing counterexample setup failed: {growth}")
+        sample = {"steps": [{"step": "reply", "position": {"from_end": growth["reply_gap"]}}]}
+        # Quiet-landing cases do not attach the new optional resize_probe. Their old
+        # reply-only blind spot remains even though the growth-observer mutant is fixed.
+        try:
+            round10_rule("quiet-regrow")(sample, {"reply": sample["steps"][0]})
+        except AssertionError:
+            return
+&gt;       raise AssertionError(f"measured missed growth was accepted after compensation: {growth}")
+E       AssertionError: measured missed growth was accepted after compensation: {'action': 'growth_after_input', 'at26': 0, 'callbacks': 0, 'conversation': 'A', 'first': 0, 'flipped': True, 'growth_gap': 600, 'landed': 1, 'landed_after': 1, 'offset_after': 11150, 'offset_before': 11450, 'own_landed': 1, 'releases': 0, 'reply_gap': 0, 'same_request': False}
+
+tests/frontend/test_review_pr284_pin.py:190: AssertionError</failure></testcase></testsuite></testsuites>

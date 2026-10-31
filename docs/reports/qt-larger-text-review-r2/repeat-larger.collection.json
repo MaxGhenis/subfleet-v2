@@ -1,0 +1,12 @@
+[
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+  "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]"
+]

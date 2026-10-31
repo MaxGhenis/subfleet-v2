@@ -11,6 +11,9 @@ struct ConversationOpeningPin: NSViewRepresentable {
     var onRevealEndVisible: (UUID) -> Void = { _ in }
     /// The request's own row was presented in the clip: the reveal is no longer outstanding.
     var onRevealLanded: (UUID) -> Void = { _ in }
+    /// Geometry can show the end after a distant reveal landed, without a lazy
+    /// marker remount. The view still decides whether its reveal has ended.
+    var onLandedEndVisible: ((UUID) -> Void)? = nil
     /// The person scrolled while a reveal was still outstanding.
     var onPersonScroll: () -> Void = {}
     /// The person scrolled the timeline (live scroll, wheel or paging key), reveal or not.
@@ -31,6 +34,7 @@ struct ConversationOpeningPin: NSViewRepresentable {
         view.conversationID = conversationID
         view.onRevealEndVisible = onRevealEndVisible
         view.onRevealLanded = onRevealLanded
+        view.onLandedEndVisible = onLandedEndVisible
         view.onPersonScroll = onPersonScroll
         view.onPersonInput = onPersonInput
         view.onOwnSendLanded = onOwnSendLanded
@@ -148,9 +152,16 @@ final class RevealTargetView: NSView {
 }
 
 final class OpeningPinView: NSView {
-    var conversationID: String?
+    var conversationID: String? {
+        didSet {
+            guard conversationID != oldValue else { return }
+            outstanding = nil
+            landedRequest = nil
+        }
+    }
     var onRevealEndVisible: (UUID) -> Void = { _ in }
     var onRevealLanded: (UUID) -> Void = { _ in }
+    var onLandedEndVisible: ((UUID) -> Void)?
     var onPersonScroll: () -> Void = {}
     var onPersonInput: () -> Void = {}
     var onOwnSendLanded: () -> Void = {}
@@ -158,7 +169,7 @@ final class OpeningPinView: NSView {
         didSet {
             guard ownSendLanding != oldValue else { return }
             landingCheck?.cancel()
-            if ownSendLanding { followingOwnSend = true; schedulePin(); scheduleLandingCheck() }
+            if ownSendLanding { landedRequest = nil; followingOwnSend = true; schedulePin(); scheduleLandingCheck() }
         }
     }
     /// After the person's own send, document growth is pinned to the end until the person
@@ -176,6 +187,10 @@ final class OpeningPinView: NSView {
     private var viewportSize = NSSize.zero
     /// The newest reveal whose own row has not yet been presented in the clip.
     private var outstanding: (request: UUID, target: String?)?
+    /// Keep observing geometry after landing: a later shrink need not remount
+    /// the lazy end marker. Input, another reveal, an own send, a conversation
+    /// change, matching abandonment or pin teardown ends this watch.
+    private var landedRequest: UUID?
     /// The newest request the view abandoned. Its notice can reach the pin before
     /// the request's own does, so a request already abandoned never becomes outstanding.
     private var abandoned: UUID?
@@ -203,6 +218,7 @@ final class OpeningPinView: NSView {
             self.personScrolled = true
             self.followingOwnSend = false
             self.ownSendLanding = false
+            self.landedRequest = nil
             if let request = note.userInfo?["request"] as? UUID, request != self.abandoned {
                 self.outstanding = (request, note.userInfo?["target"] as? String)
             }
@@ -213,6 +229,7 @@ final class OpeningPinView: NSView {
                   let request = note.userInfo?["request"] as? UUID else { return }
             self.abandoned = request
             if self.outstanding?.request == request { self.outstanding = nil }
+            if self.landedRequest == request { self.landedRequest = nil }
         })
         observers.append(center.addObserver(forName: .conversationRowScrollCompleted, object: nil,
                                              queue: .main) { [weak self] note in
@@ -262,6 +279,7 @@ final class OpeningPinView: NSView {
         inputMonitor = nil
         scroll = nil
         outstanding = nil
+        landedRequest = nil
         followingOwnSend = false
         ownSendLanding = false
     }
@@ -277,13 +295,26 @@ final class OpeningPinView: NSView {
     /// Presented geometry decides a reveal after each change while it is outstanding:
     /// the clip, the document, or the target's mark moving in the document.
     private func scheduleRevealCheck(_ source: String) {
-        guard outstanding != nil, !revealCheckScheduled else { return }
+        guard outstanding != nil || landedRequest != nil, !revealCheckScheduled else { return }
         revealCheckScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.revealCheckScheduled = false
-            if let request = self.outstanding?.request { self.checkReveal(request, source: source) }
+            if let request = self.outstanding?.request {
+                self.checkReveal(request, source: source)
+            } else if let request = self.landedRequest, let scroll = self.scroll,
+                      let document = scroll.documentView {
+                let clip = scroll.contentView.bounds
+                let distance = self.distanceFromEnd(in: document, clip: clip)
+                if distance <= Theme.space.column + 1 {
+                    (self.onLandedEndVisible ?? self.onRevealEndVisible)(request)
+                }
+            }
         }
+    }
+
+    private func distanceFromEnd(in document: NSView, clip: NSRect) -> CGFloat {
+        document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
     }
 
     /// A reveal is outstanding until its own row is presented in the clip. Until
@@ -295,7 +326,7 @@ final class OpeningPinView: NSView {
         guard let scroll, let document = scroll.documentView,
               let pending = outstanding, pending.request == request else { return }
         let clip = scroll.contentView.bounds
-        let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+        let distance = self.distanceFromEnd(in: document, clip: clip)
         let presented = targetPresented(pending.target, in: scroll)
         #if SUBFLEET_VIEW_TEST
         if let conversationID {
@@ -305,6 +336,7 @@ final class OpeningPinView: NSView {
         #endif
         if presented {
             outstanding = nil
+            landedRequest = request
             onRevealLanded(request)
         }
         if presented && distance <= Theme.space.column + 1 { onRevealEndVisible(request) }
@@ -330,6 +362,7 @@ final class OpeningPinView: NSView {
         // Cancel queued re-pins immediately, before SwiftUI publishes the new state.
         followingOwnSend = false
         ownSendLanding = false
+        landedRequest = nil
         onPersonInput()
         guard let request = outstanding?.request else { return }
         outstanding = nil
@@ -339,7 +372,7 @@ final class OpeningPinView: NSView {
         DispatchQueue.main.async { [weak self] in
             guard let self, let scroll = self.scroll, let document = scroll.documentView else { return }
             let clip = scroll.contentView.bounds
-            let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+            let distance = self.distanceFromEnd(in: document, clip: clip)
             if distance <= Theme.space.column + 1 { self.onRevealEndVisible(request) }
         }
     }
@@ -406,7 +439,7 @@ final class OpeningPinView: NSView {
             // Applying layout can itself grow the document and schedule a new check.
             guard self.ownSendLanding, self.landingRevision == revision else { return }
             let clip = scroll.contentView.bounds
-            let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+            let distance = self.distanceFromEnd(in: document, clip: clip)
             if distance <= Theme.space.column + 1 {
                 self.ownSendLanding = false
                 self.onOwnSendLanded()
