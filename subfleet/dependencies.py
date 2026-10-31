@@ -244,7 +244,7 @@ class _Aliases:
         resolved = self.resolve(path)
         try:
             value = os.fsdecode(read_regular(path, limit=_FILE_LIMIT))
-            self.files.add(resolved)
+            self.files.add(folders.canonical(resolved))
         except NotADirectoryError:
             value = None
         except (OSError, ValueError) as exc:
@@ -264,7 +264,7 @@ class _Aliases:
             with os.scandir(directory) as entries:
                 for entry in entries:
                     if entry.is_symlink():
-                        self.entries.add(self.resolve(entry.path))
+                        self.entries.add(folders.canonical(self.resolve(entry.path)))
         except FileNotFoundError:
             pass
         except OSError as exc:
@@ -273,6 +273,7 @@ class _Aliases:
 
     def locations(self, start: str, recorded: list[str]) -> list[str]:
         """Keep physical entries without following them again during spelling."""
+        start = folders.canonical(start)
         ancestors = {start, *folders.above(start)}
         locations = {place for place in self.links | self.files
                      if os.path.dirname(place) not in ancestors}
@@ -401,7 +402,7 @@ def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None,
             try:
                 with open_regular(filename) as stream:
                     opened = True
-                    aliases.files.add(resolved)
+                    aliases.files.add(folders.canonical(resolved))
                     before = os.fstat(stream.fileno())
                     while line := stream.readline(_ALTERNATE_LINE_LIMIT + 1):
                         if len(line) > _ALTERNATE_LINE_LIMIT:

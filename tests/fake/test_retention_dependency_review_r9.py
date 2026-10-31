@@ -21,7 +21,6 @@ def data_alias(path):
     return alias
 
 
-@pytest.mark.xfail(strict=True, reason='R9-F1: auxiliary metadata locations retain a Data-volume alias that misses the canonical owner tree')
 @pytest.mark.parametrize('layout', ['gitfile', 'commondir', 'alternates', 'objects-pack'])
 def test_firmlink_metadata_location_keeps_the_tree_real_git_reads(world, layout, record_property):
     tree = world.job('owner').resolve()

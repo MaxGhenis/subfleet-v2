@@ -1,0 +1,146 @@
+{
+  "name": "red-r9",
+  "start": "2026-10-31T09:58:02.349642+00:00",
+  "load": [
+    36.8681640625,
+    34.80078125,
+    36.20703125
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_review_r9.py",
+    "--runxfail"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6967008749998058,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.9955278339984943,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads\n    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stabl...ytes_before': 48778, 'bytes_after': 0, ...}, b'fatal: not a git repository (or any of the parent directories): .git\nE     ')\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002778791000309866,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.42384379200302646,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 2.5957359580024786,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads\n    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin...-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin/commondir: No such file or directory\nE     ')\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004054125001857756,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5239855839972734,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 2.0823097499996948,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads\n    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin...'bytes_after': 0, ...}, b\"fatal: path 'owner-only.txt' does not exist in '04d6053d16a3af4026a0c49ae67891f9d3eb9f4f'\nE     \")\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002384874998824671,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9413430000022345,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 5.030712457999471,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads\n    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stabl...[], 'bytes_before': 50708, 'bytes_after': 0, ...}, b\"fatal: path 'owner-only.txt' exists on disk, but not in 'HEAD'\nE     \")\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06477995800014469,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "key": "R9-F1",
+      "value": "{\"after\": 128, \"alias\": \"/System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"fatal: not a git repository (or any of the parent directories): .git\\n\", \"layout\": \"gitfile\", \"physical\": \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git\", \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git/objects\", \"/System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 22996, \"archived_bytes\": 49535, \"bytes_after\": 0, \"bytes_before\": 48778, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22996, \"archived_bytes\": 49535, \"bytes_after\": 0, \"bytes_before\": 48778, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "key": "R9-F1",
+      "value": "{\"after\": 128, \"alias\": \"/System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"fatal: failed to read /private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin/commondir: No such file or directory\\n\", \"layout\": \"commondir\", \"physical\": \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin\", \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git\", \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git/objects\", \"/System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 23161, \"archived_bytes\": 49526, \"bytes_after\": 0, \"bytes_before\": 48769, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 23161, \"archived_bytes\": 49526, \"bytes_after\": 0, \"bytes_before\": 48769, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "key": "R9-F1",
+      "value": "{\"after\": 128, \"alias\": \"/System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"fatal: path 'owner-only.txt' does not exist in '04d6053d16a3af4026a0c49ae67891f9d3eb9f4f'\\n\", \"layout\": \"alternates\", \"physical\": \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin\", \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin/objects\", \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/stable/.git/objects\", \"/System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 23162, \"archived_bytes\": 49536, \"bytes_after\": 0, \"bytes_before\": 48779, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 23162, \"archived_bytes\": 49536, \"bytes_after\": 0, \"bytes_before\": 48779, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]",
+      "key": "R9-F1",
+      "value": "{\"after\": 128, \"alias\": \"/System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/state/worktrees/owner/packs\", \"before\": 0, \"error_after\": \"fatal: path 'owner-only.txt' exists on disk, but not in 'HEAD'\\n\", \"layout\": \"objects-pack\", \"physical\": \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/state/worktrees/owner/packs\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git\", \"/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git/objects\", \"/System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/red-r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/state/worktrees/owner/packs\"]}, \"result\": {\"added_bytes\": 24066, \"archived_bytes\": 51465, \"bytes_after\": 0, \"bytes_before\": 50708, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24066, \"archived_bytes\": 51465, \"bytes_after\": 0, \"bytes_before\": 50708, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:58:27.309411+00:00",
+  "seconds": 24.958304125000723,
+  "peak_rss_mib": 115.984375,
+  "exit": 1
+}
