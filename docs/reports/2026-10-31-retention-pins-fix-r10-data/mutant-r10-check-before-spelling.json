@@ -1,0 +1,60 @@
+{
+  "name": "mutant-r10-check-before-spelling",
+  "start": "2026-10-31T13:48:18.675355+00:00",
+  "load": [
+    26.88427734375,
+    55.97607421875,
+    77.68310546875
+  ],
+  "pytest_pid": 46287,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "--mutant",
+    "r10-check-before-spelling",
+    "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 9.403955958005099,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.2773784580058418,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_cycles.py:149: in test_scan_retargeted_into_cycle_before_spelling_is_incomplete\n    assert any(error[\"file\"] == str(entry) and \"alias changed\" in error[\"reason\"]\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r10/real-tmp/mutant-r10-check-before-spelling/pytest-of-maxghenis/pytest-0/test_scan_r.../mutant-r10-check-before-spelling/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git/objects']}\nE   assert False\nE    +  where False = any(<generator object test_scan_retargeted_into_cycle_before_spelling_is_incomplete.<locals>.<genexpr> at 0x108410e50>)"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006855000028735958,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+      "mutated": "2afdeda51238a7aaa3d0b009f3cf3b6a061f6fa6a6b3e53f57f2a5ce3fe1e067"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T13:49:07.332304+00:00",
+  "seconds": 48.65615791700111,
+  "peak_rss_mib": 110.15625,
+  "exit": 1
+}
