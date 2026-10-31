@@ -45,7 +45,6 @@ def test_users_home_firmlink_preserves_owner_through_retention(monkeypatch, layo
         shutil.rmtree(base)
 
 
-@pytest.mark.xfail(strict=True, reason='R10-F1: returned scan targets in suffix-growing symlink cycles violate the new spelling invariant')
 @pytest.mark.parametrize('cycle', ['self-suffix', 'two-link-suffix'])
 def test_returned_cycle_target_obeys_the_claimed_spelling_invariant(tmp_path, cycle, record_property):
     import json

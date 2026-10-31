@@ -160,9 +160,17 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
             gitdir = _gitfile(dotgit, folder, aliases=aliases)
             if gitdir is not None:
                 found.extend(_storage(gitdir, named=True, incomplete=incomplete, aliases=aliases))
+    spelled = (folders.canonical(each) for each in found)
+    recorded = list(dict.fromkeys(each for each in spelled if _spelled_location(each)))
+    result = recorded + aliases.locations(start, recorded)
     aliases.check(incomplete)
-    recorded = list(dict.fromkeys(folders.canonical(each) for each in found))
-    return recorded + aliases.locations(start, recorded)
+    return result
+
+
+def _spelled_location(place: str) -> bool:
+    """Both spelling equations for a place other than a physical link entry."""
+    return (os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place
+            and folders.canonical(place) == place)
 
 
 def _text(path: str) -> str | None:
@@ -282,7 +290,8 @@ class _Aliases:
                      if os.path.dirname(place) not in ancestors}
         # A resolved storage target can be a sibling of the checkout. Its
         # parent being an ancestor does not make that target part of the job.
-        return sorted(place for place in locations | self.entries
+        entries = {place for place in self.entries if _spelled_location(place)}
+        return sorted(place for place in locations | entries
                       if not any(folders.within(place, each) for each in recorded))
 
     def check(self, incomplete: list[dict[str, str]] | None) -> None:
