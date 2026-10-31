@@ -101,7 +101,11 @@ def test_readable_repository_beside_cycle_keeps_every_place(tmp_path, route, cyc
                                                           git_exit, error_count):
     checkout = cycle_route(tmp_path, route, cycle)
     stable = repo(tmp_path.resolve() / "stable")
-    before = dependencies.git_storage(str(stable))
+    # The input-head comparison pins these two places for the healthy sibling;
+    # an empty result from a broken filter must not become its own oracle.
+    before = [folders.canonical(stable / ".git"),
+              folders.canonical(stable / ".git" / "objects")]
+    assert dependencies.git_storage(str(stable)) == before
     # One discovery includes both inputs, as a job and its review root do.
     recorded = dependencies.record(str(checkout), review_root=str(stable))
     assert set(before) <= set(recorded.get("git", [])), recorded

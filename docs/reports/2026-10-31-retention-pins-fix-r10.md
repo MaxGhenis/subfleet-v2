@@ -27,3 +27,5 @@ All seven ordinary green files and all ten linked-TMPDIR files pass. The origina
 All five routine controls equal the input-head reader exactly (plain 2, worktree 3, shared 3, git-new-workdir 3, no-Git 0 storage places). The older r7/r6 hold passes 28. The r5/whitespace hold stopped at its nine-minute guard after 49 passes; the remaining 20 nodes will run in selections of ten. R4/r2 is split into six sequential holds.
 
 Completed checkpoint: all ten linked files pass; r7/r6 passes 28, r4 passes 53 across its split selections, r3 passes 6 and r2 passes 21. R5 has 49 passing nodes before its guard and 20 nodes queued for bounded reruns. The exact healthy-sibling oracle awaits its focused linked rerun. No product code changed after b2cc28d35.
+
+The exact healthy-sibling oracle now passes all nine linked-TMPDIR rows: each must retain its two input-head storage places. All 16 named mutants have completed and their receipt comparisons match all 13 r9 assertions and all nine r8 assertions.

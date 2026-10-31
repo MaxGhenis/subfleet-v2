@@ -1,5 +1,7 @@
 """One locked, foreground pytest, with durable per-test evidence and a 9 minute bound."""
 import datetime
+import functools
+import traceback
 import hashlib
 import importlib
 import json
@@ -116,6 +118,29 @@ class Evidence:
         if module is not None:
             record['product_file'] = module.__file__
             record['product_sha256'] = hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
+        for item in session.items:
+            if (item.nodeid.startswith('tests/unit/test_retention_dependency_properties.py::')
+                    and hasattr(item.obj, 'hypothesis')):
+                original = item.obj.hypothesis.inner_test
+                progress = dict(passed=0, failures=[], interrupted=0)
+                record.setdefault('example_progress', {})[item.nodeid] = progress
+                @functools.wraps(original)
+                def observed(*args, original=original, progress=progress, **kwargs):
+                    try:
+                        result = original(*args, **kwargs)
+                        progress['passed'] += 1
+                        return result
+                    except KeyboardInterrupt:
+                        progress['interrupted'] += 1
+                        raise
+                    except BaseException as exc:
+                        progress['failures'].append(dict(arguments=repr(kwargs or args),
+                            error=repr(exc), traceback=traceback.format_exc()))
+                        raise
+                    finally:
+                        if progress['failures'] or progress['interrupted'] or progress['passed'] % 10 == 0:
+                            (DATA / (name + '.json')).write_text(json.dumps(record, indent=2))
+                item.obj.hypothesis.inner_test = observed
         (DATA / (name + '.json')).write_text(json.dumps(record, indent=2))
 
     def pytest_runtest_logreport(self, report):
