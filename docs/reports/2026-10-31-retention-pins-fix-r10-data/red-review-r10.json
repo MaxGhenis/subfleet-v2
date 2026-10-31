@@ -1,0 +1,386 @@
+{
+  "name": "red-review-r10",
+  "start": "2026-10-31T11:35:55.192116+00:00",
+  "load": [
+    45.5146484375,
+    49.87353515625,
+    47.95068359375
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_review_r10.py",
+    "--runxfail"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.3346287499953178,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.048829167004442,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0056933340019895695,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-normalization]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8692614579995279,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-normalization]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0704056250033318,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-normalization]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.010162250000576023,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.2531687090013293,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7705272499952116,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0023658329955651425,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-normalization]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9280251250020228,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-normalization]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3433426659976249,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-normalization]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1738404579955386,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6172264589986298,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6995463750063209,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.14761329099565046,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-normalization]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8081321669960744,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-normalization]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.268849082996894,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-normalization]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.2714152499975171,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.160107124997012,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.036240875000658,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03196620800008532,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-normalization]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.9301566669964814,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-normalization]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.913014874997316,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-normalization]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.16045104200020432,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003110833997197915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.206991917002597,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042695899901445955,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[objects-pack]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.046456916999886744,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[objects-pack]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.478746082997532,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[objects-pack]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004457499962882139,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027520829971763305,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 4.522648083002423,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r10.py:75: in test_returned_cycle_target_obeys_the_claimed_spelling_invariant\n    assert_location_spelling(checkout, recorded.get('git', []))\ntests/unit/test_retention_location_spelling.py:64: in assert_location_spelling\n    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place\nE   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\nE   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'\nE     \nE     Skipping 424 identical leading characters in diff, use -v to show\nE     - l/tail/tail\nE     + l/tail/tail/tail\nE     ?            +++++"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002472499996656552,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017281250038649887,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.8603418330021668,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r10.py:75: in test_returned_cycle_target_obeys_the_claimed_spelling_invariant\n    assert_location_spelling(checkout, recorded.get('git', []))\ntests/unit/test_retention_location_spelling.py:64: in assert_location_spelling\n    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place\nE   AssertionError: /private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\nE   assert '/private/tmp...il/extra/tail' == '/private/tmp...il/extra/tail'\nE     \nE     Skipping 462 identical leading characters in diff, use -v to show\nE     - /extra/tail\nE     + /extra/tail/extra/tail"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000951834001170937,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-case]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/PRIVATE/TMP/SF-FIX272R10/REAL-TMP/RED-REVIEW-R10/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_OTHER_SPELLING_PRESERVES_0/R\\u00c9SUM\\u00c9/STATE/WORKTREES/OWNER/POINTER\", \"before\": 0, \"error_after\": \"\", \"layout\": \"gitfile\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_0/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_0/r\\u00e9sum\\u00e9/stable/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_0/r\\u00e9sum\\u00e9/stable/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_0/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48813, \"bytes_before\": 48813, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48813, \"bytes_before\": 48813, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-normalization]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_1/re\\u0301sume\\u0301/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"\", \"layout\": \"gitfile\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_1/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_1/r\\u00e9sum\\u00e9/stable/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_1/r\\u00e9sum\\u00e9/stable/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_1/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48815, \"bytes_before\": 48815, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48815, \"bytes_before\": 48815, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-case]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/PRIVATE/TMP/SF-FIX272R10/REAL-TMP/RED-REVIEW-R10/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_OTHER_SPELLING_PRESERVES_2/R\\u00c9SUM\\u00c9/STATE/WORKTREES/OWNER/POINTER\", \"before\": 0, \"error_after\": \"\", \"layout\": \"commondir\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_2/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_2/r\\u00e9sum\\u00e9/admin\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_2/r\\u00e9sum\\u00e9/stable/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_2/r\\u00e9sum\\u00e9/stable/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_2/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48807, \"bytes_before\": 48807, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48807, \"bytes_before\": 48807, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-normalization]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_3/re\\u0301sume\\u0301/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"\", \"layout\": \"commondir\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_3/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_3/r\\u00e9sum\\u00e9/admin\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_3/r\\u00e9sum\\u00e9/stable/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_3/r\\u00e9sum\\u00e9/stable/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_3/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48806, \"bytes_before\": 48806, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48806, \"bytes_before\": 48806, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-case]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/PRIVATE/TMP/SF-FIX272R10/REAL-TMP/RED-REVIEW-R10/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_OTHER_SPELLING_PRESERVES_4/R\\u00c9SUM\\u00c9/STATE/WORKTREES/OWNER/POINTER\", \"before\": 0, \"error_after\": \"\", \"layout\": \"alternates\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_4/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_4/r\\u00e9sum\\u00e9/admin\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_4/r\\u00e9sum\\u00e9/admin/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_4/r\\u00e9sum\\u00e9/stable/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_4/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48814, \"bytes_before\": 48814, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48814, \"bytes_before\": 48814, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-normalization]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_5/re\\u0301sume\\u0301/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"\", \"layout\": \"alternates\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_5/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_5/r\\u00e9sum\\u00e9/admin\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_5/r\\u00e9sum\\u00e9/admin/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_5/r\\u00e9sum\\u00e9/stable/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_5/r\\u00e9sum\\u00e9/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48813, \"bytes_before\": 48813, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48813, \"bytes_before\": 48813, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-case]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/PRIVATE/TMP/SF-FIX272R10/REAL-TMP/RED-REVIEW-R10/PYTEST-OF-MAXGHENIS/PYTEST-0/TEST_OTHER_SPELLING_PRESERVES_6/R\\u00c9SUM\\u00c9/STATE/WORKTREES/OWNER/PACKS\", \"before\": 0, \"error_after\": \"\", \"layout\": \"objects-pack\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_6/r\\u00e9sum\\u00e9/state/worktrees/owner/packs\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_6/r\\u00e9sum\\u00e9/stable/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_6/r\\u00e9sum\\u00e9/stable/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_6/r\\u00e9sum\\u00e9/state/worktrees/owner/packs\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50727, \"bytes_before\": 50727, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50727, \"bytes_before\": 50727, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-normalization]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_7/re\\u0301sume\\u0301/state/worktrees/owner/packs\", \"before\": 0, \"error_after\": \"\", \"layout\": \"objects-pack\", \"physical\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_7/r\\u00e9sum\\u00e9/state/worktrees/owner/packs\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_7/r\\u00e9sum\\u00e9/stable/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_7/r\\u00e9sum\\u00e9/stable/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_other_spelling_preserves_7/r\\u00e9sum\\u00e9/state/worktrees/owner/packs\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50727, \"bytes_before\": 50727, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50727, \"bytes_before\": 50727, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[gitfile]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/System/Volumes/Data/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/gitfile/state/worktrees/owner/pointer\", \"before\": 0, \"error_after\": \"\", \"layout\": \"gitfile\", \"physical\": \"/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/gitfile/state/worktrees/owner/pointer\", \"recorded\": {\"git\": [\"/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/gitfile/stable/.git\", \"/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/gitfile/stable/.git/objects\", \"/Users/maxghenis/subfleet-v2/.git/worktrees/20261031-073332-pr272-fix-r10\", \"/Users/maxghenis/subfleet-v2/.git\", \"/Users/maxghenis/subfleet-v2/.git/objects\", \"/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/gitfile/state/worktrees/owner/pointer\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48764, \"bytes_before\": 48764, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48764, \"bytes_before\": 48764, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[objects-pack]",
+      "key": "R9-F1",
+      "value": "{\"after\": 0, \"alias\": \"/System/Volumes/Data/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/objects-pack/state/worktrees/owner/packs\", \"before\": 0, \"error_after\": \"\", \"layout\": \"objects-pack\", \"physical\": \"/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/objects-pack/state/worktrees/owner/packs\", \"recorded\": {\"git\": [\"/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/objects-pack/stable/.git\", \"/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/objects-pack/stable/.git/objects\", \"/Users/maxghenis/subfleet-v2/.git/worktrees/20261031-073332-pr272-fix-r10\", \"/Users/maxghenis/subfleet-v2/.git\", \"/Users/maxghenis/subfleet-v2/.git/objects\", \"/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/sf-r272r10-fixtures/objects-pack/state/worktrees/owner/packs\"]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50706, \"bytes_before\": 50706, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50706, \"bytes_before\": 50706, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+      "key": "R10-F1",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"]}, \"respelled\": {\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"}, \"status\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]",
+      "key": "R10-F1",
+      "value": "{\"cycle\": \"two-link-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\"]}, \"respelled\": {\"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\": \"/private/tmp/sf-fix272r10/real-tmp/red-review-r10/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\"}, \"status\": 0}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-case]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-normalization]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-case]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-normalization]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-case]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-normalization]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-case]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-normalization]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[gitfile]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[objects-pack]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]",
+    "tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T11:37:12.887925+00:00",
+  "seconds": 77.69459104199632,
+  "peak_rss_mib": 114.0,
+  "exit": 1
+}

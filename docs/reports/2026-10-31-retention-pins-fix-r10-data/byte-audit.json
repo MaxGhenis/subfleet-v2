@@ -1,0 +1,22 @@
+{
+  "tests/unit/test_retention_location_spelling.py": {
+    "unchanged": true,
+    "sha256": "2a59463e180a0d323b752d197caa07b8f68d979fb24f384cf88f02816b3ff8e1"
+  },
+  "tests/unit/test_retention_location_inputs.py": {
+    "unchanged": true,
+    "sha256": "85ad31cd7dab3317625cd031cd3436ec139a6bae9173185704c550c92ad10827"
+  },
+  "docs/acceptance-contract.md": {
+    "unchanged": true,
+    "sha256": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7"
+  },
+  "tests/fake/test_retention_dependency_review_r10.py": {
+    "only_strict_mark_removed": true,
+    "sha256": "a504135a94bf79c6478b41a8e934a99aeead224ba20b19b21a77c72bc41b88b2"
+  },
+  "baseline_snapshot": {
+    "sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+    "base": "475f6327890e"
+  }
+}
