@@ -1,0 +1,51 @@
+{
+  "name": "dependency-property-3",
+  "start": "2026-10-31T10:17:08.256727+00:00",
+  "load": [
+    34.0654296875,
+    34.0517578125,
+    34.56005859375
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "submitted_dependencies"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04736433300058707,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 24.603320707999956,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006417080003302544,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:17:42.976428+00:00",
+  "seconds": 34.71915679200174,
+  "peak_rss_mib": 125.890625,
+  "exit": 0
+}

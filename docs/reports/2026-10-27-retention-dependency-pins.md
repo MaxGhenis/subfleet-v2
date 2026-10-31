@@ -1,13 +1,14 @@
 # Retention dependency pins: review handoff, 2026-10-30
 
-**Fix round r8 records the physical metadata locations Git traverses.** It
-retains regular pointer files and component-wise symlink entries, checks the
-walked chain again, and scans one level of links in actual Git storage. The
-inferred parent stays a hint. Routine records match `373a7f5bf` exactly, and the
-focused property now rejects false incomplete evidence. The pointer property's
-physical-path comparison also works with linked `TMPDIR`. Retention stays
-dormant pending review r9 and completed CI. [Fix round r8](2026-10-31-retention-pins-fix-r8.md)
-contains the current evidence; earlier counts remain dated history.
+**Fix round r9 repairs R9-F1: every returned discovery place now has one spelling.** Successful physical pointer files and resolved scan targets take `folders.canonical`; physical symlink entries retain canonical parent plus entry name. Spelling the supplied start before routine-location comparisons keeps routine records unchanged through accepted aliases. Discovery stays outside transactions. Retention remains dormant pending approving review r10 and completed CI.
+
+## Review r9 and fix round r9
+
+Review r9 at `a3b9cc246` found **R9-F1 (P2)**: successful physical pointer files and scanned targets reached through a Data-volume alias retained the walk's spelling, missing a canonical owner tree. Four healthy Git fixtures recorded complete evidence, retired the required owner and then read 128. The hub committed review evidence unchanged at `236c80883`.
+
+Fix r9 canonicalizes the three auxiliary sites and start before routine-location comparisons, preserving physical link-entry names and discovery outside transactions. All four red cases pass; five routine records equal `236c80883`; all 55 generated spelling inputs cover all 33 classes without skips. The four site mutants and generated-only reversions are detected; all nine r8 mutants die at the same assertions. The requested holds pass, with the six documented archive controls rerun using worktree TMPDIR. D-R8-2 records unused target/input-link extras without broad descendant pins or complete terminal Git pins. No reader was widened; C-8.3/C-8.4 are unchanged.
+
+[Fix round r9](2026-10-31-retention-pins-fix-r9.md) contains the current tables, UTC starts/loads, PR-body replacements and delivery details. Retention remains dormant pending approving review r10 and completed CI. Earlier rounds below are dated history.
 
 ## Review r8 and fix round r8
 

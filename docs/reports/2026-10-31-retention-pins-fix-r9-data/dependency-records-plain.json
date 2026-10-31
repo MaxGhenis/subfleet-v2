@@ -1,0 +1,1250 @@
+{
+  "name": "dependency-records-plain",
+  "start": "2026-10-31T10:19:17.380706+00:00",
+  "load": [
+    30.66455078125,
+    33.12255859375,
+    34.14599609375
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_units.py",
+    "tests/fake/test_retention_dependencies.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.09323562500139815,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.14842033400054788,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004555000014079269,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002097250002407236,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.12167054199744598,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005820830010634381,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0013982919990667142,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.10417587499978254,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009507079994364176,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0058186670030409005,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.05425699999977951,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004985000014130492,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00234262500089244,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.21224583400180563,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005288329994073138,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003118874999927357,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0013697079994017258,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00024820800172165036,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0019237080014136154,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.598000999998476,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004217080022499431,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017320839979220182,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 17.38393695799823,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006204170022101607,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0033497920012450777,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.043228750000708,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000224584000534378,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0117854999989504,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0352203330003249,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00027558299916563556,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0013102919983793981,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.006614042002183851,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00022383299801731482,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018137080005544703,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.01048679199811886,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000139667001349153,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010042079993581865,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18021495799985132,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005112910002935678,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004355208002380095,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.654183083999669,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00023904100089566782,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0011843339998449665,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.006236582998099038,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002405420018476434,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024370829996769316,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.27196441699925344,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005047499980719294,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3369047500018496,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.056933707997814054,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017610839968256187,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.32486324999990757,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.056337624999287,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024428750002698507,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024321249984495807,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.01062525000088499,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00026008300119428895,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032291669995174743,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5709664169989992,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00044991699905949645,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030260409985203296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.27182354099932127,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002593749995867256,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003945458000089275,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.866896291001467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005357909976737574,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004147084000578616,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4168049170002632,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004832500017073471,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027461249992484227,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.497430790997896,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005674999993061647,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0035645419993670657,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3283909589990799,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002687499982130248,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014399579995370004,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3788388749999285,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005530829985218588,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.022466791000624653,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.36985291699966183,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007049580017337576,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006304332997387974,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.530467917000351,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005052499982411973,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002711834000365343,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5340890000006766,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005411250022007152,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009638667001127033,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3527691669987689,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005337920010788366,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009926708000421058,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.29977224999674945,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004961249978805427,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03760708299887483,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.36356862500178977,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00023008399875834584,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015120829993975349,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.38963391699871863,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005545830026676413,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002542041002016049,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4591960839970852,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00046058299994911067,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024627500024507754,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2888859999984561,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00043229199945926666,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.061515082998084836,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.37666916600210243,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00040708299638936296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0025587500022083987,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7329452080011833,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004897079998045228,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002811999998812098,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7297537080012262,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006641250001848675,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002949417001218535,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.287734041998192,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00046808299885015003,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014882920004311018,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5426974580004753,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003229159992770292,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015372910020232666,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4480302920019312,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005551249996642582,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.010174709001148585,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.359864333000587,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00029237499984446913,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001267625000764383,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3948653330007801,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00036100000215810724,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017320410006504972,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5148984160005057,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005072919993835967,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.022762583001167513,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4212485829993966,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00031525000304100104,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015171249979175627,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0001674169980105944,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00014116699821897782,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010628750023897737,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.454099952359684e-05,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00010795799971674569,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016302791998896282,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0001447079994250089,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00013004200081923045,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010810839994519483,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.583399903727695e-05,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003375829983269796,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+    "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+    "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+    "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+    "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+    "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+    "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+    "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+    "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+    "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+    "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+    "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:20:13.032461+00:00",
+  "seconds": 55.65097116600009,
+  "peak_rss_mib": 131.234375,
+  "exit": 0
+}

@@ -640,6 +640,13 @@ fix r8's executed converse-bound counterexample shows. Missing storage directori
 Locations already inside a recorded place, or directly inside the job's folder
 or one of its ancestors, add no pin. This does not scan an inferred parent or
 its objects; the hint reads only the storage and alternates already described.
+Every returned place uses one spelling: physical file locations and resolved
+scan targets take `folders.canonical`, including Data-volume, letter-case and
+Unicode-normalization aliases the volume accepts. Physical link entries keep
+their canonical parent plus their own name. The supplied folder is spelled
+before the routine-location comparison with it and its ancestors. This work
+stays outside store transactions. Without checkout metadata, the input walk
+can still record physical symlink entries used to reach the supplied folder.
 Gitfiles require the literal `gitdir: ` prefix;
 their targets and `commondir` targets lose only trailing CR and LF, preserving
 all other pathname bytes, including leading/trailing spaces and tabs.
@@ -719,6 +726,10 @@ nothing: retention may archive a tree a finished export wrote into, the file
 with it.
 
 ### Listed differences
+
+- **D-R8-2:** Auxiliary link discovery can retain an unused target or an
+  input-folder link outside Git; only a recorded path equal to or inside a
+  candidate tree pins it, and complete Git pins end with the job.
 
 - **D-R8-1:** A link deeper than one level inside a storage directory isn't read
   unless it occurs on another tracked metadata path. Examples include

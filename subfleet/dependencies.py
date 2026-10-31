@@ -135,9 +135,12 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
     keeps its own store plus a hint two levels up: that parent's folder,
     resolved objects and alternates, without reading its pointers), and
     `objects/info/alternates` (relative to the objects directory), followed five
-    levels deep as git follows them. Empty outside a checkout. What this cannot
-    read is left out: environment variables (`GIT_DIR`, `GIT_COMMON_DIR`) and
-    `core.worktree`, which a job's folder does not set."""
+    levels deep as git follows them. Without checkout metadata, discovery may
+    still retain physical symlink entries traversed to reach the supplied folder.
+    Every returned place has one spelling: canonical parent plus entry name for
+    a physical link entry, and `folders.canonical` for every other place.
+    What this cannot read is left out: environment variables (`GIT_DIR`,
+    `GIT_COMMON_DIR`) and `core.worktree`, which a job's folder does not set."""
     aliases = _Aliases()
     try:
         start = aliases.resolve(os.path.expanduser(path))
