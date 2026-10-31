@@ -1,0 +1,16 @@
+{
+  "name": "guards",
+  "start": "2026-10-31T05:39:12.033545+00:00",
+  "load": [
+    32.72314453125,
+    32.5576171875,
+    29.53271484375
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/fake/test_state_contract.py",
+    "tests/unit/test_test_module_names.py",
+    "tests/unit/test_invariants_index.py"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

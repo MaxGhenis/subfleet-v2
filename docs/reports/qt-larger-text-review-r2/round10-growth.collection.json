@@ -1,0 +1,4 @@
+[
+  "tests/frontend/test_review_r219_fix8_mutations.py::test_scripted_regrow_then_shrink_reaches_the_growth_mutant_check",
+  "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[growth_repins_dropped-quiet-regrow]"
+]

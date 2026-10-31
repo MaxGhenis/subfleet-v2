@@ -1,0 +1,5 @@
+[
+  "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[marker_releases_pending_reveal]",
+  "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[confirm_by_distance_only]",
+  "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[reveal_never_lands]"
+]

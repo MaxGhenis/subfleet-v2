@@ -1,0 +1,10 @@
+[
+  "tests/frontend/test_review_r219_fix10_view.py",
+  "tests/frontend/test_review_r219_fix10_view.py",
+  "tests/frontend/test_review_r219_fix10_view.py",
+  "tests/frontend/test_review_r219_fix10_view.py",
+  "tests/frontend/test_review_r219_fix10_view.py",
+  "--keep-duplicates",
+  "-k",
+  "(test_document_shrink_under_a_pending_reveal_releases_nothing or test_document_shrink_after_a_distant_reveal_lands_releases) and larger_text"
+]

@@ -1,0 +1,19 @@
+{
+  "name": "identity-replay-diagnostics",
+  "start": "2026-10-31T06:15:32.134316+00:00",
+  "load": [
+    29.990234375,
+    31.88427734375,
+    31.99658203125
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "docs/reports/qt-larger-text-review-r2/diagnostics.py",
+    "-s",
+    "-k",
+    "not six_release_sensitive"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

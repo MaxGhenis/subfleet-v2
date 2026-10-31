@@ -1,0 +1,15 @@
+{
+  "name": "resizes",
+  "start": "2026-10-31T05:54:40.202458+00:00",
+  "load": [
+    27.115234375,
+    28.52001953125,
+    29.22705078125
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_pr284_resizes.py",
+    "-s"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

@@ -1,0 +1,2038 @@
+{
+  "before_catchup": {
+    "content": 50308,
+    "from_end": 0,
+    "offset": 49825,
+    "viewport": 483
+  },
+  "documents": [
+    {
+      "at": 12.056224942207336,
+      "caught_up": false,
+      "content": 42966,
+      "cursor": 0,
+      "history_pages": 1,
+      "items": 121,
+      "position": {
+        "content": 42966,
+        "from_end": 0,
+        "offset": 42483,
+        "viewport": 483
+      },
+      "previous": 50308,
+      "resets": 0,
+      "rows": 121
+    },
+    {
+      "at": 12.101698994636536,
+      "caught_up": false,
+      "content": 43313,
+      "cursor": 0,
+      "history_pages": 1,
+      "items": 121,
+      "position": {
+        "content": 43313,
+        "from_end": 347,
+        "offset": 42483,
+        "viewport": 483
+      },
+      "previous": 42966,
+      "resets": 0,
+      "rows": 121
+    },
+    {
+      "at": 12.466325998306274,
+      "caught_up": false,
+      "content": 41876,
+      "cursor": 0,
+      "history_pages": 1,
+      "items": 121,
+      "position": {
+        "content": 41876,
+        "from_end": 0,
+        "offset": 41393,
+        "viewport": 483
+      },
+      "previous": 43313,
+      "resets": 0,
+      "rows": 121
+    },
+    {
+      "at": 12.488193988800049,
+      "caught_up": false,
+      "content": 42008,
+      "cursor": 0,
+      "history_pages": 1,
+      "items": 121,
+      "position": {
+        "content": 42008,
+        "from_end": 132,
+        "offset": 41393,
+        "viewport": 483
+      },
+      "previous": 41876,
+      "resets": 0,
+      "rows": 121
+    },
+    {
+      "at": 12.81581699848175,
+      "caught_up": false,
+      "content": 40910,
+      "cursor": 0,
+      "history_pages": 1,
+      "items": 121,
+      "position": {
+        "content": 40910,
+        "from_end": 0,
+        "offset": 40427,
+        "viewport": 483
+      },
+      "previous": 42008,
+      "resets": 0,
+      "rows": 121
+    },
+    {
+      "at": 12.821053981781006,
+      "caught_up": false,
+      "content": 40842,
+      "cursor": 0,
+      "history_pages": 1,
+      "items": 121,
+      "position": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "previous": 40910,
+      "resets": 0,
+      "rows": 121
+    },
+    {
+      "at": 13.249567031860352,
+      "caught_up": false,
+      "content": 51513,
+      "cursor": 0,
+      "history_pages": 1,
+      "items": 121,
+      "position": {
+        "content": 51513,
+        "from_end": 10671,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "previous": 40842,
+      "resets": 0,
+      "rows": 121
+    },
+    {
+      "at": 14.160084962844849,
+      "caught_up": false,
+      "content": 54766,
+      "cursor": 40,
+      "history_pages": 1,
+      "items": 134,
+      "position": {
+        "content": 54766,
+        "from_end": 13796,
+        "offset": 40487,
+        "viewport": 483
+      },
+      "previous": 51513,
+      "resets": 0,
+      "rows": 134
+    },
+    {
+      "at": 14.700348019599915,
+      "caught_up": false,
+      "content": 56437,
+      "cursor": 80,
+      "history_pages": 1,
+      "items": 148,
+      "position": {
+        "content": 56437,
+        "from_end": 1695,
+        "offset": 54259,
+        "viewport": 483
+      },
+      "previous": 54766,
+      "resets": 0,
+      "rows": 148
+    },
+    {
+      "at": 14.711328983306885,
+      "caught_up": false,
+      "content": 56023,
+      "cursor": 80,
+      "history_pages": 1,
+      "items": 148,
+      "position": {
+        "content": 56023,
+        "from_end": 0,
+        "offset": 55540,
+        "viewport": 483
+      },
+      "previous": 56437,
+      "resets": 0,
+      "rows": 148
+    },
+    {
+      "at": 15.416160941123962,
+      "caught_up": false,
+      "content": 57535,
+      "cursor": 120,
+      "history_pages": 1,
+      "items": 161,
+      "position": {
+        "content": 57535,
+        "from_end": 1536,
+        "offset": 55516,
+        "viewport": 483
+      },
+      "previous": 56023,
+      "resets": 0,
+      "rows": 161
+    },
+    {
+      "at": 15.429924964904785,
+      "caught_up": false,
+      "content": 57405,
+      "cursor": 120,
+      "history_pages": 1,
+      "items": 161,
+      "position": {
+        "content": 57405,
+        "from_end": 0,
+        "offset": 56922,
+        "viewport": 483
+      },
+      "previous": 57535,
+      "resets": 0,
+      "rows": 161
+    },
+    {
+      "at": 16.12601101398468,
+      "caught_up": false,
+      "content": 58876,
+      "cursor": 160,
+      "history_pages": 1,
+      "items": 174,
+      "position": {
+        "content": 58876,
+        "from_end": 1496,
+        "offset": 56897,
+        "viewport": 483
+      },
+      "previous": 57405,
+      "resets": 0,
+      "rows": 174
+    },
+    {
+      "at": 16.167760968208313,
+      "caught_up": false,
+      "content": 58762,
+      "cursor": 160,
+      "history_pages": 1,
+      "items": 174,
+      "position": {
+        "content": 58762,
+        "from_end": 0,
+        "offset": 58279,
+        "viewport": 483
+      },
+      "previous": 58876,
+      "resets": 0,
+      "rows": 174
+    },
+    {
+      "at": 16.801216959953308,
+      "caught_up": false,
+      "content": 60319,
+      "cursor": 200,
+      "history_pages": 1,
+      "items": 188,
+      "position": {
+        "content": 60319,
+        "from_end": 1581,
+        "offset": 58255,
+        "viewport": 483
+      },
+      "previous": 58762,
+      "resets": 0,
+      "rows": 188
+    },
+    {
+      "at": 16.819406032562256,
+      "caught_up": false,
+      "content": 60209,
+      "cursor": 200,
+      "history_pages": 1,
+      "items": 188,
+      "position": {
+        "content": 60209,
+        "from_end": 0,
+        "offset": 59726,
+        "viewport": 483
+      },
+      "previous": 60319,
+      "resets": 0,
+      "rows": 188
+    },
+    {
+      "at": 17.60115694999695,
+      "caught_up": false,
+      "content": 61634,
+      "cursor": 240,
+      "history_pages": 1,
+      "items": 201,
+      "position": {
+        "content": 61634,
+        "from_end": 1450,
+        "offset": 59701,
+        "viewport": 483
+      },
+      "previous": 60209,
+      "resets": 0,
+      "rows": 201
+    },
+    {
+      "at": 17.672703981399536,
+      "caught_up": false,
+      "content": 61561,
+      "cursor": 240,
+      "history_pages": 1,
+      "items": 201,
+      "position": {
+        "content": 61561,
+        "from_end": 0,
+        "offset": 61078,
+        "viewport": 483
+      },
+      "previous": 61634,
+      "resets": 0,
+      "rows": 201
+    },
+    {
+      "at": 18.29252302646637,
+      "caught_up": false,
+      "content": 62970,
+      "cursor": 280,
+      "history_pages": 1,
+      "items": 214,
+      "position": {
+        "content": 62970,
+        "from_end": 1434,
+        "offset": 61053,
+        "viewport": 483
+      },
+      "previous": 61561,
+      "resets": 0,
+      "rows": 214
+    },
+    {
+      "at": 18.316213965415955,
+      "caught_up": false,
+      "content": 62913,
+      "cursor": 280,
+      "history_pages": 1,
+      "items": 214,
+      "position": {
+        "content": 62913,
+        "from_end": 0,
+        "offset": 62430,
+        "viewport": 483
+      },
+      "previous": 62970,
+      "resets": 0,
+      "rows": 214
+    },
+    {
+      "at": 18.885596990585327,
+      "caught_up": false,
+      "content": 64800,
+      "cursor": 320,
+      "history_pages": 1,
+      "items": 228,
+      "position": {
+        "content": 64800,
+        "from_end": 1912,
+        "offset": 62405,
+        "viewport": 483
+      },
+      "previous": 62913,
+      "resets": 0,
+      "rows": 228
+    },
+    {
+      "at": 18.9760719537735,
+      "caught_up": false,
+      "content": 65017,
+      "cursor": 320,
+      "history_pages": 1,
+      "items": 228,
+      "position": {
+        "content": 65017,
+        "from_end": 217,
+        "offset": 64317,
+        "viewport": 483
+      },
+      "previous": 64800,
+      "resets": 0,
+      "rows": 228
+    },
+    {
+      "at": 19.456434965133667,
+      "caught_up": false,
+      "content": 66254,
+      "cursor": 360,
+      "history_pages": 1,
+      "items": 241,
+      "position": {
+        "content": 66254,
+        "from_end": 1454,
+        "offset": 64317,
+        "viewport": 483
+      },
+      "previous": 65017,
+      "resets": 0,
+      "rows": 241
+    },
+    {
+      "at": 19.556936025619507,
+      "caught_up": false,
+      "content": 67310,
+      "cursor": 360,
+      "history_pages": 1,
+      "items": 241,
+      "position": {
+        "content": 67310,
+        "from_end": 1056,
+        "offset": 65771,
+        "viewport": 483
+      },
+      "previous": 66254,
+      "resets": 0,
+      "rows": 241
+    },
+    {
+      "at": 19.62709403038025,
+      "caught_up": false,
+      "content": 67833,
+      "cursor": 360,
+      "history_pages": 1,
+      "items": 241,
+      "position": {
+        "content": 67833,
+        "from_end": 523,
+        "offset": 66827,
+        "viewport": 483
+      },
+      "previous": 67310,
+      "resets": 0,
+      "rows": 241
+    },
+    {
+      "at": 20.10243797302246,
+      "caught_up": false,
+      "content": 67947,
+      "cursor": 362,
+      "history_pages": 1,
+      "items": 242,
+      "position": {
+        "content": 67947,
+        "from_end": 637,
+        "offset": 66827,
+        "viewport": 483
+      },
+      "previous": 67833,
+      "resets": 0,
+      "rows": 242
+    },
+    {
+      "at": 20.591346979141235,
+      "caught_up": true,
+      "content": 67934,
+      "cursor": 362,
+      "history_pages": 1,
+      "items": 242,
+      "position": {
+        "content": 67934,
+        "from_end": 25,
+        "offset": 67426,
+        "viewport": 483
+      },
+      "previous": 67947,
+      "resets": 0,
+      "rows": 242
+    }
+  ],
+  "geometry": [
+    {
+      "at": 9.613319993019104,
+      "position": {
+        "content": 50308,
+        "from_end": 6641,
+        "offset": 43184,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 9.788668036460876,
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 12.055989980697632,
+      "position": {
+        "content": 42966,
+        "from_end": 0,
+        "offset": 42483,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 12.466092944145203,
+      "position": {
+        "content": 41876,
+        "from_end": 0,
+        "offset": 41393,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 12.815595030784607,
+      "position": {
+        "content": 40910,
+        "from_end": 0,
+        "offset": 40427,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 12.820915937423706,
+      "position": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 13.252179026603699,
+      "position": {
+        "content": 51513,
+        "from_end": 10543.13675213675,
+        "offset": 40486.86324786325,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 13.252318978309631,
+      "position": {
+        "content": 51513,
+        "from_end": 10543,
+        "offset": 40487,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 14.164724946022034,
+      "position": {
+        "content": 54766,
+        "from_end": 0,
+        "offset": 54283,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 14.259642958641052,
+      "position": {
+        "content": 54766,
+        "from_end": 24,
+        "offset": 54259,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 14.703266978263855,
+      "position": {
+        "content": 56437,
+        "from_end": 45,
+        "offset": 55909,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 14.711105942726135,
+      "position": {
+        "content": 56023,
+        "from_end": 0,
+        "offset": 55540,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 14.803506016731262,
+      "position": {
+        "content": 56023,
+        "from_end": 24,
+        "offset": 55516,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 15.421908974647522,
+      "position": {
+        "content": 57535,
+        "from_end": 34,
+        "offset": 57018,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 15.429711937904358,
+      "position": {
+        "content": 57405,
+        "from_end": 0,
+        "offset": 56922,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 15.585121035575867,
+      "position": {
+        "content": 57405,
+        "from_end": 25,
+        "offset": 56897,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 16.134161949157715,
+      "position": {
+        "content": 58876,
+        "from_end": 27,
+        "offset": 58366,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 16.167508959770203,
+      "position": {
+        "content": 58762,
+        "from_end": 0,
+        "offset": 58279,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 16.276445031166077,
+      "position": {
+        "content": 58762,
+        "from_end": 24,
+        "offset": 58255,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 16.806707978248596,
+      "position": {
+        "content": 60319,
+        "from_end": 28,
+        "offset": 59808,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 16.819156050682068,
+      "position": {
+        "content": 60209,
+        "from_end": 0,
+        "offset": 59726,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 17.000115990638733,
+      "position": {
+        "content": 60209,
+        "from_end": 25,
+        "offset": 59701,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 17.609495997428894,
+      "position": {
+        "content": 61634,
+        "from_end": 18,
+        "offset": 61133,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 17.67241096496582,
+      "position": {
+        "content": 61561,
+        "from_end": 0,
+        "offset": 61078,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 17.81097102165222,
+      "position": {
+        "content": 61561,
+        "from_end": 25,
+        "offset": 61053,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 18.299656987190247,
+      "position": {
+        "content": 62970,
+        "from_end": 15,
+        "offset": 62472,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 18.312018036842346,
+      "position": {
+        "content": 62913,
+        "from_end": 0,
+        "offset": 62430,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 18.464028000831604,
+      "position": {
+        "content": 62913,
+        "from_end": 25,
+        "offset": 62405,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 18.888010025024414,
+      "position": {
+        "content": 64800,
+        "from_end": 368,
+        "offset": 63949,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 18.97264003753662,
+      "position": {
+        "content": 64800,
+        "from_end": 0,
+        "offset": 64317,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 19.458436965942383,
+      "position": {
+        "content": 66254,
+        "from_end": 0,
+        "offset": 65771,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 19.62011694908142,
+      "position": {
+        "content": 67310,
+        "from_end": 0,
+        "offset": 66827,
+        "viewport": 483
+      }
+    },
+    {
+      "at": 20.112462043762207,
+      "position": {
+        "content": 67947,
+        "from_end": 38,
+        "offset": 67426,
+        "viewport": 483
+      }
+    }
+  ],
+  "held_before_reveal": true,
+  "inset": 40000,
+  "layout": {
+    "text_scale": 1.728,
+    "window_height": 760
+  },
+  "mode": "landed",
+  "readiness_waits": [
+    {
+      "elapsed": 0.0001150369644165039,
+      "wait": "scene.catchup_held_at_end"
+    },
+    {
+      "away_from_end": false,
+      "elapsed": 0.9686700105667114,
+      "stable": 3,
+      "wait": "stablePosition"
+    },
+    {
+      "elapsed": 1.0763479471206665,
+      "wait": "shrink.reveal_consumed"
+    },
+    {
+      "away_from_end": false,
+      "elapsed": 0.35040199756622314,
+      "stable": 3,
+      "wait": "stablePosition"
+    },
+    {
+      "elapsed": 1.1030009984970093,
+      "wait": "shrink.reveal_consumed"
+    },
+    {
+      "away_from_end": false,
+      "elapsed": 0.4417250156402588,
+      "stable": 3,
+      "wait": "stablePosition"
+    },
+    {
+      "elapsed": 1.1643660068511963,
+      "wait": "shrink.clamped"
+    },
+    {
+      "elapsed": 0.10978901386260986,
+      "wait": "shrink.regrown"
+    },
+    {
+      "elapsed": 0.5326420068740845,
+      "wait": "shrink.settling_tick"
+    },
+    {
+      "elapsed": 5.112092018127441,
+      "wait": "shrink.caught_up"
+    }
+  ],
+  "shrinks": [
+    {
+      "amount": 7560,
+      "applied": {
+        "content": 43313,
+        "from_end": 347,
+        "offset": 42483,
+        "viewport": 483
+      },
+      "at": 12.129596948623657,
+      "before": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "inset_before": 40000
+    },
+    {
+      "amount": 1313,
+      "applied": {
+        "content": 42008,
+        "from_end": 132,
+        "offset": 41393,
+        "viewport": 483
+      },
+      "at": 12.498571038246155,
+      "before": {
+        "content": 43313,
+        "from_end": 347,
+        "offset": 42483,
+        "viewport": 483
+      },
+      "inset_before": 32440
+    },
+    {
+      "amount": 1098,
+      "applied": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "at": 12.861188054084778,
+      "before": {
+        "content": 42008,
+        "from_end": 132,
+        "offset": 41393,
+        "viewport": 483
+      },
+      "inset_before": 31127
+    }
+  ],
+  "steps": [
+    {
+      "at": 9.032039999961853,
+      "position": {
+        "content": 50308,
+        "from_end": 0,
+        "offset": 49825,
+        "viewport": 483
+      },
+      "readiness": {
+        "catchup_pending": true,
+        "caught_up": false,
+        "cursor": 0,
+        "last_seq": 362,
+        "position": {
+          "content": 50308,
+          "from_end": 0,
+          "offset": 49825,
+          "viewport": 483
+        },
+        "reveal_pending": false,
+        "scene": "shrink-landed"
+      },
+      "reveal": {
+        "ended_by": "no request",
+        "outstanding": false
+      },
+      "stable": 3,
+      "step": "opened"
+    },
+    {
+      "at": 12.00404703617096,
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "readiness": {
+        "catchup_pending": true,
+        "caught_up": false,
+        "cursor": 0,
+        "last_seq": 362,
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "reveal_pending": false,
+        "scene": "shrink-landed"
+      },
+      "reveal": {
+        "ended_at": 11.517037987709045,
+        "ended_by": "reveal_landed",
+        "outstanding": false,
+        "requested_at": 11.512469053268433
+      },
+      "reveals": 2,
+      "stable": 3,
+      "step": "landed"
+    },
+    {
+      "at": 12.004421949386597,
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "readiness": {
+        "catchup_pending": true,
+        "caught_up": false,
+        "cursor": 0,
+        "last_seq": 362,
+        "position": {
+          "content": 50308,
+          "from_end": 6594,
+          "offset": 43231,
+          "viewport": 483
+        },
+        "reveal_pending": false,
+        "scene": "shrink-landed"
+      },
+      "reveal": {
+        "ended_at": 11.517037987709045,
+        "ended_by": "reveal_landed",
+        "outstanding": false,
+        "requested_at": 11.512469053268433
+      },
+      "step": "shrinking"
+    },
+    {
+      "at": 13.169180035591125,
+      "position": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "readiness": {
+        "catchup_pending": true,
+        "caught_up": false,
+        "cursor": 0,
+        "last_seq": 362,
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "reveal_pending": false,
+        "scene": "shrink-landed"
+      },
+      "reveal": {
+        "ended_at": 11.517037987709045,
+        "ended_by": "reveal_landed",
+        "outstanding": false,
+        "requested_at": 11.512469053268433
+      },
+      "shrinks": [
+        {
+          "amount": 7560,
+          "applied": {
+            "content": 43313,
+            "from_end": 347,
+            "offset": 42483,
+            "viewport": 483
+          },
+          "at": 12.129596948623657,
+          "before": {
+            "content": 50308,
+            "from_end": 6594,
+            "offset": 43231,
+            "viewport": 483
+          },
+          "inset_before": 40000
+        },
+        {
+          "amount": 1313,
+          "applied": {
+            "content": 42008,
+            "from_end": 132,
+            "offset": 41393,
+            "viewport": 483
+          },
+          "at": 12.498571038246155,
+          "before": {
+            "content": 43313,
+            "from_end": 347,
+            "offset": 42483,
+            "viewport": 483
+          },
+          "inset_before": 32440
+        },
+        {
+          "amount": 1098,
+          "applied": {
+            "content": 40842,
+            "from_end": 0,
+            "offset": 40359,
+            "viewport": 483
+          },
+          "at": 12.861188054084778,
+          "before": {
+            "content": 42008,
+            "from_end": 132,
+            "offset": 41393,
+            "viewport": 483
+          },
+          "inset_before": 31127
+        }
+      ],
+      "step": "shrunk"
+    },
+    {
+      "at": 13.64866304397583,
+      "position": {
+        "content": 51513,
+        "from_end": 10543,
+        "offset": 40487,
+        "viewport": 483
+      },
+      "readiness": {
+        "catchup_pending": true,
+        "caught_up": false,
+        "cursor": 0,
+        "last_seq": 362,
+        "position": {
+          "content": 51513,
+          "from_end": 10543,
+          "offset": 40487,
+          "viewport": 483
+        },
+        "reveal_pending": false,
+        "scene": "shrink-landed"
+      },
+      "reveal": {
+        "ended_at": 11.517037987709045,
+        "ended_by": "reveal_landed",
+        "outstanding": false,
+        "requested_at": 11.512469053268433
+      },
+      "step": "regrown"
+    },
+    {
+      "at": 13.648903012275696,
+      "position": {
+        "content": 51513,
+        "from_end": 10543,
+        "offset": 40487,
+        "viewport": 483
+      },
+      "readiness": {
+        "catchup_pending": true,
+        "caught_up": false,
+        "cursor": 0,
+        "last_seq": 362,
+        "position": {
+          "content": 51513,
+          "from_end": 10543,
+          "offset": 40487,
+          "viewport": 483
+        },
+        "reveal_pending": false,
+        "scene": "shrink-landed"
+      },
+      "reveal": {
+        "ended_at": 11.517037987709045,
+        "ended_by": "reveal_landed",
+        "outstanding": false,
+        "requested_at": 11.512469053268433
+      },
+      "step": "tick"
+    },
+    {
+      "at": 15.487691044807434,
+      "position": {
+        "content": 57405,
+        "from_end": 0,
+        "offset": 56922,
+        "viewport": 483
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": false,
+        "cursor": 120,
+        "last_seq": 362,
+        "position": {
+          "content": 57405,
+          "from_end": 0,
+          "offset": 56922,
+          "viewport": 483
+        },
+        "reveal_pending": false,
+        "scene": "shrink-landed"
+      },
+      "reveal": {
+        "ended_at": 11.517037987709045,
+        "ended_by": "reveal_landed",
+        "outstanding": false,
+        "requested_at": 11.512469053268433
+      },
+      "step": "after_tick"
+    },
+    {
+      "at": 21.18893802165985,
+      "position": {
+        "content": 67934,
+        "from_end": 25,
+        "offset": 67426,
+        "viewport": 483
+      },
+      "readiness": {
+        "catchup_pending": false,
+        "caught_up": true,
+        "cursor": 362,
+        "last_seq": 362,
+        "position": {
+          "content": 67934,
+          "from_end": 25,
+          "offset": 67426,
+          "viewport": 483
+        },
+        "reveal_pending": false,
+        "scene": "shrink-landed"
+      },
+      "reveal": {
+        "ended_at": 11.517037987709045,
+        "ended_by": "reveal_landed",
+        "outstanding": false,
+        "requested_at": 11.512469053268433
+      },
+      "step": "caught_up"
+    }
+  ],
+  "target": "person:m000040",
+  "trace": [
+    {
+      "at": 7.565616965293884,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {},
+      "suspended": false
+    },
+    {
+      "at": 9.469656944274902,
+      "at_bottom": true,
+      "event": "reveal",
+      "position": {
+        "content": 50308,
+        "from_end": 0,
+        "offset": 49825,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 9.696418046951294,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 50308,
+        "from_end": 6641,
+        "offset": 43184,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 9.696599960327148,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 50308,
+        "from_end": 6641,
+        "offset": 43184,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 9.787860035896301,
+      "distance": 6641,
+      "event": "reveal_check",
+      "position": {
+        "content": 50308,
+        "from_end": 6641,
+        "offset": 43184,
+        "viewport": 483
+      },
+      "presented": true,
+      "source": "completion",
+      "target": "person:m000040"
+    },
+    {
+      "at": 9.78800904750824,
+      "at_bottom": false,
+      "event": "reveal_landed",
+      "position": {
+        "content": 50308,
+        "from_end": 6641,
+        "offset": 43184,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 10.070004940032959,
+      "at_bottom": false,
+      "event": "reveal",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 10.084694981575012,
+      "distance": 6594,
+      "event": "reveal_check",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "presented": true,
+      "source": "completion",
+      "target": "person:m000040"
+    },
+    {
+      "at": 10.084902048110962,
+      "at_bottom": false,
+      "event": "reveal_landed",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 10.861618995666504,
+      "at_bottom": false,
+      "event": "reveal",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 10.877094030380249,
+      "distance": 6594,
+      "event": "reveal_check",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "presented": true,
+      "source": "completion",
+      "target": "person:m000040"
+    },
+    {
+      "at": 10.877287030220032,
+      "at_bottom": false,
+      "event": "reveal_landed",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 11.512469053268433,
+      "at_bottom": false,
+      "event": "reveal",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 11.51691997051239,
+      "distance": 6594,
+      "event": "reveal_check",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "presented": true,
+      "source": "completion",
+      "target": "person:m000040"
+    },
+    {
+      "at": 11.517037987709045,
+      "at_bottom": false,
+      "event": "reveal_landed",
+      "position": {
+        "content": 50308,
+        "from_end": 6594,
+        "offset": 43231,
+        "viewport": 483
+      },
+      "suspended": true
+    },
+    {
+      "at": 12.833708047866821,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 12.956307053565979,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 13.245514988899231,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 13.24569296836853,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 14.127468943595886,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 0,
+      "position": {
+        "content": 51513,
+        "from_end": 10543,
+        "offset": 40487,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 14.176695942878723,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 54766,
+        "from_end": 0,
+        "offset": 54283,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 14.257776021957397,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 54766,
+        "from_end": 0,
+        "offset": 54283,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 14.26041305065155,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 54766,
+        "from_end": 24,
+        "offset": 54259,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 14.68150794506073,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 0,
+      "position": {
+        "content": 54766,
+        "from_end": 24,
+        "offset": 54259,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 14.687365055084229,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 54766,
+        "from_end": 24,
+        "offset": 54259,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 14.687602043151855,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 54766,
+        "from_end": 24,
+        "offset": 54259,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 14.709427952766418,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 56437,
+        "from_end": 45,
+        "offset": 55909,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 14.803055047988892,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 56023,
+        "from_end": 0,
+        "offset": 55540,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 14.804250955581665,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 56023,
+        "from_end": 24,
+        "offset": 55516,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 15.39153802394867,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 127,
+      "position": {
+        "content": 56023,
+        "from_end": 24,
+        "offset": 55516,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 15.399611949920654,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 56023,
+        "from_end": 24,
+        "offset": 55516,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 15.39982295036316,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 56023,
+        "from_end": 24,
+        "offset": 55516,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 15.428022027015686,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 57535,
+        "from_end": 34,
+        "offset": 57018,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 15.584375023841858,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 57405,
+        "from_end": 0,
+        "offset": 56922,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 15.586349964141846,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 57405,
+        "from_end": 25,
+        "offset": 56897,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.099710941314697,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 127,
+      "position": {
+        "content": 57405,
+        "from_end": 25,
+        "offset": 56897,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 16.112218022346497,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 57405,
+        "from_end": 25,
+        "offset": 56897,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.112424969673157,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 57405,
+        "from_end": 25,
+        "offset": 56897,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.161057949066162,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 58876,
+        "from_end": 27,
+        "offset": 58366,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.273736000061035,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 58762,
+        "from_end": 0,
+        "offset": 58279,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.278146982192993,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 58762,
+        "from_end": 24,
+        "offset": 58255,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.77682602405548,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 0,
+      "position": {
+        "content": 58762,
+        "from_end": 24,
+        "offset": 58255,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 16.781633973121643,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 58762,
+        "from_end": 24,
+        "offset": 58255,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.781821966171265,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 58762,
+        "from_end": 24,
+        "offset": 58255,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.816112995147705,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 60319,
+        "from_end": 28,
+        "offset": 59808,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 16.99959397315979,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 60209,
+        "from_end": 0,
+        "offset": 59726,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 17.001343965530396,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 60209,
+        "from_end": 25,
+        "offset": 59701,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 17.563997983932495,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 127,
+      "position": {
+        "content": 60209,
+        "from_end": 25,
+        "offset": 59701,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 17.582775950431824,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 60209,
+        "from_end": 25,
+        "offset": 59701,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 17.58306396007538,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 60209,
+        "from_end": 25,
+        "offset": 59701,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 17.660141944885254,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 61634,
+        "from_end": 18,
+        "offset": 61133,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 17.810312032699585,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 61561,
+        "from_end": 0,
+        "offset": 61078,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 17.812317967414856,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 61561,
+        "from_end": 25,
+        "offset": 61053,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 18.267956018447876,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 127,
+      "position": {
+        "content": 61561,
+        "from_end": 25,
+        "offset": 61053,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 18.274232983589172,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 61561,
+        "from_end": 25,
+        "offset": 61053,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 18.2744220495224,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 61561,
+        "from_end": 25,
+        "offset": 61053,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 18.30823504924774,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 62970,
+        "from_end": 15,
+        "offset": 62472,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 18.46337902545929,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 62913,
+        "from_end": 0,
+        "offset": 62430,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 18.465347051620483,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 62913,
+        "from_end": 25,
+        "offset": 62405,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 18.851565957069397,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 135,
+      "old_length": 0,
+      "position": {
+        "content": 62913,
+        "from_end": 25,
+        "offset": 62405,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 18.854931950569153,
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "position": {
+        "content": 62913,
+        "from_end": 25,
+        "offset": 62405,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 18.85523295402527,
+      "at_bottom": false,
+      "event": "marker_false",
+      "position": {
+        "content": 62913,
+        "from_end": 25,
+        "offset": 62405,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 19.41334295272827,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 135,
+      "old_length": 135,
+      "position": {
+        "content": 65017,
+        "from_end": 217,
+        "offset": 64317,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 20.081010937690735,
+      "at_bottom": false,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 17,
+      "old_length": 135,
+      "position": {
+        "content": 67833,
+        "from_end": 523,
+        "offset": 66827,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 20.12338399887085,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 67947,
+        "from_end": 38,
+        "offset": 67426,
+        "viewport": 483
+      },
+      "suspended": false
+    },
+    {
+      "at": 20.575765013694763,
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 17,
+      "old_length": 17,
+      "position": {
+        "content": 67947,
+        "from_end": 38,
+        "offset": 67426,
+        "viewport": 483
+      },
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at": 20.683624029159546,
+      "at_bottom": true,
+      "event": "reveal_end_visible",
+      "position": {
+        "content": 67934,
+        "from_end": 25,
+        "offset": 67426,
+        "viewport": 483
+      },
+      "suspended": false
+    }
+  ],
+  "visible_windows": 0
+}
