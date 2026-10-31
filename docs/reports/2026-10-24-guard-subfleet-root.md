@@ -25,7 +25,7 @@ closes those of the hub's review r4 (REQUEST_CHANGES at `6afb5ce19`): a long wor
 bodies, a depth bound beside xargs or `-exec`, a root before a closing backtick, bash's `.*` and `.?`,
 the data volume's alias before a mount, commands too long to read, `~{…}`, `~$NAME` and `~$(…)`,
 zsh's `=cmd`, pipes into a shell, `"$@"` scripts, `eval $(…)` and `<&0`. Rounds r6 and r7 (2026-10-28) close the
-findings of the hub's reviews r5 and r6, rounds r8 and r9 (2026-10-29) those of reviews r7 and r8, round r10 (2026-10-30) those of review r9, and rounds r11 and r12 (2026-10-30) those of reviews r10 and r11 (below). Nothing here touches the live guard; the hub installs it with the steps below.
+findings of the hub's reviews r5 and r6, rounds r8 and r9 (2026-10-29) those of reviews r7 and r8, round r10 (2026-10-30) those of review r9, and rounds r11 and r12 (2026-10-30) those of reviews r10 and r11; round r12d (2026-10-31) charges the xargs door r12 named (below). Nothing here touches the live guard; the hub installs it with the steps below.
 
 ## What changed
 
@@ -2385,6 +2385,148 @@ control. A kill counts only the named test.
   under 20 minutes; MB1, at 16 min, was the next longest.
 - The tool's 600 s limit moved six Bash calls to its background: H1, H2a, the three chains of holds and H5a's second
   try. Each was polled to completion in the foreground, and no process of mine outlived its run.
+
+### r12d: what xargs reads into a shell costs steps too (2026-10-31)
+
+Round r12 named this door and, as its brief said, left it unexecuted (decision 3 above). The hub then ran fixed rows at
+`307e2373c` in the test file's fixture seam, on 10-31 at load 12-17 (`r12-probe/rows_xargs.py` in its folder). Each row
+echoes a script, the 17-byte line `rg -n foo src/x; ` repeated and cut to length, and then repeats one stage. Three
+rows outran the hook's 60 s timeout (one read after 71 s, two past 75 s): a P2 under review r11's stop rule. Review r12 judges r12 and r12d
+together. A fourth job (r12d) built the hub's one decision, its pins, one mutant, the hashes and this part.
+
+**The rows**, with this head's and the installed hook's child CPU from HT (load 34.8-36.3, under the lock; the
+installed hook is the test's `hooks["old"]`, rebuilt and checked against `a60d1c51…`):
+
+| Row (`echo '<script>'`, then the stage repeated) | Bytes | At `307e2373c` (the hub) | This head | Installed |
+| --- | ---: | --- | --- | --- |
+| `\| xargs -0 bash -c`, 1 KB script, 10 stages | 1,221 | read, 0.14 s | read, 0.27 s | allows, 0.14 s |
+| `\| xargs -0 bash -c`, 1 KB script, 100 stages | 2,931 | read, 0.66 s | too complex, 0.37 s | allows, 0.15 s |
+| `\| xargs -0 bash -c`, 8 KB script, 1,000 stages | 27,199 | read, 51 s | too complex, 0.41 s | allows, 0.18 s |
+| `\| xargs -0 bash -c`, 32 KB script, 1,500 stages | 61,275 | past 75 s | too complex, 0.67 s | allows, 0.24 s |
+| `\| xargs -0 bash -c '"$@"' _`, 8 KB script, 900 stages | 33,399 | read, 71 s | too complex, 0.53 s | allows, 0.18 s |
+| `\| xargs -0 bash -c '"$@"' _`, 32 KB script, 1,100 stages | 63,575 | past 75 s | too complex, 0.67 s | allows, 0.26 s |
+| control: `\| bash`, 8 KB script, 1,000 stages | 15,199 | too complex, 0.29 s | too complex, 0.39 s | allows, 0.12 s |
+
+Wall time at this head was 0.41-2.74 s. The routine forms, `echo 'rg -n foo src' | xargs -0 bash -c` and the same with
+`'"$@"' _`, are allowed by both hooks (0.16 s and 0.19 s here), and `echo 'rg foo ~/.subfleet' | xargs -0 bash -c` is
+denied as a root, not as too complex (0.20 s; the installed hook, which predates the `~/.subfleet` roots, allows it).
+
+**The call sites (the hub's audit; line numbers at `307e2373c`).** `pin`, what every earlier stage of a pipe writes,
+has two readers in `simple()`: a shell's pipe (2178), spent since r12, and the xargs door (2191), the only one that
+didn't spend. Every other `script(` site the hub read takes the command's own text or already spends: `eval` (2163), a
+shell's own `-c` word (2168), a shell's pipe (2178), `source` (2181), a shell's arguments (2188) and `execs` (2217). So
+one term closes this class. This round looked for no other doors and built no cost input beyond the hub's rows and
+the two edges below. *Met while checking those line numbers, not examined* (the stop rule): four more `script(` calls
+sit outside `simple()` and `execs`, two in `spans()` (1811-1812) and two in `prep()` (2342, 2347). Each reads a command
+substitution's text, or what its commands write (`subout`). They are listed for review r12.
+
+**The decision as built.**
+
+1. **The door spends what xargs reads.** Line 2191 (2192 at this head) now reads
+   `if (st["a"] && st["s"] && pin != "" && (k ? val[k] ~ /^"?\$\{?[@*1]\}?"?$/ : st["c"]) && spend(pin)) script(pin,
+   sx(st, pin), depth)`. `spend(pin)` comes last, so it charges only when the door runs, and the comment above names
+   r12d. No other code changes, and the too-complex message already names "text … piped into a shell".
+2. **Pins** (`test_r12d_text_under_xargs_costs_steps_of_the_shared_budget`). Every row above, with the outcomes in
+   the table; the message is checked as r12's test checks it ("too complex to judge" and `R12_COMPLEX_PIPED`), and the
+   five larger rows' child CPU is bound by `R12_PIPED_CPU_S` (3 s), or `R12_LONG_CPU_S` (10 s) over 32 KB, with the
+   installed hook's CPU and the load reported (`xargs-r12d`). The two routine forms
+   stay allowed, and the root stays a root. Each form's exact edge on the 1 KB script, found between 10 and 100
+   stages and traced on a scratch copy that logged each `spend`:
+   - The k-th shell under xargs reads the echo's 1,024 bytes (242 words: 60 rounds of `rg -n foo src/x; `, then
+     `rg -`), and after them a line for each earlier stage: its words after its shell, as the reader takes a command
+     to write its words (`-c`: 1 word, 3 bytes with the newline; `-c "$@" _`: 3 words, 10 bytes).
+   - So it spends 242 + (k - 1) words and int((1,024 + 3(k - 1)) / 16) byte steps, or 242 + 3(k - 1) and
+     int((1,024 + 10(k - 1)) / 16). Nothing else in these commands costs a step: the trace's running total before each
+     shell equals the sum of the earlier shells' charges, from 0.
+   - 58 shells are 19,684 steps, read, and 59 are 20,058, too complex; with `'"$@"' _`, 50 are 19,719, read, and 51
+     are 20,206.
+   - Red first: at `307e2373c` with only the pins (R, 05:35:03Z, slot A, load 39.0), the test fails in 15 s on its
+     first too-complex block: both first too-complex edges and 1 KB × 100 are read. The read block passes.
+   - No earlier pin moved.
+3. **Mutant.** `r12d-xargs-pipe-charge-dropped` removes `&& spend(pin)`, which makes the hook's code `307e2373c`'s.
+   It is named against the new test, whose first blocks (the edges, 1 KB × 10 and × 100, and the routine forms) run
+   before any row that takes minutes without the charge. The driver runs it with r12's mutants and holds 128; each
+   of its edits matches its file exactly once (checked by applying all 128 to copies of the three files).
+4. **Hashes.** Hook `e869dd4c…dfed`, TRUST `36267abb…afc0`, in TRUST, the overlay doc's table, install steps 0 and 2,
+   this report, the overlay test, the subfleet-root test's `NEW_HOOK_SHA256` and the driver's. TRUST changes only
+   `hook_sha256`. *Deviation:* the brief asked for a dated provenance sentence "as in each earlier round", but no
+   round after r3b added one: r3c corrected r3b's mount clause, each of the twelve TRUST commits from r4 to r12
+   changed only `hook_sha256` (`git diff -U0` of each), and the provenance still ends at r3b's sentence. This round
+   follows that history; no r12d decision changes what the provenance says. The rollback stays `a60d1c51…`/`b3193b97…`.
+5. **Text.** The overlay doc gains an r12d paragraph after r12's, its budget item under "stricter" names the place,
+   and its "Known differences" now remain "after r12d".
+
+**The recount at this head** (HT, under the lock, from the scoped cwd, in the fixture): over the 1,127 commands that
+name a searcher in the test's 187 R2-R11 and review R2-R11 constants, the r12 hook (`307e2373c`, `e5b387c4…`) and this
+head each deny 699, and no verdict moves. Over r12's 38 pinned commands, each denies 20, with no move. Over r12d's 14,
+this head denies 9, 8 of them as too complex. S1: the installed hook denies 119 of 779 commands and this head 313,
+as at r12 (H1).
+
+**Holds** (one pytest or driver each, home `/Users/tester`). r12d started at 05:20Z on 10-31 and queued its first hold
+at 05:34:56Z. R ran in a scratch export of `307e2373c` plus the pins. H1, HT and MB started at `3d3e8aa80`; HEAD
+moved to `08796c7a8` (the overlay doc only) while HT and MB ran, so MB's later exports are of `08796c7a8`. HY and HX
+ran at `dfbd8caed`, which adds a test comment. So every hold ran this head's hook, TRUST, tests and driver, but for
+that comment in the earlier holds.
+
+| Hold | Admitted (slot, load) | Selection | Result, time |
+| --- | --- | --- | --- |
+| R | 05:35:03Z (A, 39.0) | the new test at `307e2373c` plus the pins (red) | 1 failed, as intended, 15 s |
+| H1 | 05:42:45Z (B, 27.0) | S1 | 1 passed, 121 s |
+| HT | 05:44:48Z (B, 34.8) | the rows, the timing and the recount (one script) | rc 0, 243 s |
+| MB | 05:43:30Z (A, 28.4) | the nine named mutants and a control | 9 killed, 415 s |
+| HY | 06:00:46Z (B, 40.4) | r3's, r3b's and r3c's tests | 54 passed, 1,046 s |
+| HX's waiter | queued 05:46:10Z, stopped 06:16:37Z | not admitted within 30 minutes | no test ran under it |
+| HX, first direct try | outside the lock, 06:17:10Z (load 31.2) | HX1's to HX3's selections in one pytest | stopped at 06:19:23Z after 16 passed (below) |
+| HX1 | outside the lock, 06:20:27Z (load 33.7) | the review's inputs, r2's tests, TRUST's and the fence; S1's second test, S2, S3, the cwd list, the known limits, S5, S4 | 24 passed, 2 skipped (S4), 561 s |
+| HX2 | outside the lock, 06:29:57Z (load 37.5) | r4's to r12d's tests, reviews r4 to r11 | 79 passed, 425 s |
+| HX3 | outside the lock, 06:37:12Z (load 38.7) | `test_guard_overlay.py` (22), `test_guard_trust.py` (105) and the three guards (37, 1, 25) | 190 passed, 144 s |
+
+H1, HY, HX1 and HX2 cover all 160 items of `test_guard_subfleet_root.py` exactly once (checked against
+`--collect-only` and their JUnit files): 158 passed and S4's 2 skipped. The overlay and TRUST tests passed 127, and the
+three guards 63.
+
+**Timing** (the 300-path command, child CPU in seconds, three runs of five interleaved pairs with the installed hook,
+in HT, 05:45:05-05:45:14Z):
+
+| Run | Load | This head | Installed | Median ratio |
+| --- | --- | --- | --- | --- |
+| 1 | 35.5 | 0.224-0.243 | 0.147-0.159 | 1.54× |
+| 2 | 34.5 | 0.208-0.233 | 0.128-0.151 | 1.50× |
+| 3 | 34.6 | 0.215-0.232 | 0.134-0.152 | 1.54× |
+
+Both hooks allow the command. The 300-path test itself (`test_r4_absolute_paths_cost_at_most_twice_the_installed_hook`,
+HX2, load 38.5) gave a median of 0.305 s against 0.194 s, **1.57×**. In HX2 the new test measured its five larger rows
+at 0.46-0.82 s of child CPU (installed 0.15-0.27 s) at load 35.6-38.8.
+
+**Mutants** (MB, 05:43:30Z-05:50:25Z, slot A; the control passed the three named tests and the fence):
+
+| Mutant | Killing test |
+| --- | --- |
+| `r12d-xargs-pipe-charge-dropped` | `test_r12d_text_under_xargs_costs_steps_of_the_shared_budget` |
+| `r12-word-charge-dropped`, `r12-byte-charge-dropped`, `r12-execs-uncharged` | `test_r12_find_exec_braces_cost_steps_of_the_shared_budget` |
+| `r12-eval-door-uncharged`, `r12-shell-door-uncharged`, `r12-source-door-uncharged`, `r12-pfmt-uncharged`, `r12-message-unnamed` | `test_r12_printf_repeats_and_piped_text_cost_steps_of_the_shared_budget` |
+
+All nine were killed, and the fence passed on each. The earlier 119 mutants didn't run: their edits still match (item
+3), and review r12 runs what it chooses.
+
+**Unrun at this head:**
+- S4's two items, which need the operator's Claude hook, so they skip here;
+- `tests/frontend/test_core_live.py`, which can't run on a lane. CI runs both.
+- This round made no GitHub calls, so it read no CI.
+
+**Disclosures.**
+- Outside the lock: HX's selection. Its waiter (queued 05:46:10Z) wasn't admitted within 30 minutes: other sessions'
+  holds took the slots that came free, and HY, queued earlier, held slot B from 06:00:46Z. So I stopped the waiter at
+  06:16:37Z, with no test run under it, and ran the selection directly (the lane rules' fallback). The first direct
+  try ran all of it in one pytest. At 06:19:23Z, after 16 items had passed in 125 s, I stopped it with SIGINT: HY had
+  run at 1.56× r12c's pace, which put the whole selection past its 19-minute alarm. HX1 to HX3 then ran it in three
+  pytests, one after another.
+- Outside the lock too: the probes on scratch copies of this head's hook (the edge searches between 10 and 100 stages
+  for each form, and the `spend` trace), the byte-for-byte check of the pins against the hub's rows, the mutant match
+  check and `--collect-only`. The rows, the timing and the recount ran under the lock (HT).
+- HY held slot B for 17 min 31 s (06:00:46Z-06:18:17Z), under the lane rules' 20 minutes.
+- R ran in the foreground. HT, H1, HY, MB, HX's waiter, its first direct try and the HX1-HX3 chain ran in the tool's
+  background mode, each polled to completion in the foreground, and no process of mine outlived its run.
 
 ## Invariants and how they were checked
 
