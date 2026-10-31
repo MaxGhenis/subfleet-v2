@@ -1,0 +1,51 @@
+{
+  "product_paths": [
+    "subfleet/dependencies.py"
+  ],
+  "changed_symbols": [
+    "git_storage",
+    "_unreadable_location",
+    "_Aliases.locations"
+  ],
+  "snapshot475_matches": true,
+  "snapshotced_matches": true,
+  "map_changed_keys": [
+    "source",
+    "seconds"
+  ],
+  "groups_equal": true,
+  "measured_paths": 721,
+  "absent_paths": [
+    "tests/frontend/test_review_pr284_pin.py",
+    "tests/frontend/test_review_pr284_r2.py",
+    "tests/frontend/test_review_pr284_resizes.py",
+    "tests/unit/test_guard_subfleet_root.py",
+    "tests/unit/test_retention_descriptor_cleanup.py",
+    "tests/unit/test_retention_descriptor_ownership.py",
+    "tests/unit/test_retention_descriptor_prepared.py",
+    "tests/unit/test_retention_descriptor_review.py",
+    "tests/unit/test_retention_descriptor_review_r2.py",
+    "tests/unit/test_retention_descriptor_review_r3.py",
+    "tests/unit/test_retention_descriptor_review_r4.py",
+    "tests/unit/test_retention_descriptor_review_r5.py",
+    "tests/unit/test_retention_walk_descriptors.py"
+  ],
+  "validator_diff": "",
+  "r11_test_diff": "diff --git a/tests/fake/test_retention_dependency_review_r11.py b/tests/fake/test_retention_dependency_review_r11.py\nindex 482aee4bc..e6d7ac3f9 100644\n--- a/tests/fake/test_retention_dependency_review_r11.py\n+++ b/tests/fake/test_retention_dependency_review_r11.py\n@@ -100,7 +100,6 @@ def test_baseline_keeps_readable_store_across_case_rename(world, monkeypatch, ro\n     check_case_rename(world, monkeypatch, route, baseline_reader(), record_property)\n \n \n-@pytest.mark.xfail(strict=True, reason='R11-F1: return filter drops a readable case alias without incomplete evidence')\n @pytest.mark.parametrize('route', ['alternates', 'scan'])\n def test_return_filter_keeps_readable_store_across_case_rename(world, monkeypatch, route, record_property):\n     check_case_rename(world, monkeypatch, route, dependencies, record_property)\n",
+  "new_test_shard": 5,
+  "new_test_measured": false,
+  "predicted_load_seconds": [
+    1999.0,
+    1999.0,
+    1999.0,
+    1999.0,
+    1998.9
+  ],
+  "actual_measured_load_seconds": [
+    1861.3,
+    1998.4,
+    1996.6,
+    1528.7,
+    1997.9
+  ]
+}

@@ -1,0 +1,572 @@
+{
+  "name": "linked-test_retention_location_cycles",
+  "start": "2026-10-31T19:55:10.424307+00:00",
+  "load": [
+    75.58544921875,
+    86.51953125,
+    83.517578125
+  ],
+  "pytest_pid": 90137,
+  "failure_root": "/private/tmp/sf-r272r12/failed-keep",
+  "args": [
+    "tests/unit/test_retention_location_cycles.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 11.920129375001125,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.496640874996956,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011169999997946434,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.11152258399670245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3536941670026863,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07434829099656781,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009852457995293662,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.099985332999495,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006517920046462677,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0033681670029181987,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.591233833001752,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005136250038049184,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.18045154200081015,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 13.684676666998712,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001044415999785997,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005419542001618538,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 13.901481375003641,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009624160011298954,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016930625002714805,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.036042250001628,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005682920018443838,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.010089999996125698,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.0869007499932195,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000894457996764686,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00399999999353895,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8285057920002146,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005070830011391081,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.07015099999989616,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1557546670010197,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006162499994388781,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004998374999559019,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.041696916996443,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007095830005710013,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02442812499793945,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.343561499998032,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00073533300019335,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.047049417000380345,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3417162080004346,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007841659971745685,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009658874994784128,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.9910738340040552,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008018329972401261,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009919750002154615,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.4919411250011763,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0010487079998711124,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004126915999222547,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8765986250000424,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006321670007309876,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.044061417000193615,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.164168082999822,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042554099491098896,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004334249999374151,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.197302540997043,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009017080010380596,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007233999996969942,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.590199083999323,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011120410053990781,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004708207998191938,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2017403330028174,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.18947079200006556,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git\", \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git/objects\"]}, \"route\": \"control\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout/.git\", \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout/.git/objects\"]}, \"route\": \"scan\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout/.git\", \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'\"}]}, \"route\": \"alternates\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout/.git\", \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates'\"}]}, \"route\": \"alternates-tail\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 128, \"read\": 128, \"recorded\": {\"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir'\"}]}, \"route\": \"gitfile\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 128, \"read\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/checkout/.git\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'\"}]}, \"route\": \"commondir\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/checkout/.git\", \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/store\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'\"}]}, \"route\": \"objects-alternates\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"two-link-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout/.git\", \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout/.git/objects\"]}, \"route\": \"scan\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"two-link-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout/.git\", \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail'\"}, {\"file\": \"/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r12/linked-target/linked-test_retention_location_cycles/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates'\"}]}, \"route\": \"alternates\"}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+    "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-154518-pr272-review-r12/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T19:57:38.024920+00:00",
+  "seconds": 147.59938300000067,
+  "peak_rss_mib": 112.234375,
+  "exit": 0
+}
