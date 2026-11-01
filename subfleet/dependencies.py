@@ -140,8 +140,9 @@ def git_storage(path: str, *, incomplete: list[dict[str, str]] | None = None) ->
     On a filesystem that holds still, returned strings the kernel can walk have
     one spelling: canonical parent plus entry name for a physical link entry,
     and `folders.canonical` for every other place. A place that fails these
-    equations and that the kernel refuses with ELOOP is left out, because its
-    path holds a live cycle. Any other place stays, even when its
+    equations and that the kernel refuses with ELOOP is left out: on a
+    filesystem that holds still, `canonical` resolves every acyclic chain, so
+    that string holds a live cycle. Any other place stays, even when its
     spelling changed during discovery. Physical link entries and any incomplete
     evidence stay. The returned list is built before the existing alias
     revalidation of walked targets, identities, link chains and pointer contents.
