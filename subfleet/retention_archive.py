@@ -254,6 +254,8 @@ class Context:
     def salvage_refs(self, common: Path) -> dict[str, str]:
         key = str(common)
         if key not in self.salvage_listings:
+            # The listing search over the census answers to the census's bound.
+            _repository_checkpoint(self.cancel, self.deadline, self.clock)
             try:
                 self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/", cancel=self.cancel)
             except (rgit.GitError, OSError):
@@ -1485,6 +1487,11 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
             return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
     if wanted:
         for common in candidates:
+            # A repository proved not to hold one of the refs cannot be the job's,
+            # so only the few that might cost a `for-each-ref`: the census holds
+            # about a thousand, and 542 of them held salvage refs on 2026-11-01.
+            if any(rgit.no_refs_under(common, ref) for ref in wanted):
+                continue
             listing = salvage_refs(common)
             if all(ref in listing and salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):
                 return None, common, None

@@ -5,8 +5,10 @@ import os
 import subprocess
 import tempfile
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -19,6 +21,53 @@ KINDS = (
     "plain", "subfolder", "linked", "linked-subfolder", "submodule", "bare", "nested",
     "no-repository", "symlinked-folder", "broken-gitfile", "missing-gitfile-target",
     "relative-commondir", "empty-git-folder", "malformed-config", "unsupported-format",
+    "worktree-config", "worktree-config-linked", "sparse-checkout", "hooks-path", "gh-branch",
+)
+
+#: Config this probe answers for: the shapes the live census meets (2026-11-01).
+SAFE_LINES = (
+    "[core]\n\thookspath = /dev/null\n",
+    "[core]\n\thookspath = ~nosuchuser/x\n",
+    "[core]\n\tsparsecheckout = true\n",
+    "[core]\n\tsparsecheckoutcone = false\n",
+    "[core]\n\tuntrackedcache = maybe\n",
+    '[branch "a"]\n\tgithub-pr-owner-number = "owner#repository#1"\n',
+    '[branch "a"]\n\tgithub-pr-base-branch = "owner#repository#main"\n',
+    '[submodule "m"]\n\tactive = true\n',
+    "[submodule]\n\tactive = .\n",
+    "[user]\n\tname = x\n",
+    "[user]\n\temail = x@example.invalid\n",
+    "[pull]\n\trebase = maybe\n",
+    "[pull]\n\tff = maybe\n",
+    "[http]\n\tpostbuffer = abc\n",
+    "[http]\n\tversion = abc\n",
+    "[rerere]\n\tenabled = maybe\n",
+    "[gc]\n\tauto = abc\n",
+    "[gc]\n\treflogexpire = abc\n",
+    "[gc]\n\treflogexpireunreachable = abc\n",
+    "[blame]\n\tignorerevsfile = abc\n",
+    "[extensions]\n\tworktreeconfig = true\n",
+    "[extensions]\n\tworktreeconfig = false\n",
+    "[extensions]\n\tpartialclone = origin\n",
+)
+#: Config Git may refuse, or that this probe will not read for itself.
+DOUBTFUL_LINES = (
+    "[core]\n\tsparsecheckout = maybe\n",
+    "[core]\n\tsparsecheckoutcone = maybe\n",
+    "[core]\n\tfilemode = maybe\n",
+    "[core]\n\tcompression = abc\n",
+    "[core]\n\trepositoryformatversion = 2\n",
+    "[core]\n\trepositoryformatversion = 1\n[extensions]\n\tfrobnicate = 1\n",
+    "[extensions]\n\tfrobnicate = 1\n",
+    "[extensions]\n\tworktreeconfig = maybe\n",
+    "[index]\n\tsparse = maybe\n",
+    "[push]\n\tdefault = bogus\n",
+    "[branch]\n\tautosetupmerge = maybe\n",
+    "[user]\n\tuseconfigonly = maybe\n",
+    '[branch "a"]\n\tx = "unterminated\n',
+    "[core.dotted]\n\tkey = 1\n",
+    '[core "sub"]\n\tbare = maybe\n',
+    "[include]\n\tpath = elsewhere\n",
 )
 
 
@@ -77,11 +126,23 @@ def build_shape(base: Path, shape: Shape) -> Path:
             (path / ".git").mkdir()
     else:
         owner = repository(base, "owner" + shape.suffix,
-                           commit=kind in {"linked", "linked-subfolder", "relative-commondir", "submodule"})
+                           commit=kind in {"linked", "linked-subfolder", "relative-commondir", "submodule",
+                                           "worktree-config-linked", "sparse-checkout"})
         path = owner
-        if kind in {"linked", "linked-subfolder", "relative-commondir"}:
+        if kind in {"linked", "linked-subfolder", "relative-commondir", "worktree-config-linked"}:
             path = base / ("checkout" + shape.suffix)
             git(owner, "worktree", "add", "--detach", "-q", str(path), "HEAD")
+        if kind in {"worktree-config", "worktree-config-linked"}:
+            git(owner, "config", "extensions.worktreeConfig", "true")
+            git(path, "config", "--worktree", "core.sparseCheckout", "true")
+            git(path, "config", "--worktree", "core.untrackedCache", "true")
+        elif kind == "sparse-checkout":
+            git(owner, "sparse-checkout", "set", "--cone", "kept")
+        elif kind == "hooks-path":
+            git(owner, "config", "core.hooksPath", "/dev/null")
+        elif kind == "gh-branch":
+            with (owner / ".git" / "config").open("a") as handle:
+                handle.write('[branch "feat"]\n\tgithub-pr-owner-number = "owner#repository#1"\n')
         elif kind == "submodule":
             source = repository(base, "module-source", commit=True)
             git(owner, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(source), "module")
@@ -138,21 +199,119 @@ def test_composed_shapes_match_real_git_and_are_deterministic(shape):
         assert_matches_git(build_shape(Path(folder), shape))
 
 
+def no_process(*args, **kwargs):
+    pytest.fail("ordinary repository discovery started a Git subprocess")
+
+
 @pytest.mark.parametrize("kind", ["plain", "subfolder", "linked", "linked-subfolder", "submodule",
-                                  "nested", "symlinked-folder", "relative-commondir"])
+                                  "nested", "symlinked-folder", "relative-commondir", "worktree-config",
+                                  "worktree-config-linked", "sparse-checkout", "hooks-path", "gh-branch"])
 def test_ordinary_shapes_do_not_start_a_git_subprocess(tmp_path, monkeypatch, kind):
     path = build_shape(tmp_path, Shape(kind))
     expected = rgit.common_dir(path)
-
-    def no_process(*args, **kwargs):
-        pytest.fail("ordinary repository discovery started a Git subprocess")
-
     monkeypatch.setattr(rgit, "run", no_process)
     assert expected is not None
     assert rgit.fast_common_dir(path) == expected
 
 
-@pytest.mark.parametrize("kind", ["bare", "no-repository", "broken-gitfile", "missing-gitfile-target",
+def test_no_repository_up_to_the_root_needs_no_process(tmp_path, monkeypatch):
+    path = build_shape(tmp_path, Shape("no-repository", children=("deep", "er")))
+    assert rgit.common_dir(path) is None
+    monkeypatch.setattr(rgit, "run", no_process)
+    assert rgit.fast_common_dir(path) is None
+
+
+def test_a_filesystem_boundary_is_left_to_git(tmp_path, monkeypatch):
+    """Only the root proves a negative: another device above asks Git."""
+    path = build_shape(tmp_path, Shape("no-repository"))
+    real = os.path.realpath(path)
+    original = Path.stat
+
+    def other_device(self, **kwargs):
+        st = original(self, **kwargs)
+        if str(self) == real:
+            return SimpleNamespace(st_dev=st.st_dev + 1, st_mode=st.st_mode)
+        return st
+
+    calls = []
+    monkeypatch.setattr(Path, "stat", other_device)
+    monkeypatch.setattr(rgit, "common_dir", lambda *args, **kwargs: calls.append(args[0]))
+    assert rgit.fast_common_dir(path) is None
+    assert calls == [path]
+
+
+def _with_config(base: Path, lines: Iterable[str]) -> Path:
+    path = repository(base, "owner")
+    with (path / ".git" / "config").open("a") as handle:
+        handle.write("".join(lines))
+    return path
+
+
+@pytest.mark.parametrize("line", SAFE_LINES + DOUBTFUL_LINES)
+def test_config_line_matches_real_git(tmp_path, line):
+    assert_matches_git(_with_config(tmp_path, [line]))
+
+
+@pytest.mark.parametrize("line", SAFE_LINES)
+def test_safe_config_needs_no_process(tmp_path, monkeypatch, line):
+    path = _with_config(tmp_path, [line])
+    expected = rgit.common_dir(path)
+    assert expected is not None
+    monkeypatch.setattr(rgit, "run", no_process)
+    assert rgit.fast_common_dir(path) == expected
+
+
+@pytest.mark.parametrize("line", DOUBTFUL_LINES)
+def test_doubtful_config_goes_to_git(tmp_path, monkeypatch, line):
+    path = _with_config(tmp_path, [line])
+    expected = rgit.common_dir(path)
+    original = rgit.common_dir
+    calls = []
+    monkeypatch.setattr(rgit, "common_dir", lambda *args, **kwargs: calls.append(args[0]) or original(*args, **kwargs))
+    assert rgit.fast_common_dir(path) == expected
+    assert calls == [path]
+
+
+@settings(max_examples=40, deadline=None, derandomize=True)
+@given(st.lists(st.sampled_from(SAFE_LINES + DOUBTFUL_LINES), max_size=5),
+       st.sampled_from(["", "[core]\n\trepositoryformatversion = 1\n"]), st.booleans())
+def test_composed_config_matches_real_git(lines, version, linked):
+    with tempfile.TemporaryDirectory(prefix="retention-config-", dir=os.environ.get("TMPDIR")) as folder:
+        base = Path(folder)
+        owner = _with_config(base, [])
+        path = owner
+        if linked:
+            git(owner, "commit", "--allow-empty", "-qm", "seed")
+            path = base / "checkout"
+            git(owner, "worktree", "add", "--detach", "-q", str(path), "HEAD")
+        with (owner / ".git" / "config").open("a") as handle:
+            handle.write(version + "".join(lines))
+        assert_matches_git(path)
+
+
+WORKTREE_FILES = ("[core]\n\tbare = true\n", "[core]\n\tbare = false\n", "[core]\n\tworktree = /nonexistent-ret-walk\n",
+                  "[core]\n\tsparsecheckout = maybe\n", "[core]\n\tsparsecheckout = true\n",
+                  "[core]\n\tuntrackedcache = maybe\n", "[core\n", "[index]\n\tsparse = maybe\n",
+                  "[extensions]\n\tworktreeconfig = true\n")
+
+
+@pytest.mark.parametrize("text", WORKTREE_FILES)
+@pytest.mark.parametrize("enabled", [True, False], ids=["on", "off"])
+@pytest.mark.parametrize("where", ["admin", "common"])
+def test_config_worktree_matches_real_git(tmp_path, text, enabled, where):
+    """Git reads the checkout's own file, and only with the extension on."""
+    path = repository(tmp_path, "owner", commit=True)
+    checkout = tmp_path / "checkout"
+    git(path, "worktree", "add", "--detach", "-q", str(checkout), "HEAD")
+    if enabled:
+        git(path, "config", "extensions.worktreeConfig", "true")
+    folder = path / ".git" / "worktrees" / "checkout" if where == "admin" else path / ".git"
+    (folder / "config.worktree").write_text(text)
+    assert_matches_git(checkout)
+    assert_matches_git(path)
+
+
+@pytest.mark.parametrize("kind", ["bare", "broken-gitfile", "missing-gitfile-target",
                                   "empty-git-folder", "malformed-config", "unsupported-format"])
 def test_uncertain_shapes_execute_the_git_fallback(tmp_path, monkeypatch, kind):
     path = build_shape(tmp_path, Shape(kind))
@@ -188,8 +347,9 @@ def test_unreadable_pointer_falls_back_without_hanging(tmp_path, monkeypatch):
 
 def test_fallback_uses_only_the_remaining_pass_budget(tmp_path, monkeypatch):
     calls = []
+    path = repository(tmp_path, bare=True)
     monkeypatch.setattr(rgit, "common_dir", lambda *args, **kwargs: calls.append(kwargs["timeout"]))
-    assert rgit.fast_common_dir(tmp_path, timeout=60, deadline=9, clock=lambda: 7) is None
+    assert rgit.fast_common_dir(path, timeout=60, deadline=9, clock=lambda: 7) is None
     assert calls == [2]
 
 
@@ -207,9 +367,10 @@ def test_checkpoint_after_fallback_does_not_publish_expired_answer(tmp_path, mon
         now[0] = 1
         return tmp_path / "must-not-publish"
 
+    path = repository(tmp_path, bare=True)
     monkeypatch.setattr(rgit, "common_dir", fallback)
     with pytest.raises(Deferred):
-        rgit.fast_common_dir(tmp_path, checkpoint=checkpoint, deadline=1, clock=lambda: now[0])
+        rgit.fast_common_dir(path, checkpoint=checkpoint, deadline=1, clock=lambda: now[0])
 
 
 def test_cancelled_fast_probe_raises_without_spawning_git(tmp_path, monkeypatch):
@@ -317,3 +478,76 @@ def test_unpassed_ambient_git_settings_do_not_disable_fast_discovery(tmp_path, m
     assert expected is not None
     monkeypatch.setattr(rgit, "run", lambda *args, **kwargs: pytest.fail("filtered ambient Git setting forced a process"))
     assert rgit.fast_common_dir(path) == expected
+
+
+SALVAGE = "refs/subfleet-salvage/"
+REF_STEPS = ("add", "add-beside", "add-prefix-tail", "pack", "delete", "delete-beside")
+
+
+def _apply_refs(path: Path, steps: Iterable[str]) -> None:
+    head = git(path, "rev-parse", "HEAD").stdout.decode().strip()
+    names = {"add": SALVAGE + "job-a1", "add-beside": "refs/subfleet-salvage-other/job-a1",
+             "add-prefix-tail": "refs/heads/refs/subfleet-salvage/job-a1", "delete": SALVAGE + "job-a1",
+             "delete-beside": "refs/subfleet-salvage-other/job-a1"}
+    for step in steps:
+        if step == "pack":
+            git(path, "pack-refs", "--all", "--prune")
+        elif step.startswith("delete"):
+            subprocess.run(["git", "update-ref", "-d", names[step]], cwd=path, env=rgit.environment(), capture_output=True)
+        else:
+            git(path, "update-ref", names[step], head)
+
+
+@settings(max_examples=30, deadline=None, derandomize=True)
+@given(st.lists(st.sampled_from(REF_STEPS), max_size=6))
+def test_no_refs_under_never_contradicts_git(steps):
+    with tempfile.TemporaryDirectory(prefix="retention-refs-", dir=os.environ.get("TMPDIR")) as folder:
+        path = repository(Path(folder), commit=True)
+        _apply_refs(path, steps)
+        common = path / ".git"
+        listed = rgit.refs_under(common, SALVAGE)
+        if rgit.no_refs_under(common, SALVAGE):
+            assert listed == {}
+
+
+@pytest.mark.parametrize("steps,proved,empty", [
+    ((), True, True), (("add",), False, False), (("add", "pack"), False, False),
+    (("add-beside",), True, True), (("add-beside", "pack"), True, True), (("add-prefix-tail", "pack"), True, True),
+    # An empty folder left by a delete is not proof: Git answers, and says none.
+    (("add", "delete"), False, True), (("add", "pack", "delete"), True, True),
+], ids=lambda value: "-".join(value) if isinstance(value, tuple) else None)
+def test_no_refs_under_answers_the_plain_store(tmp_path, steps, proved, empty):
+    path = repository(tmp_path, commit=True)
+    _apply_refs(path, steps)
+    assert rgit.no_refs_under(path / ".git", SALVAGE) is proved
+    assert (rgit.refs_under(path / ".git", SALVAGE) == {}) is empty
+
+
+@pytest.mark.parametrize("steps,ref,proved", [
+    (("add",), SALVAGE + "job-a1", False), (("add", "pack"), SALVAGE + "job-a1", False),
+    (("add",), SALVAGE + "job-a2", True), (("add", "pack"), SALVAGE + "job-a2", True),
+    (("add", "delete"), SALVAGE + "job-a1", True), (("add", "pack"), SALVAGE + "job-a", False),
+], ids=str)
+def test_no_refs_under_takes_a_whole_ref_name(tmp_path, steps, ref, proved):
+    """`job-a` is only a prefix of a packed `job-a1`, so that one stays with Git."""
+    path = repository(tmp_path, commit=True)
+    _apply_refs(path, steps)
+    assert rgit.no_refs_under(path / ".git", ref) is proved
+
+
+def test_no_refs_under_leaves_a_reftable_store_to_git(tmp_path):
+    path = tmp_path / "reftable"
+    git(tmp_path, "init", "-q", "--ref-format=reftable", str(path))
+    git(path, "commit", "--allow-empty", "-qm", "seed")
+    head = git(path, "rev-parse", "HEAD").stdout.decode().strip()
+    git(path, "update-ref", SALVAGE + "job-a1", head)
+    assert rgit.no_refs_under(path / ".git", SALVAGE) is False
+    assert set(rgit.refs_under(path / ".git", SALVAGE)) == {SALVAGE + "job-a1"}
+
+
+def test_no_refs_under_leaves_an_oversized_or_unreadable_store_to_git(tmp_path, monkeypatch):
+    path = repository(tmp_path, commit=True)
+    _apply_refs(path, ("add-beside", "pack"))
+    assert rgit.no_refs_under(path / ".git", SALVAGE) is True
+    monkeypatch.setattr(rgit, "PACKED_REFS_LIMIT", 4)
+    assert rgit.no_refs_under(path / ".git", SALVAGE) is False

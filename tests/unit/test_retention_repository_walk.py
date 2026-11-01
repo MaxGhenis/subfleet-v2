@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from subfleet import retention
+from subfleet import attempt_tmp, retention
 from subfleet import retention_archive as rarch
 from subfleet import retention_git as rgit
 from tests.unit.retention_world import Clock, World, git, snapshot, trust_temporary_directories
@@ -55,6 +55,12 @@ def census_rows(tmp_path_factory):
         git(repo, "worktree", "add", "--quiet", "--detach", str(tree), "HEAD")
         (tree / "sub").mkdir()
         trees.append(tree)
+    per_worktree = tmp_path / "repository-worktree-config"
+    git(tmp_path, "init", "--quiet", str(per_worktree))
+    git(per_worktree, "commit", "--quiet", "--allow-empty", "-m", "base")
+    git(per_worktree, "config", "extensions.worktreeConfig", "true")
+    linked = tmp_path / "linked-worktree-config"
+    git(per_worktree, "worktree", "add", "--quiet", "--detach", str(linked), "HEAD")
     empty = tmp_path / "non-repository"
     empty.mkdir()
     alias = tmp_path / "repository-alias"
@@ -70,7 +76,8 @@ def census_rows(tmp_path_factory):
              dict(job_id="invalid-tree", sandbox="workspace-write", worktree=str(tmp_path / "outside"),
                   workdir=str(repos[1])),
              dict(job_id="in-place", sandbox="workspace-write", in_place=True, workdir=str(repos[0])),
-             dict(job_id="no-workdir", sandbox="read-only", workdir=None)]
+             dict(job_id="no-workdir", sandbox="read-only", workdir=None),
+             dict(job_id="readonly-linked", sandbox="read-only", workdir=str(linked))]
     return root, rows
 
 
@@ -400,3 +407,122 @@ def test_missing_repository_from_census_keeps_rows_registration_and_salvage(worl
     assert rarch.journals(w.root) == {}
     assert w.store.query("SELECT * FROM leases WHERE holder=?", ("retention:job-unfound",)) == []
     assert not (w.root / "archive" / "job-unfound").exists()
+
+
+def test_salvage_listing_stops_at_the_deadline_and_keeps_no_partial_answer(tmp_path, monkeypatch):
+    """A job with salvage rows asks every census repository: the same bound as the census."""
+    clock = Clock(0)
+    ctx = rarch.Context(tmp_path, SimpleNamespace(), clock=clock, deadline=5)
+    calls = []
+
+    def listing(common, prefix, cancel=None):
+        calls.append(common)
+        clock.advance(10)
+        return {}
+
+    monkeypatch.setattr(rgit, "no_refs_under", lambda common, prefix: False)
+    monkeypatch.setattr(rgit, "refs_under", listing)
+    assert ctx.salvage_refs(tmp_path / "one") == {}
+    with pytest.raises(rarch.Defer, match="repository discovery deadline"):
+        ctx.salvage_refs(tmp_path / "two")
+    assert calls == [tmp_path / "one"]
+    assert str(tmp_path / "two") not in ctx.salvage_listings
+
+
+def _repositories_with_refs(base, holdings):
+    commons = []
+    for index, refs in enumerate(holdings):
+        repo = base / f"repository-{index}"
+        git(base, "init", "--quiet", str(repo))
+        git(repo, "commit", "--quiet", "--allow-empty", "-m", "base")
+        head = git(repo, "rev-parse", "HEAD")
+        for ref in refs:
+            git(repo, "update-ref", ref, head)
+        commons.append(Path(os.path.realpath(repo / ".git")))
+    return commons
+
+
+def _search_every_repository(commons, wanted):
+    """The search before the proof: list every repository."""
+    for common in commons:
+        listing = rgit.refs_under(common, "refs/subfleet-salvage/")
+        if all(ref in listing and rarch.salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):
+            return common
+    return None
+
+
+REF_NAMES = ("refs/subfleet-salvage/job-a1", "refs/subfleet-salvage/job-a2", "refs/subfleet-salvage/job-a10")
+
+
+def _salvage_source(commons, wanted, listed):
+    def salvage_refs(common):
+        listed.append(common)
+        return rgit.refs_under(common, "refs/subfleet-salvage/")
+
+    return rarch.source_of_gone_tree(dict(workdir=None), Path("/nonexistent-ret-walk/tree"), lambda: commons,
+                                     salvage_refs, wanted)
+
+
+def test_salvage_search_lists_only_the_repository_that_might_hold_the_refs(tmp_path):
+    commons = _repositories_with_refs(tmp_path, [(), (REF_NAMES[1],), (REF_NAMES[0],), ()])
+    head = git(commons[2].parent, "rev-parse", "HEAD")
+    listed = []
+    reg, common, lost = _salvage_source(commons, {REF_NAMES[0]: rarch.salvage_digest(head)}, listed)
+    assert (reg, common, lost) == (None, commons[2], None)
+    assert listed == [commons[2]]
+
+
+@settings(max_examples=25, deadline=None, database=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
+@given(st.lists(st.sets(st.sampled_from(REF_NAMES), max_size=3), min_size=1, max_size=4),
+       st.sets(st.sampled_from(REF_NAMES), min_size=1), st.booleans(), st.booleans())
+def test_salvage_search_finds_what_listing_every_repository_finds(tmp_path_factory, holdings, names, matches, packed):
+    """Same repository as the unfiltered search, whatever refs sit where and however stored."""
+    base = tmp_path_factory.mktemp("salvage-search")
+    commons = _repositories_with_refs(base, [sorted(refs) for refs in holdings])
+    if packed:
+        for common in commons:
+            git(common.parent, "pack-refs", "--all", "--prune")
+    digest = rarch.salvage_digest(git(commons[0].parent, "rev-parse", "HEAD"))
+    wanted = {ref: digest if matches else "0" * len(digest) for ref in sorted(names)}
+    _, common, _ = _salvage_source(commons, wanted, [])
+    assert common == _search_every_repository(commons, wanted)
+
+
+def test_salvage_listing_of_a_repository_with_refs_is_gits(tmp_path):
+    repo = tmp_path / "repo"
+    git(tmp_path, "init", "--quiet", str(repo))
+    git(repo, "commit", "--quiet", "--allow-empty", "-m", "base")
+    head = git(repo, "rev-parse", "HEAD")
+    git(repo, "update-ref", "refs/subfleet-salvage/job-a1", head)
+    ctx = rarch.Context(tmp_path, SimpleNamespace())
+    assert ctx.salvage_refs(repo / ".git") == rgit.refs_under(repo / ".git", "refs/subfleet-salvage/")
+    assert list(ctx.salvage_refs(repo / ".git")) == ["refs/subfleet-salvage/job-a1"]
+
+
+def test_one_jobs_probe_rows_use_the_job_index_and_match_the_kind_scan(world):
+    """Retention reads this under the store lock once a start and once a commit."""
+    w = world
+    w.job("job-probed", worktree=False)
+    w.job("job-other", worktree=False)
+    for job_id, holder, tmpdir in (("job-probed", "probe-a", {"path": "/a"}), ("job-probed", "probe-a", {"path": "/b"}),
+                                   ("job-probed", "probe-b", {"path": "/c", "removed_at": "now"}),
+                                   ("job-other", "probe-c", {"path": "/d"})):
+        w.store.add_event("probe.state", job_id=job_id, data={"holder": holder, "tmpdir": tmpdir})
+    seen = []
+
+    class Recording:
+        def query(self, sql, params=()):
+            seen.append((sql, params))
+            return w.store.query(sql, params)
+
+    rows = attempt_tmp.probe_tmpdir_rows(Recording(), job_id="job-probed")
+    sql, params = seen[0]
+    plan = " ".join(str(tuple(row)) for row in w.store.connection.execute("EXPLAIN QUERY PLAN " + sql, params))
+    assert "events_job" in plan and "events_kind" not in plan, plan
+    assert sql.count("+kind") == 1
+    as_before = w.store.query(sql.replace("+kind", "kind"), params)
+    assert [dict(row) for row in rows] == [dict(row) for row in as_before]
+    assert [row["holder"] for row in rows] == ["probe-a"] and "/b" in rows[0]["tmpdir"]
+    every = attempt_tmp.probe_tmpdir_rows(w.store)
+    assert sorted(row["holder"] for row in every) == ["probe-a", "probe-c"]

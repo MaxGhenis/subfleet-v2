@@ -231,54 +231,93 @@ def _git_discovery_overrides() -> bool:
     return bool(candidates and candidates.intersection(environment()))
 
 
-def _plain_repository_config(common: Path, worktree: Path) -> bool:
-    """Recognize ordinary config syntax, leaving Git's unusual formats to Git.
+#: `_plain_common_dir`: the walk reached the root and found no repository.
+_NO_REPOSITORY = object()
+_TRUE = frozenset({"true", "yes", "on", "1"})
+_BOOLEANS = _TRUE | {"false", "no", "off", "0"}
+#: `rev-parse` itself parses config, and a value it rejects fails the command:
+#: core.compression=abc, user.useconfigonly=maybe, index.sparse=maybe and
+#: push.default=bogus all do, under Git 2.55. So only names known to be safe
+#: pass, each one tried with bad values against real Git; the rest go to Git.
+_PLAIN_CORE_BOOLEANS = frozenset({"bare", "filemode", "logallrefupdates", "ignorecase", "precomposeunicode",
+                                  "symlinks", "sparsecheckout", "sparsecheckoutcone"})
+_PLAIN_CORE_ANY = frozenset({"hookspath", "untrackedcache"})
+_PLAIN_SECTION_KEYS = {
+    "blame": frozenset({"ignorerevsfile"}),
+    "gc": frozenset({"auto", "reflogexpire", "reflogexpireunreachable"}),
+    "http": frozenset({"postbuffer", "version"}),
+    "pull": frozenset({"ff", "rebase"}),
+    "rerere": frozenset({"enabled"}),
+    "submodule": frozenset({"active"}),
+    "user": frozenset({"name", "email"}),
+}
+CONFIG_LIMIT = 1 << 20
+
+
+def _plain_config(path: Path, common: Path, worktree: Path, *, repository: bool = True) -> bool | None:
+    """Whether ordinary config turns per-worktree config on; None leaves it to Git.
 
     Discovery reads config too: a directory with HEAD/objects/refs can still
     be rejected for malformed config or an unsupported repository extension.
     This deliberately accepts less than Git rather than duplicating its parser.
+    `repository` is False for a `config.worktree`, where only core settings a
+    checkout may keep belong.
     """
     try:
-        text = rfs.read_regular(common / "config", limit=65536).decode("utf-8")
+        text = rfs.read_regular(path, limit=CONFIG_LIMIT).decode("utf-8")
     except (OSError, UnicodeError):
-        return False
+        return None
     if not text.isascii() or any(ord(c) < 32 and c not in "\t\r\n" for c in text):
-        return False
-    section = ""
-    booleans = {"true", "false", "yes", "no", "on", "off", "0", "1"}
+        return None
+    section, subsection, per_worktree = "", False, False
     for line in text.split("\n"):
         line = line.strip()
         if not line or line.startswith(("#", ";")):
             continue
         if line.startswith("["):
-            match = re.fullmatch(r'\[([A-Za-z0-9.-]+)(?: "[^"\\\x00-\x1f]*")?\]', line)
+            match = re.fullmatch(r'\[([A-Za-z0-9-]+)( "[^"\\\x00-\x1f]*")?\]', line)
             if match is None:
-                return False
-            section = match[1].lower()
-            if section in {"extensions", "include", "includeif"}:
-                return False
+                return None
+            section, subsection = match[1].lower(), match[2] is not None
+            if section in {"include", "includeif"}:
+                return None
+            if subsection and section in {"core", "extensions"}:
+                return None
+            if not subsection and section not in ({"core", "extensions", *_PLAIN_SECTION_KEYS} if repository
+                                                   else {"core"}):
+                return None
             continue
-        match = re.fullmatch(r"([A-Za-z][A-Za-z0-9-]*)[ \t]*=[ \t]*([^\"\\\x00-\x08\x0b-\x1f]*)", line)
+        match = re.fullmatch(r'([A-Za-z][A-Za-z0-9-]*)[ \t]*=[ \t]*([^"\\\x00-\x08\x0b-\x1f]*|"[^"\\\x00-\x1f]*")', line)
         if not section or match is None:
-            return False
+            return None
+        key, value = match[1].lower(), match[2].strip()
         if section == "core":
-            key, value = match[1].lower(), match[2].strip().lower()
-            if key == "repositoryformatversion":
-                if value != "0":
-                    return False
-            elif key in {"bare", "filemode", "logallrefupdates", "ignorecase", "precomposeunicode", "symlinks"}:
-                if value not in booleans:
-                    return False
+            if key in _PLAIN_CORE_BOOLEANS:
+                if value.lower() not in _BOOLEANS or (key == "bare" and not repository and value.lower() in _TRUE):
+                    return None
+            elif key == "repositoryformatversion":
+                if not repository or value not in {"0", "1"}:
+                    return None
             elif key == "worktree":
-                if not match[2].strip() or _resolve(common, match[2].strip()) != worktree:
-                    return False
-            else:
-                return False
-    return True
+                if not repository or not value or _resolve(common, value) != worktree:
+                    return None
+            elif key not in _PLAIN_CORE_ANY:
+                return None
+        elif section == "extensions":
+            if key == "worktreeconfig":
+                if value.lower() not in _BOOLEANS:
+                    return None
+                per_worktree = value.lower() in _TRUE
+            elif key != "partialclone" or not value:
+                return None
+        elif not subsection and key not in _PLAIN_SECTION_KEYS[section]:
+            return None
+    return per_worktree
 
 
-def _plain_common_dir(path: Path, checkpoint: Callable[[], None]) -> Path | None:
-    """A certain ordinary-directory answer; None means ask Git instead."""
+def _plain_common_dir(path: Path, checkpoint: Callable[[], None]) -> object | None:
+    """A certain answer for an ordinary directory: its common directory, or
+    `_NO_REPOSITORY` when none is above it. None means ask Git instead."""
     current = Path(os.path.realpath(path))
     if not current.is_dir():
         return None
@@ -294,7 +333,9 @@ def _plain_common_dir(path: Path, checkpoint: Callable[[], None]) -> Path | None
             if os.path.lexists(current / "HEAD"):
                 return None
             parent = current.parent
-            if parent == current or parent.stat().st_dev != device:
+            if parent == current:
+                return _NO_REPOSITORY
+            if parent.stat().st_dev != device:
                 return None
             current = parent
             continue
@@ -334,7 +375,11 @@ def _plain_common_dir(path: Path, checkpoint: Callable[[], None]) -> Path | None
             return None
         if not all((common / name).is_dir() and os.access(common / name, os.X_OK) for name in ("objects", "refs")):
             return None
-        if not _plain_repository_config(common, current):
+        per_worktree = _plain_config(common / "config", common, current)
+        if per_worktree is None:
+            return None
+        if per_worktree and os.path.lexists(admin / "config.worktree") and _plain_config(
+                admin / "config.worktree", common, current, repository=False) is None:
             return None
         checkpoint()
         return Path(os.path.realpath(common))
@@ -364,11 +409,38 @@ def fast_common_dir(path: Path, timeout: float = 60, cancel: threading.Event | N
     except (OSError, ValueError):
         common = None
     check()
+    if common is _NO_REPOSITORY:
+        return None
     if common is None:
         remaining = timeout if deadline is None else min(timeout, max(0.0, deadline - clock()))
         common = common_dir(path, timeout=remaining, cancel=cancel)
         check()
     return common
+
+
+#: Larger than any packed-refs a census should read in passing; Git answers it.
+PACKED_REFS_LIMIT = 64 << 20
+
+
+def no_refs_under(common: Path, prefix: str) -> bool:
+    """True when the files ref store proves no ref starts with `prefix`.
+
+    `prefix` may be a whole ref name. Only ever a negative, and False only means
+    ask `refs_under`: a loose folder, a packed line, a reftable store or any
+    unreadable file all leave it to Git. A job's salvage search asks this of
+    every repository in the census, where a `for-each-ref` for each would take
+    most of the pass.
+    """
+    try:
+        if os.path.lexists(common / "reftable") or os.path.lexists(common / prefix.rstrip("/")):
+            return False
+        try:
+            packed = rfs.read_regular(common / "packed-refs", limit=PACKED_REFS_LIMIT)
+        except FileNotFoundError:
+            return True
+    except (OSError, ValueError):
+        return False
+    return (" " + prefix).encode() not in packed
 
 
 def find_registration(repository: Path, tree: Path, timeout: float = 60,
