@@ -218,6 +218,159 @@ def common_dir(path: Path, timeout: float = 60, cancel: threading.Event | None =
     return _resolve(path, out.decode("utf-8", "surrogateescape").strip())
 
 
+def _git_discovery_overrides() -> bool:
+    """An explicit helper policy can admit Git settings the default env drops."""
+    ignored = frozenset(GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + (
+        "GIT_INDEX_FILE", "GIT_OPTIONAL_LOCKS", "GIT_NO_LAZY_FETCH", "GIT_TERMINAL_PROMPT",
+        "GIT_NO_REPLACE_OBJECTS", "GIT_ASKPASS",
+    ))
+    candidates = {name for name in os.environ
+                  if name.startswith("GIT_") and not name.startswith("GIT_TRACE") and name not in ignored}
+    # The ordinary census only scans names; construct the selected environment
+    # when an ambient variable could actually have been passed through.
+    return bool(candidates and candidates.intersection(environment()))
+
+
+def _plain_repository_config(common: Path, worktree: Path) -> bool:
+    """Recognize ordinary config syntax, leaving Git's unusual formats to Git.
+
+    Discovery reads config too: a directory with HEAD/objects/refs can still
+    be rejected for malformed config or an unsupported repository extension.
+    This deliberately accepts less than Git rather than duplicating its parser.
+    """
+    try:
+        text = rfs.read_regular(common / "config", limit=65536).decode("utf-8")
+    except (OSError, UnicodeError):
+        return False
+    if not text.isascii() or any(ord(c) < 32 and c not in "\t\r\n" for c in text):
+        return False
+    section = ""
+    booleans = {"true", "false", "yes", "no", "on", "off", "0", "1"}
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("["):
+            match = re.fullmatch(r'\[([A-Za-z0-9.-]+)(?: "[^"\\\x00-\x1f]*")?\]', line)
+            if match is None:
+                return False
+            section = match[1].lower()
+            if section in {"extensions", "include", "includeif"}:
+                return False
+            continue
+        match = re.fullmatch(r"([A-Za-z][A-Za-z0-9-]*)[ \t]*=[ \t]*([^\"\\\x00-\x08\x0b-\x1f]*)", line)
+        if not section or match is None:
+            return False
+        if section == "core":
+            key, value = match[1].lower(), match[2].strip().lower()
+            if key == "repositoryformatversion":
+                if value != "0":
+                    return False
+            elif key in {"bare", "filemode", "logallrefupdates", "ignorecase", "precomposeunicode", "symlinks"}:
+                if value not in booleans:
+                    return False
+            elif key == "worktree":
+                if not match[2].strip() or _resolve(common, match[2].strip()) != worktree:
+                    return False
+            else:
+                return False
+    return True
+
+
+def _plain_common_dir(path: Path, checkpoint: Callable[[], None]) -> Path | None:
+    """A certain ordinary-directory answer; None means ask Git instead."""
+    current = Path(os.path.realpath(path))
+    if not current.is_dir():
+        return None
+    device = current.stat().st_dev
+    while True:
+        checkpoint()
+        candidate = current / ".git"
+        try:
+            candidate_st = os.lstat(candidate)
+        except FileNotFoundError:
+            # A bare repository can precede a containing checkout during Git
+            # discovery, including when cwd is inside its admin directory.
+            if os.path.lexists(current / "HEAD"):
+                return None
+            parent = current.parent
+            if parent == current or parent.stat().st_dev != device:
+                return None
+            current = parent
+            continue
+        if candidate_st.st_uid != os.geteuid():
+            return None
+        if stat.S_ISDIR(candidate_st.st_mode):
+            admin = candidate
+        elif stat.S_ISREG(candidate_st.st_mode):
+            data = rfs.read_regular(candidate, limit=65536)
+            if not data.startswith(b"gitdir: "):
+                return None
+            pointer = data[len(b"gitdir: "):].removesuffix(b"\n").removesuffix(b"\r")
+            if not pointer or pointer != pointer.strip() or any(c in pointer for c in (b"\0", b"\n", b"\r")):
+                return None
+            admin = _resolve(current, os.fsdecode(pointer))
+        else:
+            return None
+        checkpoint()
+        admin_st = os.lstat(admin)
+        if not stat.S_ISDIR(admin_st.st_mode) or admin_st.st_uid != os.geteuid() or current.stat().st_uid != os.geteuid():
+            return None
+        head = rfs.read_regular(admin / "HEAD", limit=4096)
+        if re.fullmatch(rb"(?:ref: refs/[^\x00-\x20\x7f]+|[0-9a-fA-F]{40})\n?", head) is None:
+            return None
+        try:
+            pointer = rfs.read_regular(admin / "commondir", limit=65536)
+        except FileNotFoundError:
+            common = admin
+        else:
+            pointer = pointer.removesuffix(b"\n").removesuffix(b"\r")
+            if not pointer or pointer != pointer.strip() or any(c in pointer for c in (b"\0", b"\n", b"\r")):
+                return None
+            common = _resolve(admin, os.fsdecode(pointer))
+        common_st = os.lstat(common)
+        if (not stat.S_ISDIR(common_st.st_mode) or common_st.st_uid != os.geteuid()
+                or str(common) != str(common).strip()):
+            return None
+        if not all((common / name).is_dir() and os.access(common / name, os.X_OK) for name in ("objects", "refs")):
+            return None
+        if not _plain_repository_config(common, current):
+            return None
+        checkpoint()
+        return Path(os.path.realpath(common))
+
+
+def fast_common_dir(path: Path, timeout: float = 60, cancel: threading.Event | None = None, *,
+                    checkpoint: Callable[[], None] | None = None,
+                    deadline: float | None = None, clock: Callable[[], float] = time.monotonic) -> Path | None:
+    """Resolve ordinary checkouts without a process; ask Git for every doubt.
+
+    This is only for retention's repository census. ``common_dir`` remains the
+    authority and retains its behavior for every other caller. A caller's
+    checkpoint propagates, and even a fallback subprocess gets only the time
+    left in this pass; a partial/expired census must never become an answer.
+    """
+    def check() -> None:
+        if checkpoint is not None:
+            checkpoint()
+        if cancel is not None and cancel.is_set():
+            raise Cancelled("repository discovery cancelled")
+        if deadline is not None and clock() >= deadline:
+            raise GitError("repository discovery deadline")
+
+    check()
+    try:
+        common = None if _git_discovery_overrides() else _plain_common_dir(path, check)
+    except (OSError, ValueError):
+        common = None
+    check()
+    if common is None:
+        remaining = timeout if deadline is None else min(timeout, max(0.0, deadline - clock()))
+        common = common_dir(path, timeout=remaining, cancel=cancel)
+        check()
+    return common
+
+
 def find_registration(repository: Path, tree: Path, timeout: float = 60,
                       cancel: threading.Event | None = None) -> Registration | None:
     """The registration whose backlink names `tree` when the tree itself is gone."""
