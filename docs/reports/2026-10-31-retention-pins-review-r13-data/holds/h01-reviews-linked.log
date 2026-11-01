@@ -1,0 +1,54 @@
+queued 2026-10-31T21:20:28Z load { 93.17 94.00 81.86 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h01-reviews-linked
+hold 21:20:28Z slot A load { 93.17 94.00 81.86 }
+........................                                                 [100%]
+=============================== warnings summary ===============================
+tests/fake/test_retention_dependency_review_r12.py::test_baseline_keeps_readable_normalization_length[alternates]
+tests/fake/test_retention_dependency_review_r12.py::test_baseline_keeps_readable_normalization_length[scan]
+  tests/fake/test_retention_dependency_review_r12.py:111: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("route", ["alternates", "scan"])
+
+tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[alternates]
+tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[scan]
+  tests/fake/test_retention_dependency_review_r12.py:116: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("route", ["alternates", "scan"])
+
+tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]
+tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]
+  tests/fake/test_retention_dependency_review_r11.py:98: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize('route', ['alternates', 'scan'])
+
+tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]
+tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]
+  tests/fake/test_retention_dependency_review_r11.py:103: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize('route', ['alternates', 'scan'])
+
+tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-case]
+tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[gitfile-other-normalization]
+tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-case]
+tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[commondir-other-normalization]
+tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-case]
+tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[alternates-other-normalization]
+tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-case]
+tests/fake/test_retention_dependency_review_r10.py::test_other_spelling_preserves_owner_through_retention[objects-pack-other-normalization]
+  tests/fake/test_retention_dependency_review_r10.py:23: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize('spelling', ['other-case', 'other-normalization'])
+
+tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[gitfile]
+tests/fake/test_retention_dependency_review_r10.py::test_users_home_firmlink_preserves_owner_through_retention[objects-pack]
+  tests/fake/test_retention_dependency_review_r10.py:35: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize('layout', ['gitfile', 'objects-pack'])
+
+tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]
+tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]
+  tests/fake/test_retention_dependency_review_r10.py:48: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize('cycle', ['self-suffix', 'two-link-suffix'])
+
+tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]
+tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]
+tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]
+tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]
+  tests/fake/test_retention_dependency_review_r9.py:24: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize('layout', ['gitfile', 'commondir', 'alternates', 'objects-pack'])
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+24 passed, 24 warnings in 157.60s (0:02:37)

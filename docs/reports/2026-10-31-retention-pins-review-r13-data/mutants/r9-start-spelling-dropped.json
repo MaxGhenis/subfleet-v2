@@ -1,0 +1,36 @@
+{
+ "name": "r9-start-spelling-dropped",
+ "start": "2026-10-31T23:03:38Z",
+ "load": [
+  35.2119140625,
+  57.1884765625,
+  59.3564453125
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "d4496900a80b0447212ec18e6145080f5ea1b24365e59acc6dbc186db9dfd33f"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert recorded == expected"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert recorded == expected"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/unit/test_retention_location_spelling.py:234: in test_routine_alias_keeps_the_exact_record\n    assert recorded == expected\nE   AssertionError: assert {'git': ['/pr...linked/.git']} == {'git': ['/pr...git/objects']}\nE     \nE     Differing items:\nE     {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r9-start-spelling-dropped/pytes...13/real/mut-r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/linked/.git']} != {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r9-start-spelling-dropped/pytes...r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository/.git/objects']}\nE     Use -v to get more diff"
+ ]
+}

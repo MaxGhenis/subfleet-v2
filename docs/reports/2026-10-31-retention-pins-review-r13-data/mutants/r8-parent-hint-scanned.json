@@ -1,0 +1,36 @@
+{
+ "name": "r8-parent-hint-scanned",
+ "start": "2026-10-31T22:57:19Z",
+ "load": [
+  36.26806640625,
+  53.7685546875,
+  57.4619140625
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "a630002f176b98d70f067e776ca04c09001e8cf61b75769b7a6c79ab900a8d5a"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/unit/test_retention_locations.py:113: in test_inferred_parent_is_not_scanned\n    assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded\nE   AssertionError: {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-parent-hint-scanned/pytest-o...r272r13/real/mut-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1', ...]}\nE   assert not True\nE    +  where True = any(<generator object test_inferred_parent_is_not_scanned.<locals>.<genexpr> at 0x108525040>)"
+ ]
+}

@@ -1,0 +1,11 @@
+hold 23:08:53Z slot A load { 62.93 68.27 64.24 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________________ test_filter_stat_table[found-ENOENT] _____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome != "ELOOP")
+E   AssertionError: assert ('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r11-any-oserror-drops/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E0/missing' in []) == ('ENOENT' != 'ELOOP')
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]
+1 failed in 18.97s
+MUTANT {"name": "r11-any-oserror-drops", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert (place in result) == (outcome != \"ELOOP\")"]]}

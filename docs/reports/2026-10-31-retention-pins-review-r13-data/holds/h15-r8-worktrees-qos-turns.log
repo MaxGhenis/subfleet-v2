@@ -1,0 +1,11 @@
+queued 2026-10-31T22:23:28Z load { 36.21 41.22 50.79 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h15-r8-worktrees-qos-turns
+hold 22:23:28Z slot A load { 36.21 41.22 50.79 }
+.............................................                            [100%]
+=============================== warnings summary ===============================
+tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]
+tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]
+  tests/fake/test_retention_dependency_review_r8.py:14: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("layout", ["admin-path", "gitfile"])
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+45 passed, 2 warnings in 224.47s (0:03:44)

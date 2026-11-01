@@ -645,8 +645,10 @@ one spelling: physical file locations and resolved scan targets take `folders.ca
 including Data-volume, letter-case and Unicode-normalization aliases the volume
 accepts. Physical link entries keep their canonical parent plus their own name.
 A place that fails these equations and that the kernel refuses with `ELOOP`
-is left out, because its path holds a live cycle.
+is left out: on a filesystem that holds still, `canonical` resolves every
+acyclic chain, so that string holds a live cycle.
 Any other place stays, even when its spelling changed during discovery.
+An alternates line with an embedded NUL makes `record` raise, as at `475f63278`.
 Physical link entries and any incomplete evidence stay. The return list is
 built before the existing alias revalidation of walked targets, identities,
 link chains and pointer contents. The supplied folder is spelled

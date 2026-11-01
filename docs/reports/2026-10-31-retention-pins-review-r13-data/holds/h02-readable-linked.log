@@ -1,0 +1,55 @@
+queued 2026-10-31T21:23:54Z load { 92.43 94.95 84.97 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h02-readable-linked
+hold 21:23:54Z slot A load { 92.43 94.95 84.97 }
+....................................                                     [100%]
+=============================== warnings summary ===============================
+tests/unit/test_retention_location_readable.py::test_cycle_differential[control-self-suffix]
+tests/unit/test_retention_location_readable.py::test_cycle_differential[scan-self-suffix]
+tests/unit/test_retention_location_readable.py::test_cycle_differential[alternates-self-suffix]
+tests/unit/test_retention_location_readable.py::test_cycle_differential[alternates-tail-self-suffix]
+tests/unit/test_retention_location_readable.py::test_cycle_differential[gitfile-self-suffix]
+tests/unit/test_retention_location_readable.py::test_cycle_differential[commondir-self-suffix]
+tests/unit/test_retention_location_readable.py::test_cycle_differential[objects-alternates-self-suffix]
+tests/unit/test_retention_location_readable.py::test_cycle_differential[scan-two-link-suffix]
+tests/unit/test_retention_location_readable.py::test_cycle_differential[alternates-two-link-suffix]
+  tests/unit/test_retention_location_readable.py:56: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("route,cycle,git_exit,error_count", ROWS,
+
+tests/unit/test_retention_location_readable.py::test_routine_differential[plain]
+tests/unit/test_retention_location_readable.py::test_routine_differential[worktree]
+tests/unit/test_retention_location_readable.py::test_routine_differential[shared]
+tests/unit/test_retention_location_readable.py::test_routine_differential[new-workdir]
+tests/unit/test_retention_location_readable.py::test_routine_differential[none]
+  tests/unit/test_retention_location_readable.py:67: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("layout", ["plain", "worktree", "shared", "new-workdir", "none"])
+
+tests/unit/test_retention_location_readable.py::test_location_strategy_differential
+  tests/unit/test_retention_location_readable.py:74: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @settings(max_examples=55, deadline=None, database=None, derandomize=True,
+
+tests/unit/test_retention_location_readable.py::test_spelling_strategy_differential
+  tests/unit/test_retention_location_readable.py:87: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @settings(max_examples=55, deadline=None, database=None, derandomize=True,
+
+tests/unit/test_retention_location_readable.py: 12 warnings
+  tests/unit/test_retention_location_readable.py:105: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("outcome", ["success", "ENOENT", "ENOTDIR", "EACCES", "ELOOP", "ENAMETOOLONG"])
+
+tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle[gitfile-371]
+tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle[gitfile-500]
+tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle[commondir-371]
+tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle[commondir-500]
+  tests/unit/test_retention_location_readable.py:194: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("length", [371, 500])
+
+tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]
+tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]
+  tests/unit/test_retention_location_readable.py:237: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("form", ["parent-case", "unicode-normalization"])
+
+tests/unit/test_retention_location_readable.py::test_original_rename_record_equals_baseline[alternates]
+tests/unit/test_retention_location_readable.py::test_original_rename_record_equals_baseline[scan]
+  tests/unit/test_retention_location_readable.py:306: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("route", ["alternates", "scan"])
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+36 passed, 36 warnings in 427.13s (0:07:07)

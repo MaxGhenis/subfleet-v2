@@ -1,0 +1,13 @@
+hold 23:01:12Z slot A load { 75.81 66.30 62.11 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates] ___
+tests/fake/test_retention_dependency_review_r9.py:79: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r9-alternates-canonicalization...'bytes_after': 0, ...}, b"fatal: path 'owner-only.txt' does not exist in 'e4bdd476817861181049c170db7697e41a244b15'
+E     ")
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]
+1 failed in 45.83s
+MUTANT {"name": "r9-alternates-canonicalization-dropped", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)"]]}

@@ -1,0 +1,11 @@
+queued 2026-10-31T22:19:23Z load { 37.27 46.08 55.22 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h14-earlier-b
+hold 22:19:23Z slot A load { 37.27 46.08 55.22 }
+........................................................................ [ 50%]
+........................................................................ [100%]
+=============================== warnings summary ===============================
+tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory
+  tests/fake/test_retention_dependency_review_r2.py:182: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    def test_c8_4_many_short_valid_lines_use_bounded_input_memory(tmp_path, record_property):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+144 passed, 1 warning in 180.16s (0:03:00)

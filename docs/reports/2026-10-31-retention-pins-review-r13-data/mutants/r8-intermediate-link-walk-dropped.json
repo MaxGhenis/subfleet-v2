@@ -1,0 +1,36 @@
+{
+ "name": "r8-intermediate-link-walk-dropped",
+ "start": "2026-10-31T22:53:40Z",
+ "load": [
+  56.5078125,
+  65.31103515625,
+  61.26123046875
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "0389455993b0d02fcb78d6c64ea53daee978c2f2ef3cfd4520c9d92e0f451d38"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert held, recorded"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert held, recorded"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/unit/test_retention_locations.py:20: in test_required_locations_survive_two_relative_links\n    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,\ntests/unit/test_retention_location_inputs.py:151: in check_location_input\n    assert held, recorded\nE   AssertionError: {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-intermediate-link-walk-dropp...ediate-link-walk-dropped/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects']}\nE   assert False"
+ ]
+}

@@ -1,0 +1,82 @@
+[
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/r0/repository"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [],
+  "node": "plain",
+  "record_equal_base": true,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/r1/linked"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [],
+  "node": "worktree",
+  "record_equal_base": true,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/r2/shared"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [],
+  "node": "shared",
+  "record_equal_base": true,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/r3/repository/linked"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [],
+  "node": "new-workdir",
+  "record_equal_base": true,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/r4/neutral"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [],
+  "node": "none",
+  "record_equal_base": true,
+  "subset": true
+ }
+]

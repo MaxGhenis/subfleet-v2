@@ -1,0 +1,29 @@
+hold 00:31:20Z slot A load { 41.32 46.70 55.05 }
+..FF                                                                     [100%]
+=================================== FAILURES ===================================
+E   AssertionError: {'route': 'alternates', 'raw': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/swap/pytest-o...éééééééééééééééééé7/ééééééééééééééééééééééééééééééééééé8/source/.git/objects', 'raw_bytes': 828, ...}
+    assert ('owner' not in ['owner'])
+/Users/maxghenis/.subfleet/worktrees/20261031-170839-pr272-review-r13/tests/fake/test_retention_dependency_review_r12.py:107: AssertionError: {'route': 'alternates', 'raw': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/swap/pytest-o...éééééééééééééééééé7/ééééééééééééééééééééééééééééééééééé8/source/.git/objects', 'raw_bytes': 828, ...}
+E   AssertionError: {'route': 'scan', 'raw': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/swap/pytest-of-maxg...ééééééééééééééééééééééééé7/ééééééééééééééééééééééééééééééééééé8/packs', 'raw_bytes': 814, ...}
+    assert ('owner' not in ['owner'])
+/Users/maxghenis/.subfleet/worktrees/20261031-170839-pr272-review-r13/tests/fake/test_retention_dependency_review_r12.py:107: AssertionError: {'route': 'scan', 'raw': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/swap/pytest-of-maxg...ééééééééééééééééééééééééé7/ééééééééééééééééééééééééééééééééééé8/packs', 'raw_bytes': 814, ...}
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[alternates]
+FAILED tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[scan]
+2 failed, 2 passed in 26.20s
+----
+..FF                                                                     [100%]
+=================================== FAILURES ===================================
+E   AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/swap/pytest-of-maxghenis/pytest-1/...ce/.git/objects
+      fatal: path 'owner-only.txt' exists on disk, but not in '9d3401cf4f946ff3f0c8da39974afd0b17bb7c25'
+      ")
+    assert ('owner' not in ['owner'])
+/Users/maxghenis/.subfleet/worktrees/20261031-170839-pr272-review-r13/tests/fake/test_retention_dependency_review_r11.py:94: AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/swap/pytest-of-maxghenis/pytest-1/...ce/.git/objects
+E   AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/swap/pytest-of-maxghenis/pytest-1/...'bytes_after': 0, ...}, b"fatal: path 'owner-only.txt' does not exist in '213ad7871076394387c169a3dddfd7d687b579fd'
+      ")
+    assert ('owner' not in ['owner'])
+/Users/maxghenis/.subfleet/worktrees/20261031-170839-pr272-review-r13/tests/fake/test_retention_dependency_review_r11.py:94: AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/swap/pytest-of-maxghenis/pytest-1/...'bytes_after': 0, ...}, b"fatal: path 'owner-only.txt' does not exist in '213ad7871076394387c169a3dddfd7d687b579fd'
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]
+FAILED tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]
+2 failed, 2 passed in 25.80s

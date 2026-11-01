@@ -1,0 +1,36 @@
+{
+ "name": "r9-text-canonicalization-dropped",
+ "start": "2026-10-31T23:00:09Z",
+ "load": [
+  78.4716796875,
+  64.45849609375,
+  61.19189453125
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "0cb7f9268845f53a098eedd0acd8a935c9a529e6930dd49d185a7766322e8272"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/fake/test_retention_dependency_review_r9.py:79: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads\n    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)\nE   AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r9-text-canonicalization-dropp...ytes_before': 48917, 'bytes_after': 0, ...}, b'fatal: not a git repository (or any of the parent directories): .git\nE     ')\nE   assert ('owner' not in ['owner'])"
+ ]
+}
