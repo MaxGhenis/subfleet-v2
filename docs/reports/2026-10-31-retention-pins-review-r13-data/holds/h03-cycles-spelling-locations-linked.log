@@ -1,0 +1,47 @@
+queued 2026-10-31T21:31:48Z load { 95.95 91.58 86.92 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h03-cycles-spelling-locations-linked
+hold 21:31:48Z slot A load { 95.95 91.58 86.92 }
+.....................................................                    [100%]
+=============================== warnings summary ===============================
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]
+tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]
+  tests/unit/test_retention_location_cycles.py:78: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("route,cycle,git_exit,error_count", ROWS,
+
+tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses
+  tests/unit/test_retention_location_spelling.py:200: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @settings(max_examples=55, deadline=None, database=None, derandomize=True,
+
+tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]
+tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]
+tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]
+tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]
+  tests/unit/test_retention_location_spelling.py:213: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("position", ["gitfile-pointer", "commondir-file", "alternates-file", "objects-pack"])
+
+tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]
+tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]
+tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]
+tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]
+tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]
+tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]
+tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]
+  tests/unit/test_retention_locations.py:14: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("position,entry", [
+
+tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]
+tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]
+tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]
+tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]
+tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]
+  tests/unit/test_retention_locations.py:148: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("layout", ["plain", "worktree", "shared", "new-workdir", "none"])
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+53 passed, 26 warnings in 146.46s (0:02:26)

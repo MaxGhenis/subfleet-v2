@@ -1,0 +1,36 @@
+{
+ "name": "r8-walk-revalidation-dropped",
+ "start": "2026-10-31T22:58:07Z",
+ "load": [
+  64.1435546875,
+  58.74267578125,
+  59.09375
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "3d11eb5bea843b377705160811e946857bf8135a9ec7f3372140f959a9d6d01a"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert any(error[\"file\"] == str(alias) for error in errors), errors"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert any(error[\"file\"] == str(alias) for error in errors), errors"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/unit/test_retention_locations.py:59: in test_changed_link_chain_with_the_same_final_target_is_incomplete\n    assert any(error[\"file\"] == str(alias) for error in errors), errors\nE   AssertionError: []\nE   assert False\nE    +  where False = any(<generator object test_changed_link_chain_with_the_same_final_target_is_incomplete.<locals>.<genexpr> at 0x10840cd60>)"
+ ]
+}

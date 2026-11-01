@@ -1,0 +1,11 @@
+queued 2026-10-31T22:14:41Z load { 48.77 46.97 58.42 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h13-earlier-a
+hold 22:14:42Z slot A load { 48.77 46.97 58.42 }
+........................................................................ [ 74%]
+.........................                                                [100%]
+=============================== warnings summary ===============================
+tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins
+  tests/fake/test_retention_parent_hint.py:35: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    def test_unused_parent_oversized_alternates_still_globally_pins(world, record_property):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+97 passed, 1 warning in 247.38s (0:04:07)

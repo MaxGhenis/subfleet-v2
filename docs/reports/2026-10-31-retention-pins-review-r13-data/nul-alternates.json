@@ -1,0 +1,15 @@
+{
+ "fsck": 0,
+ "outcomes": {
+  "475f63278": {
+   "error": "lstat: embedded null character in path",
+   "error_type": "ValueError"
+  },
+  "head": {
+   "error": "lstat: embedded null character in path",
+   "error_type": "ValueError"
+  }
+ },
+ "read": 0,
+ "read_stdout": "source"
+}

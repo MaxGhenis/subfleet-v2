@@ -1,0 +1,16 @@
+hold 23:08:11Z slot A load { 68.37 70.07 64.66 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_return_filter_keeps_readable_store_across_case_rename[alternates] ____
+tests/fake/test_retention_dependency_review_r11.py:105: in test_return_filter_keeps_readable_store_across_case_rename
+    check_case_rename(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r11.py:94: in check_case_rename
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r11-stat-gate-dropped/pytest-o...ce/.git/objects
+E     fatal: path 'owner-only.txt' exists on disk, but not in 'cf8625af0757af6e136e9d120b5dd6bd13c57509'
+E     ")
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]
+1 failed in 24.33s
+MUTANT {"name": "r11-stat-gate-dropped", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)"]]}

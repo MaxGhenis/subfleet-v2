@@ -1,0 +1,44 @@
+{
+ "name": "r12-enametoolong-drops",
+ "start": "2026-10-31T23:09:46Z",
+ "load": [
+  65.4345703125,
+  67.64453125,
+  64.232421875
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[alternates]",
+  "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "f55dfd516313d5f7a30ffab4d4723177edb42a9ecabc7f032811a437003235b9"
+  }
+ ],
+ "failed": 2,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), observation"
+  ],
+  [
+   "assert (place in result) == (outcome != \"ELOOP\")"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), observation"
+  ],
+  [
+   "assert (place in result) == (outcome != \"ELOOP\")"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/fake/test_retention_dependency_review_r12.py:118: in test_filter_keeps_readable_normalization_length\n    check_normalization_length(world, monkeypatch, route, dependencies, record_property)\ntests/fake/test_retention_dependency_review_r12.py:107: in check_normalization_length\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), observation\nE   AssertionError: {'route': 'alternates', 'raw': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r12-ename.../\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e97/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e98/source/.git/objects', 'raw_bytes': 850, ...}\nE   assert ('owner' not in ['owner'])",
+  "tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table\n    assert (place in result) == (outcome != \"ELOOP\")\nE   AssertionError: assert ('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r12-enametoolong-drops/pytest-of-maxghen...nglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong' in []) == ('ENAMETOOLONG' != 'ELOOP')"
+ ]
+}

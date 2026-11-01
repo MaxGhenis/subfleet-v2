@@ -1,0 +1,13 @@
+hold 22:57:01Z slot A load { 36.92 54.77 57.87 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________________ test_inferred_parent_is_not_scanned ______________________
+tests/unit/test_retention_locations.py:113: in test_inferred_parent_is_not_scanned
+    assert not any(folders.within(path, str(paths["unrelated"])) for path in recorded["git"]), recorded
+E   AssertionError: {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-parent-hint-scanned/pytest-o...r272r13/real/mut-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1', ...]}
+E   assert not True
+E    +  where True = any(<generator object test_inferred_parent_is_not_scanned.<locals>.<genexpr> at 0x108525040>)
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned
+1 failed in 33.18s
+MUTANT {"name": "r8-parent-hint-scanned", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded"]]}
