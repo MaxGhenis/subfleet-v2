@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:29:02.482670+00:00", "loads": [26.638671875, 31.86181640625, 32.95751953125], "pid": 94996, "args": ["tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"], "fixture_root": "/private/tmp/sf-r272r8"}

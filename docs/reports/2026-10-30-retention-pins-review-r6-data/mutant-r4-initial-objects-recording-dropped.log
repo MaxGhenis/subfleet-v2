@@ -1,0 +1,47 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:35:11Z slot B load 
+START mutant-r4-initial-objects-recording-dropped 2026-10-30T19:35:14.910508+00:00 load=(58.1123046875, 54.33056640625, 51.072265625)
+F
+=================================== FAILURES ===================================
+___________ test_stable_objects_alias_keeps_the_tree_git_reads[live] ___________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r6/cases-27595/pytest/test_stable_objects_alias_keep0'), trusted=True, remot...-r272r6/cases-27595/pytest/test_stable_objects_alias_keep0/state'), store=<subfleet.store.Store object at 0x10a01a7b0>)
+state = 'running'
+
+    @pytest.mark.parametrize("state", [
+        pytest.param("running", id="live"),
+        pytest.param("succeeded", id="exporting-control"),
+    ])
+    def test_stable_objects_alias_keeps_the_tree_git_reads(world, state):
+        tree = world.job("owner")
+        source = repo(tree / "source")
+        (source / "unique.txt").write_text("R4 stable objects alias\n")
+        git(source, "add", "unique.txt")
+        git(source, "commit", "--quiet", "-m", "unique source")
+        commit = git(source, "rev-parse", "HEAD")
+        outside = repo(world.base / "outside")
+        objects = outside / ".git" / "objects"
+        objects.rename(world.base / "old-objects")
+        objects.symlink_to(source / ".git" / "objects", target_is_directory=True)
+        recorded = dependencies.record(str(outside))
+        assert not recorded.get("incomplete"), recorded
+        assert git(outside, "show", commit + ":unique.txt") == "R4 stable objects alias"
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+        if state == "succeeded":
+            # With complete discovery, a terminal exporter keeps its output paths.
+            assert "owner" in result["pruned"] and not tree.exists(), result
+        else:
+>           assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E           AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-27595/pytest/test_stable_objects_alias_keep0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48600, 'bytes_after': 0, ...})
+E           assert ('owner' not in ['owner'])
+
+tests/fake/test_retention_dependency_review_r4.py:250: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 14.67s

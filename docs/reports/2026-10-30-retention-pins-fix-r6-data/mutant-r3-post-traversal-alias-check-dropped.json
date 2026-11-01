@@ -1,0 +1,45 @@
+{
+  "label": "mutant-r3-post-traversal-alias-check-dropped",
+  "start": "2026-10-30T22:20:07.501858+00:00",
+  "loads": [
+    20.8388671875,
+    19.9423828125,
+    19.23681640625
+  ],
+  "seconds": 45.62737083400134,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 24.256016458006343,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "baseline_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "mutated_sha256": "c5fe2c5ec0b90cf464d33da5ba58d67216026502f360e2cc7a4c05fd1edddfa9"
+    }
+  ],
+  "rss": 119193600
+}

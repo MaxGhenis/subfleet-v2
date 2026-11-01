@@ -1,0 +1,3216 @@
+{
+  "name": "dependencies-unit",
+  "start": "2026-10-31T07:19:32.439901+00:00",
+  "load": [
+    28.7197265625,
+    32.4052734375,
+    34.07568359375
+  ],
+  "args": [
+    "tests/unit/test_retention_alternates.py",
+    "tests/unit/test_retention_dependency_aliases.py",
+    "tests/unit/test_retention_job_dependencies.py",
+    "tests/unit/test_retention_folded_pin.py",
+    "tests/unit/test_retention_shared_folders.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.13255491699965205,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2885199169977568,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00043354199806344695,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002560375000030035,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3966223749994242,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005580830002145376,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032514160011487547,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2904535829984525,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003851250003208406,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002520041998650413,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.30914649999976973,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005534169977181591,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030947919985919725,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3257956669986015,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005111249993206002,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014920840003469493,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24260974999924656,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0013059580014669336,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.012128833001042949,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2999377500018454,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005132079968461767,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002602208001917461,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.29313483299847576,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005509999973583035,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023732909976388328,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2961992909986293,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006271670026762877,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017278749983233865,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2981347079985426,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006974169991735835,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021640840022882912,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3019088750006631,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002985419996548444,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0011249160015722737,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24654520799958846,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00043295800060150214,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.014290541999798734,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2705760419994476,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002979580021928996,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029569159996754024,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.26858091699978104,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003355000008014031,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017965000006370246,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.41842874999929336,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003440000000409782,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0009832079995248932,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.245899855159223e-05,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 8.466600047540851e-05,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0008042499975999817,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 33.81277808300001,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005526250024558976,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.05111775000113994,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0002656249998835847,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00022141700173961,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018882080003095325,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00023987499662325718,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002172090025851503,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014975000012782402,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0001492080009484198,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00018366700169281103,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014279589995567221,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00013350000153877772,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0001765000015439,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001799459001631476,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00017458299771533348,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00019225000141886994,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018823749996954575,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.013468958000885323,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00438729199959198,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002379375000600703,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0055495840024377685,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00019437499940977432,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitdir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.012817957998777274,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0418002090009395,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitdir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00017454199769417755,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00467354099964723,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0027408749992900994,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0001997500003199093,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[common-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015038329984236043,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[common-target]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.006744833000993822,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[common-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00025637500220909715,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[alternate]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002514249998057494,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[alternate]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0038349999995261896,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[alternate]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003145000009681098,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[folder]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002016540998738492,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0037847909989068285,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[folder]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00026050000087707303,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0022942920004425105,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.008614000002125977,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00030295800024759956,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[vanished]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009071832999325125,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[vanished]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.013060707999102306,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[vanished]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00031033299819682725,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[stable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003565415998309618,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[stable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.003688834000058705,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[stable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00045008300003246404,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repeated_unresolvable_alias_keeps_one_incomplete_observation",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005609458999970229,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repeated_unresolvable_alias_keeps_one_incomplete_observation",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24246995800058357,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_aliases.py::test_repeated_unresolvable_alias_keeps_one_incomplete_observation",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00032916599957388826,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6124424160007038,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0148878330001025,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018694999998842832,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5213079169989214,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.020724499998323154,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002027167000051122,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.53074800000104,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.08889041699876543,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002242458002001513,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6339713750021474,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.013755249998212093,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.01036733299770276,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5267921660015418,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.09861391600134084,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00467716699859011,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5354724579992762,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11924166600147146,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002343041000131052,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5052743749984074,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.07731350000176462,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04575716600083979,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.578023124999163,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.41202262500155484,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018351660000917036,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4321112500001618,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3713714589976007,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004267292002623435,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5507004999999481,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.29226475000177743,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008916624999983469,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.37854479100133176,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8955495410009462,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011213165998924524,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.181678542001464,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.31312137500208337,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.024938332997407997,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006588624997675652,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0022233749987208284,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0013555000004998874,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006142041998828063,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0012753750015690457,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009941000000253553,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03401441700043506,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.014186458000040147,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.027094665998447454,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0760188329986704,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0019250830009696074,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0037812090013176203,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00716979199933121,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.04008129100111546,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03744570900016697,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04329712500111782,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0011695840003085323,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007944999997562263,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009549750000587665,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.016353292001440423,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06199866700262646,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009646250000514556,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.054643292001856025,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011277910016360693,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.010180290999414865,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.004835709001781652,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.05286641600105213,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03445787500095321,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0011060409997298848,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.027690749997418607,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0399799160004477,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0012030420002702158,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009836250028456561,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009838207999564474,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0014726670015079435,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0042002080008387566,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01891208400047617,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.04243158399913227,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0073087079981633,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0345075410004938,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.004396208998514339,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009434834002604475,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.015936833999148803,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.06904687499991269,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017191670012834948,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02487404200292076,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.013722708998102462,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.014951208999264054,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03510545799872489,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0010067080002045259,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008179579999705311,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.010860708000109298,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0012198330005048774,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013160874997993233,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.020500375001574866,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.002218541998445289,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001506625001638895,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.014522334000503179,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0019406249994062819,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03646637500060024,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.011483041998872068,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0015894169991952367,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009494160003669094,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.025645665999036282,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.001185458000691142,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008766659993852954,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.08221754199985298,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.014647167001385242,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004554957999062026,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0182900410000002,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0019397500000195578,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008481670010951348,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.029712374998780433,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.024064749999524793,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013664250000147149,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.05652262500007055,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0010055420025310013,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008358329978364054,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.013051582998741651,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0009788330025912728,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008239579983637668,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06191962500088266,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.01019320899649756,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.010158625002077315,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06901450000077602,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.006744792000972666,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.030097167000349145,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0231564999994589,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.018760250000923406,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003370333000930259,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0013026659980823752,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 15.37732912499996,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002525829986552708,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027947500020673033,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 30.866445166997437,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.012671542001044145,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007243082996865269,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2662933749998047,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005830830014019739,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.11520083299910766,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.177754833999643,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005542090002563782,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.023990792000404326,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7105913749983301,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004463340010261163,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015763750016049016,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.5960502499983704,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005262909980956465,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006862250000267522,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.605300041999726,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005889999993087258,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1615757500003383,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7059405830004835,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.062198042000090936,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8185859579971293,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1072609999973793,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0053214580002531875,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.44307820899848593,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3399822909996146,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018254579990752973,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.36504354200224043,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.060400084003049415,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03614529200058314,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.34589537500141887,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15937791699980153,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017559580010129139,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3912857500035898,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15960779200031538,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018606250014272518,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4065468750013679,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1535327910023625,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007374750002782093,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4307961250015069,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4801904160012782,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.015713458000391256,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.37551312499999767,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.8006912499986356,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025507079990347847,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5008202089993574,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3376903749995108,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0022304580015770625,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.31804229200133705,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1887705420012935,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002776958997856127,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023422920021403115,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3891169999988051,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042258299799868837,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.11835979199895519,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.67072829099925,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00044495900147012435,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002230792000773363,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7536020000006829,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00048079099724418484,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.17242829099996015,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4462098750009318,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002375839976593852,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007078374997945502,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8330134169991652,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005671660001098644,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.038640041999315144,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0342783330015664,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005057920025137719,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.008499666000716388,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.4215838329982944,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000543541998922592,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0025943750006263144,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.819796249998035,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005399589972512331,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002862792000087211,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.164597875002073,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005026250000810251,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.12808604199744877,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.8399030420005147,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00034129200139432214,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0035440840001683682,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8533277919996181,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004107080021640286,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0036552919991663657,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.783909041001607,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005622919998131692,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003758916001970647,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7333533330020146,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000620333001279505,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002795082997181453,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2953927499984275,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000551583001652034,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.07172787499803235,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8972686250017432,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006942090003576595,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.019803375002084067,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5502129999986209,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003472500029602088,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017386250001436565,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7733307500020601,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00037974999941070564,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0058543750019453,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5472282499977155,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004129579974687658,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005045875001087552,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5904244169978483,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005427910000435077,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0035965839997516014,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.145775542001502,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005163749992789235,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005154041999048786,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4179100830006064,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000481541999761248,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002241540998511482,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.8756252499988477,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00044541699753608555,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.011650249998638174,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 168.64773475000038,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009526249996270053,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004951625000103377,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7645291250009905,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004735830007120967,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003064959000766976,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6865722500006086,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00027554199914447963,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0025651249998190906,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5997162499988917,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005672080005751923,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026015419971372467,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 65.18421624999974,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011380409996490926,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5771607919996313,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.363884209000389,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0013907920001656748,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.359218667003006,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.815572457999224,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025601250017643906,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0716539999993984,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.6427241249984945,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.14260995799850207,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5970397499986575,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.565059625001595,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0664584170008311,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7491061250002531,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.697514416999184,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002623791999212699,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.49864262499977485,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.04511549999733688,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017425420010113157,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4759171250007057,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18436054199992213,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07015379199947347,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4201314999991155,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.06703600000037113,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0026630419997673016,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.391476959001011,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.06717320900133927,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018028750018856954,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.33358679199955077,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5312020419987675,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00146662500264938,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.32420987500154297,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18807879100131686,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0016235410002991557,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.32921975000135717,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.4299064580009144,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0022943750009289943,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.34310404200004996,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.9230457080011547,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0031413750002684537,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3761590840003919,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.0641424169989477,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002196083001763327,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3437437909997243,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2845149999993737,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0022343750024447218,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3146614170000248,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.324877708000713,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0033111250013462268,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3348483750014566,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3906217500007187,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001905083998281043,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.2833743750015856,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9938387080001121,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00599595799940289,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.39933812500021304,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9571324169992295,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002358416997594759,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.34284383300109766,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9734293750007055,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.016894042000785703,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4816350000000966,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6928092499983904,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002464375000272412,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.360784042000887,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6728889170008188,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0026577080025163013,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.40398212500076625,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20542274999752408,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002610792002087692,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.358681958001398,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.22203608400013763,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018518750002840534,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0046422919986071065,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.613289917000657,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008483750025334302,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+    "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitfile]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitdir]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[commondir]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[common-target]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[alternate]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[folder]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[directory]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[vanished]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[stable]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repeated_unresolvable_alias_keeps_one_incomplete_observation",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written",
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_commit_rechecks_the_canonical_job_directory_fence",
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+    "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+    "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+    "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+    "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+    "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "end": "2026-10-31T07:27:16.588772+00:00",
+  "seconds": 464.13658941700123,
+  "peak_rss_mib": 135.15625,
+  "exit": 0
+}

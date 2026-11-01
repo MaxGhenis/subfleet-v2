@@ -1,0 +1,70 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:06:34Z slot B load 
+START mutant-r3-write-metadata-check-dropped 2026-10-30T05:06:35.264075+00:00 load=(19.0830078125, 22.57568359375, 21.998046875)
+F
+=================================== FAILURES ===================================
+_______________________ test_changes[same-size-running] ________________________
+
+world = World(base=PosixPath('/private/tmp/sf-fix272r4/cases-97178/pytest/test_changes_same_size_running0'), trusted=True, rem...ix272r4/cases-97178/pytest/test_changes_same_size_running0/state'), store=<subfleet.store.Store object at 0x107f51e80>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107c93490>
+change = 'same-size', state = 'running'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+>       assert changed and recorded.get('incomplete'), recorded
+E       AssertionError: {'git': ['/private/tmp/sf-fix272r4/cases-97178/pytest/test_changes_same_size_running0/outside/.git', '/private/tmp/sf-fix272r4/cases-97178/pytest/test_changes_same_size_running0/outside/.git/objects']}
+E       assert ([True] and None)
+E        +  where None = <built-in method get of dict object at 0x1081d3940>('incomplete')
+E        +    where <built-in method get of dict object at 0x1081d3940> = {'git': ['/private/tmp/sf-fix272r4/cases-97178/pytest/test_changes_same_size_running0/outside/.git', '/private/tmp/sf-fix272r4/cases-97178/pytest/test_changes_same_size_running0/outside/.git/objects']}.get
+
+/private/tmp/sf-fix272r4/probes.py:56: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../private/tmp/sf-fix272r4/probes.py::test_changes[same-size-running]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 2.32s

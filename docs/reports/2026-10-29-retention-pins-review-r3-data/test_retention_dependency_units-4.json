@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_dependency_units-4",
+  "start": "2026-10-29T13:52:45.212420+00:00",
+  "load": [
+    21.41064453125,
+    22.72021484375,
+    22.9599609375
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 19.766892583007575,
+  "rss": 118505472
+}

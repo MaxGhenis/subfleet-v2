@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T18:19:02.595007+00:00",
+  "args": [
+    "--differential",
+    "tests/unit/test_retention_location_inputs.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/link-tmp/linked-test_retention_location_inputs",
+  "linked": true,
+  "driver_pid": 2969,
+  "lock_process_group": 3267
+}

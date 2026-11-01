@@ -1,0 +1,66 @@
+{
+  "name": "mutant-r10-entries-filter-dropped",
+  "start": "2026-10-31T13:47:12.148990+00:00",
+  "load": [
+    30.392578125,
+    61.474609375,
+    81.08544921875
+  ],
+  "pytest_pid": 30546,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "--mutant",
+    "r10-entries-filter-dropped",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 7.379834583000047,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 4.683117417000176,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence\n    links = assert_location_spelling(checkout, recorded.get(\"git\", []))\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_spelling.py:64: in assert_location_spelling\n    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place\nE   AssertionError: /private/tmp/sf-fix272r10/real-tmp/mutant-r10-entries-filter-dropped/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\nE   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'\nE     \nE     Skipping 443 identical leading characters in diff, use -v to show\nE     - l/tail/tail\nE     + l/tail/tail/tail\nE     ?            +++++"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003329580067656934,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/mutant-r10-entries-filter-dropped/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/mutant-r10-entries-filter-dropped/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/mutant-r10-entries-filter-dropped/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"]}, \"route\": \"scan\"}"
+    }
+  ],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+      "mutated": "0fc0441f1f59c5780498ad3365b587049d7855094c50fb69b631b7dbcd44d27d"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T13:47:55.152643+00:00",
+  "seconds": 43.00289687499753,
+  "peak_rss_mib": 110.765625,
+  "exit": 1
+}

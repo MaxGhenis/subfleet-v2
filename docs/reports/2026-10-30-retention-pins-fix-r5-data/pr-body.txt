@@ -1,0 +1,7 @@
+Fix round r5 closes R5-F1 by preserving Git pointer pathname whitespace: gitfiles require the literal `gitdir: ` prefix, and gitfile/commondir targets lose only trailing CR/LF. All three real-Git regressions now pass; discovery records the storage Git actually reads. Retention remains dormant; approving review r6 and completed CI remain merge gates.
+
+- **Changes:** Apply review r5's trial exactly, remove only its three repaired expected failures, and audit all pointer readers. Other readers outside dependency discovery remain unchanged.
+- **Evidence:** Review r5 red **57 passed / 3 failed** at `7eec7fa80` → green **60 passed**; **917 distinct ordinary passes**, **12 named mutants killed**, and a real-Git whitespace property with 100 generated plus two explicit examples.
+- **Invariants:** For every pointer Git follows, discovery records the target Git reads, or reports incomplete. Preserve C-8.3, C-8.4's normative fail-closed guarantee and the documented observation bounds; transactional rechecks remain database reads and strings only.
+- **Historical evidence:** Fix round r4 repaired the original R4-F1/R4-F2 inputs. Fix round r3 repaired the original R3-F1/R3-F2 inputs. Review r5 identified the separate R5-F1 parsing gap, repaired in this round; earlier 452/682/851-node results and CI snapshots remain dated evidence.
+- **Next:** Obtain approving **review r6** and complete every CI shard before merge or re-enablement. Retention remains dormant.

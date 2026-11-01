@@ -1,0 +1,27 @@
+{
+  "name": "mutant-r2-alternates-file-cap",
+  "start": "2026-10-29T06:35:12.713826+00:00",
+  "load": [
+    26.70263671875,
+    23.6650390625,
+    23.0498046875
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "r2-alternates-file-cap",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T17:40:33.051028+00:00",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_shared_folders-3",
+  "linked": false,
+  "driver_pid": 79366,
+  "lock_process_group": 79461
+}

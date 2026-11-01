@@ -1,0 +1,637 @@
+{
+  "name": "linked-test_retention_locations",
+  "start": "2026-10-31T20:36:36.487001+00:00",
+  "load": [
+    61.47705078125,
+    68.7822265625,
+    74.640625
+  ],
+  "pytest_pid": 2644,
+  "failure_root": "/private/tmp/sf-fix272r12/failed-keep",
+  "args": [
+    "tests/unit/test_retention_locations.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.278300500009209,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3422746660071425,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003817292003077455,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009821166007895954,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.23298883400275372,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008647919894428924,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004359166996437125,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.19495883300260175,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006519579910673201,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032479590008733794,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.48260808299528435,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005352090083761141,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01481266699556727,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24489783300668932,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007456659950548783,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06388799998967443,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18397637500311248,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006008329946780577,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03859133399964776,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.32421820900344756,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00039216699951794,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014052089973120019,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.34626416700484697,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00034574999881442636,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002616707992274314,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11812162501155399,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004906669928459451,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002798165995045565,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0014538749965140596,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00021408399334177375,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0028268750029383227,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.001992374993278645,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002094999945256859,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00264695800433401,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18137195899907965,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003706660063471645,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009207665993017145,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11996816701139323,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005734169972129166,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002965750012663193,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1245017080073012,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005156250117579475,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023750410036882386,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.17201962499530055,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.13107620799564756,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002964666986372322,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3468991670088144,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003094589919783175,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027245409874012694,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.17223758398904465,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003077080036746338,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005757042003097013,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.16906191701127682,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042220800241921097,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001998833002289757,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1427138340077363,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005087500030640513,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017107500025304034,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.13366999999561813,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000984457990853116,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018911670049419627,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.25449995799863245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00045916599628981203,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.07118187499872874,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15073533299437258,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006784170109312981,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-target\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop0\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"intermediate\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop0\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-pointer\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/owner/pointer\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop0\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"commondir-file\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/container/admin\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/owner/pointer\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop0\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"alternates-file\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/source/.git/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/owner/pointer\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop0\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"git-entry\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop0\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop1\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"objects-pack\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop0\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop1\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/packs\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "key": "routine",
+      "value": "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "key": "routine",
+      "value": "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "key": "routine",
+      "value": "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "key": "routine",
+      "value": "{\"layout\": \"new-workdir\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects\", \"/private/tmp/sf-fix272r12/real-tmp/linked-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "key": "routine",
+      "value": "{\"layout\": \"none\", \"recorded\": {}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+    "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+    "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+    "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+    "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-161028-pr272-fix-r12/subfleet/dependencies.py",
+  "product_sha256": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+  "end": "2026-10-31T20:36:51.210015+00:00",
+  "seconds": 14.722725832994911,
+  "peak_rss_mib": 112.75,
+  "exit": 0
+}

@@ -1,0 +1,55 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:45:14Z slot B load 
+START mutant-r8-final-pointer-content-check-dropped 2026-10-31T06:45:17.700117+00:00 load=(39.47509765625, 37.53369140625, 35.935546875)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_final_pointer_failure_cannot_hide_changed_storage[rewrite] ________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0'), trusted=True, remote...f-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/state'), store=<subfleet.store.Store object at 0x10a16be00>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10acd8510>
+change = 'rewrite'
+record_property = <function record_property.<locals>.append_property at 0x10ad1bab0>
+
+    @pytest.mark.parametrize('change', ['rewrite', 'oversized', 'unreadable'])
+    def test_final_pointer_failure_cannot_hide_changed_storage(world, monkeypatch, change, record_property):
+        tree = world.job('owner')
+        owner, commit = source(world, tree)
+        checkout = repo(world.base / 'outside')
+        initial = world.base / 'initial-admin'
+        (checkout / '.git').rename(initial)
+        pointer = checkout / '.git'
+        pointer.write_text('gitdir: ' + str(initial) + '\n')
+        identity = pointer.stat().st_ino
+        real_check = dependencies._Aliases.check
+        real_read = dependencies.read_regular
+        changed = []
+        def check(self, incomplete):
+            if not changed:
+                changed.append(True)
+                padding = b'\r\n' * 35000 if change == 'oversized' else b'\n'
+                pointer.write_bytes(b'gitdir: ' + os.fsencode(owner / '.git') + padding)
+            return real_check(self, incomplete)
+        def reading(path, **kwargs):
+            if change == 'unreadable' and changed and str(path) == str(pointer):
+                raise PermissionError('review final read seam')
+            return real_read(path, **kwargs)
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies._Aliases, 'check', check)
+            patch.setattr(dependencies, 'read_regular', reading)
+            recorded = dependencies.record(str(checkout))
+        assert identity == pointer.stat().st_ino
+        assert git('-C', checkout, 'fsck', '--no-dangling').returncode == 0
+        assert git('-C', checkout, 'show', commit + ':owner-only.txt').returncode == 0
+>       assert recorded.get('incomplete'), recorded
+E       AssertionError: {'git': ['/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/initial-admin', '/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/initial-admin/objects']}
+E       assert None
+E        +  where None = <built-in method get of dict object at 0x10a2d0880>('incomplete')
+E        +    where <built-in method get of dict object at 0x10a2d0880> = {'git': ['/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/initial-admin', '/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/initial-admin/objects']}.get
+
+docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py:173: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]
+1 failed in 10.74s

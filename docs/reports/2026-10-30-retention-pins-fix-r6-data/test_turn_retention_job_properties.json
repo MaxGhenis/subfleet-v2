@@ -1,0 +1,52 @@
+{
+  "label": "test_turn_retention_job_properties",
+  "start": "2026-10-31T00:08:20.406189+00:00",
+  "loads": [
+    41.0380859375,
+    36.55126953125,
+    41.5830078125
+  ],
+  "seconds": 84.64378583300277,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 60.80914929199207,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "all_nodes": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "phases": {
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd": {
+      "max_examples": 40,
+      "derandomize": true,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 5
+    }
+  },
+  "loaded": [],
+  "rss": 128139264
+}

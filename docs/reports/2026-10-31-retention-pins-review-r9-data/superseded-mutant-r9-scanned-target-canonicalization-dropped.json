@@ -1,0 +1,66 @@
+{
+  "name": "mutant-r9-scanned-target-canonicalization-dropped",
+  "start": "2026-10-31T09:18:06.140961+00:00",
+  "load": [
+    31.18896484375,
+    33.82177734375,
+    40.90185546875
+  ],
+  "args": [
+    "--mutant",
+    "r9-scanned-target-canonicalization-dropped",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]",
+    "--runxfail"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5927329999976791,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.5794599590008147,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r9.py:67: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads\n    assert before.returncode == health.returncode == 0, (before.stderr, health.stderr)\nE   AssertionError: (b'', b'error: packed-refs: badRefFiletype: not a regular file but a symlink\nE     ')\nE   assert 0 == 8\nE    +  where 0 = CompletedProcess(args=['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null', '-C...etadata_locatio0/outside', 'show', 'HEAD:owner-only.txt'], returncode=0, stdout=b'R5 owner-only storage\\n', stderr=b'').returncode\nE    +  and   8 = CompletedProcess(args=['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null', '-C...dangling'], returncode=8, stdout=b'', stderr=b'error: packed-refs: badRefFiletype: not a regular file but a symlink\\n').returncode"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0037357080000219867,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "d7b646f6df3d42b4d0f5f1a46cb02922b30977d68057aeab2e3509383b6364b5"
+    },
+    {
+      "module": "subfleet.dependencies",
+      "original": "d7b646f6df3d42b4d0f5f1a46cb02922b30977d68057aeab2e3509383b6364b5",
+      "mutated": "72b18d52214648382061774184ec1bb015551fa54d98e36d48928f162acfa947"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:18:20.468998+00:00",
+  "seconds": 14.327798250000342,
+  "peak_rss_mib": 116.15625,
+  "exit": 1,
+  "valid": false,
+  "qualification": "Superseded fourth fixture: installed Git fsck rejects packed-refs symlinks. First three pointer cases have valid setup. Final fixture uses a direct objects/pack link and reruns all cases and trial controls."
+}

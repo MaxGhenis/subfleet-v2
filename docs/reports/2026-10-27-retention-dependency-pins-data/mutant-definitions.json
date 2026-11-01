@@ -1,0 +1,273 @@
+{
+  "submit-records-nothing": [
+    "subfleet/daemon.py",
+    "depends = dependencies.record(str(workdir), review_root=review_root, out_path=out)",
+    "depends = {}",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]"
+    ]
+  ],
+  "live-ignores-depends": [
+    "subfleet/dependencies.py",
+    "        for _, path in needed(submitted) or ():\n            add(job_id, path)\n",
+    "",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ]
+  ],
+  "live-ignores-row-places": [
+    "subfleet/dependencies.py",
+    "for path in (row[\"workdir\"], row[\"worktree\"], row[\"review_root\"], row[\"out_path\"],\n                     submitted.get(\"folder\"), submitted.get(\"write_target\")):",
+    "for path in (submitted.get(\"folder\"), submitted.get(\"write_target\")):",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]"
+    ]
+  ],
+  "live-ignores-recorded-folder": [
+    "subfleet/dependencies.py",
+    "for path in (row[\"workdir\"], row[\"worktree\"], row[\"review_root\"], row[\"out_path\"],\n                     submitted.get(\"folder\"), submitted.get(\"write_target\")):",
+    "for path in (row[\"workdir\"], row[\"worktree\"], row[\"review_root\"], row[\"out_path\"]):",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  ],
+  "live-ignores-spelled-folder": [
+    "subfleet/dependencies.py",
+    "                add(job_id, _loads(event[\"data_json\"]).get(\"folder\"))\n",
+    "                pass\n",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  ],
+  "live-ignores-exports": [
+    "subfleet/dependencies.py",
+    "    for row in read(_EXPORTING, ()):\n        add(row[\"job_id\"], row[\"out_path\"])\n        add(row[\"job_id\"], (_loads(row[\"submitted\"]).get(\"depends\") or {}).get(\"out_path\"))\n",
+    "",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive"
+    ]
+  ],
+  "exports-only-recorded-path": [
+    "subfleet/dependencies.py",
+    "    for row in read(_EXPORTING, ()):\n        add(row[\"job_id\"], row[\"out_path\"])\n",
+    "    for row in read(_EXPORTING, ()):\n",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  ],
+  "no-fold": [
+    "subfleet/dependencies.py",
+    "    return folders.fold(os.path.normpath(path))",
+    "    return os.path.normpath(path)",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]"
+    ]
+  ],
+  "within-not-prefix-boundary": [
+    "subfleet/retention.py",
+    "        if tree and needs.get(dependencies.key(tree), set()) - {row[\"job_id\"]}:",
+    "        if tree and any(k.startswith(dependencies.key(tree)) and v - {row[\"job_id\"]} for k, v in needs.items()):",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  ],
+  "pin-ignores-unrecorded-tree": [
+    "subfleet/retention.py",
+    "tree = row[\"worktree\"] or (str(Path(root) / \"worktrees\" / row[\"job_id\"]) if root is not None else None)",
+    "tree = row[\"worktree\"]",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  ],
+  "pin-counts-own-places": [
+    "subfleet/retention.py",
+    "        if tree and needs.get(dependencies.key(tree), set()) - {row[\"job_id\"]}:",
+    "        if tree and needs.get(dependencies.key(tree), set()):",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  ],
+  "selection-no-dependents": [
+    "subfleet/retention.py",
+    "legacy_places=self.legacy):\n                reason = \"worktree-in-use\"\n            if reason is None:",
+    "legacy_places=self.legacy):\n                pass\n            if reason is None:",
+    [
+      "tests/unit/test_retention_dependencies.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling"
+    ]
+  ],
+  "commit-no-dependents": [
+    "subfleet/retention_archive.py",
+    "                            exclude=self.job_id, legacy_places=self.ctx.legacy):\n                        reason = \"worktree-in-use\"",
+    "                            exclude=self.job_id, legacy_places=self.ctx.legacy):\n                        pass",
+    [
+      "tests/unit/test_retention_dependencies.py::test_the_commit_reads_dependents_on_the_journals_spelling"
+    ]
+  ],
+  "no-legacy-evidence": [
+    "subfleet/retention.py",
+    "        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)",
+    "        self.legacy = self.ctx.legacy = {}",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]"
+    ]
+  ],
+  "legacy-admission-reads-nothing": [
+    "subfleet/dependencies.py",
+    "        found = needed({\"depends\": record(job[\"workdir\"], review_root=job.get(\"review_root\"),\n                                          out_path=job.get(\"out_path\"))}) or []",
+    "        found = []",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage"
+    ]
+  ],
+  "early-look-folder-only": [
+    "subfleet/daemon.py",
+    "\n            return ([(None, named, fence)] if fence else []) + dependencies.fences(read, needs)",
+    "\n            return ([(None, named, fence)] if fence else [])",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]"
+    ]
+  ],
+  "transaction-no-needs-blockers": [
+    "subfleet/daemon.py",
+    "                        blockers.extend(key for _, path in needs for key in folders.retiring(read, path)\n                                        if key != own)",
+    "                        pass",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]"
+    ]
+  ],
+  "transaction-own-not-filtered": [
+    "subfleet/daemon.py",
+    "                                        if key != own)",
+    "                                        if True)",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once"
+    ]
+  ],
+  "transaction-hold-names-no-place": [
+    "subfleet/daemon.py",
+    "                                role, named = next(((each, path) for each, path in needs if any(",
+    "                                role, named = None, next(((each, path) for each, path in needs if any(",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]"
+    ]
+  ],
+  "git-storage-no-commondir": [
+    "subfleet/dependencies.py",
+    "    if pointer is not None and pointer.strip():\n        common = os.path.realpath(os.path.join(gitdir, pointer.strip()))\n    elif",
+    "    if False:\n        pass\n    elif",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+      "tests/unit/test_retention_dependencies.py::test_d1_git_storage_includes_what_git_uses_for_any_layout"
+    ]
+  ],
+  "git-storage-no-worktrees-fallback": [
+    "subfleet/dependencies.py",
+    "    elif named and os.path.basename(os.path.dirname(gitdir)) == \"worktrees\":\n        common = os.path.dirname(os.path.dirname(gitdir))\n",
+    "",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone"
+    ]
+  ],
+  "git-storage-no-alternates": [
+    "subfleet/dependencies.py",
+    "    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, \"objects\"))]))",
+    "    return list(dict.fromkeys([gitdir, common]))",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d1_alternates_are_followed"
+    ]
+  ],
+  "git-storage-alternates-one-level": [
+    "subfleet/dependencies.py",
+    "    for _ in range(_ALTERNATES_DEPTH):",
+    "    for _ in range(1):",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d1_alternates_are_followed"
+    ]
+  ],
+  "git-storage-gitfile-relative-to-cwd": [
+    "subfleet/dependencies.py",
+    "    return os.path.realpath(os.path.join(folder, named)) if named else None",
+    "    return os.path.realpath(named) if named else None",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d1_a_separate_git_dir_and_a_relative_gitfile"
+    ]
+  ],
+  "git-storage-nearest-ignores-gitfiles": [
+    "subfleet/dependencies.py",
+    "        elif stat.S_ISREG(mode):",
+    "        elif False:",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in"
+    ]
+  ],
+  "record-raw-spelling": [
+    "subfleet/dependencies.py",
+    "        found[\"review_root\"] = folders.canonical(review_root)",
+    "        found[\"review_root\"] = review_root",
+    [
+      "tests/unit/test_retention_dependencies.py::test_record_spells_each_place_once"
+    ]
+  ],
+  "fences-not-retention-only": [
+    "subfleet/dependencies.py",
+    "        mine = [each for each in wanted[path] if str(held.get(each) or \"\").startswith(folders.RETENTION)]",
+    "        mine = [each for each in wanted[path] if held.get(each)]",
+    [
+      "tests/unit/test_retention_dependencies.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+    ]
+  ],
+  "render-ignores-needs": [
+    "subfleet/render.py",
+    "    what = _NEEDS.get(str(hold.get(\"needs\")), \"folder\")",
+    "    what = \"folder\"",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired"
+    ]
+  ],
+  "turn-reason-ignores-needs": [
+    "subfleet/conversations/service.py",
+    "                if needs == \"git-storage\":",
+    "                if False:",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]"
+    ]
+  ],
+  "collate-nocase-restored": [
+    "subfleet/retention.py",
+    "    needs = dependencies.users(dependencies.live(store.query, legacy))\n    for row in jobs:\n        if row[\"sandbox\"] != \"workspace-write\" or row[\"in_place\"]:\n            continue\n        tree = row[\"worktree\"] or (str(Path(root) / \"worktrees\" / row[\"job_id\"]) if root is not None else None)\n        if tree and needs.get(dependencies.key(tree), set()) - {row[\"job_id\"]}:\n            add(row[\"job_id\"], \"worktree-in-use\")\n",
+    "    for row in store.query(\"SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id AND b.state NOT IN ('succeeded','failed','cancelled','lost') AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'\"):\n        add(row[\"job_id\"], \"worktree-in-use\")\n",
+    [
+      "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree"
+    ]
+  ],
+  "record-no-output": [
+    "subfleet/dependencies.py",
+    "        found[\"out_path\"] = folders.canonical(out_path)",
+    "        pass",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]"
+    ]
+  ],
+  "record-no-git": [
+    "subfleet/dependencies.py",
+    "        found[\"git\"] = list(dict.fromkeys(git))",
+    "        pass",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ]
+  ],
+  "admission-no-needs-role": [
+    "subfleet/daemon.py",
+    "            role, named, _ = found[0]",
+    "            _, named, _ = found[0]\n            role = None",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]"
+    ]
+  ]
+}

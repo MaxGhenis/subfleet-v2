@@ -1,0 +1,1 @@
+tests/unit/test_retention_case_alias.py::test_interleavings_with_case_aliases_never_delete_a_folder_a_row_names

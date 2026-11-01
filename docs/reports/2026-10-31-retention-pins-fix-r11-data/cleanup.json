@@ -1,0 +1,58 @@
+{
+  "time": "2026-10-31T19:32:17.894358+00:00",
+  "allocated_before_cleanup": 567660544,
+  "roots": [
+    {
+      "path": "/private/tmp/sf-fix272r11",
+      "removed": true,
+      "permission_repair": true
+    },
+    {
+      "path": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/sf-fix272r11-fixtures",
+      "removed": true,
+      "permission_repair": false
+    }
+  ],
+  "claims": [
+    "extra-test_retention_worktrees.claim",
+    "plain-test_retention_dependency_review_r8.claim",
+    "archive-5.claim",
+    "test_turn_retention_cwd.claim",
+    "extra-test_retention_qos.claim",
+    "test_turn_retention_quarantine.claim",
+    "archive-3.claim",
+    "archive-1.claim",
+    "archive-6.claim",
+    "ordinary-test_state_contract.claim",
+    "admission-writer.claim",
+    "admission-detached.claim",
+    "archive-4.claim",
+    "archive-0.claim",
+    "ordinary-test_retention_dependency_aliases.claim",
+    "archive-2.claim",
+    "ordinary-test_invariants_index.claim",
+    "test_turn_retention_job_properties.claim",
+    "plain-test_retention_dependencies.claim",
+    "dependency-property-2.claim",
+    "dependency-property-0.claim",
+    "ordinary-test_retention_dependency_spelling.claim",
+    "shared-examples.claim",
+    "shared-property-1.claim",
+    "archive-path-controls.claim",
+    "plain-test_retention_dependency_units.claim",
+    "shared-property-3.claim",
+    "ordinary-test_retention_recovery_census.claim",
+    "dependency-property-1.claim",
+    "extra-test_retention_regenerable_properties.claim",
+    "dependency-property-3.claim",
+    "test_turn_retention_job_directory.claim",
+    "nested-leases.claim",
+    "shared-property-2.claim",
+    "shared-property-0.claim",
+    "test_turn_retention_cwd_properties.claim",
+    "ordinary-test_test_module_names.claim"
+  ],
+  "remaining_bytecode_hypothesis_build": [],
+  "all_test_and_mutant_drivers_ended_before_cleanup": true,
+  "completed": "2026-10-31T19:40:18.274411+00:00"
+}

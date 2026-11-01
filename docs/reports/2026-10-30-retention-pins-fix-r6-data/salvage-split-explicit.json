@@ -1,0 +1,47 @@
+{
+  "label": "salvage-split-explicit",
+  "start": "2026-10-30T23:39:54.960204+00:00",
+  "loads": [
+    43.1962890625,
+    65.9931640625,
+    69.0849609375
+  ],
+  "seconds": 150.20187395800895,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 132.46685612500005,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "phases": {
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes": {
+      "max_examples": 24,
+      "derandomize": false,
+      "phases": [
+        "Phase.explicit"
+      ],
+      "explicit_examples": 9
+    }
+  },
+  "loaded": [],
+  "rss": 118358016
+}

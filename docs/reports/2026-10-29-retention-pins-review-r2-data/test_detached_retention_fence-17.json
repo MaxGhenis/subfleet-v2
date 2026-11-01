@@ -1,0 +1,205 @@
+{
+  "name": "test_detached_retention_fence-17",
+  "start": "2026-10-29T06:47:48.055702+00:00",
+  "load": [
+    15.41259765625,
+    18.85107421875,
+    21.111328125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired2]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired:x]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired2]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired:x]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired2]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired:x]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired2]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired:x]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired2]": {
+      "setup": {
+        "duration": 0.028591291993507184,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.5205690840084571,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0004634580109268427,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired:x]": {
+      "setup": {
+        "duration": 0.0032333340059267357,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.35727370899985544,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00023229200451169163,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired2]": {
+      "setup": {
+        "duration": 0.001327833000686951,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.45823758299229667,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00033995900594163686,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired:x]": {
+      "setup": {
+        "duration": 0.001949875004356727,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4061673329997575,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.000331375005771406,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired2]": {
+      "setup": {
+        "duration": 0.0016317919944413006,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.39010179101023823,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0004161669930908829,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired:x]": {
+      "setup": {
+        "duration": 0.0031639579974580556,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.35875016599311493,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00037037499714642763,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired2]": {
+      "setup": {
+        "duration": 0.0023491669999202713,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4323772499919869,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00026858299679588526,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired:x]": {
+      "setup": {
+        "duration": 0.0023438330099452287,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.436544459007564,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.001282166995224543,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

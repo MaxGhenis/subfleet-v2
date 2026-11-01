@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:06:17.642439+00:00", "loads": [36.10400390625, 34.25537109375, 32.29248046875], "pid": 96144, "args": ["tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"], "fixture_root": "/private/tmp/sf-r272r8"}

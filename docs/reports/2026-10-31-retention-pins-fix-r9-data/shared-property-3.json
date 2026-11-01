@@ -1,0 +1,51 @@
+{
+  "name": "shared-property-3",
+  "start": "2026-10-31T10:22:45.383972+00:00",
+  "load": [
+    36.71337890625,
+    34.037109375,
+    34.2041015625
+  ],
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.10411066699816729,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.479114583002229,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00015670799984945916,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:22:54.712766+00:00",
+  "seconds": 9.328524082997319,
+  "peak_rss_mib": 117.71875,
+  "exit": 0
+}

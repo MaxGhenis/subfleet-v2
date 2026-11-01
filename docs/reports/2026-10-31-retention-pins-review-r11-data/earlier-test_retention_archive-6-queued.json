@@ -1,0 +1,17 @@
+{
+  "queued": "2026-10-31T17:07:42.024203+00:00",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default",
+    "tests/unit/test_retention_archive.py::test_the_history_limit_is_for_repositories_without_a_network_remote",
+    "tests/unit/test_retention_archive.py::test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are",
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does",
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_what_the_history_limit_keeps",
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit",
+    "tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names",
+    "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_archive-6",
+  "linked": false,
+  "driver_pid": 22280,
+  "lock_process_group": 22311
+}

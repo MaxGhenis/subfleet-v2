@@ -1,0 +1,8 @@
+[
+  {
+    "module": "subfleet.dependencies",
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261029-064635-pr272-fix-r2/subfleet/dependencies.py",
+    "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+    "mutated_sha256": "aa2d62ad77380d2abcc3c42496c9aa62fc8cab000f0b6dd2e7fc2f3f78dc01ee"
+  }
+]

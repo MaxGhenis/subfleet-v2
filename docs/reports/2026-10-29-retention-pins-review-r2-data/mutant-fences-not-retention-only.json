@@ -1,0 +1,35 @@
+{
+  "name": "mutant-fences-not-retention-only",
+  "start": "2026-10-29T06:26:00.676810+00:00",
+  "load": [
+    19.8330078125,
+    18.58837890625,
+    21.01123046875
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "valid": 48,
+      "invalid": 0,
+      "calls": 52,
+      "settings_max": 200
+    }
+  ],
+  "explicit": {},
+  "mutant": "fences-not-retention-only",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

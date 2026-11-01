@@ -1,0 +1,27 @@
+{
+  "name": "mutant-git-storage-no-alternates",
+  "start": "2026-10-29T05:40:11.202201+00:00",
+  "load": [
+    18.892578125,
+    21.263671875,
+    24.6416015625
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "git-storage-no-alternates",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

@@ -1,0 +1,12 @@
+import json, subprocess, sys
+from pathlib import Path
+scratch=Path(__file__).parent
+plans=json.loads((scratch/sys.argv[1]).read_text())
+worker=int(sys.argv[2]);width=int(sys.argv[3])
+failed=[]
+for i,(name,args) in enumerate(plans):
+    if i%width!=worker:continue
+    result=subprocess.run([sys.executable,str(scratch/'hold.py'),name,*args])
+    if result.returncode:failed.append([name,result.returncode])
+print('BATCH COMPLETE',worker,'FAILURES',failed,flush=True)
+raise SystemExit(bool(failed))

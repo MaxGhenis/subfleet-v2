@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:37:07Z slot A load 
+.......                                                                  [100%]
+7 passed in 7.41s
+{"name": "start-and-routine", "start": "2026-10-31T10:37:08.538106+00:00", "load": [39.50537109375, 37.65625, 35.79638671875], "seconds": 8.016903959000047, "exit": 0}

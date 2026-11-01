@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T03:57:19.390834+00:00",
+  "args": [
+    "--mutant",
+    "r7-parent-objects-recording-dropped",
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "test_detached_retention_fence-7",
+  "start": "2026-10-29T14:38:39.091523+00:00",
+  "load": [
+    32.3349609375,
+    34.5537109375,
+    36.21044921875
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 77.71328270800586,
+  "rss": 123600896
+}

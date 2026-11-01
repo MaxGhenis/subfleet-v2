@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T19:57:43.707486+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r12-data/unicode_length_probe.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r12/tmp/unicode-length",
+  "linked": false,
+  "driver_pid": 26399,
+  "lock_process_group": 27003
+}

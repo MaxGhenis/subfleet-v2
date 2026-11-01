@@ -1,0 +1,85 @@
+{
+  "name": "archive-5",
+  "start": "2026-10-29T05:50:11.639981+00:00",
+  "load": [
+    27.73193359375,
+    25.1025390625,
+    24.37451171875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went",
+    "tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+    "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+    "tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names",
+    "tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now",
+    "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name",
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does",
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_this_machine_by_any_of_its_names": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_this_machine_by_its_short_name": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_a_job_whose_tree_is_gone_as_the_pass_does": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

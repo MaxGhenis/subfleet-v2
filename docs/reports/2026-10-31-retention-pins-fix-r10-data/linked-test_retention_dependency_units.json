@@ -1,0 +1,501 @@
+{
+  "name": "linked-test_retention_dependency_units",
+  "start": "2026-10-31T12:19:18.834262+00:00",
+  "load": [
+    95.23486328125,
+    91.46484375,
+    89.33154296875
+  ],
+  "pytest_pid": 28646,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_dependency_units.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.879317416001868,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7477541249973,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0023018749998300336,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.014549833002092782,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.704203833003703,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006281669993768446,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004001875000540167,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6649602089964901,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006080829989514314,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007165542003349401,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.25326754200068535,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0026286249994882382,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.008930957999837119,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.400151415997243,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006183330042404123,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0025750409986358136,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0016086249961517751,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003435420003370382,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.008285042000352405,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 10.670960583003762,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007083339951350354,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.14243870900099864,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 23.452853374998085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00041779100138228387,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04666220799845178,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 13.006856749998406,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00030691699794260785,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06864304099872243,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.14239537499815924,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00039304199890466407,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002704209000512492,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15931991700199433,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004471669963095337,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.029042292000667658,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.08837412499997299,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004572079997160472,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003566291998140514,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1680133749978268,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006342500055325218,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.13156912499835016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 34.26008416699915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005579580029007047,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.11418112499814015,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.011937041999772191,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00032212500082096085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006594124999537598,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9901489580006455,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007100420043570921,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.037046042001748,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3613521250008489,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006718208998790942,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4823877090020687,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.779215666996606,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.12179079199995613,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.05053691700595664,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6215599999995902,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006290840028668754,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+    "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed",
+    "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone",
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile",
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed",
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts",
+    "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+    "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+    "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended",
+    "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded",
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+    "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range",
+    "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once",
+    "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+    "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+    "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T12:21:32.258907+00:00",
+  "seconds": 133.42289387500205,
+  "peak_rss_mib": 122.796875,
+  "exit": 0
+}

@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:22:06Z slot B load 
+START test_retention_pointer_whitespace 2026-10-30T22:22:16.303521+00:00 load=(43.63623046875, 27.4091796875, 22.16015625)
+.........                                                                [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads:
+
+  - during generate phase (41.96 seconds):
+    - Typical runtimes: ~ 90-1587 ms, of which ~ 0-2 ms in data generation
+    - 100 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=100
+
+
+9 passed in 51.38s

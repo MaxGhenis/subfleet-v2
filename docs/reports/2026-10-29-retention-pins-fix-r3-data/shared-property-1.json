@@ -1,0 +1,33 @@
+{
+  "label": "shared-property-1",
+  "start": "2026-10-29T20:48:36.095837+00:00",
+  "loads": [
+    81.64208984375,
+    66.1083984375,
+    46.05810546875
+  ],
+  "seconds": 15.21475187499982,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.292356959000244
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 123830272
+}

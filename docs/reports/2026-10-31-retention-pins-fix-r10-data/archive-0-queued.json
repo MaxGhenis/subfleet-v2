@@ -1,0 +1,21 @@
+{
+  "queued": "2026-10-31T14:39:04.066285+00:00",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+    "tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable",
+    "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+    "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default",
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch",
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+    "tests/unit/test_retention_archive.py::test_network_url_classification",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission",
+    "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/archive-0",
+  "linked": false,
+  "driver_pid": 57326,
+  "lock_process_group": 57378
+}

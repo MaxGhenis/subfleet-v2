@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:00:47Z slot A load 
+START dependency-property-2 2026-10-31T06:00:48.859334+00:00 load=(40.03076171875, 34.56640625, 31.7314453125)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement:
+
+  - during generate phase (304.18 seconds):
+    - Typical runtimes: ~ 1317-6475 ms, of which ~ 3-290 ms in data generation
+    - 100 passing, 0 failing, and 3 invalid test cases
+
+  - Stopped because settings.max_examples=100
+
+
+1 passed in 319.80s (0:05:19)

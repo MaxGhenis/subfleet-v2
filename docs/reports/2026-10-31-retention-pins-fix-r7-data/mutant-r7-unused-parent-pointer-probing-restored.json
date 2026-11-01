@@ -1,0 +1,75 @@
+{
+  "name": "mutant-r7-unused-parent-pointer-probing-restored",
+  "start": "2026-10-31T03:56:46.691168+00:00",
+  "load": [
+    37.07470703125,
+    36.89599609375,
+    38.3203125
+  ],
+  "args": [
+    "--mutant",
+    "r7-unused-parent-pointer-probing-restored",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.7533080000002883,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.21375104100025055,
+      "failure": "tests/fake/test_retention_dependency_review_r7.py:36: in test_unused_parent_pointer_must_not_globally_pin_trees\n    assert not recorded.get(\"incomplete\"), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0..._pointer_mus0/container/commondir'\"}]}, {'pruned': [], 'errors': [], 'bytes_before': 20092, 'bytes_after': 20092, ...})\nE   assert not [{'file': '/private/tmp/sf-fix272r7/hold-mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0...ed-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus0/container/commondir'\"}]\nE    +  where [{'file': '/private/tmp/sf-fix272r7/hold-mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0...ed-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus0/container/commondir'\"}] = <built-in method get of dict object at 0x10705e140>('incomplete')\nE    +    where <built-in method get of dict object at 0x10705e140> = {'git': ['/private/tmp/sf-fix272r7/hold-mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/...d-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus0/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001954749999640626,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5413833749998958,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.15272741699936887,
+      "failure": "tests/fake/test_retention_dependency_review_r7.py:36: in test_unused_parent_pointer_must_not_globally_pin_trees\n    assert not recorded.get(\"incomplete\"), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0..._pointer_mus1/container/commondir'\"}]}, {'pruned': [], 'errors': [], 'bytes_before': 20092, 'bytes_after': 20092, ...})\nE   assert not [{'file': '/private/tmp/sf-fix272r7/hold-mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0...ed-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus1/container/commondir'\"}]\nE    +  where [{'file': '/private/tmp/sf-fix272r7/hold-mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0...ed-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus1/container/commondir'\"}] = <built-in method get of dict object at 0x107b68b40>('incomplete')\nE    +    where <built-in method get of dict object at 0x107b68b40> = {'git': ['/private/tmp/sf-fix272r7/hold-mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/...d-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus1/container/commondir'\"}]}.get"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001833874999647378,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "8a8c7ed75037bcef8fc531a9685e139ad95edea91e04c55bbfb7cfda653ef770"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]"
+  ],
+  "end": "2026-10-31T03:56:58.755265+00:00",
+  "seconds": 12.063591000000088,
+  "peak_rss_mib": 113.4375,
+  "exit": 1
+}

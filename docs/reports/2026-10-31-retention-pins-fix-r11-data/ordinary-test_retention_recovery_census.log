@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:48:27Z slot A load 
+..                                                                       [100%]
+2 passed in 54.94s
+{"name": "ordinary-test_retention_recovery_census", "start": "2026-10-31T18:48:46.839396+00:00", "load": [103.22900390625, 77.6484375, 67.49609375], "seconds": 66.73964554099803, "exit": 0}

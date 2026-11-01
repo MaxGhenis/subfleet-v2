@@ -1,0 +1,42 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:24:17Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_unused_top_entry_is_a_converse_bound_counterexample ___________
+docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py:63: in test_unused_top_entry_is_a_converse_bound_counterexample
+    assert str(unrelated) in recorded['git'], recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con...sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git/objects']}
+E   assert '/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated' in ['/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable.../sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git/objects']
+E    +  where '/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated' = str(PosixPath('/private/tmp/sf-fix272r8/real-tmp/converse-bound/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated'))
+=========================== short test summary info ============================
+FAILED docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_unused_top_entry_is_a_converse_bound_counterexample
+1 failed in 5.84s
+{"name": "converse-bound", "start": "2026-10-31T07:24:19.552438+00:00", "load": [34.4892578125, 32.7802734375, 33.57958984375], "seconds": 6.618825875000766, "exit": 1}

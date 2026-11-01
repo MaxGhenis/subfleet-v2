@@ -1,0 +1,596 @@
+{
+  "name": "test_invariants_index",
+  "start": "2026-10-29T06:48:46.623907+00:00",
+  "load": [
+    14.04638671875,
+    17.83203125,
+    20.57373046875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects",
+    "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated",
+    "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete",
+    "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+    "tests/unit/test_invariants_index.py::test_every_row_has_every_field",
+    "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set",
+    "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary",
+    "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+    "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason",
+    "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause",
+    "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved",
+    "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists",
+    "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+    "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+    "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+    "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+    "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+    "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause",
+    "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+    "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test",
+    "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+    "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold",
+    "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree",
+    "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows"
+  ],
+  "phases": {
+    "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_row_has_every_field": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_test_names_are_unique": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects": {
+      "setup": {
+        "duration": 0.4633089589915471,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0001922080118674785,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00019054199219681323,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated": {
+      "setup": {
+        "duration": 0.001970666999113746,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00013770900841336697,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00019283300207462162,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete": {
+      "setup": {
+        "duration": 0.0018629170081112534,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00040845799958333373,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0008088339964160696,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order": {
+      "setup": {
+        "duration": 0.0026489580050110817,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00014654200640507042,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0001685839961282909,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_every_row_has_every_field": {
+      "setup": {
+        "duration": 0.0013391250104177743,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00042483399738557637,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00011549999180715531,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set": {
+      "setup": {
+        "duration": 0.0014736659941263497,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00019029100076295435,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 9.991700062528253e-05,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary": {
+      "setup": {
+        "duration": 0.0008723749924683943,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 7.087500125635415e-05,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 7.6374999480322e-05,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement": {
+      "setup": {
+        "duration": 0.000638999990769662,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 6.766700244043022e-05,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 6.845800089649856e-05,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason": {
+      "setup": {
+        "duration": 0.001640417001908645,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00011470798926893622,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00010000000474974513,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause": {
+      "setup": {
+        "duration": 0.000979167001787573,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0005419169901870191,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00014841699157841504,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved": {
+      "setup": {
+        "duration": 0.0013491249992512167,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00011637499846983701,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00015141599578782916,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists": {
+      "setup": {
+        "duration": 0.0027257080073468387,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00019833300029858947,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.000157458009198308,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined": {
+      "setup": {
+        "duration": 0.002470209001330659,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00015429200720973313,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0001463329972466454,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned": {
+      "setup": {
+        "duration": 0.0014318330067908391,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0001854169968282804,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0001535420014988631,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers": {
+      "setup": {
+        "duration": 0.0014478340017376468,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.000225124997086823,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00014733299030922353,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps": {
+      "setup": {
+        "duration": 0.0014009579899720848,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00010720799036789685,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0001449169940315187,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module": {
+      "setup": {
+        "duration": 0.0013239999971119687,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0011535830126376823,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00016116700135171413,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two": {
+      "setup": {
+        "duration": 0.0013279999984661117,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00021383300190791488,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00013720899005420506,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause": {
+      "setup": {
+        "duration": 0.0013337080017663538,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0002656249998835847,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00016741699073463678,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner": {
+      "setup": {
+        "duration": 0.0016402500041294843,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0003187910042470321,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0002692910056794062,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test": {
+      "setup": {
+        "duration": 0.0017813330050557852,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 8.616699778940529e-05,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00023504199634771794,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_test_names_are_unique": {
+      "setup": {
+        "duration": 0.0019573330064304173,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.00022662500850856304,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00022308398911263794,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold": {
+      "setup": {
+        "duration": 0.0020777080062543973,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0002590420044725761,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0002393750037299469,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree": {
+      "setup": {
+        "duration": 0.0018717079947236925,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.0018138750019716099,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0006064159970264882,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows": {
+      "setup": {
+        "duration": 0.0016302500007441267,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.001413374993717298,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0003427499905228615,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

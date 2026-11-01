@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_dependency_properties-2",
+  "start": "2026-10-29T14:00:07.045087+00:00",
+  "load": [
+    24.3193359375,
+    22.7978515625,
+    22.462890625
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 92.88903087499784,
+  "rss": 127762432
+}

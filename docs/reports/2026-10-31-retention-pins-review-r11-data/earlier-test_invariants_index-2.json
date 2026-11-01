@@ -1,0 +1,153 @@
+{
+  "name": "earlier-test_invariants_index-2",
+  "start": "2026-10-31T16:55:44.645154+00:00",
+  "load": [
+    56.7119140625,
+    55.5478515625,
+    60.77978515625
+  ],
+  "pytest_pid": 84802,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+    "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+    "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+    "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 6.278322582998953,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00029933300538687035,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00026220799918519333,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015407080063596368,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00015699999494245276,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.01937804199405946,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017309579998254776,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0005132080041221343,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00015504199836868793,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017262500041397288,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00028220799867995083,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003403750015422702,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06585520900262054,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0002935410011559725,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003612910004449077,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+    "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+    "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+    "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two"
+  ],
+  "end": "2026-10-31T16:56:00.866604+00:00",
+  "seconds": 16.22122591700463,
+  "peak_rss_mib": 112.09375,
+  "exit": 0
+}

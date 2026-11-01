@@ -1,0 +1,33 @@
+{
+  "label": "retention_salvage_properties-2",
+  "start": "2026-10-30T03:08:08.499507+00:00",
+  "loads": [
+    30.0029296875,
+    25.01806640625,
+    24.79248046875
+  ],
+  "seconds": 137.33842320799886,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 131.25933558299948
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "phases": {
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 114786304
+}

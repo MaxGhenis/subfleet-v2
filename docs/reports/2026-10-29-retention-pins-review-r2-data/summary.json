@@ -1,0 +1,269 @@
+{
+  "reviewed_head": "dd0e4ea8def74285c4aaa581be93a46ca87ca3ba",
+  "per_file": {
+    "test_job_directory_probe.py": {
+      "P": 1
+    },
+    "tests/fake/test_detached_retention_fence.py": {
+      "P": 89
+    },
+    "tests/fake/test_retention_dependencies.py": {
+      "P": 30
+    },
+    "tests/fake/test_retention_dependency_incomplete.py": {
+      "P": 19
+    },
+    "tests/fake/test_retention_dependency_review_r1.py": {
+      "P": 18
+    },
+    "tests/fake/test_retention_dependency_review_r2.py": {
+      "P": 15,
+      "X": 6
+    },
+    "tests/fake/test_retention_dependency_spelling.py": {
+      "P": 16
+    },
+    "tests/fake/test_state_contract.py": {
+      "P": 37
+    },
+    "tests/fake/test_writer_retention_fence.py": {
+      "P": 23
+    },
+    "tests/unit/test_invariants_index.py": {
+      "P": 25
+    },
+    "tests/unit/test_retention_alternates.py": {
+      "P": 23
+    },
+    "tests/unit/test_retention_alternates_review_r2.py": {
+      "P": 15
+    },
+    "tests/unit/test_retention_archive.py": {
+      "P": 109
+    },
+    "tests/unit/test_retention_cwd_rechecks.py": {
+      "P": 3
+    },
+    "tests/unit/test_retention_dependency_properties.py": {
+      "P": 4
+    },
+    "tests/unit/test_retention_dependency_units.py": {
+      "P": 19
+    },
+    "tests/unit/test_retention_folded_pin.py": {
+      "P": 38
+    },
+    "tests/unit/test_retention_job_dependencies.py": {
+      "P": 12
+    },
+    "tests/unit/test_retention_shared_folders.py": {
+      "P": 62
+    },
+    "tests/unit/test_retention_turn_workdirs.py": {
+      "P": 1
+    },
+    "tests/unit/test_retention_turns.py": {
+      "P": 7
+    },
+    "tests/unit/test_retention_worktree_cwd.py": {
+      "P": 7
+    },
+    "tests/unit/test_test_module_names.py": {
+      "P": 1
+    }
+  },
+  "total": {
+    "P": 574,
+    "X": 6
+  },
+  "prescribed_holds": 159,
+  "all_observed_holds": 189,
+  "named_mutants": 18,
+  "longest_pytest": [
+    148.93,
+    "test_retention_dependency_properties-3"
+  ],
+  "unrun_prescribed": [],
+  "properties": [
+    {
+      "hold": "test_retention_alternates",
+      "nodeid": "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+      "valid": 100,
+      "invalid": 0,
+      "calls": 100,
+      "settings_max": 100,
+      "explicit": 3
+    },
+    {
+      "hold": "test_retention_folded_pin",
+      "nodeid": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+      "valid": 500,
+      "invalid": 11,
+      "calls": 724,
+      "settings_max": 500,
+      "explicit": 3
+    },
+    {
+      "hold": "test_retention_folded_pin",
+      "nodeid": "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+      "valid": 100,
+      "invalid": 0,
+      "calls": 146,
+      "settings_max": 100,
+      "explicit": 1
+    },
+    {
+      "hold": "test_retention_folded_pin",
+      "nodeid": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+      "valid": 150,
+      "invalid": 0,
+      "calls": 174,
+      "settings_max": 150,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_dependency_units",
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+      "valid": 12,
+      "invalid": 0,
+      "calls": 12,
+      "settings_max": 12,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_dependency_units",
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "valid": 150,
+      "invalid": 0,
+      "calls": 173,
+      "settings_max": 150,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_dependency_units",
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+      "valid": 60,
+      "invalid": 0,
+      "calls": 64,
+      "settings_max": 60,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_dependency_units",
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place",
+      "valid": 200,
+      "invalid": 0,
+      "calls": 220,
+      "settings_max": 200,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_dependency_properties-1",
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "valid": 100,
+      "invalid": 0,
+      "calls": 100,
+      "settings_max": 100,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_dependency_properties-2",
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "valid": 100,
+      "invalid": 0,
+      "calls": 100,
+      "settings_max": 100,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_dependency_properties-3",
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "valid": 100,
+      "invalid": 0,
+      "calls": 104,
+      "settings_max": 100,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_dependency_properties-4",
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "valid": 24,
+      "invalid": 0,
+      "calls": 25,
+      "settings_max": 24,
+      "explicit": 1
+    },
+    {
+      "hold": "test_retention_shared_folders-12",
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "valid": 400,
+      "invalid": 0,
+      "calls": 490,
+      "settings_max": 400,
+      "explicit": 12
+    },
+    {
+      "hold": "test_retention_shared_folders-11",
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "valid": 150,
+      "invalid": 0,
+      "calls": 189,
+      "settings_max": 150,
+      "explicit": 5
+    },
+    {
+      "hold": "test_retention_shared_folders-27",
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "valid": 150,
+      "invalid": 11,
+      "calls": 192,
+      "settings_max": 150,
+      "explicit": 0
+    },
+    {
+      "hold": "test_retention_shared_folders-16",
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "valid": 40,
+      "invalid": 0,
+      "calls": 45,
+      "settings_max": 40,
+      "explicit": 9
+    },
+    {
+      "hold": "test_detached_retention_fence-14",
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded",
+      "valid": 300,
+      "invalid": 0,
+      "calls": 339,
+      "settings_max": 300,
+      "explicit": 4
+    },
+    {
+      "hold": "test_detached_retention_fence-20",
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+      "valid": 12,
+      "invalid": 0,
+      "calls": 12,
+      "settings_max": 12,
+      "explicit": 5
+    },
+    {
+      "hold": "test_writer_retention_fence",
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "valid": 60,
+      "invalid": 0,
+      "calls": 89,
+      "settings_max": 60,
+      "explicit": 5
+    },
+    {
+      "hold": "test_detached_retention_fence-19",
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases",
+      "valid": 80,
+      "invalid": 0,
+      "calls": 120,
+      "settings_max": 80,
+      "explicit": 6
+    }
+  ]
+}

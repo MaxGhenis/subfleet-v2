@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:29:31.485587+00:00", "loads": [30.0029296875, 32.18896484375, 33.03857421875], "pid": 5516, "args": ["tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"], "fixture_root": "/private/tmp/sf-r272r8"}

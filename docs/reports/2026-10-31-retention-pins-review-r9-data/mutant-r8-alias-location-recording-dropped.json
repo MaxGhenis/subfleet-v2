@@ -1,0 +1,61 @@
+{
+  "name": "mutant-r8-alias-location-recording-dropped",
+  "start": "2026-10-31T08:35:45.192129+00:00",
+  "load": [
+    35.13818359375,
+    28.75732421875,
+    29.244140625
+  ],
+  "args": [
+    "--mutant",
+    "r8-alias-location-recording-dropped",
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8315630830002192,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 4.641456875000586,
+      "failure": "tests/fake/test_retention_dependency_review_r8.py:44: in test_running_job_keeps_tree_containing_required_git_pointer\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-alias-location-recording-dropped/pytest-of-maxghenis/pytest-0/tes...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48852, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004554999999527354,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "key": "R8-F1",
+      "value": "{\"error_after\": \"fatal: not a git repository: (null)\\n\", \"git_after\": 128, \"git_before\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/mutant-r8-alias-location-recording-dropped/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co0/independent-storage/.git\", \"/private/tmp/sf-r272r9/real-tmp/mutant-r8-alias-location-recording-dropped/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co0/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 23492, \"archived_bytes\": 49483, \"bytes_after\": 0, \"bytes_before\": 48852, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 23492, \"archived_bytes\": 49483, \"bytes_after\": 0, \"bytes_before\": 48852, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    }
+  ],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "ca20582612ad40fa73085ddc7ffa9bfb7b1b8e04cad734cc8c0b52d74a06c749"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:35:56.521236+00:00",
+  "seconds": 11.328754708996712,
+  "peak_rss_mib": 114.09375,
+  "exit": 1
+}

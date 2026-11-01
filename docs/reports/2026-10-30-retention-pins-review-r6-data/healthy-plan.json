@@ -1,0 +1,32 @@
+[
+  [
+    "physical-common-control",
+    [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-r272r6",
+      "/private/tmp/sf-r272r6/readers_probe.py::test_physical_common_folder_through_archive_and_survey"
+    ]
+  ],
+  [
+    "review-r6-healthy",
+    [
+      "tests/fake/test_retention_dependency_review_r6.py",
+      "-rx"
+    ]
+  ],
+  [
+    "red-r6-healthy",
+    [
+      "tests/fake/test_retention_dependency_review_r6.py",
+      "--runxfail"
+    ]
+  ],
+  [
+    "trial-r6-healthy",
+    [
+      "tests/fake/test_retention_dependency_review_r6.py",
+      "--runxfail"
+    ]
+  ]
+]

@@ -1,0 +1,3 @@
+{"nodeid": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest", "when": "setup", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest", "when": "call", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest", "when": "teardown", "outcome": "passed", "xfail": null}

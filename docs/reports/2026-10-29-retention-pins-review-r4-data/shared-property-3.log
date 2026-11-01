@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 03:20:27Z slot B load 
+START shared-property-3 2026-10-30T03:20:28.231934+00:00 load=(20.595703125, 23.8203125, 24.94384765625)
+.                                                                        [100%]
+1 passed in 75.19s (0:01:15)

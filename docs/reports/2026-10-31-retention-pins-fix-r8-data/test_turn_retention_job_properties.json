@@ -1,0 +1,46 @@
+{
+  "name": "test_turn_retention_job_properties",
+  "start": "2026-10-31T07:34:01.110475+00:00",
+  "load": [
+    28.55908203125,
+    30.58642578125,
+    32.38720703125
+  ],
+  "args": [
+    "tests/fake/test_turn_retention_job_properties.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.07671491600194713,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 11.252456665999489,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00039995900078793056,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T07:34:18.686452+00:00",
+  "seconds": 17.575539249999565,
+  "peak_rss_mib": 119.90625,
+  "exit": 0
+}

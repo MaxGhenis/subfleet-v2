@@ -1,0 +1,7 @@
+{
+  "fallback_present_at_r5_review": true,
+  "before_commit": "c1dfadceb",
+  "head": "beabed1f7796",
+  "fallback_source": "    elif named and os.path.basename(os.path.dirname(gitdir)) == \"worktrees\":\n        common = os.path.dirname(os.path.dirname(gitdir))\n",
+  "R6-F2_text_reader_also_unchanged_since_r5_review": true
+}

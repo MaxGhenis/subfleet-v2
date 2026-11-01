@@ -1,0 +1,333 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:17:15Z slot B load 
+START review-r5 2026-10-30T14:17:18.143405+00:00 load=(29.2626953125, 19.46484375, 13.04443359375)
+........................................FFFF..                           [100%]
+=================================== FAILURES ===================================
+_ test_initial_objects_dependency_survives_each_retention_recheck[final-directory] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r5/cases-67696/pytest/test_initial_objects_dependenc8'), trusted=True, remot...-r272r5/cases-67696/pytest/test_initial_objects_dependenc8/state'), store=<subfleet.store.Store object at 0x10d044050>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b69d080>
+layout = 'directory', stage = 'final'
+
+    @pytest.mark.parametrize("layout", LAYOUTS)
+    @pytest.mark.parametrize("stage", ["legacy-census", "fence", "final"])
+    def test_initial_objects_dependency_survives_each_retention_recheck(world, monkeypatch, layout, stage):
+        tree = world.job("owner")
+        owner, _ = source(world, tree)
+        outside, common = checkout(world, layout)
+        objects = common / "objects"
+        objects.rename(world.base / "old-objects")
+        objects.symlink_to(owner / ".git" / "objects", target_is_directory=True)
+        off_transaction(world, monkeypatch)
+        recorded = dependencies.record(str(outside))
+        assert not recorded.get("incomplete")
+        inserted = []
+    
+        def insert(*, legacy=False):
+            assert not inserted
+            inserted.append(True)
+            reader(world, {} if legacy else recorded)
+            if legacy:
+                with world.store.transaction() as tx:
+                    tx.execute("UPDATE events SET data_json='{}' WHERE kind='job.submitted' AND job_id='borrower'")
+    
+        if stage == "legacy-census":
+            insert(legacy=True)
+        elif stage == "fence":
+            transaction = world.store.transaction
+    
+            @contextmanager
+            def selecting(kind="state.changed", *args, **kwargs):
+                if kind == "retention.selected" and not inserted:
+                    insert()
+                with transaction(kind, *args, **kwargs) as tx:
+                    yield tx
+    
+            monkeypatch.setattr(world.store, "transaction", selecting)
+        else:
+            commit = rarch.Retirement.commit
+    
+            def committing(self):
+                if self.job_id == "owner" and not inserted:
+                    insert()
+                return commit(self)
+    
+            monkeypatch.setattr(rarch.Retirement, "commit", committing)
+>       result = maintain(world)
+                 ^^^^^^^^^^^^^^^
+
+tests/fake/test_retention_dependency_review_r5.py:216: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_retention_dependency_review_r2.py:18: in maintain
+    return retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+subfleet/retention.py:457: in maintenance
+    return run.run()
+           ^^^^^^^^^
+subfleet/retention.py:655: in run
+    self._finish(retirement, protected)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <subfleet.retention._Pass object at 0x10c777950>
+retirement = <subfleet.retention_archive.Retirement object at 0x10c777bb0>
+protected = set()
+
+    def _finish(self, retirement: rarch.Retirement, protected: set[str]) -> None:
+        job_id = retirement.job_id
+        try:
+            retirement.final_check()
+            # C-12.10 (P3-2): a cleared allocation pins nothing, so a job can go
+            # while removal of its TMPDIR keeps failing; its record goes with it.
+            left = cleared_tmpdirs(self.store, job_id)
+>           why = retirement.commit(self.sizes.get(job_id, 0))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: test_initial_objects_dependency_survives_each_retention_recheck.<locals>.committing() takes 1 positional argument but 2 were given
+
+subfleet/retention.py:975: TypeError
+_ test_initial_objects_dependency_survives_each_retention_recheck[final-gitfile] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r5/cases-67696/pytest/test_initial_objects_dependenc9'), trusted=True, remot...-r272r5/cases-67696/pytest/test_initial_objects_dependenc9/state'), store=<subfleet.store.Store object at 0x10d046b50>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c927e00>
+layout = 'gitfile', stage = 'final'
+
+    @pytest.mark.parametrize("layout", LAYOUTS)
+    @pytest.mark.parametrize("stage", ["legacy-census", "fence", "final"])
+    def test_initial_objects_dependency_survives_each_retention_recheck(world, monkeypatch, layout, stage):
+        tree = world.job("owner")
+        owner, _ = source(world, tree)
+        outside, common = checkout(world, layout)
+        objects = common / "objects"
+        objects.rename(world.base / "old-objects")
+        objects.symlink_to(owner / ".git" / "objects", target_is_directory=True)
+        off_transaction(world, monkeypatch)
+        recorded = dependencies.record(str(outside))
+        assert not recorded.get("incomplete")
+        inserted = []
+    
+        def insert(*, legacy=False):
+            assert not inserted
+            inserted.append(True)
+            reader(world, {} if legacy else recorded)
+            if legacy:
+                with world.store.transaction() as tx:
+                    tx.execute("UPDATE events SET data_json='{}' WHERE kind='job.submitted' AND job_id='borrower'")
+    
+        if stage == "legacy-census":
+            insert(legacy=True)
+        elif stage == "fence":
+            transaction = world.store.transaction
+    
+            @contextmanager
+            def selecting(kind="state.changed", *args, **kwargs):
+                if kind == "retention.selected" and not inserted:
+                    insert()
+                with transaction(kind, *args, **kwargs) as tx:
+                    yield tx
+    
+            monkeypatch.setattr(world.store, "transaction", selecting)
+        else:
+            commit = rarch.Retirement.commit
+    
+            def committing(self):
+                if self.job_id == "owner" and not inserted:
+                    insert()
+                return commit(self)
+    
+            monkeypatch.setattr(rarch.Retirement, "commit", committing)
+>       result = maintain(world)
+                 ^^^^^^^^^^^^^^^
+
+tests/fake/test_retention_dependency_review_r5.py:216: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_retention_dependency_review_r2.py:18: in maintain
+    return retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+subfleet/retention.py:457: in maintenance
+    return run.run()
+           ^^^^^^^^^
+subfleet/retention.py:655: in run
+    self._finish(retirement, protected)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <subfleet.retention._Pass object at 0x10c7775c0>
+retirement = <subfleet.retention_archive.Retirement object at 0x10c93ccb0>
+protected = set()
+
+    def _finish(self, retirement: rarch.Retirement, protected: set[str]) -> None:
+        job_id = retirement.job_id
+        try:
+            retirement.final_check()
+            # C-12.10 (P3-2): a cleared allocation pins nothing, so a job can go
+            # while removal of its TMPDIR keeps failing; its record goes with it.
+            left = cleared_tmpdirs(self.store, job_id)
+>           why = retirement.commit(self.sizes.get(job_id, 0))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: test_initial_objects_dependency_survives_each_retention_recheck.<locals>.committing() takes 1 positional argument but 2 were given
+
+subfleet/retention.py:975: TypeError
+_ test_initial_objects_dependency_survives_each_retention_recheck[final-commondir] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r5/cases-67696/pytest/test_initial_objects_dependenc10'), trusted=True, remo...r272r5/cases-67696/pytest/test_initial_objects_dependenc10/state'), store=<subfleet.store.Store object at 0x10d044750>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b69d2b0>
+layout = 'commondir', stage = 'final'
+
+    @pytest.mark.parametrize("layout", LAYOUTS)
+    @pytest.mark.parametrize("stage", ["legacy-census", "fence", "final"])
+    def test_initial_objects_dependency_survives_each_retention_recheck(world, monkeypatch, layout, stage):
+        tree = world.job("owner")
+        owner, _ = source(world, tree)
+        outside, common = checkout(world, layout)
+        objects = common / "objects"
+        objects.rename(world.base / "old-objects")
+        objects.symlink_to(owner / ".git" / "objects", target_is_directory=True)
+        off_transaction(world, monkeypatch)
+        recorded = dependencies.record(str(outside))
+        assert not recorded.get("incomplete")
+        inserted = []
+    
+        def insert(*, legacy=False):
+            assert not inserted
+            inserted.append(True)
+            reader(world, {} if legacy else recorded)
+            if legacy:
+                with world.store.transaction() as tx:
+                    tx.execute("UPDATE events SET data_json='{}' WHERE kind='job.submitted' AND job_id='borrower'")
+    
+        if stage == "legacy-census":
+            insert(legacy=True)
+        elif stage == "fence":
+            transaction = world.store.transaction
+    
+            @contextmanager
+            def selecting(kind="state.changed", *args, **kwargs):
+                if kind == "retention.selected" and not inserted:
+                    insert()
+                with transaction(kind, *args, **kwargs) as tx:
+                    yield tx
+    
+            monkeypatch.setattr(world.store, "transaction", selecting)
+        else:
+            commit = rarch.Retirement.commit
+    
+            def committing(self):
+                if self.job_id == "owner" and not inserted:
+                    insert()
+                return commit(self)
+    
+            monkeypatch.setattr(rarch.Retirement, "commit", committing)
+>       result = maintain(world)
+                 ^^^^^^^^^^^^^^^
+
+tests/fake/test_retention_dependency_review_r5.py:216: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_retention_dependency_review_r2.py:18: in maintain
+    return retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+subfleet/retention.py:457: in maintenance
+    return run.run()
+           ^^^^^^^^^
+subfleet/retention.py:655: in run
+    self._finish(retirement, protected)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <subfleet.retention._Pass object at 0x10c7750f0>
+retirement = <subfleet.retention_archive.Retirement object at 0x10c97d9d0>
+protected = set()
+
+    def _finish(self, retirement: rarch.Retirement, protected: set[str]) -> None:
+        job_id = retirement.job_id
+        try:
+            retirement.final_check()
+            # C-12.10 (P3-2): a cleared allocation pins nothing, so a job can go
+            # while removal of its TMPDIR keeps failing; its record goes with it.
+            left = cleared_tmpdirs(self.store, job_id)
+>           why = retirement.commit(self.sizes.get(job_id, 0))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: test_initial_objects_dependency_survives_each_retention_recheck.<locals>.committing() takes 1 positional argument but 2 were given
+
+subfleet/retention.py:975: TypeError
+_ test_initial_objects_dependency_survives_each_retention_recheck[final-linked] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r5/cases-67696/pytest/test_initial_objects_dependenc11'), trusted=True, remo...r272r5/cases-67696/pytest/test_initial_objects_dependenc11/state'), store=<subfleet.store.Store object at 0x10c930d50>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cff7cb0>
+layout = 'linked', stage = 'final'
+
+    @pytest.mark.parametrize("layout", LAYOUTS)
+    @pytest.mark.parametrize("stage", ["legacy-census", "fence", "final"])
+    def test_initial_objects_dependency_survives_each_retention_recheck(world, monkeypatch, layout, stage):
+        tree = world.job("owner")
+        owner, _ = source(world, tree)
+        outside, common = checkout(world, layout)
+        objects = common / "objects"
+        objects.rename(world.base / "old-objects")
+        objects.symlink_to(owner / ".git" / "objects", target_is_directory=True)
+        off_transaction(world, monkeypatch)
+        recorded = dependencies.record(str(outside))
+        assert not recorded.get("incomplete")
+        inserted = []
+    
+        def insert(*, legacy=False):
+            assert not inserted
+            inserted.append(True)
+            reader(world, {} if legacy else recorded)
+            if legacy:
+                with world.store.transaction() as tx:
+                    tx.execute("UPDATE events SET data_json='{}' WHERE kind='job.submitted' AND job_id='borrower'")
+    
+        if stage == "legacy-census":
+            insert(legacy=True)
+        elif stage == "fence":
+            transaction = world.store.transaction
+    
+            @contextmanager
+            def selecting(kind="state.changed", *args, **kwargs):
+                if kind == "retention.selected" and not inserted:
+                    insert()
+                with transaction(kind, *args, **kwargs) as tx:
+                    yield tx
+    
+            monkeypatch.setattr(world.store, "transaction", selecting)
+        else:
+            commit = rarch.Retirement.commit
+    
+            def committing(self):
+                if self.job_id == "owner" and not inserted:
+                    insert()
+                return commit(self)
+    
+            monkeypatch.setattr(rarch.Retirement, "commit", committing)
+>       result = maintain(world)
+                 ^^^^^^^^^^^^^^^
+
+tests/fake/test_retention_dependency_review_r5.py:216: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_retention_dependency_review_r2.py:18: in maintain
+    return retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+subfleet/retention.py:457: in maintenance
+    return run.run()
+           ^^^^^^^^^
+subfleet/retention.py:655: in run
+    self._finish(retirement, protected)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <subfleet.retention._Pass object at 0x10c774c30>
+retirement = <subfleet.retention_archive.Retirement object at 0x10c97e7a0>
+protected = set()
+
+    def _finish(self, retirement: rarch.Retirement, protected: set[str]) -> None:
+        job_id = retirement.job_id
+        try:
+            retirement.final_check()
+            # C-12.10 (P3-2): a cleared allocation pins nothing, so a job can go
+            # while removal of its TMPDIR keeps failing; its record goes with it.
+            left = cleared_tmpdirs(self.store, job_id)
+>           why = retirement.commit(self.sizes.get(job_id, 0))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: test_initial_objects_dependency_survives_each_retention_recheck.<locals>.committing() takes 1 positional argument but 2 were given
+
+subfleet/retention.py:975: TypeError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[final-directory]
+FAILED tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[final-gitfile]
+FAILED tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[final-commondir]
+FAILED tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[final-linked]
+4 failed, 42 passed in 151.66s (0:02:31)

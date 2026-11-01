@@ -1,0 +1,24 @@
+[
+  {
+    "name": "r2-post-read-identity-check-dropped",
+    "verdict": "KILLED",
+    "killer": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+    "start": "2026-10-29T11:13:17.213762+00:00",
+    "load": [
+      38.83154296875,
+      39.296875,
+      32.29150390625
+    ]
+  },
+  {
+    "name": "r2-terminal-legacy-incomplete-dropped",
+    "verdict": "KILLED",
+    "killer": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+    "start": "2026-10-29T10:58:20.868558+00:00",
+    "load": [
+      45.02197265625,
+      27.41015625,
+      18.79150390625
+    ]
+  }
+]

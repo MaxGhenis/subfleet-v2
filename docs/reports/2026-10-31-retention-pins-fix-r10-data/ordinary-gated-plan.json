@@ -1,0 +1,23 @@
+[
+  [
+    "healthy-exact-linked",
+    [
+      "--linked",
+      "tests/unit/test_retention_location_cycles.py",
+      "-k",
+      "test_readable_repository_beside_cycle_keeps_every_place"
+    ]
+  ],
+  [
+    "plain-test_retention_dependency_units",
+    [
+      "tests/unit/test_retention_dependency_units.py"
+    ]
+  ],
+  [
+    "plain-test_retention_dependencies",
+    [
+      "tests/fake/test_retention_dependencies.py"
+    ]
+  ]
+]

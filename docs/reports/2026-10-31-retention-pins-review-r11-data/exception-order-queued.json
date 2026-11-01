@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:41:49.520387+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/exception_probe.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/exception-order",
+  "linked": false,
+  "driver_pid": 27439,
+  "lock_process_group": 27512
+}

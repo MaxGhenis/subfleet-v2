@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:40:03.503356+00:00",
+  "args": [
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py",
+    "-k",
+    "test_unused_link_width_and_lifetime or test_terminal_gone_target_and_evidence_cannot_pin or test_recorded_link_entry_stays_stable_for_fences or test_r8_owner_removal_breaks_the_identical_real_git_read"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls",
+  "linked": false,
+  "driver_pid": 39404,
+  "lock_process_group": 39423
+}

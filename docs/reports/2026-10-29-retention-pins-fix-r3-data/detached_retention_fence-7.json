@@ -1,0 +1,176 @@
+{
+  "label": "detached_retention_fence-7",
+  "start": "2026-10-29T20:55:49.081637+00:00",
+  "loads": [
+    64.31787109375,
+    61.82666015625,
+    52.05419921875
+  ],
+  "seconds": 19.632345875000283,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.258980041000541
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6688632090008468
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3360984999999346
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.131905791000463
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1222778749997815
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.956187291999413
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.405869375000293
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1302130829999442
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1975745839999945
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.01647766699989
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-allocated-writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1922631670004193
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.7062004999997953
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]",
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]",
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-read-only]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-allocated-writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 121864192
+}

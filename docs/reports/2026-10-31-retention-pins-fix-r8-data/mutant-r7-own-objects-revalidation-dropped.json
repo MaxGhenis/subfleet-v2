@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r7-own-objects-revalidation-dropped",
+  "start": "2026-10-31T07:29:51.664791+00:00",
+  "load": [
+    28.78466796875,
+    32.72509765625,
+    33.5107421875
+  ],
+  "args": [
+    "--mutant",
+    "r7-own-objects-revalidation-dropped",
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.7171728749999602,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7843919580009242,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.012794958998711081,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+      "mutated": "56987247a76b373291b398aabacf9854d45237c14a714f91530ef9ad626619d7"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+  "end": "2026-10-31T07:29:57.097025+00:00",
+  "seconds": 5.431991624998773,
+  "peak_rss_mib": 115.734375,
+  "exit": 0
+}

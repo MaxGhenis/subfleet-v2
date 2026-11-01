@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:59:09.053668+00:00",
+  "args": [
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_alternates-2",
+  "linked": false,
+  "driver_pid": 21824,
+  "lock_process_group": 22062
+}

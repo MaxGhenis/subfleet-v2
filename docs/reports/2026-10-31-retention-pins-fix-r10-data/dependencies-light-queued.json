@@ -1,0 +1,13 @@
+{
+  "queued": "2026-10-31T13:20:02.251243+00:00",
+  "args": [
+    "tests/unit/test_retention_alternates.py",
+    "tests/unit/test_retention_job_dependencies.py",
+    "tests/unit/test_retention_folded_pin.py",
+    "tests/fake/test_retention_dependency_spelling.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/dependencies-light",
+  "linked": false,
+  "driver_pid": 11803,
+  "lock_process_group": 12213
+}

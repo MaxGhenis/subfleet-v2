@@ -1,0 +1,106 @@
+{
+  "label": "turn_retention_cwd",
+  "start": "2026-10-30T15:20:24.612167+00:00",
+  "loads": [
+    20.08154296875,
+    28.8583984375,
+    27.236328125
+  ],
+  "seconds": 19.74042200000258,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[before-move-canonical]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.473495833008201
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[before-move-case-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.5089927920053015
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[after-move-canonical]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.47809162500198
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[after-move-case-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.208634666996659
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd.py::test_a_missing_actual_cwd_waits_for_workspace_even_when_its_git_hold_exists[canonical]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7509647499973653
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd.py::test_a_missing_actual_cwd_waits_for_workspace_even_when_its_git_hold_exists[case-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8919452499976614
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[before-move-canonical]",
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[before-move-case-alias]",
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[after-move-canonical]",
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[after-move-case-alias]",
+    "tests/fake/test_turn_retention_cwd.py::test_a_missing_actual_cwd_waits_for_workspace_even_when_its_git_hold_exists[canonical]",
+    "tests/fake/test_turn_retention_cwd.py::test_a_missing_actual_cwd_waits_for_workspace_even_when_its_git_hold_exists[case-alias]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[before-move-canonical]",
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[before-move-case-alias]",
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[after-move-canonical]",
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[after-move-case-alias]",
+    "tests/fake/test_turn_retention_cwd.py::test_a_missing_actual_cwd_waits_for_workspace_even_when_its_git_hold_exists[canonical]",
+    "tests/fake/test_turn_retention_cwd.py::test_a_missing_actual_cwd_waits_for_workspace_even_when_its_git_hold_exists[case-alias]"
+  ],
+  "phases": {
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[before-move-canonical]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[before-move-case-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[after-move-canonical]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_turn_retention_cwd.py::test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fence[after-move-case-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_turn_retention_cwd.py::test_a_missing_actual_cwd_waits_for_workspace_even_when_its_git_hold_exists[canonical]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_turn_retention_cwd.py::test_a_missing_actual_cwd_waits_for_workspace_even_when_its_git_hold_exists[case-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 127778816
+}

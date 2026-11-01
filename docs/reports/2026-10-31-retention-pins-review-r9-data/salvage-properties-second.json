@@ -1,0 +1,49 @@
+{
+  "name": "salvage-properties-second",
+  "start": "2026-10-31T09:25:27.902024+00:00",
+  "load": [
+    33.15673828125,
+    34.294921875,
+    38.30322265625
+  ],
+  "args": [
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.9829673749991343,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 139.2146670000002,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001005374997475883,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:28:00.188645+00:00",
+  "seconds": 152.2844448750002,
+  "peak_rss_mib": 115.75,
+  "exit": 0
+}

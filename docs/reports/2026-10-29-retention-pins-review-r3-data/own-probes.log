@@ -1,0 +1,1051 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:37:19Z slot A load 
+{"start": "2026-10-29T13:37:20.397936+00:00", "load": [28.41162109375, 23.65185546875, 24.72900390625], "name": "own-probes"}
+FFFFFFFFFFFFFFF......                                                    [100%]
+=================================== FAILURES ===================================
+________________________ test_changes[replace-running] _________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_replace_running_0'), trusted=True, remote=PosixP...e/tmp/sf-r272r3/cases-74474/test_changes_replace_running_0/state'), store=<subfleet.store.Store object at 0x107cb57f0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107a17100>
+change = 'replace', state = 'running'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+_______________________ test_changes[replace-succeeded] ________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_replace_succeeded0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_replace_succeeded0/state'), store=<subfleet.store.Store object at 0x10833ed50>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107d51250>
+change = 'replace', state = 'succeeded'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+________________________ test_changes[rewrite-running] _________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_rewrite_running_0'), trusted=True, remote=PosixP...e/tmp/sf-r272r3/cases-74474/test_changes_rewrite_running_0/state'), store=<subfleet.store.Store object at 0x10833f110>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107d93020>
+change = 'rewrite', state = 'running'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+_______________________ test_changes[rewrite-succeeded] ________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_rewrite_succeeded0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_rewrite_succeeded0/state'), store=<subfleet.store.Store object at 0x1082dc050>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108345450>
+change = 'rewrite', state = 'succeeded'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+_________________________ test_changes[unlink-running] _________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_unlink_running_0'), trusted=True, remote=PosixPa...te/tmp/sf-r272r3/cases-74474/test_changes_unlink_running_0/state'), store=<subfleet.store.Store object at 0x1082dd5b0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1082cb110>
+change = 'unlink', state = 'running'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+________________________ test_changes[unlink-succeeded] ________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_unlink_succeeded_0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_unlink_succeeded_0/state'), store=<subfleet.store.Store object at 0x1082d0050>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107d6c3d0>
+change = 'unlink', state = 'succeeded'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+______________________ test_changes[rename-over-running] _______________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_rename_over_runni0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_rename_over_runni0/state'), store=<subfleet.store.Store object at 0x108348e20>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1082e0290>
+change = 'rename-over', state = 'running'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+_____________________ test_changes[rename-over-succeeded] ______________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_rename_over_succe0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_rename_over_succe0/state'), store=<subfleet.store.Store object at 0x1083499d0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108327280>
+change = 'rename-over', state = 'succeeded'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+_______________________ test_changes[same-size-running] ________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_same_size_running0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_same_size_running0/state'), store=<subfleet.store.Store object at 0x108298a50>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1082b47d0>
+change = 'same-size', state = 'running'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+______________________ test_changes[same-size-succeeded] _______________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_same_size_succeed0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_same_size_succeed0/state'), store=<subfleet.store.Store object at 0x108346150>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107f22de0>
+change = 'same-size', state = 'succeeded'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+______________________ test_changes[symlink-file-running] ______________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_symlink_file_runn0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_symlink_file_runn0/state'), store=<subfleet.store.Store object at 0x1082c87d0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106a91bd0>
+change = 'symlink-file', state = 'running'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+_____________________ test_changes[symlink-file-succeeded] _____________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_symlink_file_succ0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_symlink_file_succ0/state'), store=<subfleet.store.Store object at 0x1082c97c0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1082d8ad0>
+change = 'symlink-file', state = 'succeeded'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+______________________ test_changes[symlink-info-running] ______________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_symlink_info_runn0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_symlink_info_runn0/state'), store=<subfleet.store.Store object at 0x10833bb60>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1082da2e0>
+change = 'symlink-info', state = 'running'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+_____________________ test_changes[symlink-info-succeeded] _____________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_changes_symlink_info_succ0'), trusted=True, remote=Posix.../tmp/sf-r272r3/cases-74474/test_changes_symlink_info_succ0/state'), store=<subfleet.store.Store object at 0x108338b90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1083417f0>
+change = 'symlink-info', state = 'succeeded'
+
+    @pytest.mark.parametrize('state', ['running', 'succeeded'])
+    @pytest.mark.parametrize('change', ['replace', 'rewrite', 'unlink', 'rename-over', 'same-size', 'symlink-file', 'symlink-info'])
+    def test_changes(world, monkeypatch, change, state):
+        trees=[world.job('owner-a'), world.job('owner-b')]
+        world.store.update_job('owner-b', worktree=None)
+        source=repo(trees[0]/'source')
+        outside=world.base/'outside'
+        git(world.base, 'init', '--quiet', str(outside))
+        alternate=outside/'.git'/'objects'/'info'/'alternates'
+        new=os.fsencode(source/'.git'/'objects')+b'\n'
+        old=b'#'+b'x'*(len(new)-2)+b'\n'
+        alternate.write_bytes(old)
+        if change=='symlink-file':
+            original=alternate.with_name('old');alternate.rename(original);alternate.symlink_to(original)
+        if change=='symlink-info':
+            info=alternate.parent
+            info.rename(info.with_name('old-info'));info.symlink_to(info.with_name('old-info'))
+        real=dependencies.open_regular
+        changed=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            if change=='unlink':alternate.unlink()
+                            elif change in ('replace','rename-over'):
+                                replacement=alternate.with_name('replacement');replacement.write_bytes(new)
+                                if change=='replace':alternate.unlink()
+                                replacement.rename(alternate)
+                            elif change=='symlink-file':
+                                target=alternate.with_name('new');target.write_bytes(new)
+                                alternate.unlink();alternate.symlink_to(target)
+                            elif change=='symlink-info':
+                                target=alternate.parent.with_name('new-info');target.mkdir();(target/'alternates').write_bytes(new)
+                                alternate.parent.unlink();alternate.parent.symlink_to(target)
+                            else:alternate.write_bytes(new if change=='same-size' else new+b'# longer\n')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert changed and recorded.get('incomplete'), recorded
+        reader(world,recorded,state=state)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+        result=maintain(world)
+        assert not result['pruned'],result
+        assert all(t.is_dir() for t in trees)
+        assert all('dependency-incomplete' in result['pin_reasons'][j] for j in ['owner-a','owner-b'])
+        world.store.release_leases('borrower');world.store.update_job('borrower',state='succeeded')
+>       assert set(maintain(world)['pruned'])=={'owner-a','owner-b'}
+E       AssertionError: assert {'borrower', ...a', 'owner-b'} == {'owner-a', 'owner-b'}
+E         
+E         Extra items in the left set:
+E         'borrower'
+E         Use -v to get more diff
+
+/private/tmp/sf-r272r3/probes.py:64: AssertionError
+___________________________ test_symlink_git_parent ____________________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-74474/test_symlink_git_parent0'), trusted=True, remote=PosixPath('/...private/tmp/sf-r272r3/cases-74474/test_symlink_git_parent0/state'), store=<subfleet.store.Store object at 0x1082a2e40>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1082d98d0>
+
+    def test_symlink_git_parent(world,monkeypatch):
+        tree=world.job('owner')
+        source=repo(tree/'source')
+        commit=git(source,'rev-parse','HEAD')
+        old=repo(world.base/'old')
+        outside=world.base/'outside';outside.mkdir()
+        link=outside/'.git';link.symlink_to(old/'.git')
+        alternate=old/'.git'/'objects'/'info'/'alternates';alternate.write_bytes(b'# first\n# second\n')
+        real=dependencies.open_regular
+        swapped=[]
+        @contextmanager
+        def opening(path,*a,**k):
+            with real(path,*a,**k) as stream:
+                if str(path)!=str(alternate):yield stream;return
+                class Changing:
+                    def readline(self,size=-1):
+                        line=stream.readline(size)
+                        if not swapped:
+                            swapped.append(True);link.unlink();link.symlink_to(source/'.git')
+                        return line
+                    def __getattr__(self,name):return getattr(stream,name)
+                yield Changing()
+        with monkeypatch.context() as p:
+            p.setattr(dependencies,'open_regular',opening)
+            recorded=dependencies.record(str(outside))
+        assert swapped
+        assert git(outside,'cat-file','-t',commit)=='commit'
+        reader(world,recorded)
+        result=maintain(world)
+>       assert 'owner' not in result['pruned'],(recorded,result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r3/cases-74474/test_symlink_git_parent0/old/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47931, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+/private/tmp/sf-r272r3/probes.py:95: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[replace-running]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[replace-succeeded]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[rewrite-running]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[rewrite-succeeded]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[unlink-running]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[unlink-succeeded]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[rename-over-running]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[rename-over-succeeded]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[same-size-running]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[same-size-succeeded]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[symlink-file-running]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[symlink-file-succeeded]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[symlink-info-running]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_changes[symlink-info-succeeded]
+FAILED ../../../../../private/tmp/sf-r272r3/probes.py::test_symlink_git_parent
+15 failed, 6 passed in 127.00s (0:02:07)

@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T16:53:48.703331+00:00",
+  "args": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_turn_retention_job_properties-1",
+  "linked": false,
+  "driver_pid": 65601,
+  "lock_process_group": 65649
+}

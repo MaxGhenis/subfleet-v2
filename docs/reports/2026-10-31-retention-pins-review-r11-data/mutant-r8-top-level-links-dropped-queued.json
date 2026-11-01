@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:52:52.676463+00:00",
+  "args": [
+    "--mutant",
+    "r8-top-level-links-dropped",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/mutant-r8-top-level-links-dropped",
+  "linked": false,
+  "driver_pid": 56260,
+  "lock_process_group": 56335
+}

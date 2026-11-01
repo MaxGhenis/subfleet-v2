@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T08:31:43.037258+00:00",
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/link-tmp/linked-pointer",
+  "linked": true,
+  "driver_pid": 46786,
+  "lock_process_group": 46833
+}

@@ -1,0 +1,10 @@
+{
+  "_walk": true,
+  "_target": true,
+  "check": true,
+  "resolve": true,
+  "scan": true,
+  "text": true,
+  "r11_only_strict_mark_removed": true,
+  "spelled_equations_unchanged": true
+}

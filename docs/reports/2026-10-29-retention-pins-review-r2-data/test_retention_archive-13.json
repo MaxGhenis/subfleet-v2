@@ -1,0 +1,44 @@
+{
+  "name": "test_retention_archive-13",
+  "start": "2026-10-29T06:40:25.293465+00:00",
+  "load": [
+    19.84423828125,
+    23.107421875,
+    23.12744140625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent": {
+      "setup": {
+        "duration": 1.9368202909972752,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.5561563329974888,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.006559832996572368,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

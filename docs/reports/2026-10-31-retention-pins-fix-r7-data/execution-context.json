@@ -1,0 +1,17 @@
+{
+  "start": "2026-10-31T02:34:22Z",
+  "first_hold": "2026-10-31T02:35:53.821197Z",
+  "hold_cutoff": "2026-10-31T06:34:22Z",
+  "wall": "2026-10-31T08:34:22Z",
+  "scratch": "/private/tmp/sf-fix272r7",
+  "darwin_scratch_denied": true,
+  "shared_git_staging_denied": true,
+  "private_git": ".retention-r7-git",
+  "repair_commit": "c28b7bc4fb14f0da3a38f16ba5c18e428cd415c2",
+  "pytest_alarm_seconds": 480,
+  "concurrency": "two suite lock slots, serial pytest per hold",
+  "network": "locked uv sync only",
+  "property_mutant_commit": "58dbd5e5f97bde640caedfee83cea9a53f8933d4",
+  "preliminary_bundle_verified": true,
+  "mutant_queues": "two disjoint named lists, prioritizing the new r7 names in the second queue"
+}

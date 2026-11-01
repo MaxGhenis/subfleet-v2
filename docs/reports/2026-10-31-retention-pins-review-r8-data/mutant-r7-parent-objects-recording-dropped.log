@@ -1,0 +1,30 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:45:03Z slot B load 
+START mutant-r7-parent-objects-recording-dropped 2026-10-31T06:45:04.497204+00:00 load=(39.65625, 37.50146484375, 35.90576171875)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_inferred_parent_objects_keeps_its_resolved_storage ____________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-1028/pytest/test_inferred_parent_objects_k0'), trusted=True, remote...f-r272r8/cases-1028/pytest/test_inferred_parent_objects_k0/state'), store=<subfleet.store.Store object at 0x1091a7b60>)
+
+    def test_inferred_parent_objects_keeps_its_resolved_storage(world):
+        tree = world.job("owner")
+        owner, _ = source(world, tree)
+        checkout, parent = named_repository(world)
+        objects = owner / ".git" / "objects"
+        (parent / "objects").symlink_to(objects, target_is_directory=True)
+        recorded = dependencies.record(str(checkout))
+        assert not recorded.get("incomplete"), recorded
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-1028/pytest/test_inferred_parent_objects_k0/container/worktrees/slot', '/priva...container/worktrees/slot/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48627, 'bytes_after': 0, ...})
+E       assert ('owner' not in ['owner'])
+
+tests/fake/test_retention_parent_hint.py:31: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage
+1 failed in 6.14s

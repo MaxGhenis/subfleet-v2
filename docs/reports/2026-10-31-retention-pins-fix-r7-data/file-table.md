@@ -1,0 +1,34 @@
+| File | Passed | Start UTC (2026-10-31) | Load 1/5/15 |
+|---|---:|---|---|
+| Data/pointer_matrix.py | 5 | 04:20:26 | 33.67 / 32.78 / 34.39 |
+| Data/probes.py | 2 | 04:20:26 | 33.67 / 32.78 / 34.39 |
+| F/test_retention_dependencies.py | 30 | 03:15:02 | 34.67 / 39.09 / 43.95 |
+| F/test_retention_dependency_incomplete.py | 19 | 04:15:54 | 27.52 / 32.27 / 35.03 |
+| F/test_retention_dependency_review_r1.py | 18 | 04:15:54 | 27.52 / 32.27 / 35.03 |
+| F/test_retention_dependency_review_r2.py | 21 | 04:11:23 | 36.64 / 36.00 / 36.90 |
+| F/test_retention_dependency_review_r3.py | 6 | 04:11:23 | 36.64 / 36.00 / 36.90 |
+| F/test_retention_dependency_review_r4.py | 53 | 03:39:25 | 38.78 / 40.90 / 42.71 |
+| F/test_retention_dependency_review_r5.py | 60 | 03:34:22 | 42.93 / 46.07 / 44.85 |
+| F/test_retention_dependency_review_r6.py | 16 | 02:40:41 | 37.10 / 28.23 / 17.67 |
+| F/test_retention_dependency_review_r7.py | 3 | 02:37:44 | 31.69 / 24.03 / 14.26 |
+| F/test_retention_dependency_spelling.py | 16 | 03:16:39 | 29.09 / 36.09 / 42.25 |
+| F/test_retention_parent_hint.py | 2 | 02:43:18 | 49.27 / 38.23 / 23.64 |
+| F/test_retention_pointer_failures.py | 7 | 02:56:18 | 52.56 / 62.36 / 48.02 |
+| F/test_retention_recovery_census.py | 2 | 03:16:39 | 29.09 / 36.09 / 42.25 |
+| F/test_state_contract.py | 37 | 03:41:24 | 43.73 / 40.80 / 42.33 |
+| F/test_turn_retention_cwd.py | 6 | 03:36:47 | 37.22 / 42.51 / 43.59 |
+| F/test_turn_retention_cwd_properties.py | 1 | 03:37:54 | 37.31 / 41.32 / 43.04 |
+| F/test_turn_retention_job_directory.py | 2 | 03:36:47 | 37.22 / 42.51 / 43.59 |
+| F/test_turn_retention_job_properties.py | 1 | 03:39:05 | 39.76 / 41.15 / 42.84 |
+| F/test_turn_retention_quarantine.py | 10 | 03:36:47 | 37.22 / 42.51 / 43.59 |
+| U/test_invariants_index.py | 25 | 03:41:24 | 43.73 / 40.80 / 42.33 |
+| U/test_retention_alternates.py | 23 | 02:57:18 | 68.70 / 64.61 / 49.88 |
+| U/test_retention_alternates_review_r2.py | 15 | 04:11:23 | 36.64 / 36.00 / 36.90 |
+| U/test_retention_dependency_aliases.py | 10 | 03:14:43 | 35.12 / 39.46 / 44.19 |
+| U/test_retention_dependency_properties.py | 4 | 04:12:29 | 31.65 / 34.77 / 36.37 |
+| U/test_retention_dependency_units.py | 19 | 03:16:39 | 29.09 / 36.09 / 42.25 |
+| U/test_retention_folded_pin.py | 38 | 03:16:39 | 29.09 / 36.09 / 42.25 |
+| U/test_retention_job_dependencies.py | 12 | 03:15:02 | 34.67 / 39.09 / 43.95 |
+| U/test_retention_pointer_inputs.py | 2 | 03:27:14 | 50.77 / 45.34 / 43.95 |
+| U/test_retention_pointer_whitespace.py | 9 | 03:36:11 | 38.18 / 43.34 / 43.91 |
+| U/test_test_module_names.py | 1 | 03:41:24 | 43.73 / 40.80 / 42.33 |

@@ -1,0 +1,50 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:48:07Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_location_inputs_keep_the_places_real_git_traverses ____________
+tests/unit/test_retention_location_inputs.py:159: in test_location_inputs_keep_the_places_real_git_traverses
+    suppress_health_check=[HealthCheck.function_scoped_fixture])
+         ^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_inputs.py:164: in test_location_inputs_keep_the_places_real_git_traverses
+    observation = check_location_input(Path(directory), data)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/review-r9-data/run.py:112: in observed
+    result = original(base, data)
+             ^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_inputs.py:142: in check_location_input
+    assert not recorded.get("incomplete"), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'"}]}
+E   assert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir', 'reason': "[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'"}]
+E    +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir', 'reason': "[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'"}] = <built-in method get of dict object at 0x10abfd400>('incomplete')
+E    +    where <built-in method get of dict object at 0x10abfd400> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmprpvyz30q/stable/container/commondir'"}]}.get
+E   Failing test case: test_location_inputs_keep_the_places_real_git_traverses(
+E       # The test always failed when commented parts were varied together.
+E       record_property=append_property,
+E       data={
+E           'position': 'gitfile-target',
+E           'chain': 1,  # or any other generated value
+E           'relative': False,  # or any other generated value
+E           'named': True,
+E           'entry': 'HEAD',  # or any other generated value
+E       },
+E   )
+E   {'position': 'gitfile-target',
+E    'chain': 1,
+E    'relative': False,
+E    'named': True,
+E    'entry': 'HEAD'}
+E   Explanation:
+E       These lines were always and only run by failing test cases:
+E           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:110
+E           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:253
+E           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:268
+E           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:323
+E           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:326
+E           (and 6 more with settings.verbosity >= verbose)
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses
+1 failed in 27.93s
+{"name": "revert-r7-f1-location", "start": "2026-10-31T08:48:11.755337+00:00", "load": [45.86083984375, 40.66064453125, 35.24609375], "seconds": 31.11933716600106, "exit": 1}

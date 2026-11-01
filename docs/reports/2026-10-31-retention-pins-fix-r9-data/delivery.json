@@ -1,0 +1,33 @@
+{
+  "cleanup_utc": "2026-10-31T10:29:04.103626+00:00",
+  "scratch_last_retained_measurement_mib": 423,
+  "scratch_measurement_utc": "2026-10-31T10:21:54Z",
+  "scratch_first_cleanup_residual_kib": 80,
+  "read_only_fixture_directories_made_owner_writable": [
+    "/private/tmp/sf-fix272r9/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro"
+  ],
+  "worktree_fixture_final_mib": {
+    "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/sf-fix272r9-fixtures": 3.703125
+  },
+  "scratch_removed": true,
+  "worktree_fixtures_removed": true,
+  "removed_generated": [
+    "tests/__pycache__",
+    "docs/reports/2026-10-31-retention-pins-fix-r9-data/__pycache__",
+    "tests/unit/__pycache__"
+  ],
+  "test_holds_complete": 68,
+  "all_test_tool_sessions_completed": true,
+  "shared_git_write_error": "index.lock: Operation not permitted",
+  "delivery_branch": "fix/retention-dependency-pins-217",
+  "checkpoint_heads": [
+    "b0f42ff75f72ff7224383f3df933a326a7c524e2",
+    "bb4df360cf27b9cb30e4a9edff3ed4921a87ecd8",
+    "38aece4b0ef9491805243042c766b9ace83a91b8"
+  ],
+  "bundle_path": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/fix272r9.bundle",
+  "prerequisite": "236c80883ce3a6432e1621fff5a08e73dbc32bf3",
+  "pre_text_bundle_verified": true,
+  "pre_text_verified_head": "38aece4b0ef9491805243042c766b9ace83a91b8",
+  "final_bundle_verification_receipt": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/fix272r9-bundle-verify.txt"
+}

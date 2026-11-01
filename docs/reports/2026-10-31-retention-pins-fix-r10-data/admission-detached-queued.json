@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T15:08:44.208231+00:00",
+  "args": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/admission-detached",
+  "linked": false,
+  "driver_pid": 10179,
+  "lock_process_group": 10911
+}

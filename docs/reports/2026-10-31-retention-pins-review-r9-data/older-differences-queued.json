@@ -1,0 +1,13 @@
+{
+  "queued": "2026-10-31T08:59:04.310007+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=review-r9-data",
+    "review-r9-data/readers_probe.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/link-tmp/older-differences",
+  "linked": true,
+  "driver_pid": 54150,
+  "lock_process_group": 54466
+}

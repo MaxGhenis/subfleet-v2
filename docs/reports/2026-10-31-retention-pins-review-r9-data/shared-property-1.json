@@ -1,0 +1,46 @@
+{
+  "name": "shared-property-1",
+  "start": "2026-10-31T09:13:17.303802+00:00",
+  "load": [
+    34.29736328125,
+    39.45654296875,
+    45.29345703125
+  ],
+  "args": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06027841700051795,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 231.0924304580003,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011408749996917322,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:17:16.137602+00:00",
+  "seconds": 238.83240745799776,
+  "peak_rss_mib": 124.296875,
+  "exit": 0
+}

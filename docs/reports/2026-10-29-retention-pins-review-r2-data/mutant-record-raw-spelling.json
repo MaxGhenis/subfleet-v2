@@ -1,0 +1,27 @@
+{
+  "name": "mutant-record-raw-spelling",
+  "start": "2026-10-29T06:25:55.241006+00:00",
+  "load": [
+    20.51513671875,
+    18.69970703125,
+    21.064453125
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "record-raw-spelling",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

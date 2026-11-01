@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 00:17:23Z slot B load 
+START retention_sweep_race-generated 2026-10-31T00:17:28.690199+00:00 load=(43.63330078125, 40.15576171875, 40.9970703125)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree:
+
+  - during generate phase (240.98 seconds):
+    - Typical runtimes: ~ 3400-9606 ms, of which ~ 0-126 ms in data generation
+    - 40 passing, 0 failing, and 1 invalid test cases
+
+  - Stopped because settings.max_examples=40
+
+
+1 passed in 248.18s (0:04:08)

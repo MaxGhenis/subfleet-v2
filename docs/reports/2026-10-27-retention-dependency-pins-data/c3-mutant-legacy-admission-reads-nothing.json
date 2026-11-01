@@ -1,0 +1,51 @@
+{
+  "start": "2026-10-28T22:49:29.315134+00:00",
+  "load": [
+    133.97265625,
+    119.66015625,
+    104.357421875
+  ],
+  "pid": 87921,
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 3.5002427909930702
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 61.22577033400012,
+      "failure": "tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/hold-c3-mutant-legacy-admission-reads-nothing/pytest-of-maxghenis/pytest-0/test_c8_4_a_legacy_job_submitt0')\n\n    def test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage(tmp_path):\n        \"\"\"Admission reads the places of a job queued before they were recorded when it\n        looks at the job (outside any transaction): a read-only job in a checkout outside\n        the tree whose repository is in it waits on the fence, named as its git storage.\n        Failed on 0a91f070: reserved under the fence.\"\"\"\n        with fleet_daemon(tmp_path / \"state\") as (daemon, harness, patch):\n            measured(daemon, harness)\n            tree, nested = retiring_tree(daemon, harness)\n            external_checkout(tmp_path, nested)\n            fence = folders.exclusive_key(tree)\n            workspaces = Workspaces(daemon, patch, real=True)\n            seen = {}\n    \n            def begin(retirement, job, pool):\n                seen[\"job\"], seen[\"place\"], _ = needing(daemon, harness, tmp_path, tree, nested, \"linked\")\n                legacy(daemon, seen[\"job\"])\n                daemon._admit()\n                seen.update(live=_live(daemon, seen[\"job\"]), hold=dict(daemon._holds.get(seen[\"job\"]) or {}),\n                            prepared=list(workspaces.calls))\n                raise rarch.Defer(\"test finished at fence\", 1)\n    \n            patch.setattr(rarch.Retirement, \"begin\", begin)\n            retire(daemon)\n>           assert not seen[\"live\"] and seen[\"prepared\"] == [], seen\nE           AssertionError: {'job': '20261028-185216-astra', 'place': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/hold-c..._c8_4_a_legacy_job_submitt0/state/worktrees/retired/vendor/lib/.git/worktrees/external', 'live': True, 'hold': {}, ...}\nE           assert (not True)\n\ntests/fake/test_retention_dependencies.py:387: AssertionError"
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.09421991600538604
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage"
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage"
+  ],
+  "exit": 1,
+  "seconds": 183.6762197920034,
+  "maxrss": 123879424,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage"
+  ],
+  "admission_utc": "2026-10-28T22:48:50.233895+00:00",
+  "wall_seconds": 1981.208,
+  "queue_seconds": 1745.466
+}

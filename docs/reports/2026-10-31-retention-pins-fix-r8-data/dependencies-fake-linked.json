@@ -1,0 +1,1082 @@
+{
+  "name": "dependencies-fake-linked",
+  "start": "2026-10-31T07:27:19.253467+00:00",
+  "load": [
+    41.34130859375,
+    35.48046875,
+    34.4501953125
+  ],
+  "args": [
+    "tests/fake/test_retention_dependencies.py",
+    "tests/fake/test_retention_dependency_spelling.py",
+    "tests/fake/test_retention_recovery_census.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.09478137499900186,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1245461250000517,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004667920002248138,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0022242090017243754,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8518605839999509,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000420458000007784,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002553332997194957,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.106431666998105,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008521250019839499,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.07220816599874524,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.3923089999989315,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004428749998623971,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014574999986507464,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.004842957998335,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006923750006535556,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003171415999531746,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.706141833001311,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0010109579998243134,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032466249977005646,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7266899999995076,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004303330024413299,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024552089998906013,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7139822499993898,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005115829990245402,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0016685000009601936,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9206157090011402,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005119579982419964,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.12592037500144215,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7825303330027964,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004919999992125668,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03513754099913058,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6553297909995308,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005760839994763955,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002677208998647984,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0210078749987588,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002358708003157517,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003469541999947978,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8210410419997061,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00037041600080556236,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023198750022856984,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9314170830002695,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005021249999117572,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004844040999159915,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5751657910004724,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00048762499864096753,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027947909984504804,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7319174590011244,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002457920018059667,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0011026249994756654,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5692614590006997,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003219169993826654,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024973330000648275,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.5018113750011253,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00031245799982571043,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001293667002755683,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1421018750006624,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004706250001618173,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06433924999873852,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.216420332999405,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005649579979944974,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.017950707999261795,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.322499958001572,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000765041997510707,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0028772500008926727,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3166128749981,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005343339980754536,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027708750021702144,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1330741249985294,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005159580032341182,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.05925562500124215,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7778781249980966,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000495459000376286,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024105000011331867,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8915237080000225,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00025675000142655335,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0011856669989356305,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6909512089987402,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009341249970020726,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024824169995554257,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0002620409977680538,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00028820800071116537,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0019794159998127725,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.021151707998797065,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003049160004593432,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01080112500130781,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0002047909983957652,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002449160019750707,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017681249992165249,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00014999999984866008,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0001865839985839557,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.019777500001509907,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6501116670006013,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004531250015133992,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0033980419975705445,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6020532089969493,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004865420014539268,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.014320833997771842,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.57118787500076,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003834999988612253,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029425000029732473,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6517291669988481,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00047529199946438894,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.023660874998313375,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5259075409994693,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00044383299973560497,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0103914999999688,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5087261670014414,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005056669979239814,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.060871875000884756,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5074485000004643,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005445000024337787,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030847500020172447,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6842427919982583,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005541249993257225,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003724250000232132,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6352184169991233,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004560830020636786,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029199580021668226,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5124859169991396,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003065000018978026,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015577079975628294,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5423346659990784,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00043529200047487393,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024913340021157637,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5256404169995221,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005085840020910837,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0390247499999532,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6819435830002476,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006974169991735835,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.10971512499963865,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4249920839974948,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007018329997663386,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005746499999077059,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5466913749987725,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002723339966905769,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0012813749999622814,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.42016391699871747,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00059875000079046,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6375517500018759,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.16352429100152222,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020216249977238476,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6438421249986277,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0030386670005100314,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004040790998260491,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+    "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+    "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+  "end": "2026-10-31T07:28:22.623703+00:00",
+  "seconds": 63.36903495799925,
+  "peak_rss_mib": 129.609375,
+  "exit": 0
+}

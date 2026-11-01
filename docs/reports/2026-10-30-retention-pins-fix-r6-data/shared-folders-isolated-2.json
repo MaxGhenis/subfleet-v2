@@ -1,0 +1,38 @@
+{
+  "label": "shared-folders-isolated-2",
+  "start": "2026-10-30T23:36:02.224397+00:00",
+  "loads": [
+    81.62744140625,
+    88.921875,
+    75.8203125
+  ],
+  "seconds": 48.03911220798909,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 20.694613625004422,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 125616128
+}

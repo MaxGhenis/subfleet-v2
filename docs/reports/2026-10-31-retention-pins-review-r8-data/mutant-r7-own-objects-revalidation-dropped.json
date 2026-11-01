@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r7-own-objects-revalidation-dropped",
+  "start": "2026-10-31T06:44:50.353762+00:00",
+  "loads": [
+    39.43212890625,
+    37.34130859375,
+    35.82177734375
+  ],
+  "seconds": 12.038457291999293,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.609199666998393,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.000907625000764,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-97663/pytest/test_named_own_objects_swap_ke0'), trusted=True, remot...-r272r8/cases-97663/pytest/test_named_own_objects_swap_ke0/state'), store=<subfleet.store.Store object at 0x10afbe900>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a4e36f0>\n\n    def test_named_own_objects_swap_keeps_actual_storage(world, monkeypatch):\n        from tests.fake.test_retention_dependency_review_r5 import source\n        from tests.unit.retention_world import git as checked_git\n    \n        tree = world.job(\"owner\")\n        owner, commit = source(world, tree)\n        outside = repo(world.base / \"outside\")\n        checked_git(owner, \"fetch\", \"--quiet\", str(outside), \"HEAD\")\n        admin = world.base / \"container\" / \"worktrees\" / \"slot\"\n        admin.parent.mkdir(parents=True)\n        (outside / \".git\").rename(admin)\n        (outside / \".git\").write_text(f\"gitdir: {admin}\\n\")\n        old = world.base / \"old-objects\"\n        objects = admin / \"objects\"\n        objects.rename(old)\n        objects.symlink_to(old, target_is_directory=True)\n        actual = owner / \".git\" / \"objects\"\n        real = dependencies._alternates\n        changed = []\n    \n        def alternates(path, **kwargs):\n            if str(path) == str(objects) and not changed:\n                changed.append(True)\n                objects.unlink()\n                objects.symlink_to(actual, target_is_directory=True)\n            return real(path, **kwargs)\n    \n        with monkeypatch.context() as patch:\n            patch.setattr(dependencies, \"_alternates\", alternates)\n            recorded = dependencies.record(str(outside))\n        assert changed\n        assert checked_git(outside, \"fsck\", \"--no-dangling\") == \"\"\n        assert checked_git(outside, \"show\", commit + \":owner-only.txt\") == \"R5 owner-only storage\"\n        reader(world, recorded)\n        result = maintain(world)\n>       assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-97663/pytest/test_named_own_objects_swap_ke0/container/worktrees/slot', '/priv...own_objects_swap_ke0/old-objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48941, 'bytes_after': 0, ...})\nE       assert ('owner' not in ['owner'])\n\ntests/fake/test_retention_dependency_review_r7.py:75: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003298999999969965,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "52b05ec1f06c6c68542f2c84c233e6e448a70c38975ae45241f104f972b0384b"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 120700928
+}

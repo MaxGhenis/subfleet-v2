@@ -1,0 +1,50 @@
+{
+  "start": "2026-10-28T21:01:39.066671+00:00",
+  "load": [
+    113.18310546875,
+    104.576171875,
+    104.38671875
+  ],
+  "pid": 87791,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.0523057089958456
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 654.4603821249984
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00045658300223294646
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.04900308300420875
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "capped": true,
+  "cap_seconds": 1140,
+  "lock": "locked",
+  "admission_utc": "2026-10-28T21:01:25.217951+00:00"
+}

@@ -1,0 +1,42 @@
+{
+  "label": "mutant-r4-initial-objects-recording-dropped",
+  "start": "2026-10-30T14:23:27.267831+00:00",
+  "loads": [
+    19.669921875,
+    21.025390625,
+    16.31201171875
+  ],
+  "seconds": 5.005480041989358,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.264895667001838
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "7658a5d4cd07ebc11714727e262d7de521bfe83c39a3dc3dd24afce356dc1be5",
+      "mutated_sha256": "d53d7a09e0a748a9a95e6c5ac6a8f09fbf07dd998f76709b54f3dc2fb26637ec"
+    }
+  ],
+  "rss": 119750656
+}

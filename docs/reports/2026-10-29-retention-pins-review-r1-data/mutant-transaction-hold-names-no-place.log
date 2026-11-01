@@ -1,0 +1,53 @@
+hold 03:45:22Z slot B load 
+F
+=================================== FAILURES ===================================
+_ test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only] _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-mutant-transaction-hold-names-no-place/test_c8_4_a_fence_on_a_needed_0')
+kind = 'output', shape = 'read-only'
+
+    @pytest.mark.parametrize("kind, shape", [("review-root", "read-only"), ("linked", "read-only"),
+                                             ("linked", "worktree"), ("linked", "in-place"), ("output", "read-only")])
+    def test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction(
+            tmp_path, kind, shape):
+        """The reserving transaction's own read decides. A fence that lands after the look
+        before workspace preparation, on a tree a place the job needs is in, holds the job
+        in the transaction with the hold the early look records: the same keys,
+        `retiring`, the place and its role. The next look holds it before its workspace is
+        prepared.
+        Failed on 0a91f070: reserved under the fence."""
+        with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+            measured(daemon, harness)
+            tree, nested = retiring_tree(daemon, harness)
+            if kind == "linked":
+                external_checkout(tmp_path, nested)
+            fence = folders.exclusive_key(tree)
+            workspaces = Workspaces(daemon, patch, real=False)
+            fake = workspaces.__call__
+    
+            def selection_lands(job):
+                assert daemon.store.acquire_lease(fence, "retention:retired")    # between the two reads
+                return fake(job)
+    
+            patch.setattr(daemon, "_workspace", selection_lands)
+            job_id, place, role = needing(daemon, harness, tmp_path, tree, nested, kind, shape)
+            late = look(daemon, job_id)
+            assert not _live(daemon, job_id), late
+            expected = {"reason": "lease-held", "leases": [fence], "retiring": [fence], "folder": place, "needs": role}
+>           assert {key: late.get(key) for key in expected} == expected, late
+E           AssertionError: {'reason': 'lease-held', 'leases': ['worktree:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-...ant-transaction-hold-names-no-place/test_c8_4_a_fence_on_a_needed_0/state/worktrees/retired/vendor/lib/result.md', ...}
+E           assert {'reason': 'l...sult.md', ...} == {'reason': 'l...sult.md', ...}
+E             
+E             Omitting 4 identical items, use -vv to show
+E             Differing items:
+E             {'needs': None} != {'needs': 'output'}
+E             Use -v to get more diff
+
+tests/fake/test_retention_dependencies.py:249: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4440640208:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4440640208:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 1.78s

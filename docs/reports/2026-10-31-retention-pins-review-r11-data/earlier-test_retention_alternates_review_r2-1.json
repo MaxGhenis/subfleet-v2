@@ -1,0 +1,415 @@
+{
+  "name": "earlier-test_retention_alternates_review_r2-1",
+  "start": "2026-10-31T17:03:40.843624+00:00",
+  "load": [
+    43.80859375,
+    53.9765625,
+    58.7919921875
+  ],
+  "pytest_pid": 70507,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[#inside-#inside]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\"-\"]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\157-o]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\303\\251-\\xc3\\xa9]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\\-\\]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\a-\\x07]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\b-\\x08]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\f-\\x0c]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\n-\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\r-\\r]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\t-\\t]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\v-\\x0b]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[ # comment\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[\\r\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[xignored\\n]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[#inside-#inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.0802062500006286,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[#inside-#inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7689114580061869,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[#inside-#inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007745830007479526,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\"-\"]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001868374994955957,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\"-\"]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9242695419961819,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\"-\"]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024257920013042167,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\157-o]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.011068874999182299,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\157-o]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8097835000007763,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\157-o]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004722500016214326,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\303\\251-\\xc3\\xa9]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03299170800164575,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\303\\251-\\xc3\\xa9]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8676124999983585,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\303\\251-\\xc3\\xa9]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006662499945377931,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\\-\\]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0057957090029958636,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\\-\\]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3742108750011539,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\\-\\]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004387500004668254,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\a-\\x07]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04077966600016225,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\a-\\x07]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.34010291699814843,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\a-\\x07]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005211250027059577,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\b-\\x08]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026341250049881637,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\b-\\x08]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9360335000019404,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\b-\\x08]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003030829975614324,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\f-\\x0c]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.05584745799569646,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\f-\\x0c]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.31131970799469855,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\f-\\x0c]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.014685166999697685,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\n-\\n]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0824491660023341,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\n-\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.46788366599503206,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\n-\\n]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006159999975352548,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\r-\\r]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003605874997447245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\r-\\r]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.33864775000256486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\r-\\r]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004462910001166165,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\t-\\t]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009202542001730762,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\t-\\t]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6815742090038839,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\t-\\t]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011841625004308298,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\v-\\x0b]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030596249998779967,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\v-\\x0b]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3302649580000434,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\v-\\x0b]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000843459005409386,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[ # comment\\n]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023830830032238737,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[ # comment\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.26391904200136196,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[ # comment\\n]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005758750048698857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[\\r\\n]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.008191250002710149,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[\\r\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7498811249970458,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[\\r\\n]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003791915994952433,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[xignored\\n]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01454720800393261,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[xignored\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3592362920026062,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[xignored\\n]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009394589942530729,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[#inside-#inside]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\"-\"]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\157-o]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\303\\251-\\xc3\\xa9]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\\-\\]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\a-\\x07]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\b-\\x08]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\f-\\x0c]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\n-\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\r-\\r]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\t-\\t]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\v-\\x0b]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[ # comment\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[\\r\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[xignored\\n]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:04:00.742308+00:00",
+  "seconds": 19.898411624999426,
+  "peak_rss_mib": 111.171875,
+  "exit": 0
+}

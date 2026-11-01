@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T08:34:37.324077+00:00",
+  "args": [
+    "--mutant",
+    "r4-initial-objects-revalidation-dropped",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/mutant-r4-initial-objects-revalidation-dropped",
+  "linked": false,
+  "driver_pid": 82301,
+  "lock_process_group": 82358
+}

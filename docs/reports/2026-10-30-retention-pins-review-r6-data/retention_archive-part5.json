@@ -1,0 +1,387 @@
+{
+  "label": "retention_archive-part5",
+  "start": "2026-10-30T20:13:34.175497+00:00",
+  "loads": [
+    50.83056640625,
+    52.08935546875,
+    51.56298828125
+  ],
+  "seconds": 115.34347683298984,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.32320579199586064
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.487030499993125
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[detached-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1342439170111902
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.837832042001537
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6633643340028357
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5363147079915507
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6299264590052189
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6458352500048932
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7503019589930773
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5681883340002969
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7037144159985473
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.44506466698658187
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8552931669983082
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9349198330019135
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1801022080035182
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.041413332990487
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3048042919981526
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9497810840111924
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9574484999902779
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.938515749992803
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.932439417010755
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.840816333991825
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.902830791994347
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.569694417004939
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.365165042006993
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 12.068005833003554
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration",
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory]",
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[detached-worktree]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued]",
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]",
+    "tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest",
+    "tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept",
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]",
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]",
+    "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration",
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory]",
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[detached-worktree]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued]",
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]",
+    "tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest",
+    "tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept",
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]",
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]",
+    "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[detached-worktree]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 127893504
+}

@@ -1,0 +1,172 @@
+{
+  "r8-alias-location-recording-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "        self.links.update(link[0] for link in target[2])\n",
+        "new": ""
+      }
+    ],
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-alias-location-recording-dropped.json"
+  },
+  "r8-pointer-file-location-recording-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "            self.files.add(folders.canonical(resolved))\n",
+        "new": ""
+      },
+      {
+        "module": "subfleet.dependencies",
+        "old": "                    aliases.files.add(folders.canonical(resolved))\n",
+        "new": ""
+      }
+    ],
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-pointer-file-location-recording-dropped.json"
+  },
+  "r8-intermediate-link-walk-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "                    links.append((location, target, (info.st_dev, info.st_ino)))",
+        "new": "                    if not pending:\n                        links.append((location, target, (info.st_dev, info.st_ino)))"
+      }
+    ],
+    "tests": [
+      "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-intermediate-link-walk-dropped.json"
+  },
+  "r8-lexical-dotdot": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "        pending = deque((path if os.path.isabs(path)",
+        "new": "        path = os.path.abspath(path)\n        pending = deque((path if os.path.isabs(path)"
+      }
+    ],
+    "tests": [
+      "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-lexical-dotdot.json"
+  },
+  "r8-link-location-followed": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "                    location = os.path.join(folders.canonical(parent), part)",
+        "new": "                    location = folders.canonical(entry)"
+      }
+    ],
+    "tests": [
+      "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-link-location-followed.json"
+  },
+  "r8-top-level-links-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "        if directory in self.scanned:\n",
+        "new": "        return\n        if directory in self.scanned:\n"
+      }
+    ],
+    "tests": [
+      "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-top-level-links-dropped.json"
+  },
+  "r8-parent-hint-scanned": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "        inferred = os.path.dirname(os.path.dirname(gitdir))\n",
+        "new": "        inferred = os.path.dirname(os.path.dirname(gitdir))\n        aliases.scan(inferred, incomplete)\n"
+      }
+    ],
+    "tests": [
+      "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-parent-hint-scanned.json"
+  },
+  "r8-walk-revalidation-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "                if self._target(path) == before:",
+        "new": "                if self._target(path)[:2] == before[:2]:"
+      }
+    ],
+    "tests": [
+      "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-walk-revalidation-dropped.json"
+  },
+  "r8-routine-skip-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "        locations = {place for place in self.links | self.files\n                     if os.path.dirname(place) not in ancestors}\n        # A resolved storage target can be a sibling of the checkout. Its\n        # parent being an ancestor does not make that target part of the job.\n        return sorted(place for place in locations | self.entries\n                      if not any(folders.within(place, each) for each in recorded))",
+        "new": "        return sorted(self.links | self.files | self.entries)"
+      }
+    ],
+    "tests": [
+      "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]"
+    ],
+    "previous_result": "docs/reports/2026-10-31-retention-pins-fix-r8-data/mutant-r8-routine-skip-dropped.json"
+  },
+  "r9-text-canonicalization-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "            self.files.add(folders.canonical(resolved))",
+        "new": "            self.files.add(resolved)"
+      }
+    ],
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]"
+    ]
+  },
+  "r9-alternates-canonicalization-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "                    aliases.files.add(folders.canonical(resolved))",
+        "new": "                    aliases.files.add(resolved)"
+      }
+    ],
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]"
+    ]
+  },
+  "r9-scan-canonicalization-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "                        self.entries.add(folders.canonical(self.resolve(entry.path)))",
+        "new": "                        self.entries.add(self.resolve(entry.path))"
+      }
+    ],
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]"
+    ]
+  },
+  "r9-start-spelling-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "        start = folders.canonical(start)\n",
+        "new": ""
+      }
+    ],
+    "tests": [
+      "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]"
+    ]
+  }
+}

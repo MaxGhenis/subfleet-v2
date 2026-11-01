@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:05:57.713765+00:00",
+  "args": [
+    "--mutant",
+    "r8-alias-location-recording-dropped",
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r9/real-tmp/mutant-r8-alias-location-recording-dropped",
+  "linked": false,
+  "driver_pid": 5525,
+  "lock_process_group": 5556
+}

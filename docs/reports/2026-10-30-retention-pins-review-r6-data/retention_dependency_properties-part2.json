@@ -1,0 +1,51 @@
+{
+  "label": "retention_dependency_properties-part2",
+  "start": "2026-10-30T19:58:02.711950+00:00",
+  "loads": [
+    53.865234375,
+    54.0849609375,
+    51.2451171875
+  ],
+  "seconds": 107.56496845799848,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 86.89841241699469
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference": {
+      "max_examples": 100,
+      "derandomize": false,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 0
+    }
+  },
+  "loaded": [],
+  "rss": 131137536
+}

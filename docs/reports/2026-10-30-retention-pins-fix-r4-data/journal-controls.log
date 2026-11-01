@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:11:23Z slot A load 
+START journal-controls 2026-10-30T05:11:24.855407+00:00 load=(16.95361328125, 20.6015625, 21.40869140625)
+OLD-JOURNAL quarantine starting-state locked final [(True, True)] renames [('/private/tmp/sf-fix272r4/cases-51346/pytest/test_old_journal_paths_quarant0/state/worktrees/owner', True), ('/private/tmp/sf-fix272r4/cases-51346/pytest/test_old_journal_paths_quarant0/state/jobs/owner', True), ('/private/tmp/sf-fix272r4/cases-51346/pytest/test_old_journal_paths_quarant0/state/retention/owner/archive', True)]
+.OLD-JOURNAL archive starting-state quarantined final [(False, False)] renames [('/private/tmp/sf-fix272r4/cases-51346/pytest/test_old_journal_paths_archive0/state/retention/owner/archive', False)]
+.OLD-JOURNAL final_check starting-state archived final [(False, False)] renames [('/private/tmp/sf-fix272r4/cases-51346/pytest/test_old_journal_paths_final_c0/state/retention/owner/archive', False)]
+.
+3 passed in 7.25s

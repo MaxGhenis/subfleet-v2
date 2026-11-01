@@ -1,0 +1,9 @@
+| Check | Verdict | Evidence |
+|---|---|---|
+| 1. R8-F1 at head | Original inputs PASS; covered firmlink variants FAIL | Two original r8 tests and seven new traversal forms pass; forced owner-removal controls give 0->128. Four R9-F1 variants have successful fsck/status/read, complete discovery, owner pruned, then read 128. |
+| 2. Earlier findings | PASS | R6 file 16, R7 file 3 (valid-repository and vanished-target included), parent hint 2 and pointer failures 7; earlier r1–r5 files pass. |
+| 3. Routes and invariant | Bounded statements verified | D-R8-1 gives 0->128 with no owner record. Unused direct-link target gives unchanged reads before/after removal. Wide targets do not pin descendants; owner-contained/equal targets pin owner until job ends. These are listed differences under the stop rule. |
+| 4. Terminal paths / transactions | PASS | Recorded and legacy terminal jobs with gone targets, with/without old incomplete evidence, retire; complete exporters retain output paths only. Census precedes recovery. Submit/legacy discovery remains outside transactions. Database-only probes forbid canonicalization/discovery inside checks. |
+| 5. Marks | PASS | Literal byte comparison confirms only r8 strict decorator removed. New R9-F1 test has four strict expected failures naming the finding. |
+| 6. Linked TMPDIR | PASS | Pointer inputs, locations, location property, r8, dependency units and fake dependencies each pass in a separate linked-TMPDIR hold. New R9-F1 probes run there too and explicitly add a Data-volume alias. |
+| 7. Text | Correction required for current status | Repair closure must be qualified by R9-F1. Keep C-8.3/C-8.4 unchanged; their canonical-spelling requirement needs implementation. All class/reversion/mutant accounting reproduces. D-R6-1…4, D-R7-1 and D-R8-1 rerun as documented. |

@@ -1,0 +1,207 @@
+{
+  "mode": "admin-decoy",
+  "commit": "20076c3c320241f9a7c2a81ee6aa16d1ac46330b",
+  "gitfile_admin": "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git/worktrees/owner",
+  "actual_admin": "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git/worktrees/owner ",
+  "registration": "Registration(admin=PosixPath('/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git/worktrees/owner'), common=PosixPath('/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git'), gitfile=b'gitdir: /private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git/worktrees/owner \\n')",
+  "registration_why": null,
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git/worktrees/owner ",
+      "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git",
+      "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git/objects"
+    ]
+  },
+  "survey": {
+    "state_root": "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/state",
+    "read_only": true,
+    "generated_at": "2026-10-31T10:40:59Z",
+    "budgets": {
+      "detached": {
+        "max_jobs": 0,
+        "max_bytes": 0
+      },
+      "turn": {
+        "max_jobs": 0,
+        "max_bytes": 0
+      }
+    },
+    "notes": [
+      "the conversation service's in-memory pins are not visible offline; turn jobs it needs would also be kept"
+    ],
+    "pools": {
+      "detached": {
+        "jobs": 1,
+        "bytes": 20091,
+        "max_jobs": 0,
+        "max_bytes": 0
+      },
+      "turn": {
+        "jobs": 0,
+        "bytes": 0,
+        "max_jobs": 0,
+        "max_bytes": 0
+      }
+    },
+    "would_retire": {
+      "jobs": 1,
+      "with_worktree": 1,
+      "bytes": 20091,
+      "worktree_bytes": 20076,
+      "job_dir_bytes": 15,
+      "omittable_bytes_upper_bound": 0,
+      "archived_bytes": 20091,
+      "scratch_sources": 1,
+      "scratch_reasons": {
+        "temporary directory": 1
+      },
+      "with_unpushed_commits": 0,
+      "bundle_bytes_estimate": 0,
+      "added_bytes_estimate": 9061
+    },
+    "kept": {
+      "jobs_by_reason": {},
+      "worktrees_by_reason": {},
+      "worktree_bytes_by_reason": {}
+    },
+    "holders": {
+      "busy": 0,
+      "scan_seconds": null
+    },
+    "worktree_dirs": {
+      "total": 1,
+      "with_job_rows": 1,
+      "orphans_never_touched": 0,
+      "orphans": []
+    },
+    "estimate": {
+      "hash_read_bytes_per_s": null,
+      "bytes_read": 40182,
+      "read_hours": null,
+      "passes": 1,
+      "batch": 32,
+      "listing_seconds_per_pass": null,
+      "git_hours_assumed": 0.0,
+      "total_hours": null
+    },
+    "candidates": [
+      {
+        "job_id": "owner",
+        "pool": "detached",
+        "created_at": "2026-10-31T10:40:59Z",
+        "state": "succeeded",
+        "kind": "dispatch",
+        "pin": null,
+        "worktree": "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/state/worktrees/owner",
+        "worktree_exists": true,
+        "job_dir_bytes": 15,
+        "bytes": 20091,
+        "manifest_bytes": 2569,
+        "admin": "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git/worktrees/owner",
+        "scratch": "temporary directory",
+        "remotes": [
+          "origin"
+        ],
+        "unpushed": 0,
+        "bundle_estimate": 0,
+        "worktree_bytes": 20076,
+        "worktree_files": 6,
+        "omittable_upper": 0,
+        "added_estimate": 9061
+      }
+    ],
+    "kept_detail": [],
+    "elapsed_s": 0.1
+  },
+  "maintenance": {
+    "pruned": [
+      "owner"
+    ],
+    "errors": [],
+    "bytes_before": 20091,
+    "bytes_after": 0,
+    "deferred": {},
+    "in_flight": [],
+    "reclaimed": [
+      "owner"
+    ],
+    "conflicts": [],
+    "progressed": true,
+    "holder_scan_failed": false,
+    "tmpdir_left": [],
+    "freed_bytes": 0,
+    "freed_disk_bytes": 0,
+    "archived_bytes": 20842,
+    "added_bytes": 9822,
+    "pools": {
+      "detached": {
+        "jobs_before": 1,
+        "bytes_before": 20091,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 0,
+        "max_bytes": 0,
+        "jobs_after": 0,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 20842,
+        "added_bytes": 9822
+      },
+      "turn": {
+        "jobs_before": 0,
+        "bytes_before": 0,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 2000,
+        "max_bytes": 4294967296,
+        "jobs_after": 0,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      }
+    },
+    "protected": [],
+    "jobs_after": 0,
+    "more": false,
+    "pin_reasons": {}
+  },
+  "actual_admin_exists": true,
+  "manifest_git": {
+    "admin": "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git/worktrees/owner",
+    "admin_missing": [],
+    "admin_objects": {
+      "blob": 5,
+      "commit": 1,
+      "index": 5,
+      "missing": 0,
+      "tag": 0,
+      "tree": 0
+    },
+    "anchor": "53113c2654a4198df0bde7750a6c68ac311eed96",
+    "anchor_ref": "refs/subfleet-archive/owner/53113c2654a4198df0bde7750a6c68ac311eed96",
+    "bundle": "commits.bundle",
+    "bundle_bytes": 790,
+    "bundle_heads": {
+      "refs/subfleet-archive/owner/53113c2654a4198df0bde7750a6c68ac311eed96": "53113c2654a4198df0bde7750a6c68ac311eed96"
+    },
+    "common": "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences/pytest-of-maxghenis/pytest-0/test_archive_and_survey_admin_1/home/project/.git",
+    "head": "b4a7dd13c9feba9266d014b710c3322616e0f970",
+    "held": [
+      "--glob=refs/remotes/origin/*"
+    ],
+    "held_remotes": {
+      "origin": "https://git.example.invalid/project.git"
+    },
+    "object_format": "sha1",
+    "remotes": {
+      "origin": "https://git.example.invalid/project.git"
+    },
+    "salvage_in_anchor": [],
+    "scratch": "temporary directory"
+  },
+  "restored_head": "20076c3c320241f9a7c2a81ee6aa16d1ac46330b",
+  "restored_object": "only private HEAD"
+}

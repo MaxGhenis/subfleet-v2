@@ -1,0 +1,45 @@
+{
+  "label": "mutant-r6-oversized-pointer-treated-as-missing",
+  "start": "2026-10-30T22:27:30.806011+00:00",
+  "loads": [
+    17.59765625,
+    20.47412109375,
+    20.6904296875
+  ],
+  "seconds": 30.713090584002202,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.3992823330045212,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "baseline_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "mutated_sha256": "0a21ec66bee1c2e085799b66389b09f5fd64b81e07b7d23b7caebe070522cfca"
+    }
+  ],
+  "rss": 123437056
+}

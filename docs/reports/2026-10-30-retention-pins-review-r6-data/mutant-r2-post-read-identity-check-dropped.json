@@ -1,0 +1,43 @@
+{
+  "label": "mutant-r2-post-read-identity-check-dropped",
+  "start": "2026-10-30T19:05:49.595707+00:00",
+  "loads": [
+    50.8681640625,
+    61.7216796875,
+    57.962890625
+  ],
+  "seconds": 15.740064416997484,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 3.1540580830042018
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "3f6bcf87c8d78f26047f70f2e1d836796b3613d84917fe8f0ea3b88d026b9b0e",
+      "baseline_sha256": "3f6bcf87c8d78f26047f70f2e1d836796b3613d84917fe8f0ea3b88d026b9b0e",
+      "mutated_sha256": "4b1d5bf3cbb20585d75752113da7c31ddf7b443be14e68e3485862b15e9c7c27"
+    }
+  ],
+  "rss": 118882304
+}

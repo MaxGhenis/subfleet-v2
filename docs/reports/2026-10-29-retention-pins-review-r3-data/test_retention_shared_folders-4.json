@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_shared_folders-4",
+  "start": "2026-10-29T14:11:28.234292+00:00",
+  "load": [
+    31.81298828125,
+    29.4130859375,
+    25.24072265625
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 309.9135404580011,
+  "rss": 122486784
+}

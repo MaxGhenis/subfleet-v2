@@ -1,0 +1,26 @@
+{
+  "attribution-back-on-folded": [
+    "subfleet/daemon.py",
+    "                            role = None\n                            if retiring and not any(folders.within(dependencies.key(named or \"\"),\n                                                                   dependencies.key(key[len(folders.EXCLUSIVE):]))\n                                                    for key in retiring):\n                                # Else the first dependency place a fence is on or above.\n                                # Use the blocking query's key, including canonical caseless\n                                # Unicode aliases; the legacy folder fold is different (D1).\n                                role, named = next(((each, path) for each, path in needs if any(\n                                    folders.within(dependencies.key(path),\n                                                   dependencies.key(key[len(folders.EXCLUSIVE):])) for key in retiring)),\n                                    (None, named))\n",
+    "                            role = None\n                            if retiring and not any(folders.fences(key, named or \"\", fold=True)\n                                                    for key in retiring):\n                                # Else the first other place it needs that a fence is on or above.\n                                role, named = next(((each, path) for each, path in needs if any(\n                                    folders.fences(key, path, fold=True) for key in retiring)),\n                                    (None, named))\n",
+    [
+      "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]"
+    ]
+  ],
+  "collate-nocase-restored": [
+    "subfleet/retention.py",
+    "    needs = dependencies.users(dependencies.live(store.query, legacy))\n    for row in jobs:\n        if row[\"sandbox\"] != \"workspace-write\" or row[\"in_place\"]:\n            continue\n        tree = row[\"worktree\"] or (str(Path(root) / \"worktrees\" / row[\"job_id\"]) if root is not None else None)\n        if tree and needs.get(dependencies.key(tree), set()) - {row[\"job_id\"]}:\n            add(row[\"job_id\"], \"worktree-in-use\")\n",
+    "    for row in store.query(\"SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id AND b.state NOT IN ('succeeded','failed','cancelled','lost') AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'\"):\n        add(row[\"job_id\"], \"worktree-in-use\")\n    if root is not None:\n        for row in store.query(\"SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id AND b.state NOT IN ('succeeded','failed','cancelled','lost') AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE OR b.workdir LIKE (?1 || a.job_id) || '/%' OR b.worktree LIKE (?1 || a.job_id) || '/%') WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'\", (str(Path(root) / \"worktrees\") + \"/\",)):\n            add(row[\"job_id\"], \"worktree-in-use\")\n",
+    [
+      "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]"
+    ]
+  ],
+  "record-raw-spelling": [
+    "subfleet/dependencies.py",
+    "        found[\"review_root\"] = folders.canonical(review_root)",
+    "        found[\"review_root\"] = review_root",
+    [
+      "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+    ]
+  ]
+}

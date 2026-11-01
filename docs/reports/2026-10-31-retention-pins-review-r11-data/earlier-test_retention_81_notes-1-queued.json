@@ -1,0 +1,29 @@
+{
+  "queued": "2026-10-31T16:59:00.826877+00:00",
+  "args": [
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it",
+    "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_81_notes-1",
+  "linked": false,
+  "driver_pid": 20200,
+  "lock_process_group": 20344
+}

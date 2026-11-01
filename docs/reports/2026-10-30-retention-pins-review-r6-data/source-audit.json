@@ -1,0 +1,16 @@
+{
+  "r5_file_only_mark_removed": true,
+  "normative_clauses_equal": {
+    "8.3": true,
+    "8.4": true
+  },
+  "T2_file_equal_to_release": true,
+  "git_version": "git version 2.55.0",
+  "discovery_diff_files": [
+    "subfleet/dependencies.py"
+  ],
+  "contract_diff": "diff --git a/docs/acceptance-contract.md b/docs/acceptance-contract.md\nindex 1dfe17c56..24aea0d5d 100644\n--- a/docs/acceptance-contract.md\n+++ b/docs/acceptance-contract.md\n@@ -11,6 +11,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b\n \n - C-26.4 (2026-10-27, D-RELAY-EXIT1): distinguish a refused frame after a proved child exit from failure while the child lives. Refusals can carry the relay's reaped-child evidence, surviving socket shutdown before `exit.json`; older replies can be checked against status or the receipt. The provider's result or EOF decides an exited child's turn, including on replay.\n \n+- C-8.4 (2026-10-30, #272 review r5 and fix round r5): preserve pathname whitespace in gitfile and `commondir` targets, removing only trailing CR/LF and requiring the literal `gitdir: ` prefix. Real-Git comparisons, the whitespace property, reader audit and twelve named mutants are recorded in docs/reports/2026-10-30-retention-pins-fix-r5.md. The normative fail-closed guarantee and existing observation bounds are unchanged.\n - C-8.4 (2026-10-30, #272 review r4 and fix round r4): record the resolved initial `<common>/objects` directory as Git storage and revalidate its original spelling after traversal, outside transactions. Stable live borrowers pin that storage; changed or vanished targets record incomplete discovery and keep every allocated worktree for live jobs or exporters. Qualify old-journal upgrade wording without changing behavior. Evidence and observation bounds: docs/reports/2026-10-30-retention-pins-fix-r4.md.\n - C-8.3, C-8.4 (2026-10-29, #272 review r3 and fix round r3): revalidate original repository aliases and pointer targets after storage traversal, outside transactions; changed or vanished aliases record incomplete discovery. Build the live/exporting legacy census before journal recovery and share it with the archive context; a failed census prevents recovery moves. Persist canonical job-folder spelling in the normal journal lifecycle. Evidence and observation bounds: docs/reports/2026-10-29-retention-pins-fix-r3.md.\n - C-8.3, C-8.4 (2026-10-29, #272 review r2 and fix round r2): detect alternates disappearance, replacement and writes during discovery by comparing descriptor identity, size, mtime and ctime before/after the read and checking the final pathname identity. Legacy discovery includes terminal jobs holding an `out:` lease; their incomplete evidence survives database rechecks, including a job ending after the census. The six review failures now pass without expected-failure marks. Evidence and observation bounds: docs/reports/2026-10-29-retention-pins-fix-r2.md.\n",
+  "final_head": "beabed1f7796f8576e39cdbd0245c4bef209b0b6",
+  "tracked_changes": [],
+  "new_regression_sha256": "7e54bd52ba696dfcb6378b9e397e528e3078654588e871eba971241de7b38d4b"
+}

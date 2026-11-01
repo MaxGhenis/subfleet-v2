@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r2-terminal-legacy-incomplete-dropped",
+  "start": "2026-10-31T07:18:52.473879+00:00",
+  "load": [
+    29.373046875,
+    32.92041015625,
+    34.32470703125
+  ],
+  "args": [
+    "--mutant",
+    "r2-terminal-legacy-incomplete-dropped",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.8589087079999445,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.07805700000244542,
+      "failure": "tests/fake/test_retention_dependency_review_r2.py:151: in test_c8_4_legacy_incomplete_census_survives_terminal_export\n    assert \"borrower\" in places.incomplete\nE   AssertionError: assert 'borrower' in {}\nE    +  where {} = {'borrower': {'/outside/result'}}.incomplete"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00969312499728403,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+      "mutated": "a4d1820cc23ba84259e3b9408fd66e40a8dd5e68a3fbb276f23820e6cdbd21c6"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ],
+  "end": "2026-10-31T07:19:02.487205+00:00",
+  "seconds": 10.013044541999989,
+  "peak_rss_mib": 116.734375,
+  "exit": 1
+}

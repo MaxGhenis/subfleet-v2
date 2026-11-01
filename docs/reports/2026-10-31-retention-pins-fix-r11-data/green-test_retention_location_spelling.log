@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:13:51Z slot B load 
+...........                                                              [100%]
+=============================== warnings summary ===============================
+../../../../../private/tmp/sf-fix272r11/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/tmp/sf-fix272r11/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/tmp/sf-fix272r11/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/tmp/sf-fix272r11/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+11 passed, 2 warnings in 28.79s
+{"name": "green-test_retention_location_spelling", "start": "2026-10-31T18:14:00.897005+00:00", "load": [50.38818359375, 57.66796875, 56.4501953125], "seconds": 29.746088833999238, "exit": 0}

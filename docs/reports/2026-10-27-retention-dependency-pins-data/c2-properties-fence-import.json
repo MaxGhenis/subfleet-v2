@@ -1,0 +1,37 @@
+{
+  "hold": "c2-properties-fence-import",
+  "start": "2026-10-28T18:01:23.751224+00:00",
+  "load": [
+    88.09326171875,
+    76.8984375,
+    80.71533203125
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "submitted_dependencies",
+    "--tb=short"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "results": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   hypothesis.errors.FailedHealthCheck: Nesting @given tests results in quadratic generation and shrinking behavior, and can usually be more cleanly expressed by replacing the inner function with an st.data() parameter on the outer @given.\nE   \nE   If it is difficult or impossible to refactor this test to remove the nested @given, you can disable this health check with @settings(suppress_health_check=[HealthCheck.nested_given]) on the outer @given. See https://hypothesis.readthedocs.io/en/latest/reference/api.html#hypothesis.HealthCheck for details.\nE   Failing explicit example: test_submitted_dependencies_wait_in_any_spelling_then_are_admitted(\nE       jobs=[{'workdir': (0, '/vendor/lib', 0),\nE         'worktree': None,\nE         'review_root': None,\nE         'out_path': None,\nE         'folder': None,\nE         'write_target': None,\nE         'git': None,\nE         'state': 'queued'},\nE        {'workdir': None,\nE         'worktree': (1, '/vendor/lib', 1),\nE         'review_root': None,\nE         'out_path': None,\nE         'folder': None,\nE         'write_target': None,\nE         'git': None,\nE         'state': 'waiting'},\nE        {'workdir': None,\nE         'worktree': None,\nE         'review_root': (0, '/vendor/lib', 2),\nE         'out_path': None,\nE         'folder': None,\nE         'write_target': None,\nE         'git': None,\nE         'state': 'running'},\nE        {'workdir': None,\nE         'worktree': None,\nE         'review_root': None,\nE         'out_path': (1, '/vendor/lib', 3),\nE         'folder': None,\nE         'write_target': None,\nE         'git': None,\nE         'state': 'succeeded'},\nE        {'workdir': None,\nE         'worktree': None,\nE         'review_root': None,\nE         'out_path': None,\nE         'folder': (0, '/vendor/lib', 0),\nE         'write_target': None,\nE         'git': None,\nE         'state': 'failed'},\nE        {'workdir': None,\nE         'worktree': None,\nE         'review_root': None,\nE         'out_path': None,\nE         'folder': None,\nE         'write_target': (1, '/vendor/lib', 1),\nE         'git': None,\nE         'state': 'cancelled'},\nE        {'workdir': None,\nE         'worktree': None,\nE         'review_root': None,\nE         'out_path': None,\nE         'folder': None,\nE         'write_target': None,\nE         'git': (0, '/vendor/lib', 2),\nE         'state': 'lost'}],\nE       alias='20261005-120000-\ufb01r\u017ft-de\u017f\u212a',\nE       kind='output',\nE       late=True,\nE   )"
+    }
+  ],
+  "statistics": {},
+  "exitstatus": 1,
+  "seconds": 41.697691084002145,
+  "maxrss_bytes": 119373824,
+  "child_maxrss_bytes": 0,
+  "queued": "2026-10-28T18:01:11.173342+00:00",
+  "outside_lock": false,
+  "lock": "locked",
+  "driver_rc": 1,
+  "queue_and_run_seconds": 57.28176208399964,
+  "note": "Explicit example failed before generation: importing a module containing @given inside a running property triggered nested_given. Imports moved to collection; no health check suppressed."
+}

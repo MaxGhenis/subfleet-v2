@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T08:44:45.819462+00:00",
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/link-tmp/revert-decision2-focused",
+  "linked": true,
+  "driver_pid": 56508,
+  "lock_process_group": 56614
+}

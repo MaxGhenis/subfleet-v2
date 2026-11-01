@@ -1,0 +1,148 @@
+{
+  "name": "red-review-r11",
+  "start": "2026-10-31T18:03:52.578259+00:00",
+  "load": [
+    69.54296875,
+    57.294921875,
+    52.28759765625
+  ],
+  "pytest_pid": 30203,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r11.py",
+    "--runxfail"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.3653313749964582,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1264707910013385,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00218483400385594,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7126913750034873,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1525766249978915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10501945799478563,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.47811354100122117,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 4.487389375004568,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r11.py:106: in test_return_filter_keeps_readable_store_across_case_rename\n    check_case_rename(world, monkeypatch, route, dependencies, record_property)\ntests/fake/test_retention_dependency_review_r11.py:94: in check_case_rename\n    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_rea...ce/.git/objects\nE     fatal: path 'owner-only.txt' exists on disk, but not in '1ab7d6c038c154c52adefa3db11417824e4d503d'\nE     \")\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.15471754199825227,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.1824166660007904,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 9.421049291006057,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r11.py:106: in test_return_filter_keeps_readable_store_across_case_rename\n    check_case_rename(world, monkeypatch, route, dependencies, record_property)\ntests/fake/test_retention_dependency_review_r11.py:94: in check_case_rename\n    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_rea...'bytes_after': 0, ...}, b\"fatal: path 'owner-only.txt' does not exist in '90ecb5d1be580efc3dd3f270b8c153e8241d2435'\nE     \")\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03577466700517107,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2440165544], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/outside/.git\", \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/outside/.git/objects\", \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/objects\"]}, \"renamed\": \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/OBJECTS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48665, \"bytes_before\": 48665, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48665, \"bytes_before\": 48665, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"alternates\", \"target\": \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/objects\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2440166006], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/stable/.git\", \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/stable/.git/objects\", \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/packs\"]}, \"renamed\": \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/PACKS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50435, \"bytes_before\": 50435, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50435, \"bytes_before\": 50435, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"scan\", \"target\": \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/packs\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "key": "R11-F1",
+      "value": "{\"after\": 128, \"before\": 0, \"error_after\": \"error: unable to normalize alternate object path: /private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/objects\\nfatal: path 'owner-only.txt' exists on disk, but not in '1ab7d6c038c154c52adefa3db11417824e4d503d'\\n\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2440166388], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/outside/.git\", \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/outside/.git/objects\"]}, \"renamed\": \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/OBJECTS\", \"result\": {\"added_bytes\": 22941, \"archived_bytes\": 49431, \"bytes_after\": 0, \"bytes_before\": 48665, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22941, \"archived_bytes\": 49431, \"bytes_after\": 0, \"bytes_before\": 48665, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"route\": \"alternates\", \"target\": \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/objects\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "key": "R11-F1",
+      "value": "{\"after\": 128, \"before\": 0, \"error_after\": \"fatal: path 'owner-only.txt' does not exist in '90ecb5d1be580efc3dd3f270b8c153e8241d2435'\\n\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2440174839], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/stable/.git\", \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/stable/.git/objects\"]}, \"renamed\": \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/state/worktrees/owner/PACKS\", \"result\": {\"added_bytes\": 24146, \"archived_bytes\": 51204, \"bytes_after\": 0, \"bytes_before\": 50438, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24146, \"archived_bytes\": 51204, \"bytes_after\": 0, \"bytes_before\": 50438, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"route\": \"scan\", \"target\": \"/private/tmp/sf-fix272r11/real-tmp/red-review-r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/state/worktrees/owner/packs\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T18:04:46.229318+00:00",
+  "seconds": 53.65037825000036,
+  "peak_rss_mib": 117.515625,
+  "exit": 1
+}

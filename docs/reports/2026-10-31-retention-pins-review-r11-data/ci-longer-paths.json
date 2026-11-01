@@ -1,0 +1,569 @@
+{
+  "name": "ci-longer-paths",
+  "start": "2026-10-31T16:43:49.430926+00:00",
+  "load": [
+    44.06396484375,
+    45.26806640625,
+    65.9150390625
+  ],
+  "pytest_pid": 51767,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/ci_path_probes.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.959651375000249,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3314154170002439,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007015830051386729,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03492533399548847,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.217832415997691,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005594589965767227,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014784160011913627,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.817080332999467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000560207998205442,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026339169999118894,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.9186124590050895,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006338750026770867,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.24549462499999208,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.020409083997947,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0013260000050649978,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00263591599650681,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.852841542000533,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00033058400003938004,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018242500009364448,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.8047866660053842,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006002090012771077,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.022803083003964275,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.2841269160053344,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006393791998561937,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0034338749974267557,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.54087291599717,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0012240420037414879,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003351917002873961,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.8598264579995885,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006731670000590384,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.17491566600074293,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.595419083001616,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006397079996531829,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021817499946337193,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.793869417000678,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005094590014778078,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002179208997404203,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.9328494169967598,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007909999985713512,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0031338749977294356,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1715549579967046,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007699999987380579,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0014388749987119809,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.494011375005357,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00033754199830582365,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027008329998352565,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1598004580009729,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003159580010105856,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-180]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029910000012023374,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-180]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4200926669946057,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-180]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006207080004969612,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-260]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0039085829994292,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-260]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4396490840008482,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-260]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006058750004740432,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"control\", \"cycle\": \"self-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": []}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"control\", \"cycle\": \"self-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": []}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"scan\", \"cycle\": \"self-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": []}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"scan\", \"cycle\": \"self-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": []}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"alternates\", \"cycle\": \"self-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": [505, 521]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"alternates\", \"cycle\": \"self-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": [585, 601]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"alternates-tail\", \"cycle\": \"self-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": [507, 523]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"alternates-tail\", \"cycle\": \"self-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": [587, 603]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"gitfile\", \"cycle\": \"self-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": [505, 833, 529, 515]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"gitfile\", \"cycle\": \"self-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": [585, 913, 609, 595]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"commondir\", \"cycle\": \"self-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": [505, 833, 529]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"commondir\", \"cycle\": \"self-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": [585, 913, 609]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"objects-alternates\", \"cycle\": \"self-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": [505, 521]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"objects-alternates\", \"cycle\": \"self-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": [585, 601]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"scan\", \"cycle\": \"two-link-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": []}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"scan\", \"cycle\": \"two-link-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": []}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-180]",
+      "key": "ci-path",
+      "value": "{\"route\": \"alternates\", \"cycle\": \"two-link-suffix\", \"base_length\": 180, \"path_max\": 1024, \"error_file_lengths\": [537, 553]}"
+    },
+    {
+      "node": "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-260]",
+      "key": "ci-path",
+      "value": "{\"route\": \"alternates\", \"cycle\": \"two-link-suffix\", \"base_length\": 260, \"path_max\": 1024, \"error_file_lengths\": [617, 633]}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[control-self-suffix-0-0-260]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-self-suffix-0-0-260]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-self-suffix-0-2-260]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-tail-self-suffix-0-2-260]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[gitfile-self-suffix-128-4-260]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[commondir-self-suffix-128-3-260]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[objects-alternates-self-suffix-0-2-260]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[scan-two-link-suffix-0-0-260]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-180]",
+    "review-r11-data/ci_path_probes.py::test_cycle_inputs_under_longer_linked_root[alternates-two-link-suffix-0-2-260]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:44:49.052535+00:00",
+  "seconds": 59.620154915995954,
+  "peak_rss_mib": 111.734375,
+  "exit": 0
+}

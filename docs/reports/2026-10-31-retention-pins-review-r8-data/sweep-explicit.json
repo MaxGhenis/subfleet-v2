@@ -1,0 +1,65 @@
+{
+  "label": "sweep-explicit",
+  "start": "2026-10-31T05:51:14.410677+00:00",
+  "loads": [
+    27.720703125,
+    30.533203125,
+    30.0498046875
+  ],
+  "seconds": 52.252058333000605,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.150153250000585,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 48.99131212500106,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0005788329999631969,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "property_settings": {
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree": {
+      "max_examples": 40,
+      "derandomize": false,
+      "database_none": false,
+      "explicit_examples": 15,
+      "phases": [
+        "Phase.explicit"
+      ],
+      "digest": "d4cfda14d0dd49c9187b466e061dc7dd2cc7e085bf17ca97bd27f537b5d114a63828ecc45583e1e1cdb40cc3b033a1a7"
+    }
+  },
+  "loaded": [],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 118669312
+}

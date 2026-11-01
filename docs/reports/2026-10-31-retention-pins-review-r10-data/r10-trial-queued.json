@@ -1,0 +1,16 @@
+{
+  "queued": "2026-10-31T10:55:34.639018+00:00",
+  "args": [
+    "--mutant",
+    "r10-stable-scan-target-trial",
+    "tests/fake/test_retention_dependency_review_r9.py",
+    "tests/fake/test_retention_dependency_review_r10.py",
+    "tests/unit/test_retention_location_spelling.py",
+    "tests/unit/test_retention_locations.py",
+    "--runxfail"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/r10-trial",
+  "linked": false,
+  "driver_pid": 81463,
+  "lock_process_group": 81484
+}

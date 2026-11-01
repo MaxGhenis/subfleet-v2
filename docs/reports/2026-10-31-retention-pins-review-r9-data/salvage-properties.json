@@ -1,0 +1,46 @@
+{
+  "name": "salvage-properties",
+  "start": "2026-10-31T09:04:45.029888+00:00",
+  "load": [
+    58.37109375,
+    59.4580078125,
+    53.0166015625
+  ],
+  "args": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 8.485745417001453,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 152.0291182910005,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011143750016344711,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:07:42.809334+00:00",
+  "seconds": 177.77797791600096,
+  "peak_rss_mib": 116.078125,
+  "exit": 0
+}

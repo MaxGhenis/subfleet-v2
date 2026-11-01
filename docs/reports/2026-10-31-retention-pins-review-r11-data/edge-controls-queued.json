@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:29:44.343465+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/edge_probes.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/edge-controls",
+  "linked": false,
+  "driver_pid": 84760,
+  "lock_process_group": 84920
+}

@@ -1,0 +1,53 @@
+{
+  "name": "shared-property-2",
+  "start": "2026-10-31T14:19:38.555668+00:00",
+  "load": [
+    71.74365234375,
+    65.197265625,
+    69.31494140625
+  ],
+  "pytest_pid": 88645,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.8482182500010822,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 376.60010720900027,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.029125125001883134,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T14:26:45.794495+00:00",
+  "seconds": 427.2375384580009,
+  "peak_rss_mib": 114.703125,
+  "exit": 0
+}

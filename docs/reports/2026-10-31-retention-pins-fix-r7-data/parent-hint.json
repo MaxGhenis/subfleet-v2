@@ -1,0 +1,61 @@
+{
+  "name": "parent-hint",
+  "start": "2026-10-31T02:40:20.397273+00:00",
+  "load": [
+    37.94384765625,
+    27.78955078125,
+    17.2685546875
+  ],
+  "args": [
+    "tests/fake/test_retention_parent_hint.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.3568885839999894,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0872017499998492,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02457529200000863,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6852642500000456,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.7470276249998733,
+      "failure": "tests/fake/test_retention_parent_hint.py:44: in test_unused_parent_oversized_alternates_still_globally_pins\n    assert read.stdout == b\"owner\"\nE   AssertionError: assert b'outside' == b'owner'\nE     \nE     At index 1 diff: b'u' != b'w'\nE     Use -v to get more diff"
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004481040999962715,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "end": "2026-10-31T02:40:35.730747+00:00",
+  "seconds": 15.333246500000087,
+  "peak_rss_mib": 114.890625,
+  "exit": 1
+}

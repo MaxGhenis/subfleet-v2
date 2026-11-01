@@ -1,0 +1,63 @@
+import json, os, subprocess, tempfile
+from pathlib import Path
+from subfleet import dependencies
+
+out = []
+with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as temp:
+    root = Path(temp)
+    def git(*args, **kw):
+        return subprocess.run(["git", *map(str, args)], capture_output=True, **kw)
+    source, borrower = root / "source", root / "borrower"
+    for path in (source, borrower):
+        assert git("init", "-q", path).returncode == 0
+    oid = git("-C", source, "hash-object", "-w", "--stdin", input=b"borrowed").stdout.strip()
+    base = borrower / ".git" / "objects"
+    mapping = {
+        "bell": (br"\a", b"\a"), "backspace": (br"\b", b"\b"),
+        "formfeed": (br"\f", b"\f"), "newline": (br"\n", b"\n"),
+        "return": (br"\r", b"\r"), "tab": (br"\t", b"\t"),
+        "vertical": (br"\v", b"\v"), "backslash": (br"\\", b"\\"),
+        "quote": (br'\"', b'"'), "octal": (br"\157", b"o"),
+        "invalid-utf8": (br"\377", b"\xff"),
+    }
+    names = [*mapping, "trailing-backslash", "unterminated", "after-close",
+             "hash", "quoted-crlf", "raw-crlf", "nul"]
+    for name in names:
+        unsupported = None
+        if name in mapping:
+            escaped, actual = mapping[name]
+            target = os.fsencode(root) + b"/alt-" + actual
+            try:
+                os.symlink(os.fsencode(source / ".git" / "objects"), target)
+            except OSError as exc:
+                unsupported = str(exc)
+            line = b'"' + os.fsencode(root) + b"/alt-" + escaped + b'"\n'
+        else:
+            target = os.fsencode(source / ".git" / "objects")
+            line = b'"' + target + b'"\n'
+            if name == "trailing-backslash":
+                line = b'"' + target + b"\\\n"
+            if name == "unterminated":
+                line = b'"' + target + b"\n"
+            if name == "after-close":
+                line = b'"' + target + b'"xtrailing\n'
+            if name == "hash":
+                line = b'"' + target + b'" # ignored\n'
+            if name == "quoted-crlf":
+                line = b'"' + target + b'"\r\n'
+            if name == "raw-crlf":
+                line = target + b"\r\n"
+            if name == "nul":
+                line = b'"' + target + br'\000junk"' + b"\n"
+        (base / "info" / "alternates").write_bytes(line)
+        result = git("-C", borrower, "cat-file", "-p", os.fsdecode(oid))
+        errors = []
+        try:
+            paths = dependencies._alternates(str(base), incomplete=errors)
+            exception = None
+        except Exception as exc:
+            paths, exception = [], repr(exc)
+        out.append(dict(name=name, line=repr(line), git_rc=result.returncode,
+                        git_stdout=repr(result.stdout), git_stderr=os.fsdecode(result.stderr),
+                        paths=paths, incomplete=errors, exception=exception, unsupported=unsupported))
+print(json.dumps(out, indent=2))

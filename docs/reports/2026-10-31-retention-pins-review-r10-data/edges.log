@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:39:54Z slot B load 
+.....                                                                    [100%]
+5 passed in 6.11s
+{"name": "edges", "start": "2026-10-31T10:39:56.267698+00:00", "load": [37.7978515625, 37.9443359375, 36.25439453125], "seconds": 6.621239500000229, "exit": 0}

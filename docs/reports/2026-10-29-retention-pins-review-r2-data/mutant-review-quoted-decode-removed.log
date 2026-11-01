@@ -1,0 +1,56 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:26:25Z slot A load 
+ADMITTED 2026-10-29T06:26:25.864479+00:00 LOAD (34.8486328125, 21.87060546875, 22.103515625)
+FOBSERVATION {"engines": [], "explicit": {}, "mutant": "review-quoted-decode-removed", "loaded": ["subfleet.dependencies"]}
+
+=================================== FAILURES ===================================
+______ test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute] ______
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-review-quoted-decode-removed/pytest-of-maxghenis/pytest-0/test_c8_4_git_c_quoted_alterna0')
+relative = False
+
+    @pytest.mark.parametrize("relative", [False, True], ids=["absolute", "relative"])
+    def test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads(tmp_path, relative):
+        """Git decodes octal escapes before resolving an alternate object directory."""
+        world = World(tmp_path)
+        try:
+            tree = world.job("owner")
+            source = repo(tree / "objects-source")
+            commit = git(source, "rev-parse", "HEAD")
+            borrower = tmp_path / "borrower"
+            git(tmp_path, "clone", "--quiet", "--shared", str(source), str(borrower))
+            objects = source / ".git" / "objects"
+            base = borrower / ".git" / "objects"
+            named = os.path.relpath(objects, base) if relative else str(objects)
+            quoted = named.replace("/owner/", "/\\157wner/")
+            assert quoted != named
+            (base / "info" / "alternates").write_text('"' + quoted + '"\n')
+            assert git(borrower, "cat-file", "-t", commit) == "commit"
+    
+            recorded = dependencies.record(str(borrower))
+            world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                                kind="dispatch", state="running", sandbox="read-only",
+                                workdir=str(borrower), prompt_path="/prompt")
+            world.store.add_event("job.submitted", job_id="borrower",
+                                  data={"folder": folders.canonical(borrower), "depends": recorded})
+            result = retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+                                           holders=lambda *args, **kwargs: {})
+>           assert "owner" not in result["pruned"], (recorded, result)
+E           AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-review-quoted-decode-removed...wner/objects-source/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48087, 'bytes_after': 0, ...})
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r1.py:109: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 16 deselected, 2 warnings in 6.34s

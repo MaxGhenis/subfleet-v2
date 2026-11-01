@@ -1,0 +1,43 @@
+{
+  "label": "mutant-r6-pointer-read-failure-evidence-dropped",
+  "start": "2026-10-30T19:40:17.695390+00:00",
+  "loads": [
+    34.015625,
+    44.556640625,
+    48.01611328125
+  ],
+  "seconds": 16.65068358401186,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 4.560938667011214
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "3f6bcf87c8d78f26047f70f2e1d836796b3613d84917fe8f0ea3b88d026b9b0e",
+      "baseline_sha256": "28fcd9bcd95cacfdf937e53bc17b9e67a193c5c529576ddc2472e5aa299b7a18",
+      "mutated_sha256": "ea53fc7a575e2b9afe129d5cbc2a97f653a172bde0a39b71302cdf854d45da5d"
+    }
+  ],
+  "rss": 120979456
+}

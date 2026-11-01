@@ -1,0 +1,44 @@
+{
+  "name": "test_retention_archive-48",
+  "start": "2026-10-29T06:45:49.987533+00:00",
+  "load": [
+    25.01904296875,
+    21.203125,
+    22.15869140625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it": {
+      "setup": {
+        "duration": 1.3115317079937086,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 6.957042249996448,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002928834001068026,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

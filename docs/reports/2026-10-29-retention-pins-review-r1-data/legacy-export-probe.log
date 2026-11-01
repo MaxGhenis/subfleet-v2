@@ -1,0 +1,102 @@
+hold 03:48:36Z slot B load 
+actual /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-legacy-export-probe/test_legacy_pending_export_use0/rıot/state/worktrees/owner/result.md claim out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-r272r1/base-legacy-export-probe/test_legacy_pending_export_use0/riot/state/worktrees/owner/result.md
+F{
+  "start": "2026-10-29T03:48:37.688318+00:00",
+  "load": [
+    7.93310546875,
+    8.75146484375,
+    10.73046875
+  ],
+  "jobs": 3000,
+  "live": 100,
+  "parameters": {
+    "owners": 2900,
+    "live": 100,
+    "events_per_job": 40,
+    "long_waiters": 5,
+    "long_events": 5000,
+    "legacy": 0,
+    "exports": 10
+  },
+  "python": "3.14.7",
+  "sqlite": "3.53.4",
+  "host": "Mac.lan",
+  "source_sha256": {
+    "subfleet/dependencies.py": "1cfdb7bf3c55833b8e1d254a73dc6b0baaee4194990653e8c33aa38c5858f074",
+    "subfleet/retention.py": "40923324b743565c30c001cc262ca9fc5f354cf970467af17318c759d10b53c4"
+  },
+  "events": 147801,
+  "load_at_queries": [
+    7.93310546875,
+    8.75146484375,
+    10.73046875
+  ],
+  "old_ms": 123.58137499541044,
+  "load_at_new_query": [
+    7.93310546875,
+    8.75146484375,
+    10.73046875
+  ],
+  "new_ms": 11.569249996682629,
+  "pins": 22,
+  "ratio": 0.09361645310316613,
+  "plans": {
+    "old recorded": [
+      "SCAN b",
+      "BLOOM FILTER ON a (in_place=? AND sandbox=?)",
+      "SEARCH a USING AUTOMATIC PARTIAL COVERING INDEX (in_place=? AND sandbox=?)"
+    ],
+    "old unrecorded": [
+      "SCAN b",
+      "BLOOM FILTER ON a (in_place=? AND sandbox=?)",
+      "SEARCH a USING AUTOMATIC PARTIAL COVERING INDEX (in_place=? AND sandbox=?)"
+    ],
+    "new live": [
+      "SCAN jobs",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH e USING INDEX events_job (job_id=?)"
+    ],
+    "new exports": [
+      "SCAN leases",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH e USING INDEX events_job (job_id=?)"
+    ],
+    "new owners": [
+      "SCAN jobs"
+    ]
+  },
+  "load_end": [
+    7.93310546875,
+    8.75146484375,
+    10.73046875
+  ]
+}
+.
+=================================== FAILURES ===================================
+______________ test_legacy_pending_export_uses_actual_output_path ______________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-legacy-export-probe/test_legacy_pending_export_use0')
+
+    def test_legacy_pending_export_uses_actual_output_path(tmp_path):
+     base=tmp_path/'r\u0131ot';base.mkdir()
+     w=World(base)
+     try:
+      tree=w.job('owner')
+      out=str(tree/'result.md')
+      w.store.add_job(job_id='exporter',request_id='exporter',payload_digest='d',kind='dispatch',workdir=str(base/'outside'),prompt_path='/p',sandbox='read-only',state='succeeded',out_path=out)
+      w.store.add_event('job.submitted',job_id='exporter',data={'folder':str(base/'outside')})
+      claim=resource_leases.OutputClaim.prepare(w.store.query,out)
+      assert dependencies.key(claim.key[4:])!=dependencies.key(out)
+      assert w.store.acquire_lease(claim.key,'exporter')
+      print('actual',out,'claim',claim.key)
+      reasons=retention._pin_reasons(w.store,set(),None,root=w.root,legacy=dependencies.legacy(w.store.query))
+>     assert reasons.get('owner')=='worktree-in-use',reasons
+E     AssertionError: {'exporter': 'job-lease'}
+E     assert None == 'worktree-in-use'
+E      +  where None = <built-in method get of dict object at 0x106fbf180>('owner')
+E      +    where <built-in method get of dict object at 0x106fbf180> = {'exporter': 'job-lease'}.get
+
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/test_legacy_export_probe.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/test_legacy_export_probe.py::test_legacy_pending_export_uses_actual_output_path
+1 failed, 1 passed in 2.46s

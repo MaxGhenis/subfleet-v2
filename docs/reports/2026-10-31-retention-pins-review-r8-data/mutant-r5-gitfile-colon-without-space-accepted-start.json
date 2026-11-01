@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:34:51.146867+00:00", "loads": [38.2939453125, 35.97314453125, 34.58203125], "pid": 54052, "args": ["tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"], "fixture_root": "/private/tmp/sf-r272r8"}

@@ -1,0 +1,723 @@
+{
+  "name": "regressions-7-6",
+  "start": "2026-10-31T08:36:36.931461+00:00",
+  "load": [
+    39.1357421875,
+    30.90576171875,
+    30.01416015625
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_review_r7.py",
+    "tests/fake/test_retention_parent_hint.py",
+    "tests/fake/test_retention_dependency_review_r6.py",
+    "tests/fake/test_retention_pointer_failures.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.799590167000133,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.0458615419993293,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011668540999380639,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5363526250002906,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.309972832998028,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008871665999322431,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5921026670002902,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.820510124998691,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013012916999286972,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.716605833000358,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5814053750000312,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.027953290998993907,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6343644999979006,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.25508466599785606,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002747333001025254,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-absent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5747172499977751,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-absent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7402357089995348,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-absent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008748500000365311,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6670553750009276,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8800285409997741,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0031087079987628385,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-crlf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5523809579972294,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-crlf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9913923330022953,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-crlf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007467082999937702,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-absent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9483684999977413,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-absent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7634029580003698,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-absent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008320791999722132,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4826048329996411,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5677402920009627,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0029713340009038802,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-crlf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.44547983299707994,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-crlf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5149616669987154,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-crlf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008012333997612586,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-absent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5306233340015751,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-absent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.2911512089995085,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-absent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011177958000189392,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7191288330031966,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-lf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.101088625000557,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002613374999782536,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-crlf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7477459159999853,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-crlf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.565761834001023,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-crlf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.14083558299898868,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-absent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2668201249980484,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-absent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.4215621250004915,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-absent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011559124999621417,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6086790410008689,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-lf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.402009707999241,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009006625001347857,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-crlf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8740354999972624,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-crlf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.869868416000827,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-crlf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0029501250028260984,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[short-control-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9692452079980285,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[short-control-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1958298749996175,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[short-control-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018684159986150917,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[short-control-commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8332609999997658,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[short-control-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3307125419996737,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[short-control-commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.012637166000786237,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8929664159986714,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.189527917002124,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0028674579989456106,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-commondir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6604144999982964,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0880421250003565,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-commondir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0031114589983189944,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9506862909984193,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.08145275000060792,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.020375000000058208,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8324209579986928,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.21096958399721188,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005182832999707898,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[permission]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7414397499996994,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[permission]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15366445800100337,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[permission]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003333000000566244,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oserror]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.966988666998077,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oserror]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.21669800000017858,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oserror]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0028104169978178106,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[value]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7316525839996757,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[value]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0691688749975583,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[value]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0038420830023824237,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_stale_gitfile_with_vanished_target_still_retires",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8931927079975139,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_stale_gitfile_with_vanished_target_still_retires",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.415086416000122,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_stale_gitfile_with_vanished_target_still_retires",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1369085840015032,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_pointer_beneath_a_file_is_missing_evidence",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007581500001833774,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_pointer_beneath_a_file_is_missing_evidence",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0006377499994414393,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_pointer_beneath_a_file_is_missing_evidence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000556541999685578,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "key": "D-R7-1",
+      "value": {
+        "pointer": "/private/tmp/sf-r272r9/real-tmp/regressions-7-6/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects/info/alternates",
+        "bytes": 1048577,
+        "recorded": {
+          "git": [
+            "/private/tmp/sf-r272r9/real-tmp/regressions-7-6/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/worktrees/slot",
+            "/private/tmp/sf-r272r9/real-tmp/regressions-7-6/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container",
+            "/private/tmp/sf-r272r9/real-tmp/regressions-7-6/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects",
+            "/private/tmp/sf-r272r9/real-tmp/regressions-7-6/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/worktrees/slot/objects"
+          ],
+          "incomplete": [
+            {
+              "file": "/private/tmp/sf-r272r9/real-tmp/regressions-7-6/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects/info/alternates",
+              "reason": "line exceeds 1048576 bytes"
+            }
+          ]
+        },
+        "maintenance": {
+          "pruned": [],
+          "errors": [],
+          "bytes_before": 20061,
+          "bytes_after": 20061,
+          "deferred": {},
+          "in_flight": [],
+          "reclaimed": [],
+          "conflicts": [],
+          "progressed": true,
+          "holder_scan_failed": false,
+          "tmpdir_left": [],
+          "freed_bytes": 0,
+          "freed_disk_bytes": 0,
+          "archived_bytes": 0,
+          "added_bytes": 0,
+          "pools": {
+            "detached": {
+              "jobs_before": 2,
+              "bytes_before": 20061,
+              "unmeasured": 0,
+              "unknown_size": 0,
+              "max_jobs": 0,
+              "max_bytes": 0,
+              "jobs_after": 2,
+              "bytes_after": 20061,
+              "freed_bytes": 0,
+              "freed_disk_bytes": 0,
+              "archived_bytes": 0,
+              "added_bytes": 0
+            },
+            "turn": {
+              "jobs_before": 0,
+              "bytes_before": 0,
+              "unmeasured": 0,
+              "unknown_size": 0,
+              "max_jobs": 2000,
+              "max_bytes": 4294967296,
+              "jobs_after": 0,
+              "bytes_after": 0,
+              "freed_bytes": 0,
+              "freed_disk_bytes": 0,
+              "archived_bytes": 0,
+              "added_bytes": 0
+            }
+          },
+          "protected": [
+            "borrower",
+            "owner"
+          ],
+          "jobs_after": 2,
+          "more": false,
+          "pin_reasons": {
+            "borrower": "active",
+            "owner": "dependency-incomplete: borrower: /private/tmp/sf-r272r9/real-tmp/regressions-7-6/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects/info/alternates (line exceeds 1048576 bytes)"
+          }
+        }
+      }
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+    "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-absent]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-crlf]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-absent]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-crlf]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-absent]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-lf]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-exporting-control-crlf]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-absent]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-lf]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-exporting-control-crlf]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[short-control-gitfile]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[short-control-commondir]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-commondir]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[permission]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oserror]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[value]",
+    "tests/fake/test_retention_pointer_failures.py::test_stale_gitfile_with_vanished_target_still_retires",
+    "tests/fake/test_retention_pointer_failures.py::test_pointer_beneath_a_file_is_missing_evidence"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:38:04.521294+00:00",
+  "seconds": 87.58836999999767,
+  "peak_rss_mib": 119.78125,
+  "exit": 0
+}

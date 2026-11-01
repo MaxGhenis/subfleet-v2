@@ -1,0 +1,25 @@
+{
+  "completed_utc": "2026-10-30T21:57:50.713363+00:00",
+  "guard": "assert \"/sf-\" in p; shutil.rmtree(p, ignore_errors=True)",
+  "roots_removed": [
+    "/private/tmp/sf-r272r6",
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261030-144731-pr272-review-r6-a1-rbqh1h4b/sf-r272r6-fixtures"
+  ],
+  "all_absent": true,
+  "measured_before_cleanup_KiB": [
+    576560,
+    78296
+  ],
+  "measured_total_MiB": 639.5078125,
+  "max_observed_pytest_overlap": 2,
+  "workspace_generated_files": [],
+  "all_test_runs_finished_before_cleanup": true,
+  "head_unchanged": "beabed1f7796f8576e39cdbd0245c4bef209b0b6",
+  "requested_existing_nodes_passed": 690,
+  "ordinary_passed": 769,
+  "strict_expected_failures": 5,
+  "holds": 87,
+  "locked_holds": 86,
+  "mutants_killed": 15,
+  "cleanup_retry": "First guarded cleanup left one fixture with 13 nonwritable owned directories. Only these directories were made owner-writable, without following symlinks; guarded cleanup then completed."
+}

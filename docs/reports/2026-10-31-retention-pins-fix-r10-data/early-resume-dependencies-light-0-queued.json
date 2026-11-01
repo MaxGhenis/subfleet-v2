@@ -1,0 +1,14 @@
+{
+  "queued": "2026-10-31T14:19:06.348115+00:00",
+  "args": [
+    "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+    "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/early-resume-dependencies-light-0",
+  "linked": false,
+  "driver_pid": 85152,
+  "lock_process_group": 85489
+}

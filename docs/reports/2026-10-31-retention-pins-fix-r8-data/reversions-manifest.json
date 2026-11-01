@@ -1,0 +1,86 @@
+{
+  "decision1": {
+    "edits": [
+      [
+        "    @staticmethod\n    def _target(path: str) -> tuple:\n        resolved, links = _Aliases._walk(path)\n        try:\n            info = os.stat(path)\n            identity = (info.st_dev, info.st_ino)\n        except OSError as exc:\n            if exc.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):\n                raise\n            identity = None        # a gitdir target may already be absent\n        return resolved, identity, links\n\n",
+        "    @staticmethod\n    def _target(path: str) -> tuple:\n        resolved = os.path.realpath(path)\n        try:\n            info = os.stat(path)\n            identity = (info.st_dev, info.st_ino)\n        except (FileNotFoundError, NotADirectoryError):\n            identity = None\n        return resolved, identity, ()\n\n"
+      ]
+    ],
+    "source_hash": "74710574fa0cc59fc913c90db671684b8c3e7b493d63a1cd6c3265a651977b08",
+    "removed_explicit_examples": 15,
+    "properties": {
+      "test_location_inputs_keep_the_places_real_git_traverses": {
+        "body_sha256": "2233f09c515f0c92e3ca0a5a06bc7df35afba7f7a1eb8a4a15e12d2bb670d74e",
+        "unchanged": true
+      },
+      "test_named_own_inputs_keep_every_store_real_git_reads": {
+        "body_sha256": "2e8f9a360fcdcae40a77ce1a1bbc25cc6604df15bb242fd7e8ad96d199f5e2cd",
+        "unchanged": true
+      }
+    }
+  },
+  "decision2": {
+    "edits": [
+      [
+        "            self.files.add(resolved)\n",
+        ""
+      ],
+      [
+        "                    aliases.files.add(resolved)\n",
+        ""
+      ]
+    ],
+    "source_hash": "049f4789ec91658e622b003640671401c49d5adf2aef5fc173a844a253868ad6",
+    "removed_explicit_examples": 15,
+    "properties": {
+      "test_location_inputs_keep_the_places_real_git_traverses": {
+        "body_sha256": "2233f09c515f0c92e3ca0a5a06bc7df35afba7f7a1eb8a4a15e12d2bb670d74e",
+        "unchanged": true
+      },
+      "test_named_own_inputs_keep_every_store_real_git_reads": {
+        "body_sha256": "2e8f9a360fcdcae40a77ce1a1bbc25cc6604df15bb242fd7e8ad96d199f5e2cd",
+        "unchanged": true
+      }
+    }
+  },
+  "decision3": {
+    "edits": [
+      [
+        "        if directory in self.scanned:\n",
+        "        return\n        if directory in self.scanned:\n"
+      ]
+    ],
+    "source_hash": "9c72ef2c9ce312fb740f8e13f5701cb52da71ab9224026f5cbe19acee3e83c6a",
+    "removed_explicit_examples": 15,
+    "properties": {
+      "test_location_inputs_keep_the_places_real_git_traverses": {
+        "body_sha256": "2233f09c515f0c92e3ca0a5a06bc7df35afba7f7a1eb8a4a15e12d2bb670d74e",
+        "unchanged": true
+      },
+      "test_named_own_inputs_keep_every_store_real_git_reads": {
+        "body_sha256": "2e8f9a360fcdcae40a77ce1a1bbc25cc6604df15bb242fd7e8ad96d199f5e2cd",
+        "unchanged": true
+      }
+    }
+  },
+  "r7-f1": {
+    "edits": [
+      [
+        "        parent_objects = os.path.join(inferred, \"objects\")\n        parent = [inferred, aliases.resolve(parent_objects),\n                  *_alternates(parent_objects, incomplete=incomplete, aliases=aliases, scan=False)]\n",
+        "        parent = _storage(inferred, named=False, incomplete=incomplete, aliases=aliases)\n"
+      ]
+    ],
+    "source_hash": "eed7f7ae3fd42b0629476bc00fef8f86d6fd39701667922f68cceed69871ccfa",
+    "removed_explicit_examples": 15,
+    "properties": {
+      "test_location_inputs_keep_the_places_real_git_traverses": {
+        "body_sha256": "2233f09c515f0c92e3ca0a5a06bc7df35afba7f7a1eb8a4a15e12d2bb670d74e",
+        "unchanged": true
+      },
+      "test_named_own_inputs_keep_every_store_real_git_reads": {
+        "body_sha256": "2e8f9a360fcdcae40a77ce1a1bbc25cc6604df15bb242fd7e8ad96d199f5e2cd",
+        "unchanged": true
+      }
+    }
+  }
+}

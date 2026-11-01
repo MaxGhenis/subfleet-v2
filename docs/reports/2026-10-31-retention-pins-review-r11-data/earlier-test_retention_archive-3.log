@@ -1,0 +1,27 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 17:05:25Z slot B load 
+....FFF.............                                                     [100%]
+=================================== FAILURES ===================================
+___________ test_blob_only_in_a_local_branch_is_archived_not_omitted ___________
+tests/unit/test_retention_archive.py:234: in test_blob_only_in_a_local_branch_is_archived_not_omitted
+    assert entries["README.md"].get("blob")            # on origin/main: omitted
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert None
+E    +  where None = <built-in method get of dict object at 0x10b7a0300>('blob')
+E    +    where <built-in method get of dict object at 0x10b7a0300> = {'p': 'README.md', 'sha256': 'b860af096761758635428053935eb997297662e24e8eea1116c00673dd4ce919', 'sig': {'ctime': 1793466352624012921, 'dev': 16777234, 'ino': 2439087279, 'mode': 384, ...}, 'size': 500, ...}.get
+_________ test_borrowed_or_shallow_object_store_is_scratch[alternates] _________
+tests/unit/test_retention_archive.py:257: in test_borrowed_or_shallow_object_store_is_scratch
+    assert reason in ("borrows objects (alternates)", "shallow clone")
+E   AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+__________ test_borrowed_or_shallow_object_store_is_scratch[shallow] ___________
+tests/unit/test_retention_archive.py:257: in test_borrowed_or_shallow_object_store_is_scratch
+    assert reason in ("borrows objects (alternates)", "shallow clone")
+E   AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted
+FAILED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]
+FAILED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]
+3 failed, 17 passed in 71.80s (0:01:11)
+{"name": "earlier-test_retention_archive-3", "start": "2026-10-31T17:05:28.873411+00:00", "load": [38.36474609375, 48.85595703125, 56.18896484375], "seconds": 74.26999074999912, "exit": 1}

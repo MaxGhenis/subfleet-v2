@@ -1,0 +1,45 @@
+{
+  "label": "mutant-r6-dangling-pointer-treated-as-missing",
+  "start": "2026-10-30T22:26:55.541638+00:00",
+  "loads": [
+    13.7919921875,
+    20.43505859375,
+    20.69775390625
+  ],
+  "seconds": 28.798897332992055,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.6960437500092667,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "baseline_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "mutated_sha256": "3352775d8a1b18d461c7a68db5e82a018f2bafb633ae1b17188deece4b7c8cd6"
+    }
+  ],
+  "rss": 119242752
+}

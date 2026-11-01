@@ -1,0 +1,578 @@
+{
+  "name": "regressions-r4-remove",
+  "start": "2026-10-31T12:49:04.060447+00:00",
+  "load": [
+    121.55078125,
+    121.95947265625,
+    108.70458984375
+  ],
+  "pytest_pid": 69777,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r4.py",
+    "-k",
+    "changed_repository_spelling and remove"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-link-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 22.300119874998927,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-link-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.9890407499988214,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-link-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.17212341699632816,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-link-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 11.567145750006603,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-link-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.259607499996491,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-link-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09108324999397155,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-directory-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.4095013749974896,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-directory-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 21.562767249997705,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-directory-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.5352839999977732,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-directory-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 17.92517991699424,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-directory-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 10.200225417000183,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-directory-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09649054199689999,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitfile-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 7.972812041996804,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitfile-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.103483832994243,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitfile-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06828083300206345,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitfile-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.5830050410004333,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitfile-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.695637207994878,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitfile-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008571250000386499,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-target-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.6141415829988546,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-target-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.967105542003992,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-target-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.12643412499892293,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-target-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 8.249123709007108,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-target-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.396856166997168,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-target-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0058941669994965196,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-parent-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.4331315830058884,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-parent-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.666759917003219,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-parent-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.25476208300096914,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-parent-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4909430839979905,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-parent-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.113049415995192,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-parent-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.19245116699312348,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-commondir-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.488864583996474,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-commondir-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.997879540998838,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-commondir-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.022285541002929676,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-commondir-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.08145387499826,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-commondir-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.62574979099736,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-commondir-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00982016600028146,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-target-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0555008329974953,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-target-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.575044249999337,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-target-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03723774999525631,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-target-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.119364584003051,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-target-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.596370625004056,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-target-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004176249996817205,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-parent-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5275497500042547,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-parent-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7926077079973766,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-parent-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009093166998354718,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-parent-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 7.551378957999987,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-parent-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.656204917002469,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-parent-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02881362500193063,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.6579474589962047,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.586086666000483,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.17946120800479548,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.176976249997097,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8054523339960724,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.01839529200515244,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-parent-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.7178453750020708,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-parent-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 13.77564879199781,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-parent-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.2584275000044727,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-parent-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.412739416999102,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-parent-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.265259874999174,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-parent-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09833104100107448,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-checkout-parent-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 5.444703833003587,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-checkout-parent-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.7167819579990464,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-checkout-parent-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07724295799562242,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-checkout-parent-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.268592041997181,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-checkout-parent-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5963213330032886,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-checkout-parent-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009801749998587184,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-link-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-link-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-directory-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-dotgit-directory-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitfile-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitfile-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-target-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-target-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-parent-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-gitdir-parent-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-commondir-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-commondir-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-target-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-target-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-parent-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-common-parent-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-parent-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-alternate-parent-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-checkout-parent-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[remove-checkout-parent-exporting]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T12:54:21.772490+00:00",
+  "seconds": 317.70985899999505,
+  "peak_rss_mib": 115.984375,
+  "exit": 0
+}

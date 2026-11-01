@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T18:45:08.596243+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_spelling.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_dependency_spelling",
+  "linked": false,
+  "driver_pid": 30840,
+  "lock_process_group": 31059
+}

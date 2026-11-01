@@ -1,0 +1,974 @@
+{
+  "name": "notes",
+  "start": "2026-10-31T11:18:46.668132+00:00",
+  "load": [
+    46.646484375,
+    42.19140625,
+    39.693359375
+  ],
+  "args": [
+    "tests/unit/test_retention_81_notes.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.075684166997235,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.8492200830005459,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0029680840016226284,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4303543339992757,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7262139999984356,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002303000001120381,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.49518212499970105,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7216533749997325,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002253165999718476,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.38654933300131233,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.081616457999189,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024182090019166935,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4465796659969783,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6885546250014158,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001417208000930259,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4558386660028191,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.028863999999885,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002532958002120722,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3629911669995636,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.028789832998882,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003621957999712322,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3819403749985213,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.022063500000513,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003842582998913713,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4399720410001464,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5976884580013575,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0026771249977173284,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023343749999185093,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 12.879755624999234,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00035945800118497573,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7689372499989986,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.5028743330003635,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.044674541997665074,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4724487500025134,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3727398750015709,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06643624999924214,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.35706575000222074,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6033982499975536,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02998933300114004,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.35026700000162236,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.584473082999466,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06394708299922058,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.39190154199968674,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3405263329987065,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.05929325000033714,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.47965716600083397,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.9008177499999874,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04371879200334661,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.44572237499960465,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.09995704199900501,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04029741600243142,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3524732080004469,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.17151479200038,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03717958299966995,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.41033162500025355,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.254925542001729,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003327166999952169,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.45568354100032593,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3952992920021643,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005121291997056687,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.42933308300052886,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.7062203749992477,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004214374999719439,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4161424999983865,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9667025829985505,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00962887499917997,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5136530839990883,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.40567779200137,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025345419999212027,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.35202145899893367,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.615375249999488,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0034244999988004565,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.43223133299761685,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4546535000008589,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002130125001713168,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4623579590006557,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7558558329983498,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024390409998886753,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[both]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.47714266699767904,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[both]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.157618499997625,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[both]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0022112910010037012,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4398016249979264,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.2769776249988354,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0021500830007425975,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4123432079977647,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.4335881660008454,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018879159979405813,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3643894580018241,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5715111659992544,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002427999999781605,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.38395670899990364,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.40291766700102,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024892910005291924,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4782612919989333,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.1072664169987547,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003122375001112232,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5453850410012819,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.091991749999579,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0022771670010115486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.43459099999745376,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.8883836249988235,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0032447080011479557,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5099019590015814,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.9395582920005836,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.08917012500023702,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6490483330017014,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.152998290999676,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0658758339995984,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.40134362500248244,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6683506250010396,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06021941600192804,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.39220270800069557,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.031078249998245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06453424999926938,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[only-the-sibling]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_whose_ctime_another_link_moved_is_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_hardlink_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit]",
+    "tests/unit/test_retention_81_notes.py::test_a_regenerable_file_changed_between_its_proof_and_digest_is_kept",
+    "tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_away_after_begin_keeps_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job",
+    "tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds",
+    "tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it",
+    "tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[with-salvage]",
+    "tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_checks_the_salvage_commit_its_row_recorded",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs",
+    "tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own",
+    "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[only-the-other]",
+    "tests/unit/test_retention_81_notes.py::test_a_salvage_ref_of_the_same_name_in_another_repository_is_not_the_jobs[both]",
+    "tests/unit/test_retention_81_notes.py::test_an_unreadable_registration_of_another_job_does_not_stop_the_search",
+    "tests/unit/test_retention_81_notes.py::test_a_gone_tree_that_comes_back_inside_quarantine_is_not_moved_in",
+    "tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-False]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[False-True]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-False]",
+    "tests/unit/test_retention_81_notes.py::test_a_registered_tree_moved_elsewhere_keeps_its_job[True-True]",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_in_the_sweeps_quarantine_keeps_its_job",
+    "tests/unit/test_retention_81_notes.py::test_an_undiscovered_repository_keeps_the_job_without_salvage_until_it_can_be_bundled",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_whose_tree_is_gone_bundles_its_registration",
+    "tests/unit/test_retention_81_notes.py::test_an_unrecorded_allocation_returning_during_source_lookup_keeps_its_job"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T11:20:38.627206+00:00",
+  "seconds": 111.95725512500212,
+  "peak_rss_mib": 116.5,
+  "exit": 0
+}

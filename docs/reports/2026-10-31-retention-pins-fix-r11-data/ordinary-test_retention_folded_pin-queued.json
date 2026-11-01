@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T18:40:18.100942+00:00",
+  "args": [
+    "tests/unit/test_retention_folded_pin.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_folded_pin",
+  "linked": false,
+  "driver_pid": 72226,
+  "lock_process_group": 72330
+}

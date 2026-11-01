@@ -1,0 +1,114 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:39:21Z slot A load 
+START generated-r6f2-original 2026-10-31T05:39:28.008098+00:00 load=(31.11572265625, 32.2177734375, 29.4638671875)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_pointer_inputs_keep_every_store_real_git_reads ______________
+  + Exception Group Traceback (most recent call last):
+  |   File "/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py", line 123, in test_pointer_inputs_keep_every_store_real_git_reads
+  |     suppress_health_check=[HealthCheck.function_scoped_fixture])
+  |          ^^^^^^^^^^^^^^^^^^
+  |   File "/private/tmp/sf-r272r8/venv/lib/python3.14/site-packages/hypothesis/core.py", line 2295, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py", line 127, in test_pointer_inputs_keep_every_store_real_git_reads
+    |     observation = check_input(Path(directory), data)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-review-r8-data/run_hold.py", line 62, in observing
+    |     result = _original(base, data)
+    |   File "/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py", line 99, in check_input
+    |     assert actual in recorded.get("git", []) or recorded.get("incomplete"), recorded
+    | AssertionError: {}
+    | assert ('/private/tmp/sf-r272r8/cases-20852/tmpdgzl14u0/owner/.git/objects' in [] or None)
+    |  +  where [] = <built-in method get of dict object at 0x1107267c0>('git', [])
+    |  +    where <built-in method get of dict object at 0x1107267c0> = {}.get
+    |  +  and   None = <built-in method get of dict object at 0x1107267c0>('incomplete')
+    |  +    where <built-in method get of dict object at 0x1107267c0> = {}.get
+    | Failing test case: test_pointer_inputs_keep_every_store_real_git_reads(
+    |     record_property=append_property,
+    |     data={
+    |         'layout': 'gitfile',
+    |         'prefix': 'present',  # or any other generated value
+    |         'target': 'normal',  # or any other generated value
+    |         'common': 'absent',  # or any other generated value
+    |         'own': 'symlink',  # or any other generated value
+    |         'named': False,  # or any other generated value
+    |         'padding': 'over',
+    |         'pad_file': 'gitfile',
+    |     },
+    | )
+    | {"common": "absent", "layout": "gitfile", "named": false, "own": "symlink", "pad_file": "gitfile", "padding": "over", "prefix": "present", "target": "normal"}
+    | {'git_path': b'/private/tmp/sf-r272r8/cases-20852/tmpdgzl14u0/elsewhere/admin/objects\n',
+    |  'git_error': b'',
+    |  'read_error': b'',
+    |  'recorded': {}}
+    | Explanation:
+    |     These lines were always and only run by failing test cases:
+    |         /private/tmp/sf-r272r8/generated-r6f2/subfleet/sessions/transcripts.py:154
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py", line 127, in test_pointer_inputs_keep_every_store_real_git_reads
+    |     observation = check_input(Path(directory), data)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-review-r8-data/run_hold.py", line 62, in observing
+    |     result = _original(base, data)
+    |   File "/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py", line 115, in check_input
+    |     assert any(error["file"] == str(pointer) for error in recorded.get("incomplete", [])), recorded
+    | AssertionError: {}
+    | assert False
+    |  +  where False = any(<generator object check_input.<locals>.<genexpr> at 0x1103a23e0>)
+    | Failing test case: test_pointer_inputs_keep_every_store_real_git_reads(
+    |     # The test always failed when commented parts were varied together.
+    |     record_property=append_property,
+    |     data={
+    |         'layout': 'gitfile',
+    |         'prefix': 'present',  # or any other generated value
+    |         'target': 'normal',  # or any other generated value
+    |         'common': 'absent',  # or any other generated value
+    |         'own': 'absent',  # or any other generated value
+    |         'named': False,  # or any other generated value
+    |         'padding': 'over',
+    |         'pad_file': 'gitfile',
+    |     },
+    | )
+    | {"common": "absent", "layout": "gitfile", "named": false, "own": "absent", "pad_file": "gitfile", "padding": "over", "prefix": "present", "target": "normal"}
+    | {'git_path': b'',
+    |  'git_error': b'fatal: not a git repository: (null)\n',
+    |  'read_error': b'fatal: not a git repository: (null)\n',
+    |  'recorded': {}}
+    | Explanation:
+    |     These lines were always and only run by failing test cases:
+    |         /private/tmp/sf-r272r8/generated-r6f2/subfleet/sessions/transcripts.py:154
+    |         /private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py:115
+    +------------------------------------
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads:
+
+  - during generate phase (13.21 seconds):
+    - Typical runtimes: ~ 148-441 ms, of which ~ 0-27 ms in data generation
+    - 32 passing, 13 failing, and 0 invalid test cases
+    - Found 2 distinct errors in this phase
+    - Events:
+      * 71.11%, incomplete=False
+      * 51.11%, rejects
+      * 20.00%, reads-owner
+
+  - during shrink phase (7.70 seconds):
+    - Typical runtimes: ~ 0-336 ms, of which ~ 0-4 ms in data generation
+    - 13 passing, 9 failing, and 172 invalid test cases
+    - Tried 194 shrinks of which 10 were successful
+
+  - during explain phase (111.65 seconds):
+    - Typical runtimes: ~ 180-526 ms, of which ~ 0-5 ms in data generation
+    - 4 passing, 345 failing, and 0 invalid test cases
+
+  - Stopped because nothing left to do
+
+
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads
+1 failed in 136.21s (0:02:16)

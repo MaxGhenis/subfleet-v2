@@ -1,0 +1,28 @@
+{
+  "label": "census-failure",
+  "start": "2026-10-29T20:12:48.974046+00:00",
+  "loads": [
+    18.41943359375,
+    18.748046875,
+    14.7900390625
+  ],
+  "seconds": 6.7397785409998505,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.05173954100018818
+    },
+    {
+      "nodeid": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.022817374999704043
+    }
+  ],
+  "rss": 114016256
+}

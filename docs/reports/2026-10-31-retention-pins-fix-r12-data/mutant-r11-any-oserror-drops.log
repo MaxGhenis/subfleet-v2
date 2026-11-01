@@ -1,0 +1,14 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:32:13Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________________ test_filter_stat_table[found-ENOENT] _____________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome != "ELOOP")
+E   AssertionError: assert ('/private/tmp/sf-fix272r12/real-tmp/mutant-r11-any-oserror-drops/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E0/missing' in []) == ('ENOENT' != 'ELOOP')
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]
+1 failed in 14.76s
+{"name": "mutant-r11-any-oserror-drops", "start": "2026-10-31T20:32:15.156070+00:00", "load": [71.1640625, 76.611328125, 78.5244140625], "seconds": 17.772419250002713, "exit": 1}

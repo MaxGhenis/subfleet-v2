@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:13:40Z slot B load 
+START retention_archive_properties-part2 2026-10-30T20:13:44.018811+00:00 load=(49.2099609375, 51.6923828125, 51.427734375)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted:
+
+  - during generate phase (86.40 seconds):
+    - Typical runtimes: ~ 3-14433 ms, of which ~ 0-40 ms in data generation
+    - 10 passing, 0 failing, and 1 invalid test cases
+
+  - Stopped because settings.max_examples=10
+
+
+1 passed in 88.69s (0:01:28)

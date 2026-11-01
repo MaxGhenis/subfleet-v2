@@ -1,0 +1,22 @@
+{
+  "queued": "2026-10-31T16:37:14.470535+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[retarget-gitdir-target-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[retarget-gitdir-target-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[retarget-gitfile-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_changed_repository_spelling_globally_pins_allocations[retarget-gitfile-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[both]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[first]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[recheck]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[exporting-control]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r4-3",
+  "linked": false,
+  "driver_pid": 66220,
+  "lock_process_group": 66273
+}

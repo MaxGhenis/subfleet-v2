@@ -1,0 +1,44 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:31:20Z slot A load 
+START mutant-r3-terminal-census-live-only 2026-10-31T06:31:21.374521+00:00 load=(34.45263671875, 33.73876953125, 33.591796875)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-63408/pytest/test_c8_4_legacy_incomplete_ce0'), trusted=True, remot...-r272r8/cases-63408/pytest/test_c8_4_legacy_incomplete_ce0/state'), store=<subfleet.store.Store object at 0x109e663c0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109c9bbb0>
+stage = 'already-exporting'
+
+    @pytest.mark.parametrize("stage", ["database", "full-pass", "already-exporting"])
+    def test_c8_4_legacy_incomplete_census_survives_terminal_export(world, monkeypatch, stage):
+        tree = world.job("owner")
+        borrower = world.base / "outside"
+        alternate = borrower / ".git" / "objects" / "info" / "alternates"
+        alternate.parent.mkdir(parents=True)
+        alternate.write_bytes(b'"bad\\z"\n')
+        world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                            kind="dispatch", state="running", sandbox="read-only",
+                            workdir=str(borrower), prompt_path="/p", out_path="/outside/result")
+        world.store.add_event("job.submitted", job_id="borrower", data={})
+        original = dependencies.legacy
+    
+        def finish_after_discovery(read):
+            legacy = original(read)
+            assert legacy.incomplete["borrower"][0]["file"] == str(alternate)
+            world.store.acquire_lease("out:/outside/result", "borrower")
+            world.store.update_job("borrower", state="succeeded")
+            return legacy
+    
+        if stage == "already-exporting":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+            world.store.update_job("borrower", state="succeeded")
+            result = maintain(world)
+>           assert "owner" not in result["pruned"], result
+E           AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 20026, 'bytes_after': 0, ...}
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r2.py:135: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]
+1 failed in 9.99s

@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T18:24:27.706469+00:00",
+  "args": [
+    "--input-head",
+    "tests/unit/test_retention_location_readable.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/red-readable-final",
+  "linked": false,
+  "driver_pid": 71106,
+  "lock_process_group": 71120
+}

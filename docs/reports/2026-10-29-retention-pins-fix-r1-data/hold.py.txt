@@ -1,0 +1,16 @@
+import datetime, json, os, subprocess, sys, time
+from pathlib import Path
+scratch=Path(__file__).parent
+name=sys.argv[1]
+hold=scratch/('hold-'+name)
+hold.mkdir(exist_ok=True)
+env=os.environ.copy()
+env.update(SF_RUN_NAME=name,TMPDIR=str(hold)+'/',HYPOTHESIS_STORAGE_DIRECTORY=str(scratch/'hyp'),PYTHONDONTWRITEBYTECODE='1')
+cmd=['/bin/zsh','/Users/maxghenis/reviews/subfleet-hub/host-runs/suite_hold.sh','env','-u','SUBFLEET_RETENTION_DORMANT','-u','PYTHONPATH','UV_PROJECT_ENVIRONMENT='+str(scratch/'venv'),'UV_CACHE_DIR='+str(scratch/'uv-cache'),'uv','run','--no-sync','python',str(scratch/'pytest_entry.py'),'-q','-p','no:cacheprovider',*sys.argv[2:]]
+start=datetime.datetime.now(datetime.UTC).isoformat()
+log=scratch/(name+'.log')
+print('QUEUED',name,start,flush=True)
+with log.open('w') as out: r=subprocess.run(cmd,env=env,stdout=out,stderr=subprocess.STDOUT)
+print("\n".join(log.read_text().splitlines()[-6:]),flush=True)
+with (scratch/'runs.jsonl').open('a') as out: out.write(json.dumps(dict(name=name,queued=start,end=datetime.datetime.now(datetime.UTC).isoformat(),rc=r.returncode,args=sys.argv[2:]))+'\n')
+raise SystemExit(r.returncode)

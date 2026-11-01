@@ -1,0 +1,9 @@
+{
+  "completed": "2026-10-31T11:28:30.928680+00:00",
+  "scratch_absent": true,
+  "worktree_fixtures_absent": true,
+  "review_bytecode_absent": true,
+  "guarded_cleanup": true,
+  "last_measured_scratch_mib": 22,
+  "all_test_sessions_ended": true
+}

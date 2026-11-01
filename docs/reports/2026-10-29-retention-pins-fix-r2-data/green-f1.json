@@ -1,0 +1,42 @@
+{
+  "name": "green-f1",
+  "start": "2026-10-29T10:48:46.110699+00:00",
+  "load": [
+    15.466796875,
+    12.36083984375,
+    10.77978515625
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_review_r2.py",
+    "-k",
+    "changed_alternates or unlinked_open"
+  ],
+  "results": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete"
+  ],
+  "seconds": 3.760006249998696,
+  "max_rss_bytes": 115343360,
+  "end": "2026-10-29T10:48:49.870981+00:00"
+}

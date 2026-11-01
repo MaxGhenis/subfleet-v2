@@ -1,0 +1,51 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:52:04Z slot A load 
+START mutant-r5-commondir-whitespace-stripping-restored 2026-10-30T14:52:05.936887+00:00 load=(19.9833984375, 19.9111328125, 19.21142578125)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r5/cases-82560/pytest/test_pointer_path_whitespace_k0'), trusted=True, remot...-r272r5/cases-82560/pytest/test_pointer_path_whitespace_k0/state'), store=<subfleet.store.Store object at 0x10a8c3cb0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a2a0c30>
+pointer = 'commondir-trailing', state = 'running'
+
+    @pytest.mark.parametrize("pointer", ["gitfile-leading", "gitfile-trailing", "commondir-trailing"])
+    @pytest.mark.parametrize("state", [
+        pytest.param("running", marks=pytest.mark.xfail(
+            strict=True, reason="R5-F1: stripping pointer path whitespace omits Git's actual storage"), id="live"),
+        pytest.param("succeeded", id="exporting-control"),
+    ])
+    def test_pointer_path_whitespace_keeps_the_storage_git_reads(world, monkeypatch, pointer, state):
+        tree = world.job("owner")
+        owner, commit = source(world, tree)
+        outside = world.base / "outside"
+        if pointer.startswith("gitfile"):
+            outside.mkdir()
+        else:
+            repo(outside)
+        # A relative gitdir path can start in a space. Absolute gitdir and common
+        # paths can end in one. Git preserves those bytes before resolving the link.
+        alias = outside / " metadata" if pointer == "gitfile-leading" else world.base / "metadata "
+        alias.symlink_to(owner / ".git", target_is_directory=True)
+        if pointer.startswith("gitfile"):
+            named = alias.name if pointer == "gitfile-leading" else str(alias)
+            (outside / ".git").write_text(f"gitdir: {named}\n")
+        else:
+            (outside / ".git" / "commondir").write_text(str(alias) + "\n")
+        assert git(outside, "show", commit + ":owner-only.txt") == "R5 owner-only storage"
+        off_transaction(world, monkeypatch)
+        recorded = dependencies.record(str(outside))
+        assert not recorded.get("incomplete"), recorded
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+        if state == "running":
+>           assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E           AssertionError: ({'git': ['/private/tmp/sf-r272r5/cases-82560/pytest/test_pointer_path_whitespace_k0/outside/.git', '/private/tmp/sf-r...h_whitespace_k0/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48629, 'bytes_after': 0, ...})
+E           assert ('owner' not in ['owner'])
+
+tests/fake/test_retention_dependency_review_r5.py:311: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]
+1 failed in 8.15s

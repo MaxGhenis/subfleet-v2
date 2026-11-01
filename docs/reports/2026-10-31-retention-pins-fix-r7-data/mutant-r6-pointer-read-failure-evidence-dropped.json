@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r6-pointer-read-failure-evidence-dropped",
+  "start": "2026-10-31T04:24:56.940534+00:00",
+  "load": [
+    25.95361328125,
+    29.41552734375,
+    32.515625
+  ],
+  "args": [
+    "--mutant",
+    "r6-pointer-read-failure-evidence-dropped",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5494097499995405,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 3.3869192090005527,
+      "failure": "tests/fake/test_retention_dependency_review_r6.py:76: in test_crlf_padded_pointer_keeps_the_storage_real_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49071, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0032353750002585002,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "941102c21eda0cdc6632ff4c5c24703c383a6f07825c355ba8dbdc4c22b33279"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "end": "2026-10-31T04:25:04.718616+00:00",
+  "seconds": 7.777909124999496,
+  "peak_rss_mib": 113.546875,
+  "exit": 1
+}

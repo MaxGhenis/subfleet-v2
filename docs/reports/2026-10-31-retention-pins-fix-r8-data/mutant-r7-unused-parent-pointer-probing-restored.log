@@ -1,0 +1,37 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:29:41Z slot B load 
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___ test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository] ___
+tests/fake/test_retention_dependency_review_r7.py:36: in test_unused_parent_pointer_must_not_globally_pin_trees
+    assert not recorded.get("incomplete"), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pyte..._pointer_mus0/container/commondir'"}]}, {'pruned': [], 'errors': [], 'bytes_before': 20096, 'bytes_after': 20096, ...})
+E   assert not [{'file': '/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pyte...ed-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus0/container/commondir'"}]
+E    +  where [{'file': '/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pyte...ed-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus0/container/commondir'"}] = <built-in method get of dict object at 0x107edc7c0>('incomplete')
+E    +    where <built-in method get of dict object at 0x107edc7c0> = {'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytes...d-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus0/container/commondir'"}]}.get
+___ test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target] ____
+tests/fake/test_retention_dependency_review_r7.py:36: in test_unused_parent_pointer_must_not_globally_pin_trees
+    assert not recorded.get("incomplete"), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pyte..._pointer_mus1/container/commondir'"}]}, {'pruned': [], 'errors': [], 'bytes_before': 20096, 'bytes_after': 20096, ...})
+E   assert not [{'file': '/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pyte...ed-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus1/container/commondir'"}]
+E    +  where [{'file': '/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pyte...ed-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus1/container/commondir'"}] = <built-in method get of dict object at 0x107059d80>('incomplete')
+E    +    where <built-in method get of dict object at 0x107059d80> = {'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored/pytest-of-maxghenis/pytes...d-parent-pointer-probing-restored/pytest-of-maxghenis/pytest-0/test_unused_parent_pointer_mus1/container/commondir'"}]}.get
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]
+FAILED tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]
+2 failed in 5.54s
+{"name": "mutant-r7-unused-parent-pointer-probing-restored", "start": "2026-10-31T07:29:43.235049+00:00", "load": [29.40087890625, 32.97265625, 33.60595703125], "seconds": 6.605977208000695, "exit": 1}

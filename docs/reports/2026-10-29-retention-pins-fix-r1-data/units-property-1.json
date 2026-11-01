@@ -1,0 +1,33 @@
+{
+  "name": "units-property-1",
+  "start": "2026-10-29T05:38:01.200977+00:00",
+  "load": [
+    23.36083984375,
+    23.43701171875,
+    25.89306640625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout",
+      "valid": 12,
+      "invalid": 0,
+      "calls": 12,
+      "settings_max": 12
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

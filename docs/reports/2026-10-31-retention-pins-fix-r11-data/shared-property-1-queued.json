@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T19:13:38.358074+00:00",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/shared-property-1",
+  "linked": false,
+  "driver_pid": 89661,
+  "lock_process_group": 89942
+}

@@ -1,0 +1,53 @@
+{
+  "name": "test_retention_archive-4",
+  "start": "2026-10-29T14:27:07.263818+00:00",
+  "load": [
+    42.1689453125,
+    50.849609375,
+    40.49658203125
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time",
+    "tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass",
+    "tests/unit/test_retention_archive.py::test_a_busy_oldest_job_does_not_block_the_queue",
+    "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+    "tests/unit/test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first",
+    "tests/unit/test_retention_archive.py::test_a_pool_over_its_count_is_pruned_without_sizing_everything"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 63.441063499994925,
+  "rss": 124420096
+}

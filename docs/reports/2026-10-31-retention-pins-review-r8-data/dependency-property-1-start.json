@@ -1,0 +1,1 @@
+{"start": "2026-10-31T05:58:38.066262+00:00", "loads": [33.8095703125, 31.638671875, 30.408203125], "pid": 6082, "args": ["tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"]}

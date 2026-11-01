@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:00:48.859334+00:00", "loads": [40.03076171875, 34.56640625, 31.7314453125], "pid": 34084, "args": ["tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"]}

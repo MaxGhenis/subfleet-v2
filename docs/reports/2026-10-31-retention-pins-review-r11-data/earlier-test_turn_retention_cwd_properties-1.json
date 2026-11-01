@@ -1,0 +1,51 @@
+{
+  "name": "earlier-test_turn_retention_cwd_properties-1",
+  "start": "2026-10-31T16:51:56.392376+00:00",
+  "load": [
+    49.94970703125,
+    54.00341796875,
+    61.96875
+  ],
+  "pytest_pid": 45858,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.20940612500271527,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 82.13974625000264,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000778792003984563,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:53:46.232531+00:00",
+  "seconds": 109.83920199999557,
+  "peak_rss_mib": 120.453125,
+  "exit": 0
+}

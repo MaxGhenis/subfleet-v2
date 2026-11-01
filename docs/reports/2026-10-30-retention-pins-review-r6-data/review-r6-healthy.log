@@ -1,0 +1,13 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:40:03Z slot B load 
+START review-r6-healthy 2026-10-30T19:40:05.184908+00:00 load=(32.97802734375, 44.7275390625, 48.1171875)
+...xxx........xx                                                         [100%]
+=========================== short test summary info ============================
+XFAIL tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-absent] - R6-F1: empty common target guesses a parent and omits Git's own objects
+XFAIL tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf] - R6-F1: empty common target guesses a parent and omits Git's own objects
+XFAIL tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-crlf] - R6-F1: empty common target guesses a parent and omits Git's own objects
+XFAIL tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile] - R6-F2: pointer read cap drops usable storage without incomplete evidence
+XFAIL tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-commondir] - R6-F2: pointer read cap drops usable storage without incomplete evidence
+11 passed, 5 xfailed in 93.74s (0:01:33)

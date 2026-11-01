@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:27:17.713537+00:00",
+  "args": [
+    "tests/fake/test_retention_dependencies.py",
+    "tests/fake/test_retention_dependency_spelling.py",
+    "tests/fake/test_retention_recovery_census.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/dependencies-fake-linked",
+  "linked": true
+}

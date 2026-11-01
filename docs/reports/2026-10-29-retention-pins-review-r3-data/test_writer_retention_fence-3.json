@@ -1,0 +1,65 @@
+{
+  "name": "test_writer_retention_fence-3",
+  "start": "2026-10-29T14:41:30.695345+00:00",
+  "load": [
+    25.24755859375,
+    31.03076171875,
+    34.4697265625
+  ],
+  "phases": {
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection",
+    "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 22.254852708996623,
+  "rss": 125878272
+}

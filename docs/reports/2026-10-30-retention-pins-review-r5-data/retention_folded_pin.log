@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:16:32Z slot A load 
+START retention_folded_pin 2026-10-30T14:16:33.246675+00:00 load=(27.4228515625, 17.86572265625, 12.177734375)
+......................................                                   [100%]
+38 passed in 182.43s (0:03:02)

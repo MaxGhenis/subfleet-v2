@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:58:29Z slot A load 
+..                                                                       [100%]
+2 passed, 5 deselected in 11.94s
+{"name": "start-before", "start": "2026-10-31T09:58:32.737880+00:00", "load": [34.61083984375, 34.47705078125, 36.04150390625], "seconds": 13.420878124998126, "exit": 0}

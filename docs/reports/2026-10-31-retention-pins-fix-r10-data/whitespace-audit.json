@@ -1,0 +1,4 @@
+{
+  "source_and_prose_check": "passed",
+  "raw_logs": "Preserved byte for byte; wrapper headers and pytest output include trailing spaces."
+}

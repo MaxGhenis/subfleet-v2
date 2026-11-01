@@ -1,0 +1,217 @@
+"""Differential Git pointer discovery across syntax, layout and bounded reads.
+
+Rejected repositories provide no usable object-store oracle. For those inputs
+we require deterministic discovery, absolute recorded paths, and incomplete
+evidence for any over-bound pointer that discovery attempts to read. Conservative
+records after rejection are allowed: they can only retain additional storage.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+from hypothesis import HealthCheck, event, example, given, note, settings, strategies as st
+
+from subfleet import dependencies, folders
+from tests.unit.test_retention_dependency_units import repo
+from tests.unit.test_retention_pointer_whitespace import git
+
+
+INPUTS = st.fixed_dictionaries({
+    "layout": st.sampled_from(["gitfile", "directory"]),
+    "prefix": st.sampled_from(["present", "absent", "misspelled", "colon-only"]),
+    "target": st.sampled_from(["normal", "blank", "spaces", "padded"]),
+    "common": st.sampled_from(["absent", "empty", "lf", "crlf", "target"]),
+    "own": st.sampled_from(["absent", "symlink", "alternate"]),
+    "named": st.booleans(),
+    "padding": st.sampled_from(["short", "under", "over"]),
+    "pad_file": st.sampled_from(["gitfile", "commondir"]),
+})
+
+
+def case(**changes):
+    values = dict(layout="gitfile", prefix="present", target="normal", common="absent",
+                  own="symlink", named=True, padding="short", pad_file="gitfile")
+    values.update(changes)
+    return values
+
+
+def check_input(base, data):
+    base = base.resolve()
+    owner = repo(base / "owner")
+    commit = git("-C", owner, "rev-parse", "HEAD").stdout.rstrip(b"\n")
+    checkout = base / "checkout"
+    checkout.mkdir()
+    admin = (base / "container" / "worktrees" / "slot" if data["named"]
+             else base / "elsewhere" / "admin")
+    assert git("init", "-q", "--bare", admin).returncode == 0
+    (admin / "HEAD").write_bytes(commit + b"\n")
+    shutil.rmtree(admin / "objects")
+    if data["own"] == "symlink":
+        (admin / "objects").symlink_to(owner / ".git" / "objects", target_is_directory=True)
+    elif data["own"] == "alternate":
+        info = admin / "objects" / "info"
+        info.mkdir(parents=True)
+        (info / "alternates").write_bytes(os.fsencode(owner / ".git" / "objects") + b"\n")
+
+    def target(parent, destination):
+        if data["target"] == "blank":
+            return b""
+        name = {"normal": "metadata", "spaces": "   ", "padded": " metadata "}[data["target"]]
+        (parent / name).symlink_to(destination, target_is_directory=True)
+        return os.fsencode(name)
+
+    # Padding is CR/LF record padding, not pathname padding. Exercise both sides
+    # of the 64 KiB bound without allocating a large pathname or lifting it.
+    padding = {"short": b"\r\n", "under": b"\r\n" * (dependencies._FILE_LIMIT // 2 - 128),
+               "over": b"\r\n" * (dependencies._FILE_LIMIT // 2 + 1)}[data["padding"]]
+    pointers = []
+    if data["layout"] == "gitfile":
+        prefix = {"present": b"gitdir: ", "absent": b"", "misspelled": b"gitdr: ",
+                  "colon-only": b"gitdir:"}[data["prefix"]]
+        content = prefix + target(checkout, admin)
+        content += padding if data["pad_file"] == "gitfile" else b"\n"
+        (checkout / ".git").write_bytes(content)
+        pointers.append((checkout / ".git", content))
+    else:
+        (checkout / ".git").symlink_to(admin, target_is_directory=True)
+    if data["common"] != "absent":
+        content = {"empty": b"", "lf": b"\n", "crlf": b"\r\n"}.get(data["common"])
+        if content is None:
+            content = target(admin, owner / ".git") + b"\n"
+        # Keep the empty/absent classes literal, and pad readable CR/LF records.
+        if data["pad_file"] == "commondir" and data["common"] != "empty":
+            content += padding
+        (admin / "commondir").write_bytes(content)
+        pointers.append((admin / "commondir", content))
+
+    store = git("-C", checkout, "rev-parse", "--git-path", "objects")
+    read = git("-C", checkout, "show", os.fsdecode(commit) + ":f.txt")
+    recorded = dependencies.record(str(checkout))
+    note(json.dumps(data, sort_keys=True))
+    note({"git_path": store.stdout, "git_error": store.stderr, "read_error": read.stderr,
+          "recorded": recorded})
+    if store.returncode == 0 and read.returncode == 0:
+        assert read.stdout == b"owner"
+        actual = folders.canonical(checkout / os.fsdecode(store.stdout.rstrip(b"\n")))
+        assert actual in recorded.get("git", []) or recorded.get("incomplete"), recorded
+        # A store can reach the owner through alternates as well as a symlink.
+        assert (folders.canonical(owner / ".git" / "objects") in recorded.get("git", [])
+                or recorded.get("incomplete")), recorded
+        outcome = "reads-owner"
+    else:
+        assert recorded == dependencies.record(str(checkout)), recorded
+        assert all(os.path.isabs(path) for path in recorded.get("git", [])), recorded
+        outcome = "rejects" if store.returncode else "accepts-without-owner"
+    # Only a valid, bounded gitfile (or directory .git) reaches commondir.
+    gitfile = pointers[0][1].rstrip(b"\r\n") if data["layout"] == "gitfile" else b""
+    reached = data["layout"] == "directory" or (
+        gitfile.startswith(b"gitdir: ") and len(pointers[0][1]) <= dependencies._FILE_LIMIT
+        and os.path.realpath(checkout / os.fsdecode(gitfile[len(b"gitdir: "):])) == str(admin))
+    for pointer, content in pointers:
+        if len(content) > dependencies._FILE_LIMIT and (pointer == checkout / ".git" or reached):
+            assert any(error["file"] == str(pointer) for error in recorded.get("incomplete", [])), recorded
+    return dict(input=data, git_path_rc=store.returncode, read_rc=read.returncode,
+                git_path=os.fsdecode(store.stdout.rstrip(b"\n")), outcome=outcome,
+                incomplete=bool(recorded.get("incomplete")), pointer_bytes=[len(c) for _, c in pointers])
+
+
+# Only evidence accumulates on the pytest item; each input has a fresh directory.
+@settings(max_examples=100, deadline=None, database=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@example(case())
+@example(case(common="empty"))
+@example(case(common="lf"))
+@example(case(common="crlf"))
+@example(case(common="target", own="absent"))
+@example(case(prefix="absent"))
+@example(case(prefix="misspelled"))
+@example(case(prefix="colon-only"))
+@example(case(target="blank"))
+@example(case(target="spaces"))
+@example(case(target="padded", padding="under"))
+@example(case(padding="over"))
+@example(case(layout="directory", common="target", padding="over", pad_file="commondir"))
+@example(case(own="absent", named=False))
+@example(case(own="alternate"))
+@given(INPUTS)
+def test_pointer_inputs_keep_every_store_real_git_reads(record_property, data):
+    with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as directory:
+        observation = check_input(Path(directory), data)
+    record_property("git-input", json.dumps(observation, sort_keys=True))
+    event(observation["outcome"])
+    event("incomplete=" + str(observation["incomplete"]))
+
+
+NAMED_OWN_INPUTS = st.fixed_dictionaries({
+    "slot": st.integers(min_value=0, max_value=65535),
+    "common": st.sampled_from(["absent", "lf", "crlf"]),
+    "own": st.sampled_from(["plain", "symlink", "alternate"]),
+    "parent": st.sampled_from(["absent", "not-repository", "repository", "unrelated-commondir"]),
+})
+
+
+def check_named_own_input(base, data):
+    owner = repo(base / "owner")
+    commit = git("-C", owner, "rev-parse", "HEAD").stdout.rstrip(b"\n")
+    parent = base / "container"
+    admin = parent / "worktrees" / str(data["slot"])
+    checkout = base / "checkout"
+    checkout.mkdir()
+    # The container necessarily exists to hold worktrees/slot. "absent"
+    # means it supplies no repository metadata or other parent hint input.
+    if data["parent"] == "repository":
+        initialized = git("init", "-q", "--bare", parent)
+        assert initialized.returncode == 0, initialized.stderr
+    elif data["parent"] == "not-repository":
+        parent.mkdir()
+        (parent / "ordinary-file").write_text("unrelated container")
+    elif data["parent"] == "unrelated-commondir":
+        (parent / "commondir").mkdir(parents=True)
+    initialized = git("init", "-q", "--bare", admin)
+    assert initialized.returncode == 0, initialized.stderr
+    (admin / "HEAD").write_bytes(commit + b"\n")
+    (checkout / ".git").write_bytes(b"gitdir: " + os.fsencode(admin) + b"\n")
+    shutil.rmtree(admin / "objects")
+    owner_objects = owner / ".git" / "objects"
+    if data["own"] == "plain":
+        shutil.copytree(owner_objects, admin / "objects")
+    elif data["own"] == "symlink":
+        (admin / "objects").symlink_to(owner_objects, target_is_directory=True)
+    else:
+        info = admin / "objects" / "info"
+        info.mkdir(parents=True)
+        (info / "alternates").write_bytes(os.fsencode(owner_objects) + b"\n")
+    if data["common"] != "absent":
+        (admin / "commondir").write_bytes({"lf": b"\n", "crlf": b"\r\n"}[data["common"]])
+
+    store = git("-C", checkout, "rev-parse", "--git-path", "objects")
+    read = git("-C", checkout, "show", os.fsdecode(commit) + ":f.txt")
+    recorded = dependencies.record(str(checkout))
+    note(dict(input=data, git_error=store.stderr, read_error=read.stderr, recorded=recorded))
+    # These inputs deliberately all describe repositories Git actually reads.
+    assert store.returncode == read.returncode == 0
+    assert read.stdout == b"owner"
+    assert not recorded.get("incomplete"), recorded
+    actual = folders.canonical(checkout / os.fsdecode(store.stdout.rstrip(b"\n")))
+    assert actual in recorded.get("git", []), recorded
+    if data["own"] != "plain":
+        assert folders.canonical(owner_objects) in recorded.get("git", []), recorded
+    return dict(input=data, git_path_rc=store.returncode, read_rc=read.returncode,
+                git_path=os.fsdecode(store.stdout.rstrip(b"\n")), outcome="reads-owner",
+                incomplete=bool(recorded.get("incomplete")))
+
+
+@settings(max_examples=40, deadline=None, database=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(NAMED_OWN_INPUTS)
+def test_named_own_inputs_keep_every_store_real_git_reads(record_property, data):
+    with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as directory:
+        observation = check_named_own_input(Path(directory), data)
+    record_property("named-own-input", json.dumps(observation, sort_keys=True))
+    event("common=" + data["common"])
+    event("own=" + data["own"])
+    event("parent=" + data["parent"])

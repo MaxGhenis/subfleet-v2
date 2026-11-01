@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T18:29:38.848946+00:00",
+  "args": [
+    "tests/unit/test_retention_pointer_whitespace.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_pointer_whitespace",
+  "linked": false,
+  "driver_pid": 34608,
+  "lock_process_group": 34850
+}

@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from .conversations.turn import Frame
 
 from . import __version__
-from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
+from . import capacity, dependencies, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import daemon_log, refusals, resource_leases, task_holds
 from .actions import demand_verdict
 from . import attempt_tmp
@@ -3098,6 +3098,12 @@ class Daemon:
                 # a job takes no lease on it, so admission reads retention's fence on it, and
                 # on every folder above it, by string operations alone (`folders.retiring`).
                 folder = read_folder or (folders.canonical(workdir) if turn is None and write_target is None else None)
+                # C-8.4: what else the job needs while it has not ended, spelled the
+                # same way: its review root, its `-o` path, and the git storage its
+                # checkout uses (a linked checkout outside a tree can keep its
+                # repository inside one). Admission reads retention's fence on each,
+                # and retention keeps a tree any of them is in (`dependencies`).
+                depends = dependencies.record(str(workdir), review_root=review_root, out_path=out)
                 model = args.pinned_model
                 if model is not None:
                     try:
@@ -3357,6 +3363,7 @@ class Daemon:
                          **({"caller_instance": instance} if instance else {}),
                          **({"write_target": write_target} if write_target else {}),
                          **({"folder": folder} if folder else {}),
+                         "depends": depends,
                          **({"unspelled": True} if unspelled else {}),
                          **({"batch": batch} if batch else {}),
                          **({"mcp": mcp_found["sources"]} if mcp_servers else {}),
@@ -3810,6 +3817,14 @@ class Daemon:
             # fence comparison, both before preparation and at reservation.
             return [(recorded, False, recorded_absent or now_absent)]
         return [(recorded, False, recorded_absent), (now, False, now_absent)]
+
+    def _needs(self, job: dict) -> list[tuple[str, str]]:
+        """C-8.4: `(role, path)` of each place besides its folder that `job` needs
+        while it has not ended (`dependencies.fenced`): its review root, its `-o`
+        path and the git storage its checkout uses, as submit recorded them. A job
+        queued before they were recorded has them read here, outside any
+        transaction."""
+        return dependencies.fenced(self._submitted(job["job_id"]), job)
 
     def _writable_precheck(self, job: dict, instance: dict | None, write_target: str | None) -> frozenset[str]:
         """C-6.5: refuse a second writer in one worktree and a second live
@@ -7261,7 +7276,7 @@ class Daemon:
                     models: frozenset[str] | None, lanes: frozenset[str] | None,
                     run_folder: str | None = None, *, fold: bool = False,
                     absent: OSError | None = None, write_target: str | None = None,
-                    priority_waiters: list | None = None) -> bool:
+                    priority_waiters: list | None = None, needs: list[tuple[str, str]] = ()) -> bool:
         """C-8.4, C-6.10: whether `job` waits on retention's fence on its Git
         folder, actual cwd or a folder above either (`folders.retiring`), found
         before its workspace is prepared. Turn folders are spelled off the lock,
@@ -7270,6 +7285,7 @@ class Daemon:
         Detached source folders come from `_detached_folders`, with its legacy
         `fold` comparison retained independently of each source's absence answer
         and of the row subject's absence.
+        Other dependency places (`needs`) are checked beside those folders.
         An in-place writer supplies its one spelled `write_target` and `absent`
         answer for this look, reservation and own-key/blocked classification.
 
@@ -7298,13 +7314,16 @@ class Daemon:
 
         def fences(read):
             if job["kind"] == "turn":
-                return self._turn_fences(read, folder, absent, run_folder, run_absent)
+                fence, named = self._turn_fences(read, folder, absent, run_folder, run_absent)
+                return ([(None, named, fence)] if fence else []) + dependencies.fences(read, needs)
             git_fences = (folders.retiring_folded(read, folder) if fold else
                           folders.retiring(read, folder, folded=absent is not None))
             run_fences = folders.retiring(read, run_folder) if run_folder and run_folder != folder else []
-            return list(dict.fromkeys([*git_fences, *run_fences])), run_folder if run_fences else folder
+            fence = list(dict.fromkeys([*git_fences, *run_fences]))
+            named = run_folder if run_fences else folder
+            return ([(None, named, fence)] if fence else []) + dependencies.fences(read, needs)
 
-        if not fences(self.store.query)[0]:
+        if not fences(self.store.query):
             return False
         with self.store.transaction("job.fenced", job_id=job["job_id"]) as tx:
             current = tx.execute("SELECT state, cancel_requested_at FROM jobs WHERE job_id=?",
@@ -7313,10 +7332,13 @@ class Daemon:
                 return True
             if self._task_held_at_write(tx, job, holds) is not None:
                 return True                 # C-11.10 (R3-1): held since the door's look, so taken
-            fence, held_folder = fences(lambda sql, params: tx.execute(sql, params).fetchall())
-            if not fence:
+            found = fences(lambda sql, params: tx.execute(sql, params).fetchall())
+            if not found:
                 return False                # let go since the read above: the job is looked at now
-            hold = {"reason": "lease-held", "leases": fence, "retiring": fence, "folder": held_folder}
+            fence = list(dict.fromkeys(key for _, _, keys in found for key in keys))
+            role, named, _ = found[0]
+            hold = {"reason": "lease-held", "leases": fence, "retiring": fence, "folder": named,
+                    **({"needs": role} if role else {})}
             # A key it only needs free, as for the transaction's `blocked` (C-6.11): every
             # fence but an in-place writer's own target, a lease that writer takes.
             own = (folders.exclusive_key(write_target or self._write_target(job, job["workdir"]))
@@ -7879,6 +7901,7 @@ class Daemon:
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
+            needs = self._needs(job)
             run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
             detached_answers = {}                  # filesystem answers for this admission look only
             try:
@@ -7894,7 +7917,7 @@ class Daemon:
                     # rediscover does not prove the recorded/current folders are clear:
                     # turns and detached jobs still wait on their retirement fences.
                     if job["kind"] == "turn" and self._fence_hold(job, self._recorded_folder(job), holds, waiters,
-                                                                  tier, models, lanes, run_folder):
+                                                                  tier, models, lanes, run_folder, needs=needs):
                         continue
                     if job["kind"] != "turn":
                         job_folders = self._detached_folders(job, checked=detached_answers)
@@ -7906,18 +7929,18 @@ class Daemon:
                         if fallback_folder and self._fence_hold(
                                 job, fallback_folder, holds, waiters, tier, models, lanes,
                                 absent=fallback_absent, write_target=fallback_folder,
-                                priority_waiters=priority_waiters if klass == "priority" else None):
+                                priority_waiters=priority_waiters if klass == "priority" else None, needs=needs):
                             continue
                         if any(self._fence_hold(
                                 job, folder, holds, waiters, tier, models, lanes, fold=fold,
                                 absent=source_absent, write_target=fallback_folder,
-                                priority_waiters=priority_waiters if klass == "priority" else None)
+                                priority_waiters=priority_waiters if klass == "priority" else None, needs=needs)
                                for folder, fold, source_absent in job_folders):
                             continue
                     raise
                 # `_turn_folder`, from the one answer above.
                 if job["kind"] == "turn" and self._fence_hold(job, derived or self._recorded_folder(job), holds,
-                                                              waiters, tier, models, lanes, run_folder):
+                                                              waiters, tier, models, lanes, run_folder, needs=needs):
                     # C-8.4: retention is retiring the tree the turn's folder is in; no
                     # workspace is prepared for a turn that cannot start, and no git runs
                     # there but `_rediscovered`'s read (the transaction below still reads
@@ -7937,11 +7960,11 @@ class Daemon:
                 if row_folder and self._fence_hold(
                         job, row_folder, holds, waiters, tier, models, lanes,
                         absent=row_absent, write_target=row_folder,
-                        priority_waiters=priority_waiters if klass == "priority" else None):
+                        priority_waiters=priority_waiters if klass == "priority" else None, needs=needs):
                     continue
                 if any(self._fence_hold(job, folder, holds, waiters, tier, models, lanes, fold=fold,
                                         absent=source_absent, write_target=row_folder,
-                                        priority_waiters=priority_waiters if klass == "priority" else None)
+                                        priority_waiters=priority_waiters if klass == "priority" else None, needs=needs)
                        for folder, fold, source_absent in job_folders):
                     # C-8.4: retention is retiring the tree the job's folder is in, so no
                     # git runs there for a job that cannot start: not its start snapshot,
@@ -8507,6 +8530,15 @@ class Daemon:
                             taken = {key for key, _ in leases}       # contested already when held
                             blockers.extend(key for key in folders.retiring(read, named, folded=True)
                                             if key not in taken)
+                        # C-8.4: nor does any job start while retention retires a tree
+                        # one of the other places it needs is in (its review root, its
+                        # `-o` path, the git storage its checkout uses: `_needs`). A
+                        # detached writer's own `worktree:` key is a lease it takes,
+                        # contested above, not a key it only needs free.
+                        own = (folders.exclusive_key(write_target)
+                               if job["sandbox"] == "workspace-write" and job["kind"] != "turn" else None)
+                        blockers.extend(key for _, _, keys in dependencies.fences(read, needs) for key in keys
+                                        if key != own)
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)
                         if revive_key:
@@ -8565,10 +8597,22 @@ class Daemon:
                                                                     folders.fold(key[len(folders.EXCLUSIVE):]))
                                                      for key in retiring)),
                                              write_target)
+                            role = None
+                            if retiring and not any(folders.within(dependencies.key(named or ""),
+                                                                   dependencies.key(key[len(folders.EXCLUSIVE):]))
+                                                    for key in retiring):
+                                # Else the first dependency place a fence is on or above.
+                                # Use the blocking query's key, including canonical caseless
+                                # Unicode aliases; the legacy folder fold is different (D1).
+                                role, named = next(((each, path) for each, path in needs if any(
+                                    folders.within(dependencies.key(path),
+                                                   dependencies.key(key[len(folders.EXCLUSIVE):])) for key in retiring)),
+                                    (None, named))
                             self._seen_held(kind, frozenset((key, str(holders[key])) for key in retiring))
                             hold = {"reason": "lease-held", "leases": contested + blocked,
                                     **({"retiring": retiring} if retiring else {}),
                                     **({"folder": named} if named else {}),
+                                    **({"needs": role} if role else {}),
                                     **({"queued": queued, "queued_behind": sorted({lease_queue[key] for key in queued})}
                                        if queued else {})}
                             queue_for(contested + queued, job["job_id"])

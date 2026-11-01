@@ -1,0 +1,35 @@
+{
+  "name": "normal-test_retention_location_inputs",
+  "start": "2026-10-31T20:05:30.821236+00:00",
+  "load": [
+    86.7236328125,
+    86.09228515625,
+    83.96728515625
+  ],
+  "pytest_pid": 39913,
+  "failure_root": "/private/tmp/sf-r272r12/failed-keep",
+  "args": [
+    "tests/unit/test_retention_location_inputs.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.974276499997359,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-154518-pr272-review-r12/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T20:06:14.763854+00:00",
+  "seconds": 43.94233825000265,
+  "peak_rss_mib": 126.703125,
+  "exit": 2
+}

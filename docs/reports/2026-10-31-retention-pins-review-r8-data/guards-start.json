@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:44:00.773549+00:00", "loads": [39.17333984375, 36.93017578125, 35.59619140625], "pid": 89341, "args": ["tests/fake/test_state_contract.py", "tests/unit/test_test_module_names.py", "tests/unit/test_invariants_index.py"], "fixture_root": "/private/tmp/sf-r272r8"}

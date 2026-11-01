@@ -1,0 +1,46 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:42:19Z slot A load 
+START test_retention_dependency_units 2026-10-30T22:42:29.851796+00:00 load=(45.77587890625, 41.9482421875, 37.28662109375)
+...................                                                      [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout:
+
+  - during generate phase (6.33 seconds):
+    - Typical runtimes: ~ 49-1490 ms, of which ~ 0-1023 ms in data generation
+    - 12 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=12
+
+
+tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification:
+
+  - during generate phase (26.46 seconds):
+    - Typical runtimes: ~ 1-398 ms, of which ~ 0-253 ms in data generation
+    - 150 passing, 0 failing, and 21 invalid test cases
+    - Events:
+      * 18.71%, Retried draw from TupleStrategy((sampled_from(('t1', 't2', 'Té')), booleans())).filter(not_yet_in_unique_list) to satisfy filter
+
+  - Stopped because settings.max_examples=150
+
+
+tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one:
+
+  - during generate phase (9.56 seconds):
+    - Typical runtimes: ~ 11-307 ms, of which ~ 1-49 ms in data generation
+    - 60 passing, 0 failing, and 3 invalid test cases
+    - Events:
+      * 14.29%, Retried draw from TupleStrategy((sampled_from(('t1', 't2', 'Té')), booleans())).filter(not_yet_in_unique_list) to satisfy filter
+
+  - Stopped because settings.max_examples=60
+
+
+tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place:
+
+  - during generate phase (18.35 seconds):
+    - Typical runtimes: ~ 0-293 ms, of which ~ 0-1 ms in data generation
+    - 200 passing, 0 failing, and 23 invalid test cases
+
+  - Stopped because settings.max_examples=200
+
+
+19 passed in 79.60s (0:01:19)

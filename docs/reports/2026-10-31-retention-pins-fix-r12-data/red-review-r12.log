@@ -1,0 +1,23 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:11:57Z slot A load 
+..FF                                                                     [100%]
+=================================== FAILURES ===================================
+_________ test_filter_keeps_readable_normalization_length[alternates] __________
+tests/fake/test_retention_dependency_review_r12.py:119: in test_filter_keeps_readable_normalization_length
+    check_normalization_length(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r12.py:107: in check_normalization_length
+    assert "owner" not in result["pruned"] and tree.is_dir(), observation
+E   AssertionError: {'route': 'alternates', 'raw': '/private/tmp/sf-fix272r12/real-tmp/red-review-r12/pytest-of-maxghenis/pytest-0/test_fi...éééééééééééééééééé7/ééééééééééééééééééééééééééééééééééé8/source/.git/objects', 'raw_bytes': 800, ...}
+E   assert ('owner' not in ['owner'])
+____________ test_filter_keeps_readable_normalization_length[scan] _____________
+tests/fake/test_retention_dependency_review_r12.py:119: in test_filter_keeps_readable_normalization_length
+    check_normalization_length(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r12.py:107: in check_normalization_length
+    assert "owner" not in result["pruned"] and tree.is_dir(), observation
+E   AssertionError: {'route': 'scan', 'raw': '/private/tmp/sf-fix272r12/real-tmp/red-review-r12/pytest-of-maxghenis/pytest-0/test_filter_k...ééééééééééééééééééééééééé7/ééééééééééééééééééééééééééééééééééé8/packs', 'raw_bytes': 786, ...}
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[alternates]
+FAILED tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[scan]
+2 failed, 2 passed in 33.34s
+{"name": "red-review-r12", "start": "2026-10-31T20:12:07.256335+00:00", "load": [80.7939453125, 83.1083984375, 83.3134765625], "seconds": 39.39580183299404, "exit": 1}

@@ -1,0 +1,29 @@
+{
+  "queued": "2026-10-31T16:35:29.181976+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[False]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[True]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[cycle-within-bound]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[full-five-alternates]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-census]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-commit]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-fence]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-census]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-commit]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-fence]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-census]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-commit]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-fence]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_turn_job_directory_rule_keeps_its_precedence"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r2-1",
+  "linked": false,
+  "driver_pid": 47186,
+  "lock_process_group": 47194
+}

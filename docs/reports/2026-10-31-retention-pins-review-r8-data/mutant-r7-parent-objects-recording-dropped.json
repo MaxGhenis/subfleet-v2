@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r7-parent-objects-recording-dropped",
+  "start": "2026-10-31T06:45:04.497204+00:00",
+  "loads": [
+    39.65625,
+    37.50146484375,
+    35.90576171875
+  ],
+  "seconds": 8.824350584000058,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9254138749984122,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.7676289589999215,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-1028/pytest/test_inferred_parent_objects_k0'), trusted=True, remote...f-r272r8/cases-1028/pytest/test_inferred_parent_objects_k0/state'), store=<subfleet.store.Store object at 0x1091a7b60>)\n\n    def test_inferred_parent_objects_keeps_its_resolved_storage(world):\n        tree = world.job(\"owner\")\n        owner, _ = source(world, tree)\n        checkout, parent = named_repository(world)\n        objects = owner / \".git\" / \"objects\"\n        (parent / \"objects\").symlink_to(objects, target_is_directory=True)\n        recorded = dependencies.record(str(checkout))\n        assert not recorded.get(\"incomplete\"), recorded\n        reader(world, recorded)\n        result = maintain(world)\n>       assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-1028/pytest/test_inferred_parent_objects_k0/container/worktrees/slot', '/priva...container/worktrees/slot/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48627, 'bytes_after': 0, ...})\nE       assert ('owner' not in ['owner'])\n\ntests/fake/test_retention_parent_hint.py:31: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.036236417001418886,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "e867f20d4e50e6b8340310b6279958390f297a78922f2f5cca8876b8f31cda81"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 121552896
+}

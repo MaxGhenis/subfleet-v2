@@ -1,0 +1,188 @@
+{
+  "name": "routine-and-depth",
+  "start": "2026-10-31T07:14:06.289557+00:00",
+  "load": [
+    34.2236328125,
+    35.96923828125,
+    35.56884765625
+  ],
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r8-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py"
+  ],
+  "phases": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1561714999988908,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.09055841699955636,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006215840003278572,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002434209000057308,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.23603895899941563,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005809169997519348,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[shared]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002510708996851463,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[shared]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15573500000027707,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[shared]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005540829988603946,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[new-workdir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002980042001581751,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[new-workdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3891239170006884,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[new-workdir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004673749972425867,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[none]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.020733332999952836,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[none]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15573920799943153,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[none]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00044145799984107725,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030870830014464445,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11928762500247103,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005082919997221325,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[plain]",
+      "key": "base-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis0/repository/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis0/repository/.git/objects\"]}, \"fix\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis0/repository/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis0/repository/.git/objects\"]}, \"layout\": \"plain\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[worktree]",
+      "key": "base-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git/worktrees/linked\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git/objects\"]}, \"fix\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git/worktrees/linked\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git/objects\"]}, \"layout\": \"worktree\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[shared]",
+      "key": "base-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/shared/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/shared/.git/objects\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/repository/.git/objects\"]}, \"fix\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/shared/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/shared/.git/objects\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/repository/.git/objects\"]}, \"layout\": \"shared\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[new-workdir]",
+      "key": "base-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/linked/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/.git/objects\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/.git\"]}, \"fix\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/linked/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/.git/objects\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/.git\"]}, \"layout\": \"new-workdir\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[none]",
+      "key": "base-comparison",
+      "value": "{\"base\": {}, \"fix\": {}, \"layout\": \"none\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "key": "D-R8-1",
+      "value": "{\"after\": 128, \"before\": 0, \"error\": \"fatal: invalid object name 'HEAD'.\\n\", \"input\": \"refs/heads/main -> owner/branch\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_deeper_ref_link_is_the_do0/stable/.git\", \"/private/tmp/sf-fix272r8/real-tmp/routine-and-depth/pytest-of-maxghenis/pytest-0/test_deeper_ref_link_is_the_do0/stable/.git/objects\"]}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[plain]",
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[worktree]",
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[shared]",
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[new-workdir]",
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_routine_matches_prerequisite[none]",
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py::test_deeper_ref_link_is_the_documented_difference"
+  ],
+  "end": "2026-10-31T07:14:12.378581+00:00",
+  "seconds": 6.088850500000262,
+  "peak_rss_mib": 111.296875,
+  "exit": 0
+}

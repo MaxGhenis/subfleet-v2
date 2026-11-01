@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 17:42:23Z slot A load 
+............                                                             [100%]
+12 passed in 60.25s (0:01:00)
+{"name": "earlier-test_retention_sweep_race-1", "start": "2026-10-31T17:42:27.355492+00:00", "load": [40.9365234375, 49.189453125, 51.6953125], "seconds": 62.98414687499462, "exit": 0}

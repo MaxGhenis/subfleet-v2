@@ -1,0 +1,253 @@
+{
+  "name": "regressions-r4-other",
+  "start": "2026-10-31T12:54:39.055528+00:00",
+  "load": [
+    84.8759765625,
+    115.7060546875,
+    111.93408203125
+  ],
+  "pytest_pid": 25582,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r4.py",
+    "-k",
+    "not changed_repository_spelling"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 14.991356667000218,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.4130521249971935,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002068666995910462,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5474674589931965,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.741834624997864,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024536670025554486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 5.015391875000205,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.9402030000055674,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.47729079100099625,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.5115640000003623,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.524130666999554,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.20400599999993574,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[first]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04148495799745433,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[first]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7227170830010436,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[first]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003076249995501712,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[recheck]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001826082996558398,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[recheck]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.715866582999297,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[recheck]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004072500014444813,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[both]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04596687499724794,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[both]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.41124012500222307,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[both]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006238749992917292,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.876330750004854,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.6595423340040725,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.019570167001802474,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[exporting-control]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.446161874999234,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[exporting-control]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 21.24577437499829,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[exporting-control]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.17425520799588412,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[absent-exporting]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[first]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[recheck]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_repeated_alias_failures_cannot_be_erased_by_deduplication[both]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[exporting-control]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T12:56:29.584545+00:00",
+  "seconds": 110.52810512499855,
+  "peak_rss_mib": 114.15625,
+  "exit": 0
+}

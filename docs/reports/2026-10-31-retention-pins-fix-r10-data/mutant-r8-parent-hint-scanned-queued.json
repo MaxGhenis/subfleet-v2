@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T13:35:31.032289+00:00",
+  "args": [
+    "--mutant",
+    "r8-parent-hint-scanned",
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/mutant-r8-parent-hint-scanned",
+  "linked": false,
+  "driver_pid": 42898,
+  "lock_process_group": 43786
+}

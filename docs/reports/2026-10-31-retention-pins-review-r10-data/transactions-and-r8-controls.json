@@ -1,0 +1,427 @@
+{
+  "name": "transactions-and-r8-controls",
+  "start": "2026-10-31T10:40:05.471282+00:00",
+  "load": [
+    38.658203125,
+    38.1259765625,
+    36.33837890625
+  ],
+  "args": [
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py",
+    "-k",
+    "test_unused_link_width_and_lifetime or test_terminal_gone_target_and_evidence_cannot_pin or test_recorded_link_entry_stays_stable_for_fences or test_r8_owner_removal_breaks_the_identical_real_git_read"
+  ],
+  "phases": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.30732712499957415,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.2305310830015515,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018945000010717195,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.31652033399950597,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.0773015830018267,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0023811249993741512,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3061277910019271,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.122867625002982,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0027876249987457413,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3189494170001126,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.14169587500146,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0023589999982505105,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.31991741599995294,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.088812333000533,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003338916001666803,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.31604458400033764,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1123300829967775,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003742332999536302,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3005867499996384,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5647997499982012,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003016499998921063,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5013105829966662,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3795876660005888,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0034200829977635294,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5170627909974428,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7994224169997324,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0029585839984065387,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5378462089975073,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7402548339996429,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0012698329992417712,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.39711829199950444,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.8482037089997903,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.014969750001910143,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.636717958997906,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.344759999999951,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003334417000587564,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.41622191600254155,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3047627919986553,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009255540997401113,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.43473687499863445,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5443267499977082,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006702000002405839,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/stable/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/state/worktrees/owner/broad\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": [\"borrower\"]}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"inside-owner\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/stable/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/state/worktrees/owner\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": [\"borrower\"]}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"tree\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/stable/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/state/worktrees\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"worktrees\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/stable/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/home\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"home\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/stable/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/state\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"fixture-root\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif5/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif5/stable/.git/objects\", \"/\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"slash\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "key": "owner-removal",
+      "value": "{\"after\": 128, \"before\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/stable/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/state/worktrees/owner/alias\"]}}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "key": "owner-removal",
+      "value": "{\"after\": 128, \"before\": 0, \"layout\": \"gitfile\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/stable/.git\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/stable/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/state/worktrees/owner/alias\"]}}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "key": "stable-link-fence",
+      "value": "{\"after\": [[\"git-storage\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner\"]]], \"before\": [[\"git-storage\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner\"]]], \"change\": \"retarget\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "key": "stable-link-fence",
+      "value": "{\"after\": [[\"git-storage\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner\"]]], \"before\": [[\"git-storage\", \"/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r10/real-tmp/transactions-and-r8-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner\"]]], \"change\": \"unlink\"}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:40:40.790604+00:00",
+  "seconds": 35.31864087499707,
+  "peak_rss_mib": 114.71875,
+  "exit": 0
+}

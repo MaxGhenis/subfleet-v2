@@ -1,0 +1,48 @@
+{
+  "label": "retention_sweep_race-part2",
+  "start": "2026-10-30T15:10:46.323051+00:00",
+  "loads": [
+    48.18798828125,
+    33.00927734375,
+    24.0439453125
+  ],
+  "seconds": 397.299076832991,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 391.27150170899404
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[after-the-lookup]",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job[before-quarantine]",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_moved_away_as_it_is_moved_in_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_gitfile_rewritten_before_the_archive_reads_it_keeps_the_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_found_registered_then_moved_away_before_the_lock_keeps_its_registration",
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_trees_registration_repaired_to_another_place_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_replaced_by_a_copy_before_quarantine_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_a_tree_put_back_by_hand_after_the_final_check_keeps_its_registration",
+    "tests/unit/test_retention_sweep_race.py::test_a_journal_written_before_the_identity_check_is_read_again",
+    "tests/unit/test_retention_sweep_race.py::test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled",
+    "tests/unit/test_retention_sweep_race.py::test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree",
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job",
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "phases": {
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 119390208
+}

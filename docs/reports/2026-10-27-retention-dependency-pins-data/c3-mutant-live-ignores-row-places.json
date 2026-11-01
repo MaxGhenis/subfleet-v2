@@ -1,0 +1,45 @@
+{
+  "start": "2026-10-28T20:23:56.388029+00:00",
+  "load": [
+    121.7392578125,
+    133.50341796875,
+    128.38525390625
+  ],
+  "pid": 88802,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 15.200769333998323
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 340.1884198330008,
+      "failure": "+ Exception Group Traceback (most recent call last):\n  |   File \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/mutant-tree/tests/unit/test_retention_dependency_units.py\", line 263, in test_d2_d3_worktree_in_use_is_exactly_the_specification\n  |     @given(OWNERS, st.lists(JOB, max_size=6), st.integers(0, 3))\n  |                    ^^^\n  |   File \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/venv/lib/python3.14/site-packages/hypothesis/core.py\", line 2295, in wrapped_test\n  |     raise the_error_hypothesis_found\n  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)\n  +-+---------------- 1 ----------------\n    | Traceback (most recent call last):\n    |   File \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/mutant-tree/tests/unit/test_retention_dependency_units.py\", line 283, in test_d2_d3_worktree_in_use_is_exactly_the_specification\n    |     assert set(found) == {job_id for job_id in places if job_id != tree and oracle({job_id: places[job_id]},\n    |                                                                                  path, tree)}\n    | AssertionError: assert {'j1'} == {'j0', 'j1'}\n    |   \n    |   Extra items in the right set:\n    |   'j0'\n    |   Use -v to get more diff\n    | Failing test case: test_d2_d3_worktree_in_use_is_exactly_the_specification(\n    |     # The test sometimes passed when commented parts were varied together.\n    |     owners=[(\n    |          't1',\n    |          False,  # or any other generated value\n    |      )],\n    |     jobs=[{\n    |          'state': 'queued',\n    |          'workdir': (\n    |              't1',\n    |              '',  # or any other generated value\n    |              0,  # or any other generated value\n    |          ),\n    |          'worktree': None,  # or any other generated value\n    |          'review_root': None,  # or any other generated value\n    |          'out_path': None,  # or any other generated value\n    |          'recorded': 'new',  # or any other generated value\n    |          'folder': None,\n    |          'depends_review': None,\n    |          'depends_out': None,\n    |          'git': [],\n    |          'exporting': False,  # or any other generated value\n    |      }, {\n    |          'state': 'queued',  # or any other generated value\n    |          'workdir': ('t1', '', 0),  # or any other generated value\n    |          'worktree': None,  # or any other generated value\n    |          'review_root': None,  # or any other generated value\n    |          'out_path': None,  # or any other generated value\n    |          'recorded': 'new',  # or any other generated value\n    |          'folder': None,  # or any other generated value\n    |          'depends_review': None,  # or any other generated value\n    |          'depends_out': (\n    |              't1',\n    |              '',  # or any other generated value\n    |              0,  # or any other generated value\n    |          ),\n    |          'git': [],  # or any other generated value\n    |          'exporting': False,  # or any other generated value\n    |      }],\n    |     how=0,  # or any other generated value\n    | )\n    +---------------- 2 ----------------\n    | Traceback (most recent call last):\n    |   File \"/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/mutant-tree/tests/unit/test_retention_dependency_units.py\", line 276, in test_d2_d3_worktree_in_use_is_exactly_the_specification\n    |     assert (reasons.get(tree) == \"worktree-in-use\") == expected, (tree, reasons, places)\n    | AssertionError: ('t1', {'j0': 'active'}, {'j0': (True, {'/s/worktrees/t1'}, set())})\n    | assert (None == 'worktree-in-use') == True\n    |  +  where None = <built-in method get of dict object at 0x110319340>('t1')\n    |  +    where <built-in method get of dict object at 0x110319340> = {'j0': 'active'}.get\n    | Failing test case: test_d2_d3_worktree_in_use_is_exactly_the_specification(\n    |     # The test sometimes passed when commented parts were varied together.\n    |     owners=[(\n    |          't1',\n    |          False,  # or any other generated value\n    |      )],\n    |     jobs=[{\n    |          'state': 'queued',\n    |          'workdir': (\n    |              't1',\n    |              '',  # or any other generated value\n    |              0,  # or any other generated value\n    |          ),\n    |          'worktree': None,  # or any other generated value\n    |          'review_root': None,  # or any other generated value\n    |          'out_path': None,  # or any other generated value\n    |          'recorded': 'new',  # or any other generated value\n    |          'folder': None,\n    |          'depends_review': None,\n    |          'depends_out': None,\n    |          'git': [],\n    |          'exporting': False,  # or any other generated value\n    |      }],\n    |     how=0,  # or any other generated value\n    | )\n    +------------------------------------"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0004520840011537075
+    }
+  ],
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "exit": 1,
+  "seconds": 385.56125387499924,
+  "maxrss": 328990720,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ]
+}

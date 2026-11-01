@@ -1,0 +1,33 @@
+{
+  "label": "shared-property-4",
+  "start": "2026-10-29T20:54:57.022176+00:00",
+  "loads": [
+    45.8662109375,
+    58.2998046875,
+    50.2685546875
+  ],
+  "seconds": 16.16239499999938,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 11.728288166999846
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 118407168
+}

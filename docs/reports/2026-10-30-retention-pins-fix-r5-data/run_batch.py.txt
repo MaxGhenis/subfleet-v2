@@ -1,0 +1,27 @@
+"""One pytest per shared hold; stays attached to its parent tool session."""
+import datetime, json, os, subprocess, sys, time
+from pathlib import Path
+scratch=Path("/private/tmp/sf-fix272r5")
+plan=json.loads(Path(sys.argv[1]).read_text())
+for label,args in plan:
+    # No new holds after 20:12 UTC, four hours after this build started.
+    if datetime.datetime.now(datetime.UTC) >= datetime.datetime(2026,10,30,20,12,tzinfo=datetime.UTC):
+        print("CUTOFF",label,flush=True); sys.exit(3)
+    hold=scratch/("hold-"+label); hold.mkdir(exist_ok=True)
+    env=dict(os.environ,TMPDIR=str(hold)+"/",HYPOTHESIS_STORAGE_DIRECTORY=str(scratch/"hyp"),
+             PYTHONDONTWRITEBYTECODE="1",UV_PROJECT_ENVIRONMENT=str(scratch/"venv"),UV_CACHE_DIR=str(scratch/"uv-cache"))
+    env.pop("SUBFLEET_RETENTION_DORMANT",None);env.pop("PYTHONPATH",None)
+    if label.startswith("mutant-"): env["SF_MUTANT"]=label
+    else: env.pop("SF_MUTANT",None)
+    cmd=["/bin/zsh","/Users/maxghenis/reviews/subfleet-hub/host-runs/suite_hold.sh","env","-u","SUBFLEET_RETENTION_DORMANT","-u","PYTHONPATH","UV_PROJECT_ENVIRONMENT="+str(scratch/"venv"),"UV_CACHE_DIR="+str(scratch/"uv-cache"),"uv","run","--no-sync","python",str(scratch/"run_hold.py"),label,*args]
+    print("QUEUED",label,datetime.datetime.now(datetime.UTC).isoformat(),flush=True)
+    with (scratch/(label+".log")).open("w") as log:
+        result=subprocess.run(cmd,env=env,stdout=log,stderr=subprocess.STDOUT)
+    data=json.loads((scratch/(label+".json")).read_text())
+    outcomes={}
+    for row in data["tests"]: outcomes[row["outcome"]]=outcomes.get(row["outcome"],0)+1
+    print("DONE",label,"rc",result.returncode,"seconds",round(data["seconds"],2),outcomes,flush=True)
+    if label.startswith("mutant-"):
+        assert result.returncode==1 and data["loaded"] and any(p=={"setup":"passed","call":"failed","teardown":"passed"} for p in data["phases"].values()),label
+    else:
+        assert result.returncode==0,label

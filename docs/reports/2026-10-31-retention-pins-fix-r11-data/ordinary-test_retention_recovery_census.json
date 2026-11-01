@@ -1,0 +1,76 @@
+{
+  "name": "ordinary-test_retention_recovery_census",
+  "start": "2026-10-31T18:48:46.839396+00:00",
+  "load": [
+    103.22900390625,
+    77.6484375,
+    67.49609375
+  ],
+  "pytest_pid": 68061,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_recovery_census.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 22.926042541999777,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3122057080036029,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.21562662499491125,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1568364170016139,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.07495129200106021,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09977958299714373,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_recovery_census.py::test_failed_legacy_census_never_enters_recovery",
+    "tests/fake/test_retention_recovery_census.py::test_recovery_and_archive_share_the_pass_census"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T18:49:53.580208+00:00",
+  "seconds": 66.73964554099803,
+  "peak_rss_mib": 112.15625,
+  "exit": 0
+}

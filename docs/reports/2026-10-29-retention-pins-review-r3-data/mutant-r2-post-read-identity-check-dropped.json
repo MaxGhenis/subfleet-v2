@@ -1,0 +1,29 @@
+{
+  "name": "mutant-r2-post-read-identity-check-dropped",
+  "start": "2026-10-29T13:53:31.450102+00:00",
+  "load": [
+    16.48876953125,
+    21.1376953125,
+    22.35693359375
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "024cb03dc0daec4b2dddee84bcdd05b8117d9867e592ea441190017250c38d38"
+    }
+  ],
+  "rc": 1,
+  "seconds": 5.673840792005649,
+  "rss": 117882880
+}

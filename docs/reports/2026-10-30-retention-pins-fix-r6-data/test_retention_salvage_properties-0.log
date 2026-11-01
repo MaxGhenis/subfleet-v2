@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 00:12:42Z slot B load 
+START test_retention_salvage_properties-0 2026-10-31T00:12:45.283366+00:00 load=(37.306640625, 37.9140625, 41.07421875)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent:
+
+  - during generate phase (128.87 seconds):
+    - Typical runtimes: ~ 3150-10937 ms, of which ~ 0-26 ms in data generation
+    - 20 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=20
+
+
+1 passed in 181.12s (0:03:01)

@@ -1,0 +1,23 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 16:45:24Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix] ________
+tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence
+    links = assert_location_spelling(checkout, recorded.get("git", []))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-r272r11/real-tmp/mutant-r10-entries-filter-dropped/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail
+E   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'
+E     
+E     Skipping 441 identical leading characters in diff, use -v to show
+E     - l/tail/tail
+E     + l/tail/tail/tail
+E     ?            +++++
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]
+1 failed in 17.88s
+{"name": "mutant-r10-entries-filter-dropped", "start": "2026-10-31T16:45:31.201041+00:00", "load": [51.54150390625, 46.80126953125, 64.1748046875], "seconds": 20.920963040996867, "exit": 1}

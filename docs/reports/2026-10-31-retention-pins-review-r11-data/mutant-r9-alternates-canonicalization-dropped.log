@@ -1,0 +1,14 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 16:54:30Z slot A load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates] ___
+tests/fake/test_retention_dependency_review_r9.py:79: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r11/real-tmp/mutant-r9-alternates-canonicalization-dropped/pytest-of-maxghenis/pytest-0...'bytes_after': 0, ...}, b"fatal: path 'owner-only.txt' does not exist in '57a46f1c9572485dfb66e153db272859a5672560'
+E     ")
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]
+1 failed in 35.69s
+{"name": "mutant-r9-alternates-canonicalization-dropped", "start": "2026-10-31T16:54:39.828165+00:00", "load": [55.0068359375, 55.18359375, 61.08544921875], "seconds": 42.81402050000179, "exit": 1}

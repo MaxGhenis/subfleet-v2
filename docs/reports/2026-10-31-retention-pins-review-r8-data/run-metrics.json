@@ -1,0 +1,7 @@
+{
+  "peak_pytest_concurrency": 2,
+  "named_mutants": 20,
+  "added_mutants": 3,
+  "killed": 23,
+  "legacy_same_assertions": 17
+}

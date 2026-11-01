@@ -1,0 +1,50 @@
+"""Scratch adaptation of the evidence runner: serial, one test file per lock hold.
+Uses a single clean tracked snapshot, restoring the target after every mutation,
+to keep cumulative copies below the host disk budget. Never edits evidence.
+"""
+from __future__ import annotations
+import io,json,os,shutil,subprocess,sys,tarfile,time
+from pathlib import Path
+
+
+def main():
+    worktree,python,out=Path(sys.argv[1]),sys.argv[2],Path(sys.argv[3])
+    s=Path(__file__).parent
+    definitions=json.loads((s/'mutant-definitions.json').read_text())
+    names=sys.argv[4:] or list(definitions)
+    out.mkdir(parents=True,exist_ok=True)
+    copy=s/'mutant-tree'
+    if not copy.exists():
+        copy.mkdir()
+        data=subprocess.check_output([str(s/'lane-git'),'archive','HEAD'],cwd=worktree)
+        with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+            archive.extractall(copy,filter='data')
+    results=[]
+    for name in names:
+        path,old,new,tests=definitions[name]
+        tests=[t.replace('tests/unit/test_retention_dependencies.py','tests/unit/test_retention_dependency_units.py') for t in tests]
+        # Keep original ordering, but never combine files within one pytest.
+        first=tests[0].split('::',1)[0]
+        tests=[t for t in tests if t.split('::',1)[0]==first]
+        target=copy/path
+        original=target.read_text()
+        start=time.time()
+        if original.count(old)!=1:
+            result={'name':name,'verdict':'NOT APPLIED','matches':original.count(old),'tests':tests}
+        else:
+            target.write_text(original.replace(old,new,1))
+            try:
+                child=subprocess.run(['python3',str(s/'hold.py'),'mutant-'+name,'pytest','-q',
+                                      '-p','no:cacheprovider','--import-mode=importlib','-x',*tests],cwd=copy)
+                log=(s/('mutant-'+name+'.log')).read_text()
+                (out/(name+'.log')).write_text(log)
+                result={'name':name,'verdict':'KILLED' if child.returncode==1 else 'SURVIVED' if child.returncode==0 else 'ERROR',
+                        'rc':child.returncode,'seconds':round(time.time()-start,2),'tests':tests,
+                        'tail':log.strip().splitlines()[-1:]}
+            finally:
+                target.write_text(original)
+        results.append(result)
+        with (out/'summary.jsonl').open('a') as log:log.write(json.dumps(result)+'\n')
+        print(json.dumps(result),flush=True)
+    return 0 if all(r['verdict']=='KILLED' for r in results) else 1
+if __name__=='__main__':sys.exit(main())

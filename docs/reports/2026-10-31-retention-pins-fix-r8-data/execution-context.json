@@ -1,0 +1,10 @@
+{
+  "start": "2026-10-31T07:05:00+00:00",
+  "prerequisite": "373a7f5bf588",
+  "scratch": "/private/tmp/sf-fix272r8",
+  "python": "Python 3.14.7",
+  "git": "git version 2.55.0",
+  "scratch_allocated_kib": 539688,
+  "cancelled_queue_last_output": "2026-10-31T07:30:38.721345+00:00",
+  "final_tests_end": "2026-10-31T07:40:07.429734+00:00"
+}

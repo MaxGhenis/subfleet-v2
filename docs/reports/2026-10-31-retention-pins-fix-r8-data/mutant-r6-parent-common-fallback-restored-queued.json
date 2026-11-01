@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:28:45.227887+00:00",
+  "args": [
+    "--mutant",
+    "r6-parent-common-fallback-restored",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r6-parent-common-fallback-restored",
+  "linked": false
+}

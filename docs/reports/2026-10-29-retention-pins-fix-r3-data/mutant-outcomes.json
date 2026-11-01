@@ -1,0 +1,155 @@
+[
+  {
+    "name": "r2-post-read-identity-check-dropped",
+    "killer": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+    ],
+    "result": "KILLED",
+    "start": "2026-10-29T20:55:53.287080+00:00",
+    "loads": [
+      62.9306640625,
+      61.580078125,
+      52.0244140625
+    ],
+    "locked": true,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "13050168b1c8f5ae20ee2455f7e5ba24137672b043456f3316e1aab877a78109"
+      }
+    ]
+  },
+  {
+    "name": "r2-terminal-legacy-incomplete-dropped",
+    "killer": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+    ],
+    "result": "KILLED",
+    "start": "2026-10-29T20:48:22.370683+00:00",
+    "loads": [
+      84.19482421875,
+      65.72998046875,
+      45.56884765625
+    ],
+    "locked": false,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "b8a7e3dd45bde778ca99d7ddf81688e791326bcd1e617bbaae477bc7e902d2f9"
+      }
+    ]
+  },
+  {
+    "name": "r3-post-traversal-alias-check-dropped",
+    "killer": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+    ],
+    "result": "KILLED",
+    "start": "2026-10-29T20:48:35.712960+00:00",
+    "loads": [
+      81.64208984375,
+      66.1083984375,
+      46.05810546875
+    ],
+    "locked": false,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "d3ec61444ccb0209581496fe7ea91c4879111783bc026d48bbee0d0cbc2d47c3"
+      }
+    ]
+  },
+  {
+    "name": "r3-census-moved-after-recovery",
+    "killer": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+    ],
+    "result": "KILLED",
+    "start": "2026-10-29T20:48:50.118403+00:00",
+    "loads": [
+      75.27783203125,
+      65.43896484375,
+      46.16796875
+    ],
+    "locked": false,
+    "loaded": [
+      {
+        "module": "subfleet.retention",
+        "original_sha256": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+        "mutated_sha256": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+      }
+    ]
+  },
+  {
+    "name": "r3-write-metadata-check-dropped",
+    "killer": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-fix272r3",
+      "/private/tmp/sf-fix272r3/probes.py::test_changes[same-size-running]"
+    ],
+    "result": "KILLED",
+    "start": "2026-10-29T20:49:09.015968+00:00",
+    "loads": [
+      71.4580078125,
+      65.1005859375,
+      46.384765625
+    ],
+    "locked": false,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "f9b565051def2807d47df2e15286c10c443adcc733783ff81e6b20181d73fc74"
+      }
+    ]
+  },
+  {
+    "name": "r3-final-path-check-dropped",
+    "killer": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-fix272r3",
+      "/private/tmp/sf-fix272r3/probes.py::test_changes[symlink-info-running]"
+    ],
+    "result": "KILLED",
+    "start": "2026-10-29T20:49:23.194951+00:00",
+    "loads": [
+      73.06591796875,
+      65.7646484375,
+      46.9482421875
+    ],
+    "locked": false,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "96a4cdcea8c092807e63a96d553f2e5cb0270566a8c61d37ba4805a6e547be6f"
+      }
+    ]
+  },
+  {
+    "name": "r3-terminal-census-live-only",
+    "killer": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+    ],
+    "result": "KILLED",
+    "start": "2026-10-29T20:49:39.524160+00:00",
+    "loads": [
+      76.765625,
+      66.857421875,
+      47.66162109375
+    ],
+    "locked": false,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+        "mutated_sha256": "f3eec948f32d9b4c106d193548bef115800737c0d24155cb8dee334e12febbac"
+      }
+    ]
+  }
+]

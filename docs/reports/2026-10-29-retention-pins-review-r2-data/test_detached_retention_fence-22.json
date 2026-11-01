@@ -1,0 +1,44 @@
+{
+  "name": "test_detached_retention_fence-22",
+  "start": "2026-10-29T06:45:29.059278+00:00",
+  "load": [
+    14.568359375,
+    19.33447265625,
+    21.5615234375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers": {
+      "setup": {
+        "duration": 0.03549245798785705,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.5564919169992208,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0005094999942230061,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

@@ -1,0 +1,19 @@
+{
+  "base": "b2a357b6c66559db3feb354bb6bb0ccf16f3c031",
+  "r6_test_only_five_marks_removed": true,
+  "entire_contract_byte_identical": true,
+  "contract_sha256": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7",
+  "listed_difference_lines_exact": true,
+  "listed_readers_unchanged": [
+    "subfleet/retention_git.py",
+    "subfleet/retention_survey.py",
+    "subfleet/retention_archive.py"
+  ],
+  "trial_departures": [
+    "Readable named own/parent/alternates steps instead of one long return",
+    "FileNotFoundError ignores only lexically absent paths; dangling links record errors",
+    "NotADirectoryError is missing in both text reading and alias identity observations",
+    "Discovery docstring describes both stores"
+  ],
+  "file_limit_bytes": 65536
+}

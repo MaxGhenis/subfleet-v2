@@ -1,0 +1,33 @@
+{
+  "label": "retention_dependency_properties-4",
+  "start": "2026-10-30T03:04:51.524563+00:00",
+  "loads": [
+    18.33056640625,
+    21.759765625,
+    23.97509765625
+  ],
+  "seconds": 46.62237220799943,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 36.84525633299927
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 132235264
+}

@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_dependency_properties-4",
+  "start": "2026-10-29T14:06:31.154949+00:00",
+  "load": [
+    25.62646484375,
+    22.3447265625,
+    21.8173828125
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 89.9695463750104,
+  "rss": 127844352
+}

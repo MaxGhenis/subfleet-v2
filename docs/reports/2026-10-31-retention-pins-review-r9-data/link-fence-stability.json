@@ -1,0 +1,88 @@
+{
+  "name": "link-fence-stability",
+  "start": "2026-10-31T09:28:03.831447+00:00",
+  "load": [
+    32.8056640625,
+    33.9599609375,
+    37.5185546875
+  ],
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=review-r9-data",
+    "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences"
+  ],
+  "phases": [
+    {
+      "node": "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8240545000007842,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.34886316700067255,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.012424208001903025,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5734474160017271,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.30326029199932236,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002907165999204153,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "key": "stable-link-fence",
+      "value": "{\"after\": [[\"git-storage\", \"/private/tmp/sf-r272r9/real-tmp/link-fence-stability/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r9/real-tmp/link-fence-stability/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner\"]]], \"before\": [[\"git-storage\", \"/private/tmp/sf-r272r9/real-tmp/link-fence-stability/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r9/real-tmp/link-fence-stability/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner\"]]], \"change\": \"retarget\"}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "key": "stable-link-fence",
+      "value": "{\"after\": [[\"git-storage\", \"/private/tmp/sf-r272r9/real-tmp/link-fence-stability/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r9/real-tmp/link-fence-stability/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner\"]]], \"before\": [[\"git-storage\", \"/private/tmp/sf-r272r9/real-tmp/link-fence-stability/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r9/real-tmp/link-fence-stability/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner\"]]], \"change\": \"unlink\"}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+    "review-r9-data/probes_r9.py::test_recorded_link_entry_stays_stable_for_fences[unlink]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:28:19.183756+00:00",
+  "seconds": 15.351940749998903,
+  "peak_rss_mib": 112.375,
+  "exit": 0
+}

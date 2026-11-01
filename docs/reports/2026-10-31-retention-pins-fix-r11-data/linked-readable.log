@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:13:55Z slot A load 
+..................................                                       [100%]
+34 passed in 152.87s (0:02:32)
+{"name": "linked-readable", "start": "2026-10-31T18:13:57.005623+00:00", "load": [51.5537109375, 58.01708984375, 56.56494140625], "seconds": 155.7094806669993, "exit": 0}

@@ -1,0 +1,53 @@
+{
+  "name": "test_retention_archive-12",
+  "start": "2026-10-29T14:33:45.802477+00:00",
+  "load": [
+    38.32861328125,
+    39.6396484375,
+    38.43310546875
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_the_history_limit_is_for_repositories_without_a_network_remote": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_bundle_over_the_limit_that_the_estimate_missed_keeps_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_what_the_history_limit_keeps": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job",
+    "tests/unit/test_retention_archive.py::test_the_history_limit_is_for_repositories_without_a_network_remote",
+    "tests/unit/test_retention_archive.py::test_a_bundle_over_the_limit_that_the_estimate_missed_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_the_survey_keeps_what_the_history_limit_keeps",
+    "tests/unit/test_retention_archive.py::test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that",
+    "tests/unit/test_retention_archive.py::test_a_guest_whose_host_is_gone_for_good_is_kept_a_day_with_where_its_registration_went"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 24.56308100000024,
+  "rss": 122568704
+}

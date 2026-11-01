@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:54:30.675447+00:00",
+  "args": [
+    "--mutant",
+    "r9-alternates-canonicalization-dropped",
+    "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/mutant-r9-alternates-canonicalization-dropped",
+  "linked": false,
+  "driver_pid": 71626,
+  "lock_process_group": 71938
+}

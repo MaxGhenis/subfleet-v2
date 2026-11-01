@@ -1,0 +1,123 @@
+{
+  "label": "retention_archive-9",
+  "start": "2026-10-29T20:22:09.166508+00:00",
+  "loads": [
+    18.88916015625,
+    22.20166015625,
+    19.189453125
+  ],
+  "seconds": 33.7931452910002,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9069586669997989
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.494030708000082
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.515324916999816
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0025820420000854938
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_resume_fence_and_retention_exclude_each_other",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9463134999996328
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_stale_resume_fence_is_released",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.321530083000198
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_symlinks_are_archived_as_links_and_never_followed",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.199671875000149
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.3521657909996065
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]",
+    "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle",
+    "tests/unit/test_retention_archive.py::test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move",
+    "tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins",
+    "tests/unit/test_retention_archive.py::test_resume_fence_and_retention_exclude_each_other",
+    "tests/unit/test_retention_archive.py::test_stale_resume_fence_is_released",
+    "tests/unit/test_retention_archive.py::test_symlinks_are_archived_as_links_and_never_followed",
+    "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_resume_fence_and_retention_exclude_each_other": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_stale_resume_fence_is_released": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_symlinks_are_archived_as_links_and_never_followed": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 123912192
+}

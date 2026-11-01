@@ -1,0 +1,75 @@
+{
+  "product_commit": "42bdf10798ba43551adb98fdf9cf81a1ed0eed98",
+  "definition_sha256": "af4176c43d520759d8024dd70331a067fc00ec8daa85022128323f6baeeec363",
+  "results": [
+    {
+      "mutant": "attribution-back-on-folded",
+      "mutant_loaded": "attribution-back-on-folded",
+      "start": "2026-10-29T02:31:36.069134+00:00",
+      "load": [
+        16.3740234375,
+        32.82568359375,
+        36.802734375
+      ],
+      "selected": [
+        "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]"
+      ],
+      "counts": {
+        "failed": 1
+      },
+      "by_file": {
+        "tests/fake/test_retention_dependencies.py": {
+          "failed": 1
+        }
+      },
+      "seconds": 14.95366162499704,
+      "exitstatus": 1
+    },
+    {
+      "mutant": "collate-nocase-restored",
+      "mutant_loaded": "collate-nocase-restored",
+      "start": "2026-10-29T02:31:09.786127+00:00",
+      "load": [
+        20.10205078125,
+        34.890625,
+        37.626953125
+      ],
+      "selected": [
+        "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]"
+      ],
+      "counts": {
+        "failed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_folded_pin.py": {
+          "failed": 1
+        }
+      },
+      "seconds": 13.50908645799791,
+      "exitstatus": 1
+    },
+    {
+      "mutant": "record-raw-spelling",
+      "mutant_loaded": "record-raw-spelling",
+      "start": "2026-10-29T02:33:33.011786+00:00",
+      "load": [
+        34.9365234375,
+        33.87841796875,
+        36.6572265625
+      ],
+      "selected": [
+        "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+      ],
+      "counts": {
+        "failed": 1
+      },
+      "by_file": {
+        "tests/unit/test_retention_dependency_units.py": {
+          "failed": 1
+        }
+      },
+      "seconds": 4.691019042002154,
+      "exitstatus": 1
+    }
+  ]
+}

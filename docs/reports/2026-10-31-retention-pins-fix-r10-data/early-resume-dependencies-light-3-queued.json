@@ -1,0 +1,14 @@
+{
+  "queued": "2026-10-31T14:28:33.608608+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/early-resume-dependencies-light-3",
+  "linked": false,
+  "driver_pid": 15087,
+  "lock_process_group": 15273
+}

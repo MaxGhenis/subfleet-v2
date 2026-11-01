@@ -1,0 +1,228 @@
+{
+  "name": "reader-differences",
+  "start": "2026-10-31T16:31:59.830286+00:00",
+  "load": [
+    50.84765625,
+    80.28564453125,
+    97.51708984375
+  ],
+  "pytest_pid": 8609,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/reader_probes.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[admin-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.818718457994692,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[admin-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6081172499980312,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[admin-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0027417090022936463,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[admin-decoy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6745658750005532,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[admin-decoy]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.5352259160063113,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[admin-decoy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001746458001434803,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[common-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5278704170050332,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[common-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8194775829979335,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_archive_and_survey[common-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0052329579993966036,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_nested_gitfile_reader[ ]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5712774170024204,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_nested_gitfile_reader[ ]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.4688482920028036,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_nested_gitfile_reader[ ]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00243462499929592,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_nested_gitfile_reader[\\t]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.574686334002763,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_nested_gitfile_reader[\\t]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.515459791000467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_nested_gitfile_reader[\\t]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020492500043474138,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4593551669968292,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3982987499985029,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020039590017404407,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5512610000005225,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4095294590006233,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003853791997244116,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4091039579943754,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.115662624994002,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/reader_probes.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0027322919995640405,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "review-r11-data/reader_probes.py::test_archive_and_survey[admin-space]",
+    "review-r11-data/reader_probes.py::test_archive_and_survey[admin-decoy]",
+    "review-r11-data/reader_probes.py::test_archive_and_survey[common-space]",
+    "review-r11-data/reader_probes.py::test_nested_gitfile_reader[ ]",
+    "review-r11-data/reader_probes.py::test_nested_gitfile_reader[\\t]",
+    "review-r11-data/reader_probes.py::test_bundle_verifier_uses_stripped_common",
+    "review-r11-data/reader_probes.py::test_registration_discard_uses_stripped_common_output",
+    "review-r11-data/reader_probes.py::test_physical_common_folder_through_archive_and_survey"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:32:34.670267+00:00",
+  "seconds": 34.839127541999915,
+  "peak_rss_mib": 112.25,
+  "exit": 0
+}

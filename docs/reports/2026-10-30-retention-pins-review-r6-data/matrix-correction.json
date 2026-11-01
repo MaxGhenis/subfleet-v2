@@ -1,0 +1,36 @@
+{
+  "label": "matrix-correction",
+  "start": "2026-10-30T19:30:49.475657+00:00",
+  "loads": [
+    67.99365234375,
+    54.2060546875,
+    49.9697265625
+  ],
+  "seconds": 10.206751125006122,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[-True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.11038650000409689
+    }
+  ],
+  "nodes": [
+    "pointer_matrix.py::test_empty_common[-True-False]"
+  ],
+  "all_nodes": [
+    "pointer_matrix.py::test_empty_common[-True-False]"
+  ],
+  "phases": {
+    "pointer_matrix.py::test_empty_common[-True-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 116195328
+}

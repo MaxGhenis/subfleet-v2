@@ -1,0 +1,123 @@
+{
+  "label": "retention_archive-2",
+  "start": "2026-10-29T20:18:40.651794+00:00",
+  "loads": [
+    28.67333984375,
+    25.6298828125,
+    19.31982421875
+  ],
+  "seconds": 23.411914041999808,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.025628500000038912
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00020583300010912353
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_network_url_classification",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00016041700018831762
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.1893463329997758
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.4282661249999364
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.05291554099994755
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0738037500000246
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.706858999999895
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+    "tests/unit/test_retention_archive.py::test_network_url_classification",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+    "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_network_url_classification": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 127123456
+}

@@ -1,0 +1,77 @@
+{
+  "name": "test_detached_retention_fence-6",
+  "start": "2026-10-29T11:10:55.062048+00:00",
+  "load": [
+    37.85205078125,
+    39.521484375,
+    31.13427734375
+  ],
+  "args": [
+    "tests/fake/test_detached_retention_fence.py",
+    "-k",
+    "test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree or test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers or test_rediscovered_detached_write_target_is_checked_before_workspace or test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out"
+  ],
+  "results": [
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold0-Held: retention is removing a finished job's worktree that its folder /s/worktrees/j/vendor/lib is in (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold1-Held: retention is removing a finished job's worktree, its folder (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold2-Held: retention is removing a finished job's worktree it works in (/s/w/{j}); it waits until retention lets go of it (C-8.4)]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold3-(/s/worktrees/j); it waits until retention lets go of it (C-8.4); a lease it needs is also held by another job: out:/r.md]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_write_target_is_checked_before_workspace",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[present]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[quarantined-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold0-Held: retention is removing a finished job's worktree that its folder /s/worktrees/j/vendor/lib is in (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold1-Held: retention is removing a finished job's worktree, its folder (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold2-Held: retention is removing a finished job's worktree it works in (/s/w/{j}); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold3-(/s/worktrees/j); it waits until retention lets go of it (C-8.4); a lease it needs is also held by another job: out:/r.md]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers",
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_write_target_is_checked_before_workspace",
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[present]",
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[quarantined-alias]"
+  ],
+  "seconds": 14.693532584002241,
+  "max_rss_bytes": 126074880,
+  "end": "2026-10-29T11:11:09.756466+00:00"
+}

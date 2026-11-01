@@ -1,0 +1,280 @@
+{
+  "holds": [
+    {
+      "hold": "c2-folded",
+      "start": "2026-10-28T17:08:20.599060+00:00",
+      "load": 95.2294921875,
+      "seconds": 562.5240031249996,
+      "exitstatus": 1,
+      "counts": {
+        "passed": 34,
+        "failed": 3
+      },
+      "examples": {
+        "test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job": {
+          "observed_passing": 500,
+          "observed_failing": 0,
+          "observed_invalid": 197
+        },
+        "test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job": {
+          "observed_passing": 150,
+          "observed_failing": 0,
+          "observed_invalid": 18
+        }
+      }
+    },
+    {
+      "hold": "c2-folded-firmlink",
+      "start": "2026-10-28T17:18:55.623549+00:00",
+      "load": 124.02099609375,
+      "seconds": 151.62358587500057,
+      "exitstatus": 1,
+      "counts": {
+        "failed": 3
+      },
+      "examples": {}
+    },
+    {
+      "hold": "c2-spelling-not-ready",
+      "start": "2026-10-28T17:24:13.704985+00:00",
+      "load": 51.99853515625,
+      "seconds": 17.01619383400248,
+      "exitstatus": 4,
+      "counts": {},
+      "examples": {}
+    },
+    {
+      "hold": "c2-spelling-sketch",
+      "start": "2026-10-28T17:25:21.393080+00:00",
+      "load": 48.7353515625,
+      "seconds": 110.02488008299406,
+      "exitstatus": 1,
+      "counts": {
+        "failed": 12,
+        "passed": 4
+      },
+      "examples": {}
+    },
+    {
+      "hold": "c2-spelling-red",
+      "start": "2026-10-28T17:29:07.309961+00:00",
+      "load": 91.38525390625,
+      "seconds": 108.33217783399596,
+      "exitstatus": 1,
+      "counts": {
+        "failed": 16
+      },
+      "examples": {}
+    },
+    {
+      "hold": "c2-spelling-green",
+      "start": "2026-10-28T17:31:36.410786+00:00",
+      "load": 54.595703125,
+      "seconds": 646.3268606249985,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 124
+      },
+      "examples": {
+        "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout": {
+          "observed_passing": 12,
+          "observed_failing": 0,
+          "observed_invalid": 0
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification": {
+          "observed_passing": 150,
+          "observed_failing": 0,
+          "observed_invalid": 12
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one": {
+          "observed_passing": 60,
+          "observed_failing": 0,
+          "observed_invalid": 7
+        },
+        "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place": {
+          "observed_passing": 200,
+          "observed_failing": 0,
+          "observed_invalid": 21
+        }
+      }
+    },
+    {
+      "hold": "c2-properties-selection",
+      "start": "2026-10-28T17:48:33.236690+00:00",
+      "load": 108.85986328125,
+      "seconds": 714.6172596670003,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 3
+      },
+      "examples": {
+        "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs": {
+          "observed_passing": 100,
+          "observed_failing": 0,
+          "observed_invalid": 2
+        },
+        "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference": {
+          "observed_passing": 100,
+          "observed_failing": 0,
+          "observed_invalid": 2
+        },
+        "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+          "observed_passing": 100,
+          "observed_failing": 0,
+          "observed_invalid": 2
+        }
+      }
+    },
+    {
+      "hold": "c2-properties-fence-import",
+      "start": "2026-10-28T18:01:23.751224+00:00",
+      "load": 88.09326171875,
+      "seconds": 41.697691084002145,
+      "exitstatus": 1,
+      "counts": {
+        "failed": 1
+      },
+      "examples": {}
+    },
+    {
+      "hold": "c2-properties-fence",
+      "start": "2026-10-28T18:03:26.703286+00:00",
+      "load": 95.43115234375,
+      "seconds": 136.7062549589973,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 1
+      },
+      "examples": {
+        "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+          "observed_passing": 24,
+          "observed_failing": 0,
+          "observed_invalid": 0
+        }
+      }
+    },
+    {
+      "hold": "c2-writer-rediscovery",
+      "start": "2026-10-28T18:07:36.935806+00:00",
+      "load": 56.376953125,
+      "seconds": 215.58841791699524,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 40
+      },
+      "examples": {}
+    },
+    {
+      "hold": "c2-detached-basic",
+      "start": "2026-10-28T18:11:48.379612+00:00",
+      "load": 56.41064453125,
+      "seconds": 432.2574733750007,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 87
+      },
+      "examples": {
+        "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded": {
+          "observed_passing": 300,
+          "observed_failing": 0,
+          "observed_invalid": 39
+        }
+      }
+    },
+    {
+      "hold": "c2-detached-generated",
+      "start": "2026-10-28T18:23:11.723981+00:00",
+      "load": 48.65087890625,
+      "seconds": 281.2560479159947,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 2
+      },
+      "examples": {
+        "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired": {
+          "observed_passing": 12,
+          "observed_failing": 0,
+          "observed_invalid": 0
+        }
+      }
+    },
+    {
+      "hold": "c2-shared-basic",
+      "start": "2026-10-28T18:30:30.368995+00:00",
+      "load": 92.0341796875,
+      "seconds": 707.1183408340003,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 59
+      },
+      "examples": {
+        "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in": {
+          "observed_passing": 150,
+          "observed_failing": 0,
+          "observed_invalid": 37
+        }
+      }
+    },
+    {
+      "hold": "c2-shared-generated",
+      "start": "2026-10-28T18:42:45.671841+00:00",
+      "load": 21.39013671875,
+      "seconds": 326.2606053749987,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 2
+      },
+      "examples": {
+        "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": {
+          "observed_passing": 40,
+          "observed_failing": 0,
+          "observed_invalid": 5
+        }
+      }
+    },
+    {
+      "hold": "c2-shared-reservation",
+      "start": "2026-10-28T18:48:26.207256+00:00",
+      "load": 58.51318359375,
+      "seconds": 564.9421251660024,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 1
+      },
+      "examples": {}
+    },
+    {
+      "hold": "c2-guards-plan",
+      "start": "2026-10-28T18:58:01.595911+00:00",
+      "load": 63.2607421875,
+      "seconds": 112.75508866699965,
+      "exitstatus": 0,
+      "counts": {
+        "passed": 63
+      },
+      "examples": {}
+    }
+  ],
+  "planned": 356,
+  "latest_counts": {
+    "passed": 353,
+    "failed": 3
+  },
+  "unrun": [],
+  "max_pytest_rss_bytes": 162250752,
+  "max_captured_child_rss_bytes": 9437184,
+  "unresolved": {
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]": {
+      "outcome": "failed",
+      "hold": "c2-folded-firmlink"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]": {
+      "outcome": "failed",
+      "hold": "c2-folded-firmlink"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]": {
+      "outcome": "failed",
+      "hold": "c2-folded-firmlink"
+    }
+  }
+}

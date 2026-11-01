@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:54:36Z slot B load 
+START 81-notes 2026-10-31T05:54:38.353203+00:00 load=(27.115234375, 28.52001953125, 29.22705078125)
+......................................                                   [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds:
+
+  - during generate phase (5.68 seconds):
+    - Typical runtimes: ~ 2-72 ms, of which ~ 0-11 ms in data generation
+    - 200 passing, 0 failing, and 12 invalid test cases
+
+  - Stopped because settings.max_examples=200
+
+
+38 passed in 98.01s (0:01:38)

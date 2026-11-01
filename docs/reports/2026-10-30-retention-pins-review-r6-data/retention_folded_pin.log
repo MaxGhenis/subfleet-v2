@@ -1,0 +1,29 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:55:37Z slot B load 
+START retention_folded_pin 2026-10-30T19:55:44.100313+00:00 load=(53.5078125, 54.82763671875, 51.00146484375)
+......................................                                   [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job:
+
+  - during generate phase (51.59 seconds):
+    - Typical runtimes: ~ 1-296 ms, of which ~ 0-22 ms in data generation
+    - 500 passing, 0 failing, and 175 invalid test cases
+    - Events:
+      * 27.70%, Retried draw from text(characters(categories=(), include_characters=('f', 'i', 'k', 'l', 's', 't', '0', '-')), min_size=1, max_size=8).filter(lambda n: n not in ('.', '..')).filter(lambda other: folders.fold(other) != folders.fold(tree_id)) to satisfy filter
+      * 0.89%, gave up because: Aborted test because unable to satisfy text(characters(categories=(), include_characters=('f', 'i', 'k', 'l', 's', 't', '0', '-')), min_size=1, max_size=8).filter(lambda n: n not in ('.', '..')).filter(lambda other: folders.fold(other) != folders.fold(tree_id))
+
+  - Stopped because settings.max_examples=500
+
+
+tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job:
+
+  - during generate phase (9.28 seconds):
+    - Typical runtimes: ~ 3-207 ms, of which ~ 1-139 ms in data generation
+    - 150 passing, 0 failing, and 18 invalid test cases
+
+  - Stopped because settings.max_examples=150
+
+
+38 passed in 184.28s (0:03:04)

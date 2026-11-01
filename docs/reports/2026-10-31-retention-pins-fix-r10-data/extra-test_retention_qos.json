@@ -1,0 +1,226 @@
+{
+  "name": "extra-test_retention_qos",
+  "start": "2026-10-31T15:17:14.105017+00:00",
+  "load": [
+    83.33642578125,
+    63.556640625,
+    66.8583984375
+  ],
+  "pytest_pid": 33782,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_qos.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_qos.py::test_every_child_retention_starts_is_clamped",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 13.502283583999088,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_every_child_retention_starts_is_clamped",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0069012919993838295,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_every_child_retention_starts_is_clamped",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00032250000367639586,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[background-background]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003386624994163867,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[background-background]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00020095800573471934,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[background-background]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00022420899767894298,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[maintenance-maintenance]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002584791000117548,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[maintenance-maintenance]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0003083750052610412,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[maintenance-maintenance]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00035037500492762774,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[inherit-None]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003480375002254732,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[inherit-None]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00016179199883481488,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[inherit-None]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002393749964539893,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[nonsense-utility]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029004589960095473,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[nonsense-utility]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00017012500029522926,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[nonsense-utility]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.027619667001999915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_a_clamped_git_runs",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0020355000015115365,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_a_clamped_git_runs",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.04738141600682866,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_a_clamped_git_runs",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042224999924656004,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_threads_disk_io_is_lowered_and_put_back",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3854003339947667,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_threads_disk_io_is_lowered_and_put_back",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.001299833005759865,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_threads_disk_io_is_lowered_and_put_back",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00023887499992270023,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_archive_and_the_deletion_run_throttled",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015432079962920398,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_archive_and_the_deletion_run_throttled",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 19.029201709003246,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_qos.py::test_the_archive_and_the_deletion_run_throttled",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00043000000005122274,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_qos.py::test_every_child_retention_starts_is_clamped",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[background-background]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[maintenance-maintenance]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[inherit-None]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[nonsense-utility]",
+    "tests/unit/test_retention_qos.py::test_a_clamped_git_runs",
+    "tests/unit/test_retention_qos.py::test_the_threads_disk_io_is_lowered_and_put_back",
+    "tests/unit/test_retention_qos.py::test_the_archive_and_the_deletion_run_throttled"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T15:18:30.020531+00:00",
+  "seconds": 75.91505933400185,
+  "peak_rss_mib": 109.90625,
+  "exit": 0
+}

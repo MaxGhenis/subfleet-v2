@@ -1,0 +1,35 @@
+{
+  "name": "unfinished-early-fences",
+  "start": "2026-10-31T16:21:17.388838+00:00",
+  "load": [
+    128.03466796875,
+    109.70849609375,
+    110.4638671875
+  ],
+  "pytest_pid": 94589,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.067715999997745,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:30:26.296534+00:00",
+  "seconds": 548.8947410409965,
+  "peak_rss_mib": 173.890625,
+  "exit": 2
+}

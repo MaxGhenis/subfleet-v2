@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:17:20Z slot A load 
+...F.....                                                                [100%]
+=================================== FAILURES ===================================
+__ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs] __
+tests/fake/test_retention_dependency_review_r9.py:67: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert before.returncode == health.returncode == 0, (before.stderr, health.stderr)
+E   AssertionError: (b'', b'error: packed-refs: badRefFiletype: not a regular file but a symlink
+E     ')
+E   assert 0 == 8
+E    +  where 0 = CompletedProcess(args=['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null', '-C...etadata_locatio3/outside', 'show', 'HEAD:owner-only.txt'], returncode=0, stdout=b'R5 owner-only storage\n', stderr=b'').returncode
+E    +  and   8 = CompletedProcess(args=['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null', '-C...dangling'], returncode=8, stdout=b'', stderr=b'error: packed-refs: badRefFiletype: not a regular file but a symlink\n').returncode
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[packed-refs]
+1 failed, 8 passed in 18.16s
+{"name": "mutant-r9-canonical-auxiliary-trial", "start": "2026-10-31T09:17:22.277171+00:00", "load": [31.48388671875, 34.3564453125, 41.47021484375], "seconds": 19.514715083001647, "exit": 1}

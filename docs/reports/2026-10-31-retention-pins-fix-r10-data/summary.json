@@ -1,0 +1,11 @@
+{
+  "completed_runs": 96,
+  "ordinary_runs": 77,
+  "ordinary_passing_nodes": 784,
+  "superseded": [],
+  "unresolved": {},
+  "longest_seconds": 587.2990648330015,
+  "peak_rss_mib": 174.59375,
+  "locked_runs": 96,
+  "peak_pytest_concurrency": 2
+}

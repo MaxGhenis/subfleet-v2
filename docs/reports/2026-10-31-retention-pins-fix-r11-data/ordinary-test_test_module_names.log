@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:56:15Z slot A load 
+.                                                                        [100%]
+1 passed in 32.44s
+{"name": "ordinary-test_test_module_names", "start": "2026-10-31T18:56:22.748662+00:00", "load": [63.0361328125, 68.1611328125, 67.779296875], "seconds": 44.83797725000477, "exit": 0}

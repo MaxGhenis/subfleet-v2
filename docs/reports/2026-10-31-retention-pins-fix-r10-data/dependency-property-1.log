@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:41:31Z slot A load 
+.                                                                        [100%]
+1 passed, 3 deselected in 527.14s (0:08:47)
+{"name": "dependency-property-1", "start": "2026-10-31T13:41:42.496172+00:00", "load": [86.46923828125, 84.01611328125, 93.06640625], "seconds": 535.4159087500011, "exit": 0}

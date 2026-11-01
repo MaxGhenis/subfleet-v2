@@ -1,0 +1,114 @@
+{
+  "collate-nocase-restored": {
+    "target": "subfleet/retention.py",
+    "old": "    needs = dependencies.users(dependencies.live(store.query, legacy))\n    for row in jobs:\n        if row[\"sandbox\"] != \"workspace-write\" or row[\"in_place\"]:\n            continue\n        tree = row[\"worktree\"] or (str(Path(root) / \"worktrees\" / row[\"job_id\"]) if root is not None else None)\n        if tree and needs.get(dependencies.key(tree), set()) - {row[\"job_id\"]}:\n            add(row[\"job_id\"], \"worktree-in-use\")\n",
+    "new": "    for row in store.query(\"SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id AND b.state NOT IN ('succeeded','failed','cancelled','lost') AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'\"):\n        add(row[\"job_id\"], \"worktree-in-use\")\n    if root is not None:\n        for row in store.query(\"SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id AND b.state NOT IN ('succeeded','failed','cancelled','lost') AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE OR b.workdir LIKE (?1 || a.job_id) || '/%' OR b.worktree LIKE (?1 || a.job_id) || '/%') WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'\", (str(Path(root) / \"worktrees\") + \"/\",)):\n            add(row[\"job_id\"], \"worktree-in-use\")\n",
+    "tests": [
+      "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]"
+    ]
+  },
+  "record-raw-spelling": {
+    "target": "subfleet/dependencies.py",
+    "old": "        found[\"review_root\"] = folders.canonical(review_root)",
+    "new": "        found[\"review_root\"] = review_root",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+    ]
+  },
+  "attribution-back-on-folded": {
+    "target": "subfleet/daemon.py",
+    "old": "                            role = None\n                            if retiring and not any(folders.within(dependencies.key(named or \"\"),\n                                                                   dependencies.key(key[len(folders.EXCLUSIVE):]))\n                                                    for key in retiring):\n                                # Else the first dependency place a fence is on or above.\n                                # Use the blocking query's key, including canonical caseless\n                                # Unicode aliases; the legacy folder fold is different (D1).\n                                role, named = next(((each, path) for each, path in needs if any(\n                                    folders.within(dependencies.key(path),\n                                                   dependencies.key(key[len(folders.EXCLUSIVE):])) for key in retiring)),\n                                    (None, named))\n",
+    "new": "                            role = None\n                            if retiring and not any(folders.fences(key, named or \"\", fold=True)\n                                                    for key in retiring):\n                                # Else the first other place it needs that a fence is on or above.\n                                role, named = next(((each, path) for each, path in needs if any(\n                                    folders.fences(key, path, fold=True) for key in retiring)),\n                                    (None, named))\n",
+    "tests": [
+      "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]"
+    ]
+  },
+  "transaction-own-not-filtered": {
+    "target": "subfleet/daemon.py",
+    "old": "                                        if key != own)",
+    "new": "                                        if True)",
+    "tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once"
+    ]
+  },
+  "transaction-hold-names-no-place": {
+    "target": "subfleet/daemon.py",
+    "old": "                                role, named = next(((each, path) for each, path in needs if any(\n                                    folders.within(dependencies.key(path),\n                                                   dependencies.key(key[len(folders.EXCLUSIVE):])) for key in retiring)),\n                                    (None, named))",
+    "new": "                                role, named = next(((each, path) for each, path in needs if any(\n                                    folders.within(dependencies.key(path),\n                                                   dependencies.key(key[len(folders.EXCLUSIVE):])) for key in retiring)),\n                                    (None, named))\n                                role = None",
+    "tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]"
+    ]
+  },
+  "git-storage-no-commondir": {
+    "target": "subfleet/dependencies.py",
+    "old": "    if pointer is not None and pointer.strip():\n        common = os.path.realpath(os.path.join(gitdir, pointer.strip()))\n    elif",
+    "new": "    if False:\n        pass\n    elif",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed"
+    ]
+  },
+  "git-storage-no-alternates": {
+    "target": "subfleet/dependencies.py",
+    "old": "    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, \"objects\"))]))",
+    "new": "    return list(dict.fromkeys([gitdir, common]))",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ]
+  },
+  "fences-not-retention-only": {
+    "target": "subfleet/dependencies.py",
+    "old": "            if str(holder or \"\").startswith(folders.RETENTION)]",
+    "new": "            if holder]",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+    ]
+  },
+  "review-repair-both": {
+    "target": "subfleet/dependencies.py",
+    "diff": "--- head\n+++ review-repair-both\n@@ -173,7 +173,8 @@\n                 if not line or line.startswith(\"#\"):\n                     continue\n                 if len(line) > 1 and line[0] == line[-1] == '\"':\n-                    line = line[1:-1]          # git's C-style quoting: a path with an odd character\n+                    import ast\n+                    line = ast.literal_eval(line)\n                 each = os.path.realpath(os.path.join(directory, line))\n                 if each not in found and each != objects:\n                     found.append(each)\n@@ -284,6 +285,9 @@\n         for path in (legacy_places or {}).get(job_id) or ():\n             add(job_id, path)\n     for row in read(_EXPORTING, ()):\n+        actual = next(iter(read(\"SELECT out_path FROM jobs WHERE job_id=?\", (row[\"job_id\"],))), None)\n+        if actual:\n+            add(row[\"job_id\"], actual[\"out_path\"])\n         add(row[\"job_id\"], row[\"out_path\"])\n         add(row[\"job_id\"], (_loads(row[\"submitted\"]).get(\"depends\") or {}).get(\"out_path\"))\n     return {job_id: paths for job_id, paths in found.items() if paths}\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py"
+    ]
+  },
+  "review-quoted-decode-removed": {
+    "target": "subfleet/dependencies.py",
+    "diff": "--- head\n+++ review-quoted-decode-removed\n@@ -284,6 +284,9 @@\n         for path in (legacy_places or {}).get(job_id) or ():\n             add(job_id, path)\n     for row in read(_EXPORTING, ()):\n+        actual = next(iter(read(\"SELECT out_path FROM jobs WHERE job_id=?\", (row[\"job_id\"],))), None)\n+        if actual:\n+            add(row[\"job_id\"], actual[\"out_path\"])\n         add(row[\"job_id\"], row[\"out_path\"])\n         add(row[\"job_id\"], (_loads(row[\"submitted\"]).get(\"depends\") or {}).get(\"out_path\"))\n     return {job_id: paths for job_id, paths in found.items() if paths}\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "git_c_quoted"
+    ]
+  },
+  "review-export-row-removed": {
+    "target": "subfleet/dependencies.py",
+    "diff": "--- head\n+++ review-export-row-removed\n@@ -173,7 +173,8 @@\n                 if not line or line.startswith(\"#\"):\n                     continue\n                 if len(line) > 1 and line[0] == line[-1] == '\"':\n-                    line = line[1:-1]          # git's C-style quoting: a path with an odd character\n+                    import ast\n+                    line = ast.literal_eval(line)\n                 each = os.path.realpath(os.path.join(directory, line))\n                 if each not in found and each != objects:\n                     found.append(each)\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "pending_export"
+    ]
+  },
+  "review-job-directory-release-control": {
+    "target": "subfleet/retention.py",
+    "diff": "--- head\n+++ review-job-directory-release-control\n@@ -47,7 +47,7 @@\n     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,\n     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,\n )\n-from . import dependencies, folders, procs\n+from . import folders, procs\n from .attempt_tmp import cleared_tmpdirs, job_tmpdirs, probe_tmpdir_rows\n from .retention_holders import ScanFailed, lsof_holders\n from .store import Store\n@@ -201,19 +201,38 @@\n                        \"WHERE l.holder != 'retention:' || j.job_id\"),\n     (\"retire-lease\", \"SELECT substr(lease_key, 8) AS job_id FROM leases WHERE lease_key LIKE 'retire:%' \"\n                      \"AND holder != 'retention:' || substr(lease_key, 8)\"),\n+    # A job not yet ended whose directory is this job's allocated worktree or\n+    # inside it (a job an agent submitted from its worktree, still queued):\n+    # the tree must still be there when it runs (design review, Opus 9). A\n+    # directory is compared without ASCII case: inside the tree with LIKE (the\n+    # store sets no case_sensitive_like), the tree itself with NOCASE. A native\n+    # session's cwd may spell the tree `jOB` for `Job`, and its queued turn, which\n+    # waits on retention's fence (`folders.retiring`, folded), keeps the tree\n+    # (review of 8a112986, finding 1).\n+    (\"worktree-in-use\", \"SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id \"\n+                        \"AND b.state NOT IN ('succeeded','failed','cancelled','lost') \"\n+                        \"AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE \"\n+                        \"OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') \"\n+                        \"WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'\"),\n )\n+#: `worktree-in-use` for a tree `_workspace` allocated that no row names yet\n+#: (`jobs.worktree` NULL, `rarch.owned_worktree`); ?1 is `<state>/worktrees/`.\n+_UNRECORDED_IN_USE = (\"SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id \"\n+                      \"AND b.state NOT IN ('succeeded','failed','cancelled','lost') \"\n+                      \"AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE \"\n+                      \"OR b.workdir LIKE ?1 || a.job_id || '/%' OR b.worktree LIKE ?1 || a.job_id || '/%') \"\n+                      \"WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'\")\n \n \n def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | None, *,\n                  pins: Callable[[], Iterable[str]] | None = None, turn_keep_s: float = 0,\n                  only: str | None = None, hosted: dict[str, set[str]] | None = None,\n-                 root: Path | None = None, legacy: dict[str, list[str]] | None = None) -> dict[str, str]:\n+                 root: Path | None = None) -> dict[str, str]:\n     \"\"\"job id -> why retention must keep it. Reads only database evidence (and\n     the conversation service's, and `hosted`, which `nested_hosts` read from the\n-    trees before the pass, and `legacy`, which `dependencies.legacy` read then),\n-    so it is as safe inside the delete transaction. With the state `root`, a\n-    tree allocated before its row recorded it counts for `worktree-in-use` like\n-    a recorded one.\n+    trees before the pass), so it is as safe inside the delete transaction.\n+    With the state `root`, a tree allocated before its row recorded it counts\n+    for `worktree-in-use` like a recorded one.\n \n     `landed_salvage` is the set of salvage artifact ids whose commit is (or, at\n     selection, will be) in the job's verified archive bundle: C-8.4 pins a job\n@@ -258,22 +277,6 @@\n     for reason, sql in _PIN_QUERIES:\n         for row in store.query(sql):\n             add(row[\"job_id\"], reason)\n-    # A job not yet ended that needs a place in this job's allocated tree: its\n-    # folder or workdir is the tree or inside it (a job an agent submitted from\n-    # its worktree, still queued: design review, Opus 9), or its review root, its\n-    # `-o` path or the git storage its checkout uses is (C-8.4,\n-    # `dependencies.live`), or an export to a path there is pending. The tree\n-    # must still be there when it runs. The tree is the one `jobs.worktree`\n-    # records or, while that is NULL, the one `_workspace` allocated\n-    # (`rarch.owned_worktree`); paths compare folded, so a spelling in another\n-    # case is the same path.\n-    needs = dependencies.users(dependencies.live(store.query, legacy))\n-    for row in jobs:\n-        if row[\"sandbox\"] != \"workspace-write\" or row[\"in_place\"]:\n-            continue\n-        tree = row[\"worktree\"] or (str(Path(root) / \"worktrees\" / row[\"job_id\"]) if root is not None else None)\n-        if tree and needs.get(dependencies.key(tree), set()) - {row[\"job_id\"]}:\n-            add(row[\"job_id\"], \"worktree-in-use\")\n     owned = {row[\"job_id\"] for row in jobs if row[\"worktree\"] and row[\"sandbox\"] == \"workspace-write\"\n              and not row[\"in_place\"]}\n     # I5 (C-8.4, C-13.4): turns and readers have per-turn rows rather than\n@@ -310,6 +313,8 @@\n             job_folder = str(Path(root) / \"jobs\" / row[\"job_id\"])\n             if any(folders.within(folder, job_folder) for folder in in_use | turn_workdirs):\n                 add(row[\"job_id\"], \"turn-folder\")\n+        for row in store.query(_UNRECORDED_IN_USE, (str(Path(root) / \"worktrees\") + \"/\",)):\n+            add(row[\"job_id\"], \"worktree-in-use\")\n     # A job registered in a repository inside another job's tree keeps that\n     # tree while it has rows: it retires first, with its own anchor (N4).\n     for host in ([only] if only else sorted(hosted or ())):\n@@ -489,9 +494,6 @@\n         self.freed_by_pool: dict[str, dict[str, int]] = {}\n         #: host job -> jobs registered in a repository inside its tree (`nested_hosts`, N4).\n         self.hosted: dict[str, set[str]] = {}\n-        #: job id -> the places a job queued before submit recorded them needs\n-        #: (`dependencies.legacy`), read once a pass, outside any transaction.\n-        self.legacy: dict[str, list[str]] = {}\n         #: Journal-less retention leases left by selection or old half-removal.\n         self.leftovers = state.leftovers\n \n@@ -506,12 +508,11 @@\n     def _reasons(self, only: str | None = None) -> dict[str, str]:\n         vouched = self._vouched()\n         reasons = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,\n-                               only=only, hosted=self.hosted, root=self.root, legacy=self.legacy)\n+                               only=only, hosted=self.hosted, root=self.root)\n         if vouched:\n             # The caller vouches for these salvage artifacts; recompute those jobs.\n             strict = _pin_reasons(self.store, self.explicit, vouched | self._owned_salvage(), pins=self.pins,\n-                                  turn_keep_s=self.turn_keep_s, only=only, hosted=self.hosted, root=self.root,\n-                                  legacy=self.legacy)\n+                                  turn_keep_s=self.turn_keep_s, only=only, hosted=self.hosted, root=self.root)\n             reasons = {k: v for k, v in reasons.items() if k in strict}\n         return reasons\n \n@@ -522,8 +523,7 @@\n \n     def _pinned_at_commit(self, job_id: str, landed: set[int]) -> str | None:\n         reasons = _pin_reasons(self.store, self.explicit, landed | self._vouched(), pins=self.pins,\n-                               turn_keep_s=self.turn_keep_s, only=job_id, hosted=self.hosted, root=self.root,\n-                               legacy=self.legacy)\n+                               turn_keep_s=self.turn_keep_s, only=job_id, hosted=self.hosted, root=self.root)\n         return reasons.get(job_id)\n \n     # the pass ----------------------------------------------------------------------\n@@ -533,7 +533,6 @@\n         jobs = list(reversed(self.store.list_jobs()))        # oldest first\n         by_id = {job[\"job_id\"]: job for job in jobs}\n         self.hosted = nested_hosts(jobs, self.root)\n-        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)\n         reasons = self._reasons()\n         for job_id in in_flight:\n             reasons.pop(job_id, None)\n@@ -859,7 +858,7 @@\n         with self.store.transaction(\"retention.selected\", job_id=job_id) as conn:\n             self.ctx.check()\n             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,\n-                                  only=job_id, hosted=self.hosted, root=self.root, legacy=self.legacy).get(job_id)\n+                                  only=job_id, hosted=self.hosted, root=self.root).get(job_id)\n             # A turn may register after selection. Read its rows, on the tree\n             # and on any folder inside it (P3-1), and acquire the fence\n             # atomically; daemon reservation checks this same fence before\n@@ -870,13 +869,6 @@\n             if reason is None and folder is not None and folders.turn_holds(\n                     lambda sql, params: conn.execute(sql, params).fetchall(), folder, inside=True):\n                 reason = \"turn-folder\"\n-            # Nor while a job that has not ended needs a place in the tree, named\n-            # in the fence's spelling (`dependencies`): admission starts no job\n-            # there once the fence is held, and the commit reads this again.\n-            if reason is None and folder is not None and dependencies.dependents(\n-                    lambda sql, params: conn.execute(sql, params).fetchall(), folder, exclude=job_id,\n-                    legacy_places=self.legacy):\n-                reason = \"worktree-in-use\"\n             if reason is None:\n                 for key in keys:\n                     current = conn.execute(\"SELECT holder FROM leases WHERE lease_key=?\", (key,)).fetchone()\n",
+    "tests": [
+      "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/test_job_directory_probe.py"
+    ]
+  },
+  "review-repair-all-three": {
+    "target": "subfleet/dependencies.py",
+    "diff": "--- head\n+++ review-repair-all-three\n@@ -50,7 +50,7 @@\n REVIEW_ROOT, OUTPUT, GIT = \"review-root\", \"output\", \"git-storage\"\n \n #: The most a gitfile, `commondir` or `alternates` file is read: git's own are a line or a few.\n-_FILE_LIMIT = 64 * 1024\n+_FILE_LIMIT = 1024 * 1024\n #: How deep alternates are followed; git follows them five levels deep.\n _ALTERNATES_DEPTH = 5\n \n@@ -173,7 +173,8 @@\n                 if not line or line.startswith(\"#\"):\n                     continue\n                 if len(line) > 1 and line[0] == line[-1] == '\"':\n-                    line = line[1:-1]          # git's C-style quoting: a path with an odd character\n+                    import ast\n+                    line = ast.literal_eval(line)\n                 each = os.path.realpath(os.path.join(directory, line))\n                 if each not in found and each != objects:\n                     found.append(each)\n@@ -284,6 +285,9 @@\n         for path in (legacy_places or {}).get(job_id) or ():\n             add(job_id, path)\n     for row in read(_EXPORTING, ()):\n+        actual = next(iter(read(\"SELECT out_path FROM jobs WHERE job_id=?\", (row[\"job_id\"],))), None)\n+        if actual:\n+            add(row[\"job_id\"], actual[\"out_path\"])\n         add(row[\"job_id\"], row[\"out_path\"])\n         add(row[\"job_id\"], (_loads(row[\"submitted\"]).get(\"depends\") or {}).get(\"out_path\"))\n     return {job_id: paths for job_id, paths in found.items() if paths}\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py"
+    ]
+  },
+  "review-alternates-cap-restored": {
+    "target": "subfleet/dependencies.py",
+    "diff": "--- head\n+++ review-alternates-cap-restored\n@@ -173,7 +173,8 @@\n                 if not line or line.startswith(\"#\"):\n                     continue\n                 if len(line) > 1 and line[0] == line[-1] == '\"':\n-                    line = line[1:-1]          # git's C-style quoting: a path with an odd character\n+                    import ast\n+                    line = ast.literal_eval(line)\n                 each = os.path.realpath(os.path.join(directory, line))\n                 if each not in found and each != objects:\n                     found.append(each)\n@@ -284,6 +285,9 @@\n         for path in (legacy_places or {}).get(job_id) or ():\n             add(job_id, path)\n     for row in read(_EXPORTING, ()):\n+        actual = next(iter(read(\"SELECT out_path FROM jobs WHERE job_id=?\", (row[\"job_id\"],))), None)\n+        if actual:\n+            add(row[\"job_id\"], actual[\"out_path\"])\n         add(row[\"job_id\"], row[\"out_path\"])\n         add(row[\"job_id\"], (_loads(row[\"submitted\"]).get(\"depends\") or {}).get(\"out_path\"))\n     return {job_id: paths for job_id, paths in found.items() if paths}\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "large_valid"
+    ]
+  }
+}

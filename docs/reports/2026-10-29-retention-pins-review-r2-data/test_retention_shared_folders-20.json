@@ -1,0 +1,67 @@
+{
+  "name": "test_retention_shared_folders-20",
+  "start": "2026-10-29T06:39:16.603858+00:00",
+  "load": [
+    23.70703125,
+    24.4453125,
+    23.56494140625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]": {
+      "setup": {
+        "duration": 0.5040958750032587,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07916883401048835,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0037772499927086756,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]": {
+      "setup": {
+        "duration": 0.4493075840000529,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.107872166991001,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.012767292006174102,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

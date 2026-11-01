@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:34:43.952708+00:00",
+  "args": [
+    "tests/unit/test_retention_archive.py",
+    "-m",
+    "not real_lsof"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/archive",
+  "linked": false
+}

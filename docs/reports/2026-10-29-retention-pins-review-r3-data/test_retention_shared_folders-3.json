@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_shared_folders-3",
+  "start": "2026-10-29T14:11:07.157010+00:00",
+  "load": [
+    34.26806640625,
+    29.65576171875,
+    25.224609375
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 18.84947825000563,
+  "rss": 120766464
+}

@@ -1,0 +1,36 @@
+{
+  "label": "physical-common-control",
+  "start": "2026-10-30T19:39:50.634024+00:00",
+  "loads": [
+    31.66845703125,
+    45.1064453125,
+    48.30908203125
+  ],
+  "seconds": 11.0789363340009,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.5711510830005864
+    }
+  ],
+  "nodes": [
+    "readers_probe.py::test_physical_common_folder_through_archive_and_survey"
+  ],
+  "all_nodes": [
+    "readers_probe.py::test_physical_common_folder_through_archive_and_survey"
+  ],
+  "phases": {
+    "readers_probe.py::test_physical_common_folder_through_archive_and_survey": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 118128640
+}

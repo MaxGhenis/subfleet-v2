@@ -1,0 +1,5 @@
+[
+  "tests/fake/test_admission_ramp.py::test_generated_R1_arbitrary_clocks_at_check_and_commit",
+  "tests/unit/test_retention_case_alias.py::test_a_folded_fence_holds_exactly_the_turns_whose_job_keeps_the_tree",
+  "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+]

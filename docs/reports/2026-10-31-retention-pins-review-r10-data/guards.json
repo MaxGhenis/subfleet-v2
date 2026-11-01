@@ -1,0 +1,1601 @@
+{
+  "name": "guards",
+  "start": "2026-10-31T11:06:52.891184+00:00",
+  "load": [
+    34.7568359375,
+    34.38427734375,
+    36.498046875
+  ],
+  "args": [
+    "tests/fake/test_state_contract.py",
+    "tests/unit/test_test_module_names.py",
+    "tests/unit/test_invariants_index.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.3858230830010143,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.19771387500077253,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.08700450000105775,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03250004100118531,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.10733358300058171,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007518708000134211,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.13404145800086553,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9044587919997866,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.012770750003255671,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.17243225000129314,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.26656454199837754,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.01567737499863142,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06307537499742466,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20282708299782826,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.028256417001102818,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03278479099753895,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.17466983399935998,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06548291699800757,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.09273120799844037,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1415410410008917,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006153957998321857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.059234667001874186,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.001411834000464296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007711832997301826,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.18461745799868368,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.12587729100050637,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005795332999696257,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01809237500128802,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0011671249994833488,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0063025409981491975,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1029652500001248,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0012085830021533184,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10320950000095763,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.021544125000218628,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.01907937500072876,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1377369580004597,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03266966700175544,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.01644466599827865,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0014107080023677554,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.20680020899817464,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.19083524999950896,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10337387500112527,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04536470800303505,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.06310704099814757,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005327541999577079,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06912341600036598,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.33449237500099116,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00704516599944327,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.13815941599750658,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.04724062500099535,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008277375000034226,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.23499795799943968,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.133615374998044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00488266699903761,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.024957124998763902,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 18.543822499999806,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011105083998700138,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04420487500101444,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.06652304100134643,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006105542001023423,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0641805410014058,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11536974999762606,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004686708998633549,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.17322908400092274,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.04012595899985172,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007547041997895576,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.09177070800069487,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3327306249993853,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0029522500008170027,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.017261916000279598,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1255530419985007,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0058842910002567805,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.14517999999952735,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.022952917002839968,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004114417002710979,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02425891600069008,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.16182124999977532,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005364749998989282,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.08611841600213666,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20675454199954402,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006462083998485468,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1252642500003276,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.14754337500198744,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00593670799935353,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.09532529100033571,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.09372833400266245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0032824999980221037,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.12299904199971934,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3816717500012601,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.14397408299919334,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1404945000031148,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.09243008300109068,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006923249999090331,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.39041999999972177,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18520908299979055,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07609437499922933,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.25323375000152737,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.23417150000022957,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005062333999376278,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03626100000110455,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.17571637500077486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006074208999052644,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06601524999859976,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.13320904100328335,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0063754999973753,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.134507290997135,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.19225899999946705,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02224654200108489,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.031299957998271566,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.12513945799946669,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005078791997220833,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02209012499952223,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8390897500030405,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00031666699942434207,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.11087195800064364,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0002310840027348604,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002650420028658118,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0019561669978429563,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00025262500275857747,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00028216600185260177,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023073749980540015,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00037195799814071506,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00024095800108625554,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024797910009510815,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00020879200019408017,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00026737500229501165,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_row_has_every_field",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018423750007059425,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_row_has_every_field",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.000741625000955537,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_row_has_every_field",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00033995899866567925,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017838749990914948,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00018591700063552707,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00020737500017276034,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001602667001861846,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00029095900026732124,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000272166002105223,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018559580021246802,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0003142499990644865,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002789170030155219,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0019427080005698372,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00015254200116032735,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00018883399752667174,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010964579996652901,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00015233399972203188,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00012137500016251579,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0008244580021710135,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.291700214613229e-05,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00038358399979188107,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04572970799927134,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00035329100137460046,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00026995799998985603,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04483408400119515,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0002356670011067763,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002937500030384399,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018760419989121147,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00026854200041270815,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002253340026072692,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004948375000822125,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00019350000002305023,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0001238330005435273,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0009760409993759822,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00016316700202878565,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00031366600160254166,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.011269958002230851,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0007460419983544853,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003603330005716998,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021023750014137477,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00034858400249504484,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003105409996351227,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0019267910029157065,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00017125000158557668,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00020112499987590127,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015702499986218754,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.000559667001652997,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002468329985276796,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.039405457999237115,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00020891700114589185,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00044025000170222484,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.014211709003575379,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.000296041998808505,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00030508299823850393,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0020585839993145783,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00019262500063632615,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042962500083376653,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021245829993858933,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.02198849999695085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003737920014827978,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024339999981748406,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.06538658399949782,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007750830009172205,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+    "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+    "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+    "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+    "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+    "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+    "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+    "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+    "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+    "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry",
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+    "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects",
+    "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated",
+    "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete",
+    "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+    "tests/unit/test_invariants_index.py::test_every_row_has_every_field",
+    "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set",
+    "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary",
+    "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+    "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason",
+    "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause",
+    "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved",
+    "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists",
+    "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+    "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+    "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+    "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+    "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+    "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause",
+    "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+    "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test",
+    "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+    "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold",
+    "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree",
+    "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T11:07:38.368588+00:00",
+  "seconds": 45.47649912500128,
+  "peak_rss_mib": 118.984375,
+  "exit": 0
+}

@@ -1,0 +1,64 @@
+{
+  "label": "dangling-oracle-rerun",
+  "start": "2026-10-31T06:33:11.016274+00:00",
+  "loads": [
+    33.70068359375,
+    34.31689453125,
+    33.873046875
+  ],
+  "seconds": 9.665511750001315,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6307601250009611,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.09891500000048836,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"dangling\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git/commondir: No such file or directory\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git\", \"/private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git/commondir\", \"reason\": \"[Errno 2] No such file or directory: '/private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git/commondir'\"}]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0032933340007730294,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"dangling\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git/commondir: No such file or directory\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git\", \"/private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git/commondir\", \"reason\": \"[Errno 2] No such file or directory: '/private/tmp/sf-r272r8/cases-11497/pytest/test_pointer_failure_split_aga0/outside/.git/commondir'\"}]}}"
+        ]
+      ],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]"
+  ],
+  "all_nodes": [
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]"
+  ],
+  "property_settings": {},
+  "loaded": [],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 117997568
+}

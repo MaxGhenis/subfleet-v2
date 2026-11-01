@@ -1,0 +1,37 @@
+{
+  "label": "retention_archive_properties-part2",
+  "start": "2026-10-30T17:03:35.318317+00:00",
+  "loads": [
+    29.51416015625,
+    22.86474609375,
+    20.96533203125
+  ],
+  "seconds": 66.22635958399042,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 54.263443250005366
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository",
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 120242176
+}

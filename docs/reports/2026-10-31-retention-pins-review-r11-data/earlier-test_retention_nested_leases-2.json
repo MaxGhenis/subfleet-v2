@@ -1,0 +1,207 @@
+{
+  "name": "earlier-test_retention_nested_leases-2",
+  "start": "2026-10-31T17:18:55.415373+00:00",
+  "load": [
+    55.16162109375,
+    46.64013671875,
+    49.5078125
+  ],
+  "pytest_pid": 94377,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+    "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+    "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.6793595839990303,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.401374250002846,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03576895800506463,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1467478749982547,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6397039579969714,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07333549999748357,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.426902790997701,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 15.620019958994817,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.18694775000039954,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.42487679199985,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.114666542001942,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.22543395799584687,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.361017750001338,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 17.502854541002307,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004218667003442533,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.3462557919992832,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 17.09916754200094,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09122749999369262,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02857587499602232,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 26.873038124998857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005251659968052991,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+    "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+    "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:21:05.761159+00:00",
+  "seconds": 130.35040679200029,
+  "peak_rss_mib": 118.203125,
+  "exit": 0
+}

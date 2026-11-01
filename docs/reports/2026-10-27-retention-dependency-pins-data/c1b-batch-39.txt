@@ -1,0 +1,5 @@
+tests/fake/test_admission_visibility.py::test_c6_16_status_lists_configured_callers_by_registry_name[False]
+tests/fake/test_admission_visibility.py::test_c6_16_status_lists_configured_callers_by_registry_name[True]
+tests/fake/test_admission_visibility.py::test_c6_16_status_with_default_callers_has_no_extra_registry_read
+tests/fake/test_admission_visibility.py::test_c6_16_why_names_priority_class_and_policy[False]
+tests/fake/test_admission_visibility.py::test_c6_16_why_names_priority_class_and_policy[True]

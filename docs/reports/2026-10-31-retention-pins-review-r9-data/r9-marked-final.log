@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:20:33Z slot B load 
+xxxx                                                                     [100%]
+4 xfailed in 39.15s
+{"name": "r9-marked-final", "start": "2026-10-31T09:20:38.395822+00:00", "load": [36.34423828125, 33.8916015625, 39.70703125], "seconds": 45.19268091699996, "exit": 0}

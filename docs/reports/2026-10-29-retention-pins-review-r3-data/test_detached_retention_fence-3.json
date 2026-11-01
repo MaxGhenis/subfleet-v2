@@ -1,0 +1,29 @@
+{
+  "name": "test_detached_retention_fence-3",
+  "start": "2026-10-29T14:36:58.494662+00:00",
+  "load": [
+    37.83056640625,
+    35.64404296875,
+    36.74853515625
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[legacy]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[legacy]"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 15.58814112500113,
+  "rss": 122765312
+}

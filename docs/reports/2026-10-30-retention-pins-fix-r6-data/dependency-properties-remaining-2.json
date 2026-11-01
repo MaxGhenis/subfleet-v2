@@ -1,0 +1,52 @@
+{
+  "label": "dependency-properties-remaining-2",
+  "start": "2026-10-30T23:08:04.436729+00:00",
+  "loads": [
+    31.62744140625,
+    30.91845703125,
+    34.01904296875
+  ],
+  "seconds": 166.81232458300656,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 156.91677520899975,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+      "max_examples": 24,
+      "derandomize": false,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 1
+    }
+  },
+  "loaded": [],
+  "rss": 131055616
+}

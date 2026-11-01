@@ -1,0 +1,18 @@
+{
+  "input": "git-new-workdir: config refs objects info links to its own repository tree",
+  "base": {
+    "git": [
+      "/private/tmp/sf-fix272r8/real-tmp/tmplb815ydn/repository/linked/.git",
+      "/private/tmp/sf-fix272r8/real-tmp/tmplb815ydn/repository/.git/objects",
+      "/private/tmp/sf-fix272r8/real-tmp/tmplb815ydn/repository/.git"
+    ]
+  },
+  "fix": {
+    "git": [
+      "/private/tmp/sf-fix272r8/real-tmp/tmplb815ydn/repository/linked/.git",
+      "/private/tmp/sf-fix272r8/real-tmp/tmplb815ydn/repository/.git/objects",
+      "/private/tmp/sf-fix272r8/real-tmp/tmplb815ydn/repository/.git"
+    ]
+  },
+  "git_rc": 0
+}

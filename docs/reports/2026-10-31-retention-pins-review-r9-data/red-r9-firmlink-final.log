@@ -1,0 +1,37 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:19:55Z slot B load 
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+____ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile] ____
+tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/red-r9-firmlink-final/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_l...ytes_before': 48804, 'bytes_after': 0, ...}, b'fatal: not a git repository (or any of the parent directories): .git
+E     ')
+E   assert ('owner' not in ['owner'])
+___ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir] ___
+tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/red-r9-firmlink-final/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_l...mlink-final/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin/commondir: No such file or directory
+E     ')
+E   assert ('owner' not in ['owner'])
+__ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates] ___
+tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/red-r9-firmlink-final/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_l...'bytes_after': 0, ...}, b"fatal: path 'owner-only.txt' does not exist in '31ef8ddf0bffbeec52206bce33bb5ada0f409124'
+E     ")
+E   assert ('owner' not in ['owner'])
+_ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack] __
+tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/red-r9-firmlink-final/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_l...[], 'bytes_before': 50721, 'bytes_after': 0, ...}, b"fatal: path 'owner-only.txt' exists on disk, but not in 'HEAD'
+E     ")
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]
+4 failed in 31.55s
+{"name": "red-r9-firmlink-final", "start": "2026-10-31T09:19:58.469955+00:00", "load": [30.4921875, 32.61767578125, 39.5576171875], "seconds": 32.93260529100007, "exit": 1}

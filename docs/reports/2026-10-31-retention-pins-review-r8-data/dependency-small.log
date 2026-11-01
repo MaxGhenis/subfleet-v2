@@ -1,0 +1,79 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:38:19Z slot B load 
+START dependency-small 2026-10-31T06:38:25.909030+00:00 load=(37.9365234375, 36.47607421875, 35.0703125)
+........................................................................ [ 52%]
+..................................................................       [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects:
+
+  - during generate phase (54.01 seconds):
+    - Typical runtimes: ~ 231-935 ms, of which < 1ms in data generation
+    - 100 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=100
+
+
+tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout:
+
+  - during generate phase (2.57 seconds):
+    - Typical runtimes: ~ 36-592 ms, of which ~ 0-15 ms in data generation
+    - 12 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=12
+
+
+tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification:
+
+  - during generate phase (17.66 seconds):
+    - Typical runtimes: ~ 0-258 ms, of which ~ 0-186 ms in data generation
+    - 150 passing, 0 failing, and 22 invalid test cases
+    - Events:
+      * 12.79%, Retried draw from TupleStrategy((sampled_from(('t1', 't2', 'Té')), booleans())).filter(not_yet_in_unique_list) to satisfy filter
+
+  - Stopped because settings.max_examples=150
+
+
+tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one:
+
+  - during generate phase (11.35 seconds):
+    - Typical runtimes: ~ 2-348 ms, of which ~ 1-106 ms in data generation
+    - 60 passing, 0 failing, and 4 invalid test cases
+    - Events:
+      * 10.94%, Retried draw from TupleStrategy((sampled_from(('t1', 't2', 'Té')), booleans())).filter(not_yet_in_unique_list) to satisfy filter
+
+  - Stopped because settings.max_examples=60
+
+
+tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place:
+
+  - during generate phase (10.72 seconds):
+    - Typical runtimes: ~ 1-308 ms, of which ~ 0-1 ms in data generation
+    - 200 passing, 0 failing, and 17 invalid test cases
+
+  - Stopped because settings.max_examples=200
+
+
+tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job:
+
+  - during generate phase (36.15 seconds):
+    - Typical runtimes: ~ 1-197 ms, of which ~ 0-70 ms in data generation
+    - 500 passing, 0 failing, and 217 invalid test cases
+    - Events:
+      * 28.31%, Retried draw from text(characters(categories=(), include_characters=('f', 'i', 'k', 'l', 's', 't', '0', '-')), min_size=1, max_size=8).filter(lambda n: n not in ('.', '..')).filter(lambda other: folders.fold(other) != folders.fold(tree_id)) to satisfy filter
+      * 1.39%, gave up because: Aborted test because unable to satisfy text(characters(categories=(), include_characters=('f', 'i', 'k', 'l', 's', 't', '0', '-')), min_size=1, max_size=8).filter(lambda n: n not in ('.', '..')).filter(lambda other: folders.fold(other) != folders.fold(tree_id))
+
+  - Stopped because settings.max_examples=500
+
+
+tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job:
+
+  - during generate phase (8.83 seconds):
+    - Typical runtimes: ~ 5-137 ms, of which ~ 1-102 ms in data generation
+    - 150 passing, 0 failing, and 10 invalid test cases
+
+  - Stopped because settings.max_examples=150
+
+
+138 passed in 311.49s (0:05:11)

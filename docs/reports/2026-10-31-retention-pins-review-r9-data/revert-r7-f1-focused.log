@@ -1,0 +1,54 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:48:44Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_named_own_inputs_keep_every_store_real_git_reads _____________
+tests/unit/test_retention_pointer_inputs.py:194: in test_named_own_inputs_keep_every_store_real_git_reads
+    suppress_health_check=[HealthCheck.function_scoped_fixture])
+         ^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_pointer_inputs.py:198: in test_named_own_inputs_keep_every_store_real_git_reads
+    observation = check_named_own_input(Path(directory), data)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/review-r9-data/run.py:112: in observed
+    result = original(base, data)
+             ^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_pointer_inputs.py:183: in check_named_own_input
+    assert not recorded.get("incomplete"), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/worktrees/0', '/private/tmp/sf-r2...rrno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/commondir'"}]}
+E   assert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/commondir', 'reason': "[Errno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/commondir'"}]
+E    +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/commondir', 'reason': "[Errno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/commondir'"}] = <built-in method get of dict object at 0x10f5bc380>('incomplete')
+E    +    where <built-in method get of dict object at 0x10f5bc380> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/worktrees/0', '/private/tmp/sf-r2...rrno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/commondir'"}]}.get
+E   Failing test case: test_named_own_inputs_keep_every_store_real_git_reads(
+E       # The test always failed when commented parts were varied together.
+E       record_property=append_property,
+E       data={
+E           'slot': 0,  # or any other generated value
+E           'common': 'absent',  # or any other generated value
+E           'own': 'plain',  # or any other generated value
+E           'parent': 'unrelated-commondir',
+E       },
+E   )
+E   {'input': {'slot': 0,
+E     'common': 'absent',
+E     'own': 'plain',
+E     'parent': 'unrelated-commondir'},
+E    'git_error': b'',
+E    'read_error': b'',
+E    'recorded': {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/worktrees/0',
+E      '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container',
+E      '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/objects',
+E      '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/worktrees/0/objects'],
+E     'incomplete': [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/commondir',
+E       'reason': "[Errno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpp6bmcxn4/container/commondir'"}]}}
+E   Explanation:
+E       These lines were always and only run by failing test cases:
+E           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:110
+E           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/dependencies.py:253
+E           /private/tmp/sf-r272r9/reversion-r7-f1/subfleet/sessions/transcripts.py:107
+E           /private/tmp/sf-r272r9/reversion-r7-f1/tests/unit/test_retention_pointer_inputs.py:158
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads
+1 failed in 279.88s (0:04:39)
+{"name": "revert-r7-f1-focused", "start": "2026-10-31T08:48:48.293437+00:00", "load": [42.7998046875, 40.400390625, 35.36328125], "seconds": 283.820978249998, "exit": 1}

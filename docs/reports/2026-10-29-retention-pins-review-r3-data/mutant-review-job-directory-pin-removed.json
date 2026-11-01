@@ -1,0 +1,29 @@
+{
+  "name": "mutant-review-job-directory-pin-removed",
+  "start": "2026-10-29T13:53:28.033963+00:00",
+  "load": [
+    16.79248046875,
+    21.275390625,
+    22.412109375
+  ],
+  "phases": {
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.retention",
+      "original_sha256": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3",
+      "mutated_sha256": "a1f8566d689f2c843194c01913bbcbf5d2b5a87bd92ec02bc5bd0c5717ce66db"
+    }
+  ],
+  "rc": 1,
+  "seconds": 2.947918167003081,
+  "rss": 117243904
+}

@@ -1,0 +1,33 @@
+{
+  "name": "folded-property-2",
+  "start": "2026-10-29T05:38:53.374888+00:00",
+  "load": [
+    18.4638671875,
+    22.00537109375,
+    25.20458984375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job"
+  ],
+  "phases": {
+    "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+      "valid": 150,
+      "invalid": 0,
+      "calls": 174,
+      "settings_max": 150
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

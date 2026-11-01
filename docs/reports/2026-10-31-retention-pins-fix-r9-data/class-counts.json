@@ -1,0 +1,174 @@
+{
+  "inputs": 55,
+  "outcomes": {
+    "needs-owner": 55
+  },
+  "classes": [
+    {
+      "position": "alternates-file",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "alternates-file",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "alternates-file",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "alternates-line",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "alternates-line",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "alternates-line",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "commondir-file",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "commondir-file",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "commondir-file",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "commondir-target",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "commondir-target",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "commondir-target",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "git-entry",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "git-entry",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "git-entry",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "gitfile-pointer",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "gitfile-pointer",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "gitfile-pointer",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "gitfile-target",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "gitfile-target",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "gitfile-target",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "intermediate",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "intermediate",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "intermediate",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "objects",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "objects",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "objects",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "objects-info",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "objects-info",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "objects-info",
+      "spelling": "other-normalization",
+      "count": 1
+    },
+    {
+      "position": "objects-pack",
+      "spelling": "data-volume",
+      "count": 2
+    },
+    {
+      "position": "objects-pack",
+      "spelling": "other-case",
+      "count": 2
+    },
+    {
+      "position": "objects-pack",
+      "spelling": "other-normalization",
+      "count": 1
+    }
+  ],
+  "skips": []
+}

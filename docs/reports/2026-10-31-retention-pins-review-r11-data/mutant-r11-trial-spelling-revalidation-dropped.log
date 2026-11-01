@@ -1,0 +1,21 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 17:04:01Z slot A load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_return_filter_keeps_readable_store_across_case_rename[alternates] ____
+tests/fake/test_retention_dependency_review_r11.py:106: in test_return_filter_keeps_readable_store_across_case_rename
+    check_case_rename(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r11.py:94: in check_case_rename
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r11/real-tmp/mutant-r11-trial-spelling-revalidation-dropped/pytest-of-maxghenis/pytest-...ce/.git/objects
+E     fatal: path 'owner-only.txt' exists on disk, but not in '4f73a081cdb6e52153d35b91fabf630ed46262da'
+E     ")
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]
+1 failed in 17.85s
+{"name": "mutant-r11-trial-spelling-revalidation-dropped", "start": "2026-10-31T17:04:05.270927+00:00", "load": [37.6240234375, 51.775390625, 57.8623046875], "seconds": 20.51848754200182, "exit": 1}

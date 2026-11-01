@@ -1,0 +1,29 @@
+{
+  "name": "mutant-r3-write-metadata-check-dropped",
+  "start": "2026-10-29T13:49:43.907579+00:00",
+  "load": [
+    31.1376953125,
+    23.73388671875,
+    23.30908203125
+  ],
+  "phases": {
+    "probes.py::test_changes[same-size-running]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "probes.py::test_changes[same-size-running]"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "71b6d31db269f0728854946ec3edf30af04a1be3ea01ade35d0cc59ed9e9420d"
+    }
+  ],
+  "rc": 1,
+  "seconds": 14.517849540992756,
+  "rss": 114458624
+}

@@ -1,0 +1,28 @@
+{
+  "label": "f1-r3",
+  "start": "2026-10-29T20:08:46.805795+00:00",
+  "loads": [
+    22.56103515625,
+    17.7978515625,
+    13.17431640625
+  ],
+  "seconds": 27.5579660840001,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.11031858299998
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.912911708000138
+    }
+  ],
+  "rss": 116211712
+}

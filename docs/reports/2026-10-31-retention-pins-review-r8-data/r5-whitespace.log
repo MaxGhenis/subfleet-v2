@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:51:21Z slot A load 
+START r5-whitespace 2026-10-31T05:51:22.949317+00:00 load=(26.69970703125, 30.21923828125, 29.94384765625)
+.....................................................................    [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads:
+
+  - during generate phase (11.03 seconds):
+    - Typical runtimes: ~ 54-180 ms, of which < 1ms in data generation
+    - 100 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=100
+
+
+69 passed in 100.77s (0:01:40)

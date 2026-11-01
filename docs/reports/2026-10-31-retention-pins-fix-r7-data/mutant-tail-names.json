@@ -1,0 +1,12 @@
+[
+  "mutant-r5-gitfile-whitespace-stripping-restored",
+  "mutant-r5-gitfile-colon-without-space-accepted",
+  "mutant-r6-empty-common-initial-objects-not-recorded",
+  "mutant-r6-pointer-read-failure-evidence-dropped",
+  "mutant-r6-parent-common-fallback-restored",
+  "mutant-r6-dangling-pointer-treated-as-missing",
+  "mutant-r6-oversized-pointer-treated-as-missing",
+  "mutant-r7-unused-parent-pointer-probing-restored",
+  "mutant-r7-own-objects-revalidation-dropped",
+  "mutant-r7-parent-objects-recording-dropped"
+]

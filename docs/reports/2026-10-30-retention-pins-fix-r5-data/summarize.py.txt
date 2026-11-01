@@ -1,0 +1,56 @@
+"""Summarize only this build's named holds; no test execution."""
+import collections, hashlib, json, sys
+from pathlib import Path
+scratch=Path("/private/tmp/sf-fix272r5")
+out=Path("docs/reports/2026-10-30-retention-pins-fix-r5-data")
+ordinary=json.loads((out/"ordinary-plan.json").read_text())
+mutants=json.loads((out/"mutant-plan.json").read_text())
+labels=["red-r5","green-r5","pointer-whitespace"]+[p[0] for p in ordinary+mutants]
+labels += ["retention_sweep_race-part2-interrupted"]
+ledger=[]; missing=[]
+for label in labels:
+    p=scratch/(label+".json")
+    if not p.exists(): missing.append(label);continue
+    d=json.loads(p.read_text()); ledger.append(d)
+    for suffix in [".json",".log"]:
+        src=scratch/(label+suffix)
+        if src.exists(): (out/src.name).write_bytes(src.read_bytes())
+if missing and "--partial" not in sys.argv: raise AssertionError(missing)
+ledger.sort(key=lambda d:d["start"])
+(out/"ledger.json").write_text(json.dumps(ledger,indent=2)+"\n")
+files=collections.defaultdict(lambda:dict(passed=set(),selected=set(),all=set(),runs=[]))
+kills=[]
+interrupted=[]
+for d in ledger:
+    if d["label"]=="red-r5": continue
+    if d.get("attempt_kind")=="interrupted":
+        assert d["exit"]==2,d["label"]
+        interrupted.append(dict(label=d["label"],start=d["start"],loads=d["loads"],seconds=d["seconds"]))
+        continue
+    if d["label"].startswith("mutant-"):
+        assert d["exit"]==1 and d["loaded"]
+        killers=[n for n,p in d["phases"].items() if p==dict(setup="passed",call="failed",teardown="passed")]
+        assert len(killers)==1,(d["label"],killers)
+        kills.append(dict(mutant=d["label"].removeprefix("mutant-"),killer=killers[0],start=d["start"],loads=d["loads"]))
+        continue
+    assert d["exit"]==0,d["label"]
+    for n in d["all_nodes"]: files[n.split("::")[0]]["all"].add(n)
+    for n in d["nodes"]:
+        f=files[n.split("::")[0]];f["selected"].add(n)
+    for n,p in d["phases"].items():
+        assert p==dict(setup="passed",call="passed",teardown="passed"),(n,p)
+        f=files[n.split("::")[0]];f["passed"].add(n)
+        if d not in f["runs"]:f["runs"].append(d)
+rows=[]
+for name,f in files.items():
+    if not f["runs"]:continue
+    first=min(f["runs"],key=lambda d:d["start"])
+    rows.append(dict(file=name,passed=len(f["passed"]),start=first["start"],loads=first["loads"],
+                     unrun=sorted(f["all"]-f["selected"])))
+rows.sort(key=lambda r:r["start"])
+summary=dict(files=rows,ordinary_passes=sum(r["passed"] for r in rows),mutants=kills,
+             hold_count=len(ledger),missing_holds=missing,interrupted_attempts=interrupted,max_seconds=max(d["seconds"] for d in ledger),
+             max_rss=max(d["rss"] for d in ledger),all_locked=all(d["locked"] for d in ledger))
+(out/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
+print(json.dumps({k:v for k,v in summary.items() if k not in ["files","mutants","missing_holds"]},indent=2))
+print("Completed",len(ledger),"missing",len(missing))

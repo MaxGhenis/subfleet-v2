@@ -1,0 +1,105 @@
+{
+  "name": "test_detached_retention_fence-7",
+  "start": "2026-10-29T11:11:13.281545+00:00",
+  "load": [
+    34.23876953125,
+    38.568359375,
+    30.98583984375
+  ],
+  "args": [
+    "tests/fake/test_detached_retention_fence.py",
+    "-k",
+    "test_rediscovered_detached_absent_alias_is_fenced_before_workspace or test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget or test_modern_unspellable_source_alias_waits_on_retirement_before_workspace or test_detached_row_presence_answer_survives_workspace_until_reservation"
+  ],
+  "results": [
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_absent_alias_is_fenced_before_workspace",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_absent_alias_is_fenced_before_workspace",
+    "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]",
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]",
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]"
+  ],
+  "seconds": 22.44661145900318,
+  "max_rss_bytes": 127451136,
+  "end": "2026-10-29T11:11:35.729196+00:00"
+}

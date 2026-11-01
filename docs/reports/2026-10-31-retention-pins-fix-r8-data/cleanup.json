@@ -1,0 +1,11 @@
+{
+  "completed": "2026-10-31T07:57:46.524722+00:00",
+  "scratch_removed": true,
+  "archive_fixtures_removed": true,
+  "worktree_caches_absent": true,
+  "read_only_test_directories_made_removable": [
+    "/private/tmp/sf-fix272r8/real-tmp/archive/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro"
+  ],
+  "all_final_test_runs_finished": true,
+  "cancelled_child_exit_receipt": "aborted-pre-correction-reversion1.json"
+}

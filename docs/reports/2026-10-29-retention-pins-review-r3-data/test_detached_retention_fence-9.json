@@ -1,0 +1,125 @@
+{
+  "name": "test_detached_retention_fence-9",
+  "start": "2026-10-29T14:40:18.697571+00:00",
+  "load": [
+    24.16357421875,
+    31.5615234375,
+    34.89013671875
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-allocated-writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-allocated-writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-allocated-writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-allocated-writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]",
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]",
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-allocated-writer]"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 22.171164375002263,
+  "rss": 123191296
+}

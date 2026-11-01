@@ -1,0 +1,21 @@
+{
+  "name": "aborted-pre-correction-reversion1",
+  "start": "2026-10-31T07:30:35.995500+00:00",
+  "load": [
+    31.77197265625,
+    32.7646484375,
+    33.47119140625
+  ],
+  "seconds": 2.7189302500009944,
+  "exit": 4,
+  "recovered_original_name": "revert-decision1-location",
+  "valid": false,
+  "locked": true,
+  "admitted": true,
+  "phases": [],
+  "observations": [],
+  "collected": [],
+  "peak_rss_mib": null,
+  "reason": "Cancellation did not stop the queued child. It later admitted and returned 4 before collection because the scratch test path was gone. Final corrected reversion was rerun.",
+  "end": "2026-10-31T07:30:38.714430+00:00"
+}

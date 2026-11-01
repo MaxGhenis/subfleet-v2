@@ -1,0 +1,66 @@
+{
+  "name": "mutant-r11-enametoolong-kept",
+  "start": "2026-10-31T18:39:23.518650+00:00",
+  "load": [
+    60.59033203125,
+    61.138671875,
+    60.58056640625
+  ],
+  "pytest_pid": 58331,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "--mutant",
+    "r11-enametoolong-kept",
+    "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3950198750026175,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.5285782499995548,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table\n    assert (place in result) == (outcome not in (\"ELOOP\", \"ENAMETOOLONG\"))\nE   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/mutant-r11-enametoolong-kept/pytest-of-maxghenis/pytest-0/test_filter_stat_table_f...nglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong' in ['/private/tmp/sf-fix272r11/real-tmp/mutant-r11-enametoolong-kept/pytest-of-maxghenis/pytest-0/test_filter_stat_table_...glonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong']) == ('ENAMETOOLONG' not in ('ELOOP', 'ENAMETOOLONG'))"
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005987920012557879,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]",
+      "key": "stat-table",
+      "value": "{\"route\": \"found\", \"outcome\": \"ENAMETOOLONG\", \"stat_errno\": 63, \"controlled_failed_equation\": true, \"controlled_final_spelling\": true, \"kept\": true}"
+    }
+  ],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "ebed2a43ddfc264b9faf0ee0101550081ea78df97acec789b8f16aeb82807a69",
+      "mutated": "b6ab0f0efdb5db2466feeb4a83e184f5fa0c4a71a6037c04b71e9cd7c3c405a5"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "ebed2a43ddfc264b9faf0ee0101550081ea78df97acec789b8f16aeb82807a69",
+  "end": "2026-10-31T18:39:55.650026+00:00",
+  "seconds": 32.130719999993744,
+  "peak_rss_mib": 114.765625,
+  "exit": 1
+}

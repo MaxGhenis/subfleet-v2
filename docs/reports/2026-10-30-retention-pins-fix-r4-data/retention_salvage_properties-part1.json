@@ -1,0 +1,37 @@
+{
+  "label": "retention_salvage_properties-part1",
+  "start": "2026-10-30T05:36:30.348340+00:00",
+  "loads": [
+    15.2919921875,
+    16.23583984375,
+    19.07275390625
+  ],
+  "seconds": 51.602042375001474,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 50.00552291700296
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "phases": {
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 121257984
+}

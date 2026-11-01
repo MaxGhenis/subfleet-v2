@@ -1,0 +1,42 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:07:42Z slot A load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_pointer_inputs_keep_every_store_real_git_reads ______________
+tests/unit/test_retention_pointer_inputs.py:123: in test_pointer_inputs_keep_every_store_real_git_reads
+    suppress_health_check=[HealthCheck.function_scoped_fixture])
+         ^^^^^^^^^^^^^^^^^^
+/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+tests/unit/test_retention_pointer_inputs.py:142: in test_pointer_inputs_keep_every_store_real_git_reads
+    observation = check_input(Path(directory), data)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_pointer_inputs.py:115: in check_input
+    assert any(error["file"] == str(pointer) for error in recorded.get("incomplete", [])), recorded
+E   AssertionError: {'incomplete': [{'file': '/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/checkout/.git', 'reason': "[Errno 27] longer than 65536 bytes: '/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/checkout/.git'"}]}
+E   assert False
+E    +  where False = any(<generator object check_input.<locals>.<genexpr> at 0x10708c8b0>)
+E   (note: 1 other explicit example also failed with this error; use Verbosity.verbose to view)
+E   Failing explicit example: test_pointer_inputs_keep_every_store_real_git_reads(
+E       record_property=append_property,
+E       data={'layout': 'gitfile',
+E        'prefix': 'present',
+E        'target': 'normal',
+E        'common': 'absent',
+E        'own': 'symlink',
+E        'named': True,
+E        'padding': 'over',
+E        'pad_file': 'gitfile'},
+E   )
+E   {"common": "absent", "layout": "gitfile", "named": true, "own": "symlink", "pad_file": "gitfile", "padding": "over", "prefix": "present", "target": "normal"}
+E   {'git_path': b'/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/container/worktrees/slot/objects\n',
+E    'git_error': b'',
+E    'read_error': b'',
+E    'recorded': {'incomplete': [{'file': '/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/checkout/.git',
+E       'reason': "[Errno 27] longer than 65536 bytes: '/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/checkout/.git'"}]}}
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads
+1 failed in 8.46s
+{"name": "red-linked-pointer", "start": "2026-10-31T07:07:43.146841+00:00", "load": [34.533203125, 34.8896484375, 35.03564453125], "seconds": 9.254347957998107, "exit": 1}

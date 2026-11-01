@@ -1,0 +1,60 @@
+{
+  "name": "dependency-property-2",
+  "start": "2026-10-31T20:46:26.802303+00:00",
+  "load": [
+    52.4951171875,
+    56.2177734375,
+    64.599609375
+  ],
+  "pytest_pid": 50863,
+  "failure_root": "/private/tmp/sf-fix272r12/failed-keep",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "monotone"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1892506250005681,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 229.0731076670054,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005821250088047236,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-161028-pr272-fix-r12/subfleet/dependencies.py",
+  "product_sha256": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+  "example_progress": {
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+      "passed": 100,
+      "failures": [],
+      "interrupted": 0
+    }
+  },
+  "end": "2026-10-31T20:50:27.846888+00:00",
+  "seconds": 241.0430064589891,
+  "peak_rss_mib": 128.703125,
+  "exit": 0
+}

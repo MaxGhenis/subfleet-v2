@@ -1,0 +1,227 @@
+"""C-8.4: generated dependency sets with an independent caseless path oracle.
+
+Every selection fixture has an untargeted owner which must actually retire.
+The linked-checkout evidence is read from a gitfile; no provider or live store
+is used. Conservative pins on case-sensitive volumes are intentional.
+"""
+from __future__ import annotations
+
+import os
+import tempfile
+import unicodedata
+from pathlib import Path
+
+from hypothesis import HealthCheck, example, given, settings, strategies as st
+
+from subfleet import dependencies, folders, retention
+from subfleet.store import Store
+
+TERMINAL = ("succeeded", "failed", "cancelled", "lost")
+STATES = ("queued", "waiting", "running", *TERMINAL)
+OWNERS = ("first-desk", "k", "free")
+ROLES = ("workdir", "worktree", "review_root", "out_path", "folder", "write_target", "git")
+PLACE = st.tuples(st.integers(0, 3), st.sampled_from(("", "/vendor/lib", "/absent/result.md")),
+                  st.integers(0, 3))
+JOB = st.fixed_dictionaries({"state": st.sampled_from(STATES),
+                            **{role: st.none() | PLACE for role in ROLES}})
+OPTIONS = dict(deadline=None, suppress_health_check=[HealthCheck.too_slow])
+
+
+@st.composite
+def job_sets(draw):
+    jobs = draw(st.lists(JOB, min_size=4, max_size=8))
+    jobs[0]["state"] = draw(st.sampled_from(STATES[:3]))
+    jobs[1]["state"] = draw(st.sampled_from(TERMINAL))
+    for n, role in enumerate(ROLES):
+        target, below, _ = draw(PLACE)
+        jobs[n % len(jobs)][role] = (target, below, n % 4)
+    return jobs
+
+
+SETS = job_sets()
+
+
+def fold(path):
+    # This is the specification, independent of production path helpers.
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", os.path.normpath(path)).casefold())
+
+
+def inside(path, tree):
+    a, b = fold(path), fold(tree)
+    return a == b or a.startswith(b.rstrip("/") + "/")
+
+
+def spell(path, how):
+    return (path, path.upper(), path.replace("first", "ﬁrſt").replace("desk", "deſK").replace("/k", "/K"),
+            unicodedata.normalize("NFD", path.swapcase()))[how]
+
+
+def place(root, spec, *, git=False):
+    if spec is None:
+        return None
+    n, below, how = spec
+    base = root / "worktrees" / OWNERS[n] if n < 2 else root / (
+        "elsewhere" if n == 2 else "worktrees/first-desk2")
+    return spell(str(base) + ("/vendor/lib/.git/worktrees/external" if git else below), how)
+
+
+def add(store, root, job, job_id):
+    paths = {role: place(root, job[role], git=role == "git") for role in ROLES}
+    store.add_job(job_id=job_id, request_id=job_id, payload_digest="d", kind="dispatch", state=job["state"],
+                  prompt_path="/p", sandbox="read-only", workdir=paths["workdir"] or str(root / "neutral"),
+                  **{role: paths[role] for role in ("worktree", "review_root", "out_path")})
+    data = {role: paths[role] for role in ("folder", "write_target") if paths[role]}
+    depends = {role: paths[role] for role in ("review_root", "out_path") if paths[role]}
+    if paths["git"]:
+        checkout = root / "outside" / job_id
+        checkout.mkdir(parents=True)
+        (checkout / ".git").write_text("gitdir: " + paths["git"] + "\n")
+        depends["git"] = dependencies.git_storage(str(checkout))
+        assert depends["git"], "linked-checkout storage must be recorded"
+    data["depends"] = depends
+    store.add_event("job.submitted", job_id=job_id, data=data)
+    return {path for path in paths.values() if path}
+
+
+def build(store, root, jobs):
+    (root / "neutral").mkdir()
+    for n, name in enumerate(OWNERS):
+        tree = root / "worktrees" / name
+        tree.mkdir(parents=True)
+        (tree / "kept.txt").write_text("preserve")
+        directory = root / "jobs" / name
+        directory.mkdir(parents=True)
+        (directory / "stdout").write_text("owner output")
+        store.add_job(job_id=name, request_id=name, payload_digest="d", kind="dispatch", state="succeeded",
+                      prompt_path="/p", sandbox="workspace-write", workdir=str(root / "neutral"),
+                      worktree=str(tree) if n != 1 else None)
+    return {f"j{n}": (job["state"], add(store, root, job, f"j{n}")) for n, job in enumerate(jobs)}
+
+
+def reference(evidence, tree):
+    return {job_id for job_id, (state, places) in evidence.items()
+            if state not in TERMINAL and any(inside(path, tree) for path in places)}
+
+
+def fresh():
+    return tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
+
+
+def retire(store, root, evidence):
+    return retention.maintenance(store, root, max_jobs=0, max_bytes=0, turn_keep_s=0,
+                                 referenced_job_ids=evidence, holders=lambda *a, **k: {}, batch=100)
+
+
+@settings(max_examples=100, **OPTIONS)
+@given(SETS)
+def test_selection_never_retires_a_tree_any_live_job_needs(jobs):
+    with fresh() as directory:
+        root = Path(directory).resolve() / "stäte"
+        store = Store(root / "subfleet.db")
+        try:
+            evidence = build(store, root, jobs)
+            result = retire(store, root, evidence)
+            selected = set(result["pruned"])
+            assert "free" in selected, result  # Every drawn case exercises real retirement.
+            for name in OWNERS:
+                tree = root / "worktrees" / name
+                if reference(evidence, str(tree)):
+                    assert name not in selected, result
+                    assert (tree / "kept.txt").read_text() == "preserve"
+                else:
+                    assert name in selected, result
+        finally:
+            store.close()
+
+
+@settings(max_examples=100, **OPTIONS)
+@given(SETS)
+def test_python_pins_and_transaction_agree_with_independent_reference(jobs):
+    with fresh() as directory:
+        root = Path(directory).resolve() / "stäte"
+        store = Store(root / "subfleet.db")
+        try:
+            evidence = build(store, root, jobs)
+            pins = retention._pin_reasons(store, set(), None, root=root)
+            for name in OWNERS:
+                tree = str(root / "worktrees" / name)
+                expected = reference(evidence, tree)
+                assert (pins.get(name) == "worktree-in-use") == bool(expected)
+                with store.transaction() as tx:
+                    actual = dependencies.dependents(lambda sql, params: tx.execute(sql, params).fetchall(),
+                                                     spell(tree, 2), exclude=name)
+                assert set(actual) == expected
+        finally:
+            store.close()
+
+
+@settings(max_examples=100, **OPTIONS)
+@given(SETS, st.sampled_from(ROLES), st.integers(0, 3), st.sampled_from(TERMINAL))
+def test_live_dependents_are_monotone_and_the_last_ending_allows_retirement(jobs, role, how, ended):
+    with fresh() as directory:
+        root = Path(directory).resolve() / "stäte"
+        store = Store(root / "subfleet.db")
+        try:
+            evidence = build(store, root, jobs)
+            before = retention._pin_reasons(store, set(), None, root=root)
+            extra = {**dict.fromkeys(ROLES), "state": "queued", role: (0, "/vendor/lib", how)}
+            add(store, root, extra, "extra")
+            after = retention._pin_reasons(store, set(), None, root=root)
+            assert {n for n in OWNERS if before.get(n) == "worktree-in-use"} <= {
+                n for n in OWNERS if after.get(n) == "worktree-in-use"}
+            assert after["first-desk"] == "worktree-in-use"
+            store.update_job("extra", state=ended)
+            final = retention._pin_reasons(store, set(), None, root=root)
+            assert (final.get("first-desk") == "worktree-in-use") == bool(
+                reference(evidence, str(root / "worktrees/first-desk")))
+            for job_id, (state, _) in evidence.items():
+                if state not in TERMINAL:
+                    store.update_job(job_id, state=ended)
+            assert "first-desk" not in retention._pin_reasons(store, set(), None, root=root)
+            result = retire(store, root, [*evidence, "extra"])
+            assert set(OWNERS) <= set(result["pruned"]), result
+        finally:
+            store.close()
+
+
+@settings(max_examples=100, **OPTIONS)
+@given(st.lists(st.tuples(st.sampled_from(("review-root", "output", "git-storage")), PLACE),
+                min_size=1, max_size=8))
+def test_absent_dependency_places_match_folded_fences_in_one_query(specs):
+    with fresh() as directory:
+        root = Path(directory).resolve() / "stäte"
+        store = Store(root / "subfleet.db")
+        try:
+            trees = [str(root / "worktrees" / name) for name in OWNERS[:2]]
+            trees.append(trees[0] + "/vendor")
+            for n, tree in enumerate(trees):
+                store.acquire_lease(folders.exclusive_key(tree), f"retention:{n}")
+            store.acquire_lease(folders.exclusive_key(str(root)), "ordinary-writer")
+            places = [(role, place(root, spec)) for role, spec in specs]
+            expected = []
+            for role, path in places:
+                keys = [folders.exclusive_key(tree) for tree in trees if inside(path, tree)]
+                if keys:
+                    expected.append((role, path, sorted(keys, key=lambda key: (-key.count("/"), key))))
+            statements = []
+
+            def read(sql, params):
+                statements.append(sql)
+                return store.query(sql, params)
+
+            assert dependencies.fences(read, places) == expected
+            assert len(statements) == 1
+        finally:
+            store.close()
+
+
+from tests.unit.test_retention_folded_pin import ID, respelled
+
+
+@settings(max_examples=24, **OPTIONS)
+@example("20261005-120000-ﬁrſt-deſK", "output", True)
+@given(respelled(ID), st.sampled_from(("output", "review-root", "linked")), st.booleans())
+def test_submitted_dependencies_wait_in_any_spelling_then_are_admitted(alias, kind, late):
+    from tests.fake.test_retention_dependency_spelling import alias_waits
+    with fresh() as directory:
+        alias_waits(Path(directory).resolve(), alias, kind, late)

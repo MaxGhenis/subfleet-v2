@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T18:42:39.412176+00:00",
+  "args": [
+    "tests/fake/test_turn_retention_cwd_properties.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/test_turn_retention_cwd_properties",
+  "linked": false,
+  "driver_pid": 259,
+  "lock_process_group": 1029
+}

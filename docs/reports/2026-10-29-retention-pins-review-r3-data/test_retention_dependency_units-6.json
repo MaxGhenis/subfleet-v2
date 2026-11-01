@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_dependency_units-6",
+  "start": "2026-10-29T13:53:15.647312+00:00",
+  "load": [
+    17.8505859375,
+    21.701171875,
+    22.57958984375
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 10.298528374987654,
+  "rss": 115195904
+}

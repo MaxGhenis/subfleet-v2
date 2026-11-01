@@ -1,0 +1,14 @@
+{
+  "original_total": 115,
+  "original_outcomes": {
+    "reads-owner": 43,
+    "rejects": 72
+  },
+  "original_read_complete": 32,
+  "original_read_incomplete": 11,
+  "focused_total": 40,
+  "focused_outcomes": {
+    "reads-owner": 40
+  },
+  "focused_incomplete": 0
+}

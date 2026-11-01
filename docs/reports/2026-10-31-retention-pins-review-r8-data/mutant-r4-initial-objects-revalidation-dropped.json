@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r4-initial-objects-revalidation-dropped",
+  "start": "2026-10-31T06:33:31.747781+00:00",
+  "loads": [
+    37.955078125,
+    35.25,
+    34.21728515625
+  ],
+  "seconds": 16.093225542001164,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.4978655409995554,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 3.3489473329991597,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-22584/pytest/test_objects_parent_swap_keeps0'), trusted=True, remot...-r272r8/cases-22584/pytest/test_objects_parent_swap_keeps0/state'), store=<subfleet.store.Store object at 0x109d2e7b0>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109c035c0>\nstate = 'running', entry = 'same-inode'\n\n    @pytest.mark.parametrize(\"state\", [\"running\", \"succeeded\"], ids=[\"live\", \"exporting\"])\n    @pytest.mark.parametrize(\"entry\", [\"same-inode\", \"absent\"])\n    def test_objects_parent_swap_keeps_every_allocated_tree(world, monkeypatch, state, entry):\n        trees = [world.job(\"owner-a\"), world.job(\"owner-b\")]\n        world.store.update_job(\"owner-b\", worktree=None)\n        source = repo(trees[0] / \"source\")\n        (source / \"owner-only.txt\").write_text(\"R4 objects parent dependency\\n\")\n        git(source, \"add\", \"owner-only.txt\")\n        git(source, \"commit\", \"--quiet\", \"-m\", \"unique owner commit\")\n        commit = git(source, \"rev-parse\", \"HEAD\")\n        outside = repo(world.base / \"outside\")\n        assert git(outside, \"rev-parse\", \"HEAD\") != commit\n        objects = outside / \".git\" / \"objects\"\n        old = world.base / \"old-objects\"\n        objects.rename(old)\n        objects.symlink_to(old, target_is_directory=True)\n        alternate = objects / \"info\" / \"alternates\"\n        target = source / \".git\" / \"objects\"\n        if entry == \"same-inode\":\n            alternate.write_bytes(b\"# first\\n# second\\n\")\n            os.link(alternate, target / \"info\" / \"alternates\")\n            before = alternate.stat()\n        original = dependencies.open_regular\n        changes = []\n    \n        @contextmanager\n        def opening(path, *args, **kwargs):\n            if entry == \"absent\" and str(path) == str(alternate):\n                try:\n                    with original(path, *args, **kwargs) as stream:\n                        yield stream\n                except FileNotFoundError:\n                    assert not changes\n                    changes.append(True)\n                    objects.unlink()\n                    objects.symlink_to(target, target_is_directory=True)\n                    raise\n                return\n            with original(path, *args, **kwargs) as stream:\n                if str(path) != str(alternate):\n                    yield stream\n                    return\n    \n                class Changing:\n                    def readline(self, size=-1):\n                        value = stream.readline(size)\n                        if not changes:\n                            changes.append(True)\n                            objects.unlink()\n                            objects.symlink_to(target, target_is_directory=True)\n                        return value\n    \n                    def __getattr__(self, name):\n                        return getattr(stream, name)\n    \n                yield Changing()\n    \n        with monkeypatch.context() as patch:\n            patch.setattr(dependencies, \"open_regular\", opening)\n            recorded = dependencies.record(str(outside))\n        assert changes\n        if entry == \"same-inode\":\n            after = alternate.stat()\n            for field in (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\"):\n                assert getattr(before, field) == getattr(after, field)\n        else:\n            assert not alternate.exists()\n        assert git(outside, \"show\", commit + \":owner-only.txt\") == \"R4 objects parent dependency\"\n        reader(world, recorded, state=state)\n        if state == \"succeeded\":\n            world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n        result = maintain(world)\n>       assert not result[\"pruned\"], (recorded, result)\nE       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-22584/pytest/test_objects_parent_swap_keeps0/outside/.git', '/private/tmp/sf-r..._keeps0/old-objects']}, {'pruned': ['owner-a', 'owner-b'], 'errors': [], 'bytes_before': 68687, 'bytes_after': 0, ...})\nE       assert not ['owner-a', 'owner-b']\n\ntests/fake/test_retention_dependency_review_r4.py:85: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.002988791000461788,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "b1609bece0074ca72086ac1f8948e5f6676274410f3dcdab098643814dbeeb10"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 121536512
+}

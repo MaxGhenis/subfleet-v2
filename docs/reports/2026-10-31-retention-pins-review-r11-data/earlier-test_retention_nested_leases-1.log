@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 17:28:37Z slot A load 
+....................                                                     [100%]
+20 passed in 100.50s (0:01:40)
+{"name": "earlier-test_retention_nested_leases-1", "start": "2026-10-31T17:28:45.490433+00:00", "load": [52.75390625, 50.52587890625, 50.220703125], "seconds": 104.8900297089931, "exit": 0}

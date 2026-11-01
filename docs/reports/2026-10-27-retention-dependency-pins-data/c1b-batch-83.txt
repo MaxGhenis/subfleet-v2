@@ -1,0 +1,11 @@
+tests/unit/test_salvage.py::test_c6_8_transient_oserror_is_transient_and_others_keep_their_meaning
+tests/unit/test_salvage.py::test_private_salvage_allowed_from_main
+tests/unit/test_salvage.py::test_salvage_compares_tree_against_reserved_baseline
+tests/unit/test_salvage.py::test_salvage_preserves_head_index_worktree
+tests/unit/test_salvage.py::test_salvage_readonly_job_has_no_git_side_effects
+tests/unit/test_salvage.py::test_salvage_rejects_nonfinalizing_state
+tests/unit/test_salvage.py::test_salvage_replay_is_idempotent_and_keeps_changed_snapshots
+tests/unit/test_salvage.py::test_salvage_unchanged_baseline_has_no_ref
+tests/unit/test_salvage.py::test_salvage_uses_reserved_dirty_tree_without_mutating_index
+tests/unit/test_salvage.py::test_writable_main_and_master_refused_with_code_7[main]
+tests/unit/test_salvage.py::test_writable_main_and_master_refused_with_code_7[master]

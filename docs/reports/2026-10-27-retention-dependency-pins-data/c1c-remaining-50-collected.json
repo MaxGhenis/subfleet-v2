@@ -1,0 +1,6 @@
+[
+  "tests/fake/test_admission_ramp.py::test_generated_enabled_daemon_windows_liveness_order_and_restart",
+  "tests/unit/test_retention_case_alias.py::test_interleavings_with_case_aliases_never_delete_a_folder_a_row_names",
+  "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+  "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass"
+]

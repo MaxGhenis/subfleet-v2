@@ -1,0 +1,64 @@
+# Render the report from the completed ledger, without running tests.
+import json
+from pathlib import Path
+scratch = Path('/private/tmp/sf-fix272r5')
+out = Path('docs/reports/2026-10-30-retention-pins-fix-r5-data')
+s = json.loads((out / 'summary.json').read_text())
+assert not s['missing_holds']
+r = (out / 'report-template.md.txt').read_text()
+reader = '| File / reader | Trims pathname bytes? | Scope / action |\n|---|---|---|\n'
+for file, name, behavior, scope in json.loads((out / 'reader-audit.json').read_text()):
+    reader += f'| `{file}`: `{name}` | {behavior} | {scope} |\n'
+r = r.replace('<!-- READER_TABLE -->', reader)
+file_table = '| File | Passed | First start UTC | Load 1/5/15 |\n|---|---:|---|---|\n'
+for row in s['files']:
+    name = row['file'].replace('tests/fake/', 'F/').replace('tests/unit/', 'U/')
+    loads = '/'.join(f'{x:.2f}' for x in row['loads'])
+    file_table += f"| `{name}` | {row['passed']} | {row['start'][11:19]} | {loads} |\n"
+r = r.replace('<!-- FILE_TABLE -->', file_table)
+mutant_table = '| Mutant | Named killing test | Result |\n|---|---|---|\n'
+for row in s['mutants']:
+    killer = row['killer']
+    for n in [2, 3, 4, 5]:
+        killer = killer.replace(f'tests/fake/test_retention_dependency_review_r{n}.py', f'R{n}')
+    killer = killer.replace('tests/unit/test_retention_pointer_whitespace.py', 'W').replace('probes.py', 'P')
+    mutant_table += f"| `{row['mutant']}` | `{killer}` | Killed |\n"
+r = r.replace('<!-- MUTANT_TABLE -->', mutant_table)
+repo = sum(row['passed'] for row in s['files'] if row['file'].startswith('tests/'))
+execution = (f"Final ordinary accounting: **{s['ordinary_passes']} distinct passes** "
+             f"({repo} repository nodes and {s['ordinary_passes'] - repo} scratch controls), "
+             f"with **{len(s['mutants'])} named mutants killed**. All **{s['hold_count']} holds** "
+             f"ran under the shared lock; no outside-lock fallback was needed. Maximum observer-measured "
+             f"pytest duration: **{s['max_seconds']:.2f} seconds**; peak observed pytest RSS: "
+             f"**{s['max_rss'] / 1024**2:.1f} MiB**. No pytest exceeded ten minutes. "
+             'The complete selection audit has only the deliberately omitted real-lsof node unrun.')
+execution += (' One sweep-property attempt was interrupted by the 570-second guard after 581.82 seconds including teardown/observer overhead (pytest reported 576.20 seconds), with no completed assertion failure reported. Its normal-settings retry passed; no example count, time bound or test assertion was changed. The interrupted attempt is preserved separately in the ledger, excluded from ordinary pass accounting.')
+retry = next(d for d in json.loads((out / 'ledger.json').read_text()) if d['label'] == 'retention_sweep_race-part2')
+execution += (f" Retry start: **{retry['start'][11:19]} UTC**, load "
+              f"**{'/'.join(f'{x:.2f}' for x in retry['loads'])}**, "
+              f"**{retry['seconds']:.2f} seconds** including observer overhead. "
+              "Hypothesis reports **40 passing, 0 failing generated cases**, with four discarded draws; max_examples remains 40.")
+r = r.replace('<!-- EXECUTION_SUMMARY -->', execution)
+pr = f'''Fix round r5 closes R5-F1 by preserving Git pointer pathname whitespace: gitfiles require the literal `gitdir: ` prefix, and gitfile/commondir targets lose only trailing CR/LF. All three real-Git regressions now pass; discovery records the storage Git actually reads. Retention remains dormant; approving review r6 and completed CI remain merge gates.
+
+- **Changes:** Apply review r5's trial exactly, remove only its three repaired expected failures, and audit all pointer readers. Other readers outside dependency discovery remain unchanged.
+- **Evidence:** Review r5 red **57 passed / 3 failed** at `7eec7fa80` → green **60 passed**; **{s['ordinary_passes']} distinct ordinary passes**, **12 named mutants killed**, and a real-Git whitespace property with 100 generated plus two explicit examples.
+- **Invariants:** For every pointer Git follows, discovery records the target Git reads, or reports incomplete. Preserve C-8.3, C-8.4's normative fail-closed guarantee and the documented observation bounds; transactional rechecks remain database reads and strings only.
+- **Historical evidence:** Fix round r4 repaired the original R4-F1/R4-F2 inputs. Fix round r3 repaired the original R3-F1/R3-F2 inputs. Review r5 identified the separate R5-F1 parsing gap, repaired in this round; earlier 452/682/851-node results and CI snapshots remain dated evidence.
+- **Next:** Obtain approving **review r6** and complete every CI shard before merge or re-enablement. Retention remains dormant.'''
+r = r.replace('<!-- PR_BODY -->', pr)
+(out / 'pr-body.txt').write_text(pr + '\n')
+cleanup = json.loads((out / 'cleanup.json').read_text())
+assert all(not entry['exists_after'] for entry in cleanup['roots'])
+delivery = (f"Fix commit: `9082caeece4d4b420710c583f9b07ccf439762c3`; property/mutant commit: "
+            f"`28e624095`. This report, the current desktop/main descriptions and the completed ledger "
+            f"form the final text commit. Every commit has the requested co-author footer. The final "
+            f"branch is bundled as `retention-fix272r5.bundle` in the assigned workspace, excluding "
+            f"`7eec7fa80`; bundle creation and verification are the final delivery checks. All owned "
+            f"hold drivers and pytests ended before guarded cleanup. Combined scratch measured "
+            f"**{cleanup['bytes_before'] / 1024**2:.1f} MiB** before removal; both roots are verified "
+            f"absent. No bytecode, pytest cache, Hypothesis store, build output or kept failure root "
+            f"from this build remains outside its committed evidence.")
+r = r.replace('<!-- DELIVERY -->', delivery)
+assert '<!--' not in r
+Path('docs/reports/2026-10-30-retention-pins-fix-r5.md').write_text(r)

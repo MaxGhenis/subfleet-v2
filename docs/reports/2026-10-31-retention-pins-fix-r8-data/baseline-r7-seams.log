@@ -1,0 +1,9 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:36:06Z slot B load 
+..                                                                       [100%]
+2 passed in 10.72s
+{"name": "baseline-r7-seams", "start": "2026-10-31T07:36:07.526735+00:00", "load": [28.244140625, 29.73046875, 31.79345703125], "seconds": 11.315391957999964, "exit": 0}

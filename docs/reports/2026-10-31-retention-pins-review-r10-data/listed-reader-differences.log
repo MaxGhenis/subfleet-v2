@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:40:51Z slot B load 
+........                                                                 [100%]
+8 passed in 13.39s
+{"name": "listed-reader-differences", "start": "2026-10-31T10:40:52.930600+00:00", "load": [39.48583984375, 38.466796875, 36.56689453125], "seconds": 14.1020343329983, "exit": 0}

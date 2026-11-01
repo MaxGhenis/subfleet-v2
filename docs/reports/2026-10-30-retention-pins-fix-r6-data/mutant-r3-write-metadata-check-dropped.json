@@ -1,0 +1,45 @@
+{
+  "label": "mutant-r3-write-metadata-check-dropped",
+  "start": "2026-10-30T22:21:48.936324+00:00",
+  "loads": [
+    40.58349609375,
+    25.53076171875,
+    21.36572265625
+  ],
+  "seconds": 32.53293412498897,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "probes.py::test_changes[same-size-running]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 3.190380207990529,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "probes.py::test_changes[same-size-running]"
+  ],
+  "all_nodes": [
+    "probes.py::test_changes[same-size-running]"
+  ],
+  "phases": {
+    "probes.py::test_changes[same-size-running]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "baseline_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "mutated_sha256": "5f92a3a6735327002056cee1046322bc13b50523c211454c4b2ea2b0128b0702"
+    }
+  ],
+  "rss": 117817344
+}

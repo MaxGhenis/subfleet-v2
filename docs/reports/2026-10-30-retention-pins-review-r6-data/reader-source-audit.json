@@ -1,0 +1,59 @@
+{
+  "all_unchanged_in_fix_r5": true,
+  "readers": [
+    {
+      "file": "subfleet/retention_git.py",
+      "reader": "gitfile_admin",
+      "line": 131,
+      "source": "def gitfile_admin(tree: Path) -> tuple[Path | None, bytes, str | None]:\n    \"\"\"(the admin directory the tree's gitfile names, the gitfile, None), or\n    (None, b\"\", why) when the tree has no gitfile naming one.\"\"\"\n    try:\n        gitfile = rfs.read_regular(tree / \".git\", limit=65536)\n    except FileNotFoundError:\n        return None, b\"\", \"no-gitfile\"\n    except (IsADirectoryError, OSError) as exc:\n        return None, b\"\", f\"gitfile-unreadable: {exc}\"\n    text = gitfile.decode(\"utf-8\", \"surrogateescape\").strip()\n    if not text.startswith(\"gitdir:\"):\n        return None, b\"\", \"gitfile-malformed\"\n    return _resolve(tree, text[len(\"gitdir:\"):].strip()), gitfile, None"
+    },
+    {
+      "file": "subfleet/retention_git.py",
+      "reader": "registration",
+      "line": 169,
+      "source": "def registration(tree: Path, read: tuple[Path | None, bytes, str | None] | None = None\n                 ) -> tuple[Registration | None, str | None]:\n    \"\"\"(registration, None), or (None, why) when the tree has none we may use.\n\n    The tree's ``.git`` must be a gitdir file naming an admin directory directly\n    under ``<common>/worktrees/``, whose ``gitdir`` backlink names this tree:\n    we never act on someone else's registration (design 5.2 step 2). An admin\n    directory that is only a remnant (`is_remnant`) answers ``admin-remnant``.\n    `read` is the tree's `gitfile_admin`, when the caller already read it: the\n    answer is then about those bytes, not a second read of a gitfile that\n    another tool may have moved in between.\n    \"\"\"\n    admin, gitfile, why = read if read is not None else gitfile_admin(tree)\n    if admin is None:\n        return None, why\n    if not admin.is_dir():\n        return None, \"admin-missing\"\n    try:\n        backlink = rfs.read_regular(admin / \"gitdir\", limit=65536).decode(\"utf-8\", \"surrogateescape\").strip()\n        commondir = rfs.read_regular(admin / \"commondir\", limit=65536).decode(\"utf-8\", \"surrogateescape\").strip()\n    except OSError as exc:\n        if isinstance(exc, FileNotFoundError) and is_remnant(admin):\n            return None, \"admin-remnant\"\n        return None, f\"admin-unreadable: {exc}\"\n    if _resolve(admin, backlink) != Path(os.path.realpath(tree / \".git\")):\n        return None, \"registration-mismatch\"\n    common = _resolve(admin, commondir)\n    if admin.parent != common / \"worktrees\":\n        return None, \"registration-not-direct\"\n    return Registration(admin, common, gitfile), None"
+    },
+    {
+      "file": "subfleet/retention_git.py",
+      "reader": "backlink",
+      "line": 201,
+      "source": "def backlink(admin: Path) -> Path | None:\n    \"\"\"The tree's ``.git`` an admin directory's ``gitdir`` backlink names\n    (resolved), or None when it cannot be read. `git worktree move` rewrites it\n    to the tree's new place, and moving the tree back rewrites it again.\"\"\"\n    try:\n        text = rfs.read_regular(admin / \"gitdir\", limit=65536).decode(\"utf-8\", \"surrogateescape\").strip()\n    except OSError:\n        return None\n    return _resolve(admin, text)"
+    },
+    {
+      "file": "subfleet/retention_git.py",
+      "reader": "registration_in",
+      "line": 228,
+      "source": "def registration_in(common: Path, tree: Path, *, named: bool = False) -> Registration | None:\n    \"\"\"The admin directory directly under ``<common>/worktrees`` whose ``gitdir``\n    backlink names `tree`, or None. With `named`, only those named after the\n    tree: git names a registration by its tree's basename (with digits added\n    when that is taken), and `git worktree move` keeps the name, so a search of\n    many repositories reads only the few that can be the tree's.\"\"\"\n    wanted = os.path.realpath(tree / \".git\")\n    pattern = re.compile(re.escape(tree.name) + r\"[0-9]*\")\n    try:\n        admins = sorted((common / \"worktrees\").iterdir())\n    except OSError:\n        return None\n    for admin in admins:\n        if named and not pattern.fullmatch(admin.name):\n            continue\n        try:\n            backlink = rfs.read_regular(admin / \"gitdir\", limit=65536).decode(\"utf-8\", \"surrogateescape\").strip()\n        except OSError:\n            continue\n        if os.path.realpath(_resolve(admin, backlink)) == wanted:\n            return Registration(Path(os.path.realpath(admin)), common, b\"\")\n    return None"
+    },
+    {
+      "file": "subfleet/retention_git.py",
+      "reader": "moved_tree",
+      "line": 252,
+      "source": "def moved_tree(common: Path, tree: Path) -> Path | None:\n    \"\"\"A live checkout under the registration id allocated for ``tree``.\n\n    Git keeps that id across ``worktree move``. Confirm both directions of\n    the registration before treating an unrelated path as a moved checkout;\n    the caller keeps the job and never acts on that checkout or registration.\n    \"\"\"\n    pattern = re.compile(re.escape(tree.name) + r\"[0-9]*\")\n    try:\n        admins = sorted((common / \"worktrees\").iterdir())\n    except OSError:\n        return None\n    for admin in admins:\n        if not pattern.fullmatch(admin.name) or admin.is_symlink():\n            continue\n        try:\n            backlink = rfs.read_regular(admin / \"gitdir\", limit=65536).decode(\"utf-8\", \"surrogateescape\").strip()\n            gitfile = _resolve(admin, backlink)\n            if gitfile.name != \".git\" or gitfile.parent == tree or not os.path.lexists(gitfile.parent):\n                continue\n            reg, _ = registration(gitfile.parent)\n        except OSError:\n            continue\n        if reg is not None and reg.admin == admin and reg.common == common:\n            return gitfile.parent\n    return None"
+    },
+    {
+      "file": "subfleet/retention_git.py",
+      "reader": "discard_registration",
+      "line": 328,
+      "source": "def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike, *,\n                         timeout: float = 60) -> Path | None:\n    \"\"\"Remove `tree`'s own registration from `repository`, and nothing else.\n\n    Only the admin directory directly under ``<common>/worktrees`` whose\n    ``gitdir`` backlink names ``tree/.git`` is deleted, and only if it is not\n    locked (a lock is someone's claim: retention's, or a person's `git worktree\n    lock`). A repository-wide `git worktree prune` would also drop every other\n    registration whose tree is missing at that moment, with the commits only\n    its HEAD and reflogs hold (d635: never run a repository-wide prune). Best\n    effort, for callers about to re-add the tree: returns the directory\n    removed, or None.\n    \"\"\"\n    try:\n        out = run([\"rev-parse\", \"--git-common-dir\"], cwd=Path(repository), timeout=timeout).stdout\n        common = _resolve(Path(repository), out.decode(\"utf-8\", \"surrogateescape\").strip())\n        wanted = os.path.realpath(Path(tree) / \".git\")\n        admins = sorted((common / \"worktrees\").iterdir())\n    except (GitError, OSError):\n        return None\n    for admin in admins:\n        if admin.is_symlink() or not admin.is_dir():\n            continue       # never follow a link out of the repository\n        try:\n            backlink = rfs.read_regular(admin / \"gitdir\", limit=65536).decode(\"utf-8\", \"surrogateescape\").strip()\n        except OSError:\n            continue\n        if os.path.realpath(_resolve(admin, backlink)) != wanted:\n            continue\n        if os.path.lexists(admin / \"locked\"):\n            return None\n        shutil.rmtree(admin, ignore_errors=True)\n        return admin\n    return None"
+    },
+    {
+      "file": "subfleet/retention_git.py",
+      "reader": "verify_bundle",
+      "line": 872,
+      "source": "def verify_bundle(git_dir: Path, path: Path, expected: dict[str, str], fmt: str, scratch: Path, *,\n                  timeout: float = 3600, cancel: threading.Event | None = None) -> None:\n    \"\"\"Read the bundle back: its header in the source repository (prerequisites\n    present), its heads, and every object in its pack, hashed by ``index-pack``\n    in a throwaway repository that borrows the source's objects only to resolve\n    thin deltas.\"\"\"\n    run([\"bundle\", \"verify\", \"--quiet\", str(path)], git_dir=git_dir, timeout=timeout, cancel=cancel)\n    heads = bundle_heads(path, cancel=cancel)\n    for ref, oid in expected.items():\n        if heads.get(ref) != oid:\n            raise GitError(f\"bundle lacks {ref} at {oid}\")\n    rfs.remove_own_tree(scratch)\n    run([\"init\", \"--quiet\", \"--bare\", f\"--object-format={fmt}\", str(scratch)], timeout=120, cancel=cancel)\n    try:\n        objects = Path(os.path.realpath(git_dir / \"objects\"))\n        common_file = git_dir / \"commondir\"\n        if common_file.exists():\n            objects = _resolve(git_dir, common_file.read_text().strip()) / \"objects\"\n        (scratch / \"objects\" / \"info\" / \"alternates\").write_text(str(objects) + \"\\n\")\n        offset = _pack_offset(path)\n        with open(path, \"rb\") as stream:\n            stream.seek(offset)\n            run([\"index-pack\", \"--stdin\", \"--fix-thin\"], git_dir=scratch, stdin_file=stream,\n                timeout=timeout, cancel=cancel)\n    finally:\n        rfs.remove_own_tree(scratch)"
+    },
+    {
+      "file": "subfleet/retention_survey.py",
+      "reader": "_into_admin",
+      "line": 322,
+      "source": "def _into_admin(gitfile: Path, admin: str | None) -> bool:\n    if not admin:\n        return False\n    try:\n        text = gitfile.read_text(errors=\"surrogateescape\").strip()\n    except OSError:\n        return False\n    if not text.startswith(\"gitdir:\"):\n        return True\n    target = text[len(\"gitdir:\"):].strip()\n    resolved = os.path.normpath(target if os.path.isabs(target) else str(gitfile.parent / target))\n    return resolved == admin or resolved.startswith(admin.rstrip(\"/\") + \"/\")"
+    },
+    {
+      "file": "subfleet/retention_archive.py",
+      "reader": "_nested_gitfile",
+      "line": 1780,
+      "source": "def _nested_gitfile(self, parent: int, name: str, rel: str, admin: str | None) -> None:\n        \"\"\"A linked worktree inside the job's tree keeps its admin directory in\n        another repository, which retention does not archive: keep the job.\n        A submodule's gitfile points into our own admin directory, which is.\"\"\"\n        try:\n            fd = os.open(name, rfs.O_FILE, dir_fd=parent)\n            try:\n                text = os.read(fd, 65536).decode(\"utf-8\", \"surrogateescape\").strip()\n            finally:\n                os.close(fd)\n        except OSError as exc:\n            raise rfs.TreeError(\"unreadable\", f\"{rel}: {exc}\") from exc\n        if not text.startswith(\"gitdir:\"):\n            return\n        target = text[len(\"gitdir:\"):].strip()\n        original = Path(self.j[\"worktree\"]) / rel\n        resolved = os.path.normpath(target if os.path.isabs(target) else str(original.parent / target))\n        if admin and (resolved == admin or resolved.startswith(admin.rstrip(\"/\") + \"/\")):\n            return\n        raise rfs.TreeError(\"nested-linked-worktree\", f\"{rel} -> {target}\")"
+    }
+  ]
+}

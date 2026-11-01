@@ -1,0 +1,26 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:07:14Z slot B load 
+ADMITTED {"utc": "2026-10-28T07:07:34.667706+00:00", "load": [50.26513671875, 117.30712890625, 127.11328125], "pid": 70291}
+....................                                                     [100%]
+============================= slowest 5 durations ==============================
+10.41s setup    tests/fake/test_admission_disk.py::test_disabled_or_absent_is_the_existing_daemon_path[False]
+5.37s setup    tests/fake/test_admission_disk.py::test_restart_rechecks_raw_ruling_and_keeps_safe_source_event[infinite-margin]
+4.97s setup    tests/fake/test_admission_disk.py::test_restart_rechecks_raw_ruling_and_keeps_safe_source_event[infinite-floor]
+4.80s call     tests/fake/test_admission_disk.py::test_real_daemon_restart_preserves_budgets_and_hysteresis
+4.69s setup    tests/fake/test_admission_disk.py::test_restart_rechecks_raw_ruling_and_keeps_safe_source_event[surrogate-source]
+20 passed in 139.30s (0:02:19)
+FINISHED {"utc": "2026-10-28T07:10:12.790797+00:00", "load": [117.35400390625, 106.5927734375, 120.1650390625], "rc": 0, "seconds": 158.12147645799996, "rss": 123895808}

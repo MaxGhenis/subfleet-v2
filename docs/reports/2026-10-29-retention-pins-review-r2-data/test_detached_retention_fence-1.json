@@ -1,0 +1,159 @@
+{
+  "name": "test_detached_retention_fence-1",
+  "start": "2026-10-29T06:47:21.038765+00:00",
+  "load": [
+    15.498046875,
+    19.17041015625,
+    21.2890625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]": {
+      "setup": {
+        "duration": 0.04453945798741188,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.5083909999957541,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0004562499962048605,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]": {
+      "setup": {
+        "duration": 0.0023450000007869676,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2817882910021581,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0003695410123327747,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]": {
+      "setup": {
+        "duration": 0.002413667010841891,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4468937920028111,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0004417080053826794,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]": {
+      "setup": {
+        "duration": 0.003293333007604815,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.7119138750131242,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00036375000490806997,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]": {
+      "setup": {
+        "duration": 0.0025995829928433523,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.41143016700516455,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0005376249901019037,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]": {
+      "setup": {
+        "duration": 0.0026415829925099388,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.5219580409902846,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0005004999984521419,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

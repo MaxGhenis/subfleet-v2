@@ -1,0 +1,601 @@
+{
+  "name": "dependency-test_retention_alternates",
+  "start": "2026-10-31T20:40:44.634058+00:00",
+  "load": [
+    57.05078125,
+    61.595703125,
+    69.8740234375
+  ],
+  "pytest_pid": 71033,
+  "failure_root": "/private/tmp/sf-fix272r12/failed-keep",
+  "args": [
+    "tests/unit/test_retention_alternates.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.7535440409992589,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2051213750091847,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005649590020766482,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002798542001983151,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2033187079941854,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005765829992014915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029494999907910824,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24439912498928607,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005431669997051358,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004451208995305933,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2824957910052035,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00034095799492206424,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003358707996085286,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18860504099575337,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00047633300710003823,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00463412499811966,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.19092199999431614,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005355419998522848,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0022308330080704764,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.25070358299126383,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013708458995097317,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.008946791989728808,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1861335409921594,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004985840059816837,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002191583000239916,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18429912500141654,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005578749987762421,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027435829979367554,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20027320900408085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00030816700018476695,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002719333002460189,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1975711660052184,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005488329916261137,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029310409881873056,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.37887745900661685,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006644170061917976,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004531250000582077,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.375047875000746,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00033170801179949194,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00367129199730698,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8474824580043787,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000702958001056686,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003274374990724027,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4381942500040168,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000660916994092986,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0020798749901587144,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00018804198771249503,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00019220900139771402,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015336659998865798,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 46.962641874997644,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008512089989380911,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01012787499348633,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00025924999499693513,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00033658399479463696,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024025419988902286,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00022975000320002437,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003280829987488687,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024685829994268715,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0002529170014895499,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00022658299712929875,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0063020410016179085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00021908299822825938,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00023374999000225216,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018075840052915737,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00025549999554641545,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004533750034170225,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006076416990254074,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.12761604199477006,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004259999986970797,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[absolute]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[relative]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-ascii]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-utf8]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[quote]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[backslash]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[tab]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[newline]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[comment]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[blank]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-outside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-outside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[leading-inside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[trailing-inside]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[after-quote]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_c_quotes_decode_raw_bytes_before_fsdecode",
+    "tests/unit/test_retention_alternates.py::test_c8_4_git_quoted_generated_paths_resolve_to_the_same_canonical_objects",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"bad\\z\"]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"short\\1\"]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"large\\400\"]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_invalid_c_quotes_are_incomplete[\"unfinished\\]",
+    "tests/unit/test_retention_alternates.py::test_c8_4_alternates_after_many_comment_lines_are_read_to_eof"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-161028-pr272-fix-r12/subfleet/dependencies.py",
+  "product_sha256": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+  "end": "2026-10-31T20:41:42.370295+00:00",
+  "seconds": 57.73521266700118,
+  "peak_rss_mib": 112.765625,
+  "exit": 0
+}

@@ -1,0 +1,191 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:15:33Z slot A load 
+START retention_dependency_review_r2 2026-10-29T20:15:37.872192+00:00 load=(30.6630859375, 22.435546875, 16.92578125)
+......FF.............                                                    [100%]
+=================================== FAILURES ===================================
+__ test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[False] ___
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-155527-pr272-...08/sf-fix272r3/cases-68416/test_c8_3_null_job_output_pres0/state'), store=<subfleet.store.Store object at 0x108b029f0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1089987d0>
+recorded = False
+
+    @pytest.mark.parametrize("recorded", [False, True])
+    def test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins(world, monkeypatch, recorded):
+        tree = world.job("owner")
+        output = str(tree / "result")
+        reader(world, {"out_path": output} if recorded else {}, state="succeeded")
+        assert world.store.one("SELECT out_path FROM jobs WHERE job_id='borrower'")["out_path"] is None
+        world.store.acquire_lease("out:/unrelated/result" if recorded else "out:" + output, "borrower")
+    
+        def forbidden(*a, **k):
+            raise AssertionError("filesystem access in exporter transaction")
+    
+        with monkeypatch.context() as patch:
+            for name in ("canonical", "spelling", "present", "identity"):
+                patch.setattr(folders, name, forbidden)
+            for name in ("record", "git_storage", "_alternates", "open_regular"):
+                patch.setattr(dependencies, name, forbidden)
+            with world.store.transaction():
+                assert dependencies.dependents(world.store.query, str(tree), exclude="owner") == ["borrower"]
+        result = maintain(world)
+        assert "owner" not in result["pruned"], result
+        world.store.release_leases("borrower")
+>       assert "owner" in maintain(world)["pruned"]
+                          ^^^^^^^^^^^^^^^
+
+tests/fake/test_retention_dependency_review_r2.py:179: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_retention_dependency_review_r2.py:18: in maintain
+    return retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+subfleet/retention.py:457: in maintenance
+    return run.run()
+           ^^^^^^^^^
+subfleet/retention.py:614: in run
+    retirement = self._start(by_id[job_id], protected)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention.py:918: in _start
+    retirement.begin({**job, "worktree": folder} if folder is not None else job, _pool(job))
+subfleet/retention_archive.py:486: in begin
+    fmt = rgit.object_format(common, cancel=self.ctx.cancel)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_git.py:365: in object_format
+    out = run(["rev-parse", "--show-object-format"], git_dir=common, cancel=cancel).stdout.decode().strip()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_git.py:91: in run
+    process = subprocess.Popen(rqos.argv(argv), cwd=cwd, env=environment(env),
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py:1039: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py:1858: in _execute_child
+    sys.audit("subprocess.Popen", executable, args, cwd, env)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+event = 'subprocess.Popen'
+details = ('/usr/sbin/taskpolicy', ['/usr/sbin/taskpolicy', '-c', 'utility', 'git', '-c', 'core.hooksPath=/dev/null', ...], None...08/sf-fix272r3/cases-68416/sf-test-homes-mp587q8x/home', 'LANG': 'C.UTF-8', 'LC_ALL': 'C', 'LC_CTYPE': 'C.UTF-8', ...})
+_events = frozenset({'os.exec', 'os.posix_spawn', 'os.spawn', 'os.system', 'subprocess.Popen'})
+_targets = <function _launch_targets at 0x107026140>
+_matches = <function _is_keychain_binary at 0x107025e80>
+_active = <function _guard_active at 0x107027060>
+_native = ('/usr/bin/security', (16777231, 1152921500312572723))
+_unsafe = <function _unsafe_delegation at 0x107026f00>
+_alive = <function session_alive at 0x106fb2da0>
+_system = ('/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/usr/gnu/bin')
+_recorders = ()
+
+    def guard(event, details, *, _events=_LAUNCH_EVENTS, _targets=_launch_targets,
+              _matches=_is_keychain_binary, _active=_guard_active, _native=native,
+              _unsafe=_unsafe_delegation, _alive=session_alive,
+              _system=system_dirs, _recorders=recorder_dirs):
+        if event not in _events or not _active(pins):
+            return
+        try:
+            def recorders():
+                return _recorders + tuple(os.path.join(base, "keychain-bin")
+                                           for base, token in list(pins) if _alive(base, token))
+            refused = (_unsafe(event, details, recorders, system_dirs=_system, native=_native)
+                       or any(target == "security" or _matches(target, _native)
+                              for target in _targets(event, details) if target is not None))
+        except Exception:
+            # A launch whose check cannot finish is refused (C-20.6). The launch
+            # may reject the same arguments, but a later audit hook can change
+            # them first, as it can change PATH.
+            refused = True
+        if refused:
+>           raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX, reason="keychain-test-guard")
+E           subfleet.credentials.KeychainExecRefused: refusing personal keychain read under pytest
+
+subfleet/credentials.py:556: KeychainExecRefused
+___ test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[True] ___
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-155527-pr272-...08/sf-fix272r3/cases-68416/test_c8_3_null_job_output_pres1/state'), store=<subfleet.store.Store object at 0x108b4b460>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1082f82f0>
+recorded = True
+
+    @pytest.mark.parametrize("recorded", [False, True])
+    def test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins(world, monkeypatch, recorded):
+        tree = world.job("owner")
+        output = str(tree / "result")
+        reader(world, {"out_path": output} if recorded else {}, state="succeeded")
+        assert world.store.one("SELECT out_path FROM jobs WHERE job_id='borrower'")["out_path"] is None
+        world.store.acquire_lease("out:/unrelated/result" if recorded else "out:" + output, "borrower")
+    
+        def forbidden(*a, **k):
+            raise AssertionError("filesystem access in exporter transaction")
+    
+        with monkeypatch.context() as patch:
+            for name in ("canonical", "spelling", "present", "identity"):
+                patch.setattr(folders, name, forbidden)
+            for name in ("record", "git_storage", "_alternates", "open_regular"):
+                patch.setattr(dependencies, name, forbidden)
+            with world.store.transaction():
+                assert dependencies.dependents(world.store.query, str(tree), exclude="owner") == ["borrower"]
+        result = maintain(world)
+        assert "owner" not in result["pruned"], result
+        world.store.release_leases("borrower")
+>       assert "owner" in maintain(world)["pruned"]
+                          ^^^^^^^^^^^^^^^
+
+tests/fake/test_retention_dependency_review_r2.py:179: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_retention_dependency_review_r2.py:18: in maintain
+    return retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+subfleet/retention.py:457: in maintenance
+    return run.run()
+           ^^^^^^^^^
+subfleet/retention.py:614: in run
+    retirement = self._start(by_id[job_id], protected)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention.py:918: in _start
+    retirement.begin({**job, "worktree": folder} if folder is not None else job, _pool(job))
+subfleet/retention_archive.py:486: in begin
+    fmt = rgit.object_format(common, cancel=self.ctx.cancel)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_git.py:365: in object_format
+    out = run(["rev-parse", "--show-object-format"], git_dir=common, cancel=cancel).stdout.decode().strip()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_git.py:91: in run
+    process = subprocess.Popen(rqos.argv(argv), cwd=cwd, env=environment(env),
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py:1039: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py:1858: in _execute_child
+    sys.audit("subprocess.Popen", executable, args, cwd, env)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+event = 'subprocess.Popen'
+details = ('/usr/sbin/taskpolicy', ['/usr/sbin/taskpolicy', '-c', 'utility', 'git', '-c', 'core.hooksPath=/dev/null', ...], None...08/sf-fix272r3/cases-68416/sf-test-homes-mp587q8x/home', 'LANG': 'C.UTF-8', 'LC_ALL': 'C', 'LC_CTYPE': 'C.UTF-8', ...})
+_events = frozenset({'os.exec', 'os.posix_spawn', 'os.spawn', 'os.system', 'subprocess.Popen'})
+_targets = <function _launch_targets at 0x107026140>
+_matches = <function _is_keychain_binary at 0x107025e80>
+_active = <function _guard_active at 0x107027060>
+_native = ('/usr/bin/security', (16777231, 1152921500312572723))
+_unsafe = <function _unsafe_delegation at 0x107026f00>
+_alive = <function session_alive at 0x106fb2da0>
+_system = ('/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/usr/gnu/bin')
+_recorders = ()
+
+    def guard(event, details, *, _events=_LAUNCH_EVENTS, _targets=_launch_targets,
+              _matches=_is_keychain_binary, _active=_guard_active, _native=native,
+              _unsafe=_unsafe_delegation, _alive=session_alive,
+              _system=system_dirs, _recorders=recorder_dirs):
+        if event not in _events or not _active(pins):
+            return
+        try:
+            def recorders():
+                return _recorders + tuple(os.path.join(base, "keychain-bin")
+                                           for base, token in list(pins) if _alive(base, token))
+            refused = (_unsafe(event, details, recorders, system_dirs=_system, native=_native)
+                       or any(target == "security" or _matches(target, _native)
+                              for target in _targets(event, details) if target is not None))
+        except Exception:
+            # A launch whose check cannot finish is refused (C-20.6). The launch
+            # may reject the same arguments, but a later audit hook can change
+            # them first, as it can change PATH.
+            refused = True
+        if refused:
+>           raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX, reason="keychain-test-guard")
+E           subfleet.credentials.KeychainExecRefused: refusing personal keychain read under pytest
+
+subfleet/credentials.py:556: KeychainExecRefused
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[False]
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[True]
+2 failed, 19 passed in 60.43s (0:01:00)

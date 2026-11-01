@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:51:39Z slot B load 
+OBSERVED_START test_retention_dependency_spelling 2026-10-29T10:51:41.802006+00:00 load=(22.5751953125, 16.7685546875, 12.89208984375)
+................                                                         [100%]
+16 passed in 12.27s
+OBSERVED_END test_retention_dependency_spelling seconds=16.28

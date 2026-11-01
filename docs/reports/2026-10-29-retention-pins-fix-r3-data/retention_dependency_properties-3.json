@@ -1,0 +1,32 @@
+{
+  "label": "retention_dependency_properties-3",
+  "start": "2026-10-29T20:37:57.162816+00:00",
+  "loads": [
+    13.9052734375,
+    26.76708984375,
+    27.80615234375
+  ],
+  "seconds": 232.78575279200004,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 227.66201491599986
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 128090112
+}

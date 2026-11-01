@@ -1,0 +1,20 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 17:06:44Z slot B load 
+............F.....F.                                                     [100%]
+=================================== FAILURES ===================================
+__ test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit __
+tests/unit/test_retention_archive.py:116: in test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit
+    assert "README.md" in omitted and "data.bin" in omitted            # unchanged, on origin/main
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert ('README.md' in [])
+________________ test_survey_is_read_only_and_predicts_the_pass ________________
+tests/unit/test_retention_archive.py:1553: in test_survey_is_read_only_and_predicts_the_pass
+    assert report["would_retire"]["omittable_bytes_upper_bound"] > 0
+E   assert 0 > 0
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit
+FAILED tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass
+2 failed, 18 passed in 111.88s (0:01:51)
+{"name": "earlier-test_retention_archive-5", "start": "2026-10-31T17:06:45.191592+00:00", "load": [35.04833984375, 45.609375, 54.34326171875], "seconds": 112.7442643339964, "exit": 1}

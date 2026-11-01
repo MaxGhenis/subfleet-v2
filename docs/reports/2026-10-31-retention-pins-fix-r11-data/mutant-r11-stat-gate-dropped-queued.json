@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T18:37:42.200466+00:00",
+  "args": [
+    "--mutant",
+    "r11-stat-gate-dropped",
+    "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/mutant-r11-stat-gate-dropped",
+  "linked": false,
+  "driver_pid": 35019,
+  "lock_process_group": 35171
+}

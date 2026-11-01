@@ -1,0 +1,35 @@
+{
+  "name": "shared-property-1",
+  "start": "2026-10-29T05:43:20.183026+00:00",
+  "load": [
+    17.791015625,
+    19.44921875,
+    23.17724609375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+      "valid": 150,
+      "invalid": 0,
+      "calls": 189,
+      "settings_max": 150
+    }
+  ],
+  "explicit": {
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence": 5
+  },
+  "mutant": null,
+  "loaded": []
+}

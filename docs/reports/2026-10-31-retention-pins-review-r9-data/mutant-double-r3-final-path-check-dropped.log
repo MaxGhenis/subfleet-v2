@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:41:10Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________________ test_changes[symlink-info-running] ______________________
+docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py:56: in test_changes
+    assert changed and recorded.get('incomplete'), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r3-final-path-check-dropped/pytest-of-maxghenis/pytest-0/test_...double-r3-final-path-check-dropped/pytest-of-maxghenis/pytest-0/test_changes_symlink_info_runn0/outside/.git/objects']}
+E   assert ([True] and None)
+E    +  where None = <built-in method get of dict object at 0x10b7f0680>('incomplete')
+E    +    where <built-in method get of dict object at 0x10b7f0680> = {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r3-final-path-check-dropped/pytest-of-maxghenis/pytest-0/test_...double-r3-final-path-check-dropped/pytest-of-maxghenis/pytest-0/test_changes_symlink_info_runn0/outside/.git/objects']}.get
+=========================== short test summary info ============================
+FAILED docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]
+1 failed in 5.89s
+{"name": "mutant-double-r3-final-path-check-dropped", "start": "2026-10-31T08:41:12.488154+00:00", "load": [35.92138671875, 33.123046875, 31.13818359375], "seconds": 7.270393915998284, "exit": 1}

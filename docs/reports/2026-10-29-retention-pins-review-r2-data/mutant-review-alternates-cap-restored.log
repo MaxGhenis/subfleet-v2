@@ -1,0 +1,51 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:26:49Z slot A load 
+ADMITTED 2026-10-29T06:26:49.295011+00:00 LOAD (37.775390625, 23.77734375, 22.7939453125)
+FOBSERVATION {"engines": [], "explicit": {}, "mutant": "review-alternates-cap-restored", "loaded": ["subfleet.dependencies"]}
+
+=================================== FAILURES ===================================
+________ test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads ________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-review-alternates-cap-restored/pytest-of-maxghenis/pytest-0/test_c8_4_large_valid_alternat0')
+
+    def test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads(tmp_path):
+        """A valid file past the discovery read cap must not silently lose dependencies."""
+        world = World(tmp_path)
+        try:
+            tree = world.job("owner")
+            source = repo(tree / "objects-source")
+            commit = git(source, "rev-parse", "HEAD")
+            borrower = tmp_path / "borrower"
+            git(tmp_path, "clone", "--quiet", "--shared", str(source), str(borrower))
+            line = str(source / ".git" / "objects") + "\n"
+            text = line * ((64 * 1024) // len(line.encode()) + 1)
+            assert len(text.encode()) > 64 * 1024
+            (borrower / ".git" / "objects" / "info" / "alternates").write_text(text)
+            assert git(borrower, "cat-file", "-t", commit) == "commit"
+    
+            recorded = dependencies.record(str(borrower))
+            world.store.add_job(job_id="borrower", request_id="borrower", payload_digest="d",
+                                kind="dispatch", state="running", sandbox="read-only",
+                                workdir=str(borrower), prompt_path="/prompt")
+            world.store.add_event("job.submitted", job_id="borrower", data={"depends": recorded})
+            result = retention.maintenance(world.store, world.root, max_jobs=0, max_bytes=0,
+                                           holders=lambda *args, **kwargs: {})
+>           assert "owner" not in result["pruned"], (recorded, result)
+E           AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-review-alternates-cap-restor...ge_valid_alternat0/borrower/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48089, 'bytes_after': 0, ...})
+E           assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r1.py:138: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 17 deselected, 2 warnings in 6.50s

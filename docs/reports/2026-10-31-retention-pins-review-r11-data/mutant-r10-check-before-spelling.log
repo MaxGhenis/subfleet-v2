@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 16:44:50Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target] _
+tests/unit/test_retention_location_cycles.py:149: in test_scan_retargeted_into_cycle_before_spelling_is_incomplete
+    assert any(error["file"] == str(entry) and "alias changed" in error["reason"]
+E   AssertionError: {'git': ['/private/tmp/sf-r272r11/real-tmp/mutant-r10-check-before-spelling/pytest-of-maxghenis/pytest-0/test_scan_ret.../mutant-r10-check-before-spelling/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git/objects']}
+E   assert False
+E    +  where False = any(<generator object test_scan_retargeted_into_cycle_before_spelling_is_incomplete.<locals>.<genexpr> at 0x10c25ce50>)
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]
+1 failed in 20.34s
+{"name": "mutant-r10-check-before-spelling", "start": "2026-10-31T16:44:55.976733+00:00", "load": [45.68505859375, 45.486328125, 64.47216796875], "seconds": 25.647884083999088, "exit": 1}

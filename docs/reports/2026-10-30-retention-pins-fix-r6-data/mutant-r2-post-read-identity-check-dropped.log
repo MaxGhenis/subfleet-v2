@@ -1,0 +1,65 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:18:50Z slot A load 
+START mutant-r2-post-read-identity-check-dropped 2026-10-30T22:18:53.810385+00:00 load=(17.189453125, 19.470703125, 19.0234375)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace] __
+
+world = World(base=PosixPath('/private/tmp/sf-fix272r6/cases-17743/pytest/test_c8_4_changed_alternates_d0'), trusted=True, rem...ix272r6/cases-17743/pytest/test_c8_4_changed_alternates_d0/state'), store=<subfleet.store.Store object at 0x10bfee3c0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ba2bbb0>
+change = 'replace'
+
+    @pytest.mark.parametrize("change", ["replace", "rewrite"])
+    def test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads(world, monkeypatch, change):
+        tree = world.job("owner")
+        source = repo(tree / "object-source")
+        commit = git(source, "rev-parse", "HEAD")
+        borrower = world.base / "outside"
+        git(world.base, "init", "--quiet", str(borrower))
+        alternate = borrower / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        real = dependencies.open_regular
+        changed = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            new = os.fsencode(source / ".git" / "objects") + b"\n"
+                            if change == "replace":
+                                replacement = alternate.with_name("replacement")
+                                replacement.write_bytes(new)
+                                replacement.replace(alternate)
+                            else:
+                                alternate.write_bytes(new)
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(borrower))
+        assert changed
+        assert git(borrower, "cat-file", "-t", commit) == "commit"
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-fix272r6/cases-17743/pytest/test_c8_4_changed_alternates_d0/outside/.git', '/private/tmp/sf...ternates_d0/outside/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 47986, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r2.py:82: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]
+1 failed in 22.66s

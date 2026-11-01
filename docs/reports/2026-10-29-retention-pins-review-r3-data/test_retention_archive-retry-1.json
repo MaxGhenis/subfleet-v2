@@ -1,0 +1,29 @@
+{
+  "name": "test_retention_archive-retry-1",
+  "start": "2026-10-29T14:28:03.617907+00:00",
+  "load": [
+    32.29541015625,
+    47.033203125,
+    39.7490234375
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 23.760889875004068,
+  "rss": 119144448
+}

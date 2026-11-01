@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T04:16:42.564753+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261030-223353-pr272-fix-r7/docs/reports/2026-10-31-retention-pins-fix-r7-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/pointer_matrix.py::test_rejected_child_with_valid_parent",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+  ]
+}

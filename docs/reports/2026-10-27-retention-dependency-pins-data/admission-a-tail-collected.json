@@ -1,0 +1,1 @@
+["tests/unit/test_admission_uncapped.py::test_a_band_as_wide_as_the_per_lane_cap_chooses_as_the_cap_did", "tests/unit/test_admission_uncapped.py::test_a_pool_holds_back_only_while_it_has_a_count"]

@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:15:11Z slot B load 
+.                                                                        [100%]
+1 passed in 36.99s
+{"name": "admission-writer", "start": "2026-10-31T19:15:15.178541+00:00", "load": [49.83203125, 61.40087890625, 65.68359375], "seconds": 39.11865362500248, "exit": 0}

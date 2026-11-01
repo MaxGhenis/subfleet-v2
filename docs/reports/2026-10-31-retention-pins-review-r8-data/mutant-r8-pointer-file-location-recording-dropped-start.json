@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:32:57.278118+00:00", "loads": [34.7138671875, 34.5244140625, 33.93701171875], "pid": 7726, "args": ["tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]", "--runxfail"], "fixture_root": "/private/tmp/sf-r272r8"}

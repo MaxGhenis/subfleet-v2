@@ -1,0 +1,39 @@
+{
+  "label": "mutant-r3-final-path-check-dropped",
+  "start": "2026-10-30T05:06:40.594601+00:00",
+  "loads": [
+    20.197265625,
+    22.74853515625,
+    22.0625
+  ],
+  "seconds": 3.504265709001629,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "probes.py::test_changes[symlink-info-running]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.33280858299985994
+    }
+  ],
+  "nodes": [
+    "probes.py::test_changes[symlink-info-running]"
+  ],
+  "phases": {
+    "probes.py::test_changes[symlink-info-running]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "7658a5d4cd07ebc11714727e262d7de521bfe83c39a3dc3dd24afce356dc1be5",
+      "mutated_sha256": "8c64a3a07b5ebe74dea4bff113c6e70bf801ad4acaaf102b9a36e08c7d20432f"
+    }
+  ],
+  "rss": 120274944
+}

@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:28:53Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_unreadable_common_pointer_keeps_allocated_trees[dangling] ________
+tests/fake/test_retention_pointer_failures.py:37: in test_unreadable_common_pointer_keeps_allocated_trees
+    assert any(error["file"] == str(pointer) for error in recorded.get("incomplete", [])), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/mutant-r6-dangling-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0...-tmp/mutant-r6-dangling-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0/test_unreadable_common_pointer0/gone']}
+E   assert False
+E    +  where False = any(<generator object test_unreadable_common_pointer_keeps_allocated_trees.<locals>.<genexpr> at 0x10c3d86d0>)
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]
+1 failed in 4.56s
+{"name": "mutant-r6-dangling-pointer-treated-as-missing", "start": "2026-10-31T07:28:54.730084+00:00", "load": [31.20654296875, 33.7900390625, 33.9130859375], "seconds": 5.44691020800019, "exit": 1}

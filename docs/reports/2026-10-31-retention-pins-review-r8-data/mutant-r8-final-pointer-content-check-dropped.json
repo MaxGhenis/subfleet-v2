@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r8-final-pointer-content-check-dropped",
+  "start": "2026-10-31T06:45:17.700117+00:00",
+  "loads": [
+    39.47509765625,
+    37.53369140625,
+    35.935546875
+  ],
+  "seconds": 15.078570790999947,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1600912079993577,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 1.305024624998623,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0'), trusted=True, remote...f-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/state'), store=<subfleet.store.Store object at 0x10a16be00>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10acd8510>\nchange = 'rewrite'\nrecord_property = <function record_property.<locals>.append_property at 0x10ad1bab0>\n\n    @pytest.mark.parametrize('change', ['rewrite', 'oversized', 'unreadable'])\n    def test_final_pointer_failure_cannot_hide_changed_storage(world, monkeypatch, change, record_property):\n        tree = world.job('owner')\n        owner, commit = source(world, tree)\n        checkout = repo(world.base / 'outside')\n        initial = world.base / 'initial-admin'\n        (checkout / '.git').rename(initial)\n        pointer = checkout / '.git'\n        pointer.write_text('gitdir: ' + str(initial) + '\\n')\n        identity = pointer.stat().st_ino\n        real_check = dependencies._Aliases.check\n        real_read = dependencies.read_regular\n        changed = []\n        def check(self, incomplete):\n            if not changed:\n                changed.append(True)\n                padding = b'\\r\\n' * 35000 if change == 'oversized' else b'\\n'\n                pointer.write_bytes(b'gitdir: ' + os.fsencode(owner / '.git') + padding)\n            return real_check(self, incomplete)\n        def reading(path, **kwargs):\n            if change == 'unreadable' and changed and str(path) == str(pointer):\n                raise PermissionError('review final read seam')\n            return real_read(path, **kwargs)\n        with monkeypatch.context() as patch:\n            patch.setattr(dependencies._Aliases, 'check', check)\n            patch.setattr(dependencies, 'read_regular', reading)\n            recorded = dependencies.record(str(checkout))\n        assert identity == pointer.stat().st_ino\n        assert git('-C', checkout, 'fsck', '--no-dangling').returncode == 0\n        assert git('-C', checkout, 'show', commit + ':owner-only.txt').returncode == 0\n>       assert recorded.get('incomplete'), recorded\nE       AssertionError: {'git': ['/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/initial-admin', '/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/initial-admin/objects']}\nE       assert None\nE        +  where None = <built-in method get of dict object at 0x10a2d0880>('incomplete')\nE        +    where <built-in method get of dict object at 0x10a2d0880> = {'git': ['/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/initial-admin', '/private/tmp/sf-r272r8/cases-3121/pytest/test_final_pointer_failure_can0/initial-admin/objects']}.get\n\ndocs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py:173: AssertionError"
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.023960374999660417,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]"
+  ],
+  "all_nodes": [
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "4d0eb6e46d0c607c8eea43685bc37bccdd9fc3de0ed283808267f3a508cac8bd"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 118046720
+}

@@ -1,0 +1,45 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:44:00Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_location_inputs_keep_the_places_real_git_traverses ____________
+tests/unit/test_retention_location_inputs.py:159: in test_location_inputs_keep_the_places_real_git_traverses
+    suppress_health_check=[HealthCheck.function_scoped_fixture])
+         ^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_inputs.py:164: in test_location_inputs_keep_the_places_real_git_traverses
+    observation = check_location_input(Path(directory), data)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/review-r9-data/run.py:112: in observed
+    result = original(base, data)
+             ^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_inputs.py:151: in check_location_input
+    assert held, recorded
+E   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-decision2-location/tmpblv_v80m/stable/container/admin', '/private/tmp.../stable/container/admin/objects', '/private/tmp/sf-r272r9/real-tmp/revert-decision2-location/tmpblv_v80m/stable/hop0']}
+E   assert False
+E   Failing test case: test_location_inputs_keep_the_places_real_git_traverses(
+E       # The test always failed when commented parts were varied together.
+E       record_property=append_property,
+E       data={
+E           'position': 'gitfile-pointer',
+E           'chain': 1,  # or any other generated value
+E           'relative': False,  # or any other generated value
+E           'named': False,  # or any other generated value
+E           'entry': 'HEAD',  # or any other generated value
+E       },
+E   )
+E   {'position': 'gitfile-pointer',
+E    'chain': 1,
+E    'relative': False,
+E    'named': False,
+E    'entry': 'HEAD'}
+E   Explanation:
+E       These lines were always and only run by failing test cases:
+E           /private/tmp/sf-r272r9/reversion-decision2/tests/unit/test_retention_location_inputs.py:84
+E           /private/tmp/sf-r272r9/reversion-decision2/tests/unit/test_retention_location_inputs.py:85
+E           /private/tmp/sf-r272r9/reversion-decision2/tests/unit/test_retention_location_inputs.py:86
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses
+1 failed in 39.10s
+{"name": "revert-decision2-location", "start": "2026-10-31T08:44:03.218245+00:00", "load": [36.05029296875, 33.10498046875, 31.404296875], "seconds": 40.51211541700104, "exit": 1}

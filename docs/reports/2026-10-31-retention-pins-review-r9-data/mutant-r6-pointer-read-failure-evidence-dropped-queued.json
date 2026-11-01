@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T09:10:46.855874+00:00",
+  "args": [
+    "--mutant",
+    "r6-pointer-read-failure-evidence-dropped",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/mutant-r6-pointer-read-failure-evidence-dropped",
+  "linked": false,
+  "driver_pid": 17555,
+  "lock_process_group": 17559
+}

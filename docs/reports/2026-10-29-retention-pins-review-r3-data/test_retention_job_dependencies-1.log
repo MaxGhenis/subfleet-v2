@@ -1,0 +1,11 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:47:58Z slot A load 
+{"start": "2026-10-29T13:47:59.256826+00:00", "load": [21.26513671875, 21.09033203125, 22.4951171875], "name": "test_retention_job_dependencies-1"}
+............                                                             [100%]
+12 passed in 14.19s

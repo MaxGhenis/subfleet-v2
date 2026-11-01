@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:51:22.805290+00:00",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "not test_fence_hold_against_a_model_of_the_fence and not test_early_fences_equal_reservation_before_and_after_quarantine and not test_interleavings_never_delete_a_folder_named_by_a_turn and not test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/shared-examples",
+  "linked": false,
+  "driver_pid": 10076,
+  "lock_process_group": 10096
+}

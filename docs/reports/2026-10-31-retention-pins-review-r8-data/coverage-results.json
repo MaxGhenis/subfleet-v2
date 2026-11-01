@@ -1,0 +1,370 @@
+{
+  "original": {
+    "count": 100,
+    "dimensions": {
+      "layout": {
+        "gitfile": 52,
+        "directory": 48
+      },
+      "prefix": {
+        "present": 28,
+        "absent": 27,
+        "misspelled": 25,
+        "colon-only": 20
+      },
+      "target": {
+        "normal": 27,
+        "spaces": 24,
+        "blank": 28,
+        "padded": 21
+      },
+      "common": {
+        "absent": 23,
+        "empty": 20,
+        "lf": 24,
+        "crlf": 13,
+        "target": 20
+      },
+      "own": {
+        "absent": 36,
+        "alternate": 29,
+        "symlink": 35
+      },
+      "named": {
+        "False": 53,
+        "True": 47
+      },
+      "padding": {
+        "short": 39,
+        "under": 23,
+        "over": 38
+      },
+      "pad_file": {
+        "gitfile": 55,
+        "commondir": 45
+      }
+    },
+    "cross": {
+      "('absent', 'absent')": 8,
+      "('absent', 'alternate')": 4,
+      "('absent', 'symlink')": 11,
+      "('crlf', 'absent')": 8,
+      "('crlf', 'alternate')": 1,
+      "('crlf', 'symlink')": 4,
+      "('empty', 'absent')": 5,
+      "('empty', 'alternate')": 7,
+      "('empty', 'symlink')": 8,
+      "('lf', 'absent')": 8,
+      "('lf', 'alternate')": 8,
+      "('lf', 'symlink')": 8,
+      "('target', 'absent')": 7,
+      "('target', 'alternate')": 9,
+      "('target', 'symlink')": 4
+    },
+    "readable_named_common": {
+      "target": 2,
+      "absent": 2,
+      "crlf": 1
+    }
+  },
+  "focused": {
+    "count": 40,
+    "dimensions": {
+      "slot": {
+        "0": 1,
+        "23390": 2,
+        "438": 2,
+        "1276": 1,
+        "1098": 1,
+        "65535": 1,
+        "3630": 1,
+        "2055": 1,
+        "162": 1,
+        "27": 1,
+        "1055": 1,
+        "681": 1,
+        "1814": 1,
+        "329": 1,
+        "147": 1,
+        "213": 1,
+        "143": 1,
+        "29834": 1,
+        "93": 1,
+        "3935": 1,
+        "1403": 1,
+        "23608": 1,
+        "1265": 1,
+        "4751": 1,
+        "513": 1,
+        "392": 1,
+        "291": 1,
+        "902": 1,
+        "3096": 1,
+        "157": 1,
+        "366": 1,
+        "8148": 1,
+        "5016": 1,
+        "5918": 1,
+        "65314": 1,
+        "618": 1,
+        "798": 1,
+        "49233": 1
+      },
+      "common": {
+        "absent": 15,
+        "crlf": 15,
+        "lf": 10
+      },
+      "own": {
+        "plain": 12,
+        "symlink": 12,
+        "alternate": 16
+      },
+      "parent": {
+        "absent": 10,
+        "repository": 16,
+        "not-repository": 6,
+        "unrelated-commondir": 8
+      }
+    },
+    "cross": {
+      "('absent', 'alternate')": 6,
+      "('absent', 'plain')": 6,
+      "('absent', 'symlink')": 3,
+      "('crlf', 'alternate')": 7,
+      "('crlf', 'plain')": 5,
+      "('crlf', 'symlink')": 3,
+      "('lf', 'alternate')": 3,
+      "('lf', 'plain')": 1,
+      "('lf', 'symlink')": 6
+    }
+  },
+  "reversions": [
+    {
+      "label": "generated-r6f1-original",
+      "exit": 1,
+      "settings": {
+        "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads": {
+          "max_examples": 100,
+          "derandomize": true,
+          "database_none": true,
+          "explicit_examples": 0,
+          "phases": [
+            "Phase.explicit",
+            "Phase.reuse",
+            "Phase.generate",
+            "Phase.target",
+            "Phase.shrink",
+            "Phase.explain"
+          ],
+          "digest": "98f66e377410dbdac656a1072b10836131269a3e785eb637af89b400e901325685fae5df65e7c24932cfd6f5322cd8f1"
+        }
+      },
+      "attempts": 98,
+      "first_failure": {
+        "attempt": 43,
+        "input": {
+          "pad_file": "commondir",
+          "padding": "over",
+          "prefix": "present",
+          "target": "padded",
+          "own": "symlink",
+          "named": true,
+          "common": "absent",
+          "layout": "gitfile"
+        },
+        "git": {
+          "store": 0,
+          "read": 0,
+          "recorded": {
+            "git": [
+              "/private/tmp/sf-r272r8/cases-96264/tmpqo3n3p5u/container/worktrees/slot",
+              "/private/tmp/sf-r272r8/cases-96264/tmpqo3n3p5u/container",
+              "/private/tmp/sf-r272r8/cases-96264/tmpqo3n3p5u/container/objects"
+            ]
+          }
+        }
+      },
+      "incomplete_successes": 17
+    },
+    {
+      "label": "generated-r6f1-focused",
+      "exit": 1,
+      "settings": {
+        "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads": {
+          "max_examples": 40,
+          "derandomize": true,
+          "database_none": true,
+          "explicit_examples": 0,
+          "phases": [
+            "Phase.explicit",
+            "Phase.reuse",
+            "Phase.generate",
+            "Phase.target",
+            "Phase.shrink",
+            "Phase.explain"
+          ],
+          "digest": "bcbd8337cb512b4b0da7ebaae10813647871edfbc0f20e46041a8be2c7f5376f6b5b27966a64c93c8bcb4f7a25e49bbb"
+        }
+      },
+      "attempts": 112,
+      "first_failure": {
+        "attempt": 1,
+        "input": {
+          "slot": 0,
+          "common": "absent",
+          "own": "plain",
+          "parent": "absent"
+        },
+        "git": {
+          "store": 0,
+          "read": 0,
+          "recorded": {
+            "git": [
+              "/private/tmp/sf-r272r8/cases-6081/tmp2j69tirg/container/worktrees/0",
+              "/private/tmp/sf-r272r8/cases-6081/tmp2j69tirg/container",
+              "/private/tmp/sf-r272r8/cases-6081/tmp2j69tirg/container/objects"
+            ]
+          }
+        }
+      },
+      "incomplete_successes": 0
+    },
+    {
+      "label": "generated-r6f2-original",
+      "exit": 1,
+      "settings": {
+        "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads": {
+          "max_examples": 100,
+          "derandomize": true,
+          "database_none": true,
+          "explicit_examples": 0,
+          "phases": [
+            "Phase.explicit",
+            "Phase.reuse",
+            "Phase.generate",
+            "Phase.target",
+            "Phase.shrink",
+            "Phase.explain"
+          ],
+          "digest": "98f66e377410dbdac656a1072b10836131269a3e785eb637af89b400e901325685fae5df65e7c24932cfd6f5322cd8f1"
+        }
+      },
+      "attempts": 418,
+      "first_failure": {
+        "attempt": 12,
+        "input": {
+          "pad_file": "gitfile",
+          "common": "empty",
+          "prefix": "colon-only",
+          "own": "symlink",
+          "target": "blank",
+          "layout": "gitfile",
+          "padding": "over",
+          "named": false
+        },
+        "git": {
+          "store": 128,
+          "read": 128,
+          "recorded": {}
+        }
+      },
+      "incomplete_successes": 0
+    },
+    {
+      "label": "generated-r6f2-focused",
+      "exit": 0,
+      "settings": {
+        "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads": {
+          "max_examples": 40,
+          "derandomize": true,
+          "database_none": true,
+          "explicit_examples": 0,
+          "phases": [
+            "Phase.explicit",
+            "Phase.reuse",
+            "Phase.generate",
+            "Phase.target",
+            "Phase.shrink",
+            "Phase.explain"
+          ],
+          "digest": "bcbd8337cb512b4b0da7ebaae10813647871edfbc0f20e46041a8be2c7f5376f6b5b27966a64c93c8bcb4f7a25e49bbb"
+        }
+      },
+      "attempts": 40,
+      "first_failure": null,
+      "incomplete_successes": 0
+    },
+    {
+      "label": "generated-r7f1-original",
+      "exit": 0,
+      "settings": {
+        "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads": {
+          "max_examples": 100,
+          "derandomize": true,
+          "database_none": true,
+          "explicit_examples": 0,
+          "phases": [
+            "Phase.explicit",
+            "Phase.reuse",
+            "Phase.generate",
+            "Phase.target",
+            "Phase.shrink",
+            "Phase.explain"
+          ],
+          "digest": "98f66e377410dbdac656a1072b10836131269a3e785eb637af89b400e901325685fae5df65e7c24932cfd6f5322cd8f1"
+        }
+      },
+      "attempts": 100,
+      "first_failure": null,
+      "incomplete_successes": 22
+    },
+    {
+      "label": "generated-r7f1-focused",
+      "exit": 0,
+      "settings": {
+        "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads": {
+          "max_examples": 40,
+          "derandomize": true,
+          "database_none": true,
+          "explicit_examples": 0,
+          "phases": [
+            "Phase.explicit",
+            "Phase.reuse",
+            "Phase.generate",
+            "Phase.target",
+            "Phase.shrink",
+            "Phase.explain"
+          ],
+          "digest": "bcbd8337cb512b4b0da7ebaae10813647871edfbc0f20e46041a8be2c7f5376f6b5b27966a64c93c8bcb4f7a25e49bbb"
+        }
+      },
+      "attempts": 40,
+      "first_failure": null,
+      "incomplete_successes": 8
+    }
+  ],
+  "head_properties": [
+    [
+      "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      115,
+      {
+        "reads-owner": 43,
+        "rejects": 72
+      },
+      24
+    ],
+    [
+      "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      40,
+      {
+        "reads-owner": 40
+      },
+      0
+    ]
+  ],
+  "head_vectors_identical": {
+    "original": true,
+    "focused": true
+  }
+}

@@ -1,0 +1,701 @@
+{
+  "name": "nested-leases",
+  "start": "2026-10-31T14:33:46.647325+00:00",
+  "load": [
+    57.8203125,
+    56.84521484375,
+    62.99609375
+  ],
+  "pytest_pid": 85732,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_nested_leases.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.1138097920047585,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9981468330006464,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03062929199950304,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.3499884580014623,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.994690875006199,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009465542003454175,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.460124541001278,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.890433415996085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.05463837499701185,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_between_selection_and_transaction_stops_retirement",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.5325410419973196,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_between_selection_and_transaction_stops_retirement",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5797366659971885,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_between_selection_and_transaction_stops_retirement",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.08310399999754736,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_recorded_alias_is_kept_by_the_selection_range",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7755675000007614,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_recorded_alias_is_kept_by_the_selection_range",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.220635792000394,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_recorded_alias_is_kept_by_the_selection_range",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.015321457998652477,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5881368750051479,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 10.865301416997681,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.13918433300568722,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9936941249980009,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 11.80272062500444,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.09694358399428893,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2432061250001425,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.87412591699831,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03815637499792501,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0479352080001263,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.441772583995771,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002182749994972255,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[-copy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.992527832997439,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[-copy]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.585309041998698,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[-copy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.018413041994790547,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[.x]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.188274916006776,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[.x]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.091547500000161,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[.x]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.14948762499989243,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[:x]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.1280419579998124,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.872035958003835,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[:x]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03491870800644392,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[;]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.8041086250013905,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[;]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.702244749998499,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[;]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.12388933299371274,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[parent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.485061666004185,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[parent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.5876608749968,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[parent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.20893195800454123,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.7038848330048495,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.993586333002895,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.15303383299760753,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-census]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.727607499997248,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-census]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2199691670030006,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-census]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0019792920065810904,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-selection]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.447699584001384,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-selection]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.160781874998065,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-selection]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10905525000271155,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.4773501250019763,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.118484874998103,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10052312500192784,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-census]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4894693340029335,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-census]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5794789580031647,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-census]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003594000001612585,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0279615840045153,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5102852920026635,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.01399074999790173,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6836846669975785,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.662489874994208,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.014582457995857112,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_lease_inside_keeps_no_job_without_its_own_tree[read-only-0]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.9652280829977826,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_lease_inside_keeps_no_job_without_its_own_tree[read-only-0]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5459307080018334,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_lease_inside_keeps_no_job_without_its_own_tree[read-only-0]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00617079199582804,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_lease_inside_keeps_no_job_without_its_own_tree[workspace-write-1]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.9097366249989136,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_lease_inside_keeps_no_job_without_its_own_tree[workspace-write-1]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3913288330004434,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_a_lease_inside_keeps_no_job_without_its_own_tree[workspace-write-1]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03698129099939251,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[census]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.8164693750004517,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[census]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2635707079971326,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[census]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009947667000233196,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[selection]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0763702089971048,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[selection]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.32452679199923296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[selection]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.034958583004481625,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.206048500003817,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.4036449999985052,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.024313125002663583,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.09698737500002608,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 36.86277079199499,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004946459004713688,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_between_selection_and_transaction_stops_retirement",
+    "tests/unit/test_retention_nested_leases.py::test_a_recorded_alias_is_kept_by_the_selection_range",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[.x]",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[;]",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_nested_leases.py::test_a_writer_beside_or_above_the_worktree_keeps_nothing[root]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-census]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-selection]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:job-commit]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-census]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+    "tests/unit/test_retention_nested_leases.py::test_a_lease_inside_keeps_no_job_without_its_own_tree[read-only-0]",
+    "tests/unit/test_retention_nested_leases.py::test_a_lease_inside_keeps_no_job_without_its_own_tree[workspace-write-1]",
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[census]",
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[selection]",
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]",
+    "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T14:37:23.954915+00:00",
+  "seconds": 217.30681062499934,
+  "peak_rss_mib": 118.109375,
+  "exit": 0
+}

@@ -1,0 +1,49 @@
+{
+  "name": "admission-writer",
+  "start": "2026-10-31T10:11:26.993613+00:00",
+  "load": [
+    35.91162109375,
+    34.39990234375,
+    34.91552734375
+  ],
+  "args": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1337223750015255,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 11.447657832999539,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006739579985151067,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "d4d8dcb9d4cf11e75318b49837393308d5a589cb7959f7ce13e0d4faa1adf512",
+  "end": "2026-10-31T10:11:49.989302+00:00",
+  "seconds": 22.99534729199877,
+  "peak_rss_mib": 123.28125,
+  "exit": 0
+}

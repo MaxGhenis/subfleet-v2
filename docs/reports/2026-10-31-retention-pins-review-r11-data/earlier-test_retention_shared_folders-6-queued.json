@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T17:32:01.285566+00:00",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_shared_folders-6",
+  "linked": false,
+  "driver_pid": 66313,
+  "lock_process_group": 66586
+}

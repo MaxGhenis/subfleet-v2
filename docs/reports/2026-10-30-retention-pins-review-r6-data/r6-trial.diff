@@ -1,0 +1,28 @@
+--- a/subfleet/dependencies.py
++++ b/subfleet/dependencies.py
+@@ -187,7 +187,13 @@
+ 
+     def text(self, path: str) -> str | None:
+         self.resolve(path)
+-        value = _text(path)
++        try:
++            value = os.fsdecode(read_regular(path, limit=_FILE_LIMIT))
++        except FileNotFoundError:
++            value = None
++        except (OSError, ValueError) as exc:
++            self.errors.setdefault(path, str(exc))
++            value = None
+         self.pointers.setdefault(path, value)
+         return value
+ 
+@@ -226,7 +232,9 @@
+     if pointer:
+         common = aliases.resolve(os.path.join(gitdir, pointer))
+     elif named and os.path.basename(os.path.dirname(gitdir)) == "worktrees":
+-        common = os.path.dirname(os.path.dirname(gitdir))
++        inferred = os.path.dirname(os.path.dirname(gitdir))
++        own = aliases.resolve(os.path.join(gitdir, "objects"))
++        return list(dict.fromkeys([gitdir, *_storage(inferred, named=False, incomplete=incomplete, aliases=aliases), own, *_alternates(os.path.join(gitdir, "objects"), incomplete=incomplete, aliases=aliases)]))
+     objects = os.path.join(common, "objects")
+     target = aliases.resolve(objects)
+     return list(dict.fromkeys([gitdir, common, target, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))

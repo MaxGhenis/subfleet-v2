@@ -1,0 +1,1 @@
+tests/fake/test_admission_liveness.py::test_c8_4_a_read_only_turn_waits_for_a_retention_fence_only

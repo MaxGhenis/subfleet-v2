@@ -1,0 +1,51 @@
+{
+  "name": "earlier-test_retention_salvage_properties-2",
+  "start": "2026-10-31T17:21:50.682511+00:00",
+  "load": [
+    50.9140625,
+    49.49609375,
+    50.2275390625
+  ],
+  "pytest_pid": 31871,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 7.87472283399984,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 216.66858216700348,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007233750002342276,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:25:47.318716+00:00",
+  "seconds": 236.6351816660026,
+  "peak_rss_mib": 113.734375,
+  "exit": 0
+}

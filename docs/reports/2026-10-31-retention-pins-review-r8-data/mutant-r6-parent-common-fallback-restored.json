@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r6-parent-common-fallback-restored",
+  "start": "2026-10-31T06:36:01.154556+00:00",
+  "loads": [
+    34.75341796875,
+    35.611328125,
+    34.56591796875
+  ],
+  "seconds": 27.152423624998846,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.8367288749996078,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 3.9463842090008256,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-85213/pytest/test_empty_common_target_keeps0'), trusted=True, remot...-r272r8/cases-85213/pytest/test_empty_common_target_keeps0/state'), store=<subfleet.store.Store object at 0x1097a17f0>)\nnamed = True, state = 'running', ending = b'\\n'\n\n    @pytest.mark.parametrize(\"ending\", [None, b\"\\n\", b\"\\r\\n\"], ids=[\"absent\", \"lf\", \"crlf\"])\n    @pytest.mark.parametrize(\"named,state\", [\n        pytest.param(False, \"running\", id=\"directory-live-control\"),\n        pytest.param(True, \"running\", id=\"named-live\"),\n        pytest.param(False, \"succeeded\", id=\"directory-exporting-control\"),\n        pytest.param(True, \"succeeded\", id=\"named-exporting-control\"),\n    ])\n    def test_empty_common_target_keeps_the_own_store_git_reads(world, named, state, ending):\n        tree = world.job(\"owner\")\n        owner, commit = source(world, tree)\n        outside = repo(world.base / \"outside\")\n        admin = outside / \".git\"\n        if named:\n            admin = world.base / \"container\" / \"worktrees\" / \"slot\"\n            admin.parent.mkdir(parents=True)\n            (outside / \".git\").rename(admin)\n            (outside / \".git\").write_text(f\"gitdir: {admin}\\n\")\n        # Keep the borrower's existing refs, index and reflogs fully readable too.\n        git(owner, \"fetch\", \"--quiet\", str(outside), \"HEAD\")\n        (admin / \"objects\").rename(world.base / \"unused-objects\")\n        (admin / \"objects\").symlink_to(owner / \".git\" / \"objects\", target_is_directory=True)\n        if ending is not None:\n            (admin / \"commondir\").write_bytes(ending)\n    \n        # No mutation or incomplete read: this stable repository works in real Git.\n        assert git(outside, \"fsck\", \"--no-dangling\") == \"\"\n        assert git(outside, \"show\", commit + \":owner-only.txt\") == \"R5 owner-only storage\"\n        recorded = dependencies.record(str(outside))\n        assert not recorded.get(\"incomplete\"), recorded\n        reader(world, recorded, state=state)\n        if state == \"succeeded\":\n            world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n        result = maintain(world)\n        if state == \"running\":\n>           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE           AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-85213/pytest/test_empty_common_target_keeps0/container/worktrees/slot', '/priv..._target_keeps0/container/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48939, 'bytes_after': 0, ...})\nE           assert ('owner' not in ['owner'])\n\ntests/fake/test_retention_dependency_review_r6.py:45: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.10242220899999666,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "2f6600d06935f45255cd68ae0731f6206ab042022bb34f6b3b62a89194d4bc13"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 121634816
+}

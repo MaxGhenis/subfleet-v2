@@ -1,0 +1,64 @@
+{
+  "label": "journal-controls",
+  "start": "2026-10-30T19:17:11.861583+00:00",
+  "loads": [
+    36.2568359375,
+    42.966796875,
+    49.474609375
+  ],
+  "seconds": 14.355812416994013,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "journal_probes.py::test_old_journal_paths[quarantine]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.273298000000068
+    },
+    {
+      "nodeid": "journal_probes.py::test_old_journal_paths[archive]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.5226115830009803
+    },
+    {
+      "nodeid": "journal_probes.py::test_old_journal_paths[final_check]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.27715762500884
+    }
+  ],
+  "nodes": [
+    "journal_probes.py::test_old_journal_paths[quarantine]",
+    "journal_probes.py::test_old_journal_paths[archive]",
+    "journal_probes.py::test_old_journal_paths[final_check]"
+  ],
+  "all_nodes": [
+    "journal_probes.py::test_old_journal_paths[quarantine]",
+    "journal_probes.py::test_old_journal_paths[archive]",
+    "journal_probes.py::test_old_journal_paths[final_check]"
+  ],
+  "phases": {
+    "journal_probes.py::test_old_journal_paths[quarantine]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "journal_probes.py::test_old_journal_paths[archive]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "journal_probes.py::test_old_journal_paths[final_check]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 115851264
+}

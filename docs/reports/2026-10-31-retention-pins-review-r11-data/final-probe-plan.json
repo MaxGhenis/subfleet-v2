@@ -1,0 +1,26 @@
+[
+  [
+    "listed-deep-unused",
+    [
+      "-p",
+      "tests.conftest",
+      "review-r11-data/listed_probes.py"
+    ]
+  ],
+  [
+    "exception-order",
+    [
+      "-p",
+      "tests.conftest",
+      "review-r11-data/exception_probe.py"
+    ]
+  ],
+  [
+    "routine-cost-repeat",
+    [
+      "-p",
+      "tests.conftest",
+      "review-r11-data/performance_probe.py"
+    ]
+  ]
+]

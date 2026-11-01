@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:08:51Z slot A load 
+.                                                                        [100%]
+1 passed, 12 deselected in 318.20s (0:05:18)
+{"name": "sweep-property", "start": "2026-10-31T09:08:54.196419+00:00", "load": [33.67431640625, 47.208984375, 49.4853515625], "seconds": 319.7124651660015, "exit": 0}

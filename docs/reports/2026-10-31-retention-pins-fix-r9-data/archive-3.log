@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:08:53Z slot B load 
+.............                                                            [100%]
+13 passed in 37.09s
+{"name": "archive-3", "start": "2026-10-31T10:08:54.102188+00:00", "load": [31.6884765625, 33.517578125, 34.79443359375], "seconds": 38.02079704199787, "exit": 0}

@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 02:52:50Z slot A load 
+START probes-controls 2026-10-30T02:52:51.703881+00:00 load=(24.91845703125, 25.185546875, 25.908203125)
+..                                                                       [100%]
+2 passed in 15.27s

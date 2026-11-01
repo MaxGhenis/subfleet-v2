@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import folders
+from . import dependencies, folders
 from . import retention_fs as rfs
 from . import retention_git as rgit
 from . import retention_qos as rqos
@@ -232,6 +232,9 @@ class Context:
     repositories: list[Path] | None = None
     #: repository -> its salvage refs, read once a pass for the same jobs.
     salvage_listings: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: job id -> the places a job queued before submit recorded them needs
+    #: (`dependencies.legacy`), read once a pass before any transaction.
+    legacy: dict[str, list[str]] = field(default_factory=dict)
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
@@ -514,6 +517,7 @@ class Retirement:
         self.journal = {
             "schema": SCHEMA, "job_id": self.job_id, "state": "selected", "pool": pool,
             "worktree": str(worktree) if worktree else None, "job_dir": str(job_dir),
+            "job_folder": folders.canonical(str(job_dir)),
             "workdir": job.get("workdir"), "baseline": job.get("workdir_head"),
             "admin": str(reg.admin) if reg else (str(remnant) if remnant else None),
             "admin_remnant": remnant is not None, "common": str(common) if common else None,
@@ -623,7 +627,11 @@ class Retirement:
         The cwd can differ from the Git hold, so also read queued/live turn jobs.
         """
         assert self.journal is not None
-        folder = folders.canonical(self.journal["job_dir"])
+        folder = self.journal.get("job_folder") or folders.canonical(self.journal["job_dir"])
+        if "job_folder" not in self.journal:
+            # Upgrade old journals entering quarantine in memory; quarantine saves before its renames.
+            # Leave job_dir unchanged so the rename still refuses a symlink there.
+            self.journal["job_folder"] = folder
         key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
         with self.ctx.store.transaction("retention.job_folder", job_id=self.job_id) as conn:
             self.ctx.check()
@@ -633,6 +641,8 @@ class Retirement:
             if folders.turn_holds(read, folder, inside=True) or any(
                     folders.within(row["workdir"], folder) for row in turns):
                 raise Defer("turn-folder", DEFER_PINNED_S, folder)
+            if dependencies.dependents(read, folder, exclude=self.job_id, legacy_places=self.ctx.legacy):
+                raise Defer("job-directory-in-use", DEFER_PINNED_S, folder)
             current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
             if current and current[0] != holder:
                 raise Defer("job folder lease", DEFER_CHANGED_S, folder)
@@ -882,6 +892,8 @@ class Retirement:
         self.ctx.check()
         j = self.journal
         assert j is not None
+        # Old archived journals have no job_folder; spell their path off the store lock.
+        job_folder = j.get("job_folder") or folders.canonical(j["job_dir"])
         manifest = self.manifest()
         name = self._archive_name()
         for _ in range(3):
@@ -914,6 +926,15 @@ class Retirement:
                     if not reason and j["worktree"] and folders.turn_holds(
                             lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"], inside=True):
                         reason = "turn-folder"
+                    # And a job that has not ended that needs a place in the tree (its
+                    # folder, review root, `-o` path or git storage), or an export
+                    # pending to a path there (`dependencies`), on the same spelling.
+                    for place, pin in ((j["worktree"], "worktree-in-use"),
+                                       (job_folder, "job-directory-in-use")):
+                        if not reason and place and dependencies.dependents(
+                                lambda sql, params: conn.execute(sql, params).fetchall(), place,
+                                exclude=self.job_id, legacy_places=self.ctx.legacy):
+                            reason = pin
                     # And a `worktree:` lease on a folder inside it, held by a
                     # detached writer in a repository nested there (review of
                     # 31048e67, F3); the tree's own key is checked below.

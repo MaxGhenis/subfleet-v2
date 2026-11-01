@@ -1,0 +1,29 @@
+hold 03:45:15Z slot B load 
+F
+=================================== FAILURES ===================================
+______________________ test_record_spells_each_place_once ______________________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/base-mutant-record-raw-spelling/test_record_spells_each_place_0')
+
+    def test_record_spells_each_place_once(tmp_path):
+        """Submit's record: the review root and `-o` path in the one spelling the volume
+        stores (`folders.canonical`), whatever case they were given in, and the git
+        storage of the workdir and of the review root."""
+        review = repo(tmp_path / "Review")
+        work = repo(tmp_path / "work")
+        typed = tmp_path / "REVIEW"
+        if not typed.exists():
+            pytest.skip("this volume tells case apart")
+        found = dependencies.record(str(work), review_root=str(typed), out_path=str(typed / "Out.md"))
+>       assert found["review_root"] == folders.canonical(review)
+E       AssertionError: assert '/private/var...lace_0/REVIEW' == '/private/var...lace_0/Review'
+E         
+E         Skipping 122 identical leading characters in diff, use -v to show
+E         - _place_0/Review
+E         + _place_0/REVIEW
+
+tests/unit/test_retention_dependency_units.py:486: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 1.30s

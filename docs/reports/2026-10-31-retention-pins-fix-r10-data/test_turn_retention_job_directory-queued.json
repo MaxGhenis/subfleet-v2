@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T14:29:21.331674+00:00",
+  "args": [
+    "tests/fake/test_turn_retention_job_directory.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/test_turn_retention_job_directory",
+  "linked": false,
+  "driver_pid": 26546,
+  "lock_process_group": 26577
+}

@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T20:22:23.257832+00:00",
+  "args": [
+    "tests/unit/test_retention_location_readable.py",
+    "-k",
+    "real_enametoolong_cycle"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r12/real-tmp/green-corrected-long-cycle",
+  "linked": false,
+  "driver_pid": 5884,
+  "lock_process_group": 6190
+}

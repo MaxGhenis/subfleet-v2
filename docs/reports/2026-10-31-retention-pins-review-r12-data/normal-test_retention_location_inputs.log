@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:05:23Z slot A load 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.subfleet/worktrees/20261031-154518-pr272-review-r12/review-r12-data/run.py:27: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+no tests ran in 40.60s
+{"name": "normal-test_retention_location_inputs", "start": "2026-10-31T20:05:30.821236+00:00", "load": [86.7236328125, 86.09228515625, 83.96728515625], "seconds": 43.94233825000265, "exit": 2}

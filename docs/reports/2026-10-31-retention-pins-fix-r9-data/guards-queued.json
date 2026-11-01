@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:25:11.888810+00:00",
+  "args": [
+    "tests/fake/test_state_contract.py",
+    "tests/unit/test_test_module_names.py",
+    "tests/unit/test_invariants_index.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r9/real-tmp/guards",
+  "linked": false,
+  "driver_pid": 57622,
+  "lock_process_group": 57670
+}

@@ -1,0 +1,18 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:30:19Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_routine_alias_keeps_the_exact_record[data-volume-worktree] ________
+tests/unit/test_retention_location_spelling.py:234: in test_routine_alias_keeps_the_exact_record
+    assert recorded == expected
+E   AssertionError: assert {'git': ['/pr...linked/.git']} == {'git': ['/pr...git/objects']}
+E     
+E     Differing items:
+E     {'git': ['/private/tmp/sf-fix272r12/real-tmp/mutant-r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routin...-tmp/mutant-r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/ownér/linked/.git']} != {'git': ['/private/tmp/sf-fix272r12/real-tmp/mutant-r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routin...r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/ownér/repository/.git/objects']}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]
+1 failed in 12.92s
+{"name": "mutant-r9-start-spelling-dropped", "start": "2026-10-31T20:30:23.415389+00:00", "load": [85.13818359375, 79.75732421875, 79.748046875], "seconds": 15.65494479201152, "exit": 1}

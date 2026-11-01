@@ -1,0 +1,58 @@
+{
+  "r9-text-canonicalization-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "            self.files.add(folders.canonical(resolved))",
+        "new": "            self.files.add(resolved)"
+      }
+    ],
+    "explicit_examples": 0,
+    "property_byte_identical": true,
+    "property_sha256": "2a59463e180a0d323b752d197caa07b8f68d979fb24f384cf88f02816b3ff8e1",
+    "product_sha256": "822514901d7cd2d55a3e43768ec70011ce94fffbc73b663643238e25afaa2e43",
+    "exit": 1
+  },
+  "r9-alternates-canonicalization-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "                    aliases.files.add(folders.canonical(resolved))",
+        "new": "                    aliases.files.add(resolved)"
+      }
+    ],
+    "explicit_examples": 0,
+    "property_byte_identical": true,
+    "property_sha256": "2a59463e180a0d323b752d197caa07b8f68d979fb24f384cf88f02816b3ff8e1",
+    "product_sha256": "8fc935b0c9263a9b3c919a3e6da66afa44707be488bab584c8ec78b7dbc9b00f",
+    "exit": 1
+  },
+  "r9-scan-canonicalization-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "                        self.entries.add(folders.canonical(self.resolve(entry.path)))",
+        "new": "                        self.entries.add(self.resolve(entry.path))"
+      }
+    ],
+    "explicit_examples": 0,
+    "property_byte_identical": true,
+    "property_sha256": "2a59463e180a0d323b752d197caa07b8f68d979fb24f384cf88f02816b3ff8e1",
+    "product_sha256": "a3f6269c24003359bcdcbd25702a9c5862adb6b5917e7479a338c0cf5db92349",
+    "exit": 1
+  },
+  "r9-start-spelling-dropped": {
+    "edits": [
+      {
+        "module": "subfleet.dependencies",
+        "old": "        start = folders.canonical(start)\n",
+        "new": ""
+      }
+    ],
+    "explicit_examples": 0,
+    "property_byte_identical": true,
+    "property_sha256": "2a59463e180a0d323b752d197caa07b8f68d979fb24f384cf88f02816b3ff8e1",
+    "product_sha256": "dbd1926eee976a2fd3e095e99d1f9cbfd7a71895a35395b5207c56b1bc821b5b",
+    "exit": 1
+  }
+}

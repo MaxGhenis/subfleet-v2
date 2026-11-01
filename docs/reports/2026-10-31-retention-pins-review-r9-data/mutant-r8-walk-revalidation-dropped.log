@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:40:12Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_changed_link_chain_with_the_same_final_target_is_incomplete _______
+tests/unit/test_retention_locations.py:59: in test_changed_link_chain_with_the_same_final_target_is_incomplete
+    assert any(error["file"] == str(alias) for error in errors), errors
+E   AssertionError: []
+E   assert False
+E    +  where False = any(<generator object test_changed_link_chain_with_the_same_final_target_is_incomplete.<locals>.<genexpr> at 0x10ab28b80>)
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete
+1 failed in 9.51s
+{"name": "mutant-r8-walk-revalidation-dropped", "start": "2026-10-31T08:40:16.405713+00:00", "load": [38.208984375, 32.97265625, 30.9638671875], "seconds": 11.3664989170029, "exit": 1}

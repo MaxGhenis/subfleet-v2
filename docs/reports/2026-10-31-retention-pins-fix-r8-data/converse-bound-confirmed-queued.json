@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T07:28:40.136668+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r8-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r8-data/probes.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/converse-bound-confirmed",
+  "linked": true
+}

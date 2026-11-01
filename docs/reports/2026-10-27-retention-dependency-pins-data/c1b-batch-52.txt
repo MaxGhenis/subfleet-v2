@@ -1,0 +1,3 @@
+tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]
+tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]
+tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]

@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T09:10:04.979908+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r9.py",
+    "--runxfail"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/link-tmp/r9-firmlink",
+  "linked": true,
+  "driver_pid": 9930,
+  "lock_process_group": 9955
+}

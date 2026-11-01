@@ -1,0 +1,147 @@
+{
+  "name": "normal-test_retention_dependency_review_r11",
+  "start": "2026-10-31T19:47:44.736734+00:00",
+  "load": [
+    103.4931640625,
+    94.90625,
+    81.76025390625
+  ],
+  "pytest_pid": 69144,
+  "failure_root": "/private/tmp/sf-r272r12/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r11.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.7498393339992617,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.5837932499998715,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.010192333000304643,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2497233329995652,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.9614386670000385,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0027767080027842894,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.809349499999371,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.890584749999107,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004621625004801899,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9407778329987195,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.571147333997942,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.01753900000039721,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2442094033], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/outside/.git\", \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/outside/.git/objects\", \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/objects\"]}, \"renamed\": \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/OBJECTS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48688, \"bytes_before\": 48688, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48688, \"bytes_before\": 48688, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"alternates\", \"target\": \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/objects\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2442095409], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/stable/.git\", \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/stable/.git/objects\", \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/packs\"]}, \"renamed\": \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/PACKS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50464, \"bytes_before\": 50464, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50464, \"bytes_before\": 50464, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"scan\", \"target\": \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/packs\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2442096437], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/outside/.git\", \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/outside/.git/objects\", \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/objects\"]}, \"renamed\": \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/OBJECTS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48688, \"bytes_before\": 48688, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48688, \"bytes_before\": 48688, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"alternates\", \"target\": \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/objects\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2442097453], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/stable/.git\", \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/stable/.git/objects\", \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/state/worktrees/owner/packs\"]}, \"renamed\": \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/state/worktrees/owner/PACKS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50462, \"bytes_before\": 50462, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50462, \"bytes_before\": 50462, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"scan\", \"target\": \"/private/tmp/sf-r272r12/tmp/normal-test_retention_dependency_review_r11/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/state/worktrees/owner/packs\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-154518-pr272-review-r12/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T19:48:52.514381+00:00",
+  "seconds": 67.77724099999614,
+  "peak_rss_mib": 113.953125,
+  "exit": 0
+}

@@ -1,0 +1,44 @@
+{
+  "name": "test_detached_retention_fence-6",
+  "start": "2026-10-29T06:44:35.771168+00:00",
+  "load": [
+    16.1806640625,
+    20.53955078125,
+    22.103515625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once": {
+      "setup": {
+        "duration": 0.02873654199356679,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.5191564580018166,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00037887500366196036,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

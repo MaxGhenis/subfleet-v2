@@ -1,0 +1,11 @@
+{
+  "roots": [
+    "/private/tmp/sf-r272r5",
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261030-100933-pr272-review-r5-a1-q5l57otj/sf-r272r5-fixtures"
+  ],
+  "both_absent": true,
+  "guarded_cleanup": true,
+  "measured_KiB": 726944,
+  "generated_workspace_artifacts": false,
+  "cleanup_note": "An intentionally read-only fixture directory from test_interrupted_removal_resumes_and_leaves_no_half_tree was chmodded owner-writable before repeating guarded cleanup."
+}

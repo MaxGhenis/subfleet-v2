@@ -1,0 +1,78 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:47:43Z slot A load 
+{"start": "2026-10-29T13:47:43.412880+00:00", "load": [23.443359375, 21.47412109375, 22.65283203125], "name": "mutant-record-no-output"}
+Ftmp_path = PosixPath('/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0')
+kind = 'output'
+
+    @pytest.mark.parametrize("kind", ["review-root", "case", "linked", "output"])
+    def test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends(tmp_path, kind):
+        """Gaps 1 to 4, the pin side: a job queued before the pass that needs a place in a
+        finished job's tree (its review root, its folder typed in another case, the
+        repository its outside checkout uses, its `-o` path) keeps the tree whole:
+        `worktree-in-use`, nothing moved. Once the job ends the next pass retires it.
+        Failed on 0a91f070: `pruned ['retired']` with the job still queued."""
+        with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+            measured(daemon, harness)
+            tree, nested = retiring_tree(daemon, harness)
+            if kind == "linked":
+                external_checkout(tmp_path, nested)
+            job, place, role = needing(daemon, harness, tmp_path, tree, nested, kind)
+            before = snapshot(Path(tree))
+            result = retire(daemon)
+            assert "retired" not in result["pruned"] and result["pin_reasons"].get("retired") == "worktree-in-use", result
+            assert snapshot(Path(tree)) == before and daemon.store.get_job("retired")
+            assert daemon._job(job)["state"] in ("queued", "waiting")
+            if role is not None:
+                needs = daemon._submitted(job)["depends"]
+                recorded = needs.get({"review-root": "review_root", "output": "out_path"}.get(role, "")) or needs["git"]
+>               assert place == recorded or place in recorded, needs
+E               AssertionError: {'git': ['/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/work/.git']}
+E               assert ('/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/worktrees/retired/vendor/lib/result.md' == ['/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/work/.git'] or '/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/worktrees/retired/vendor/lib/result.md' in ['/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/work/.git'])
+
+tests/fake/test_retention_dependencies.py:163: AssertionError
+
+=================================== FAILURES ===================================
+_ test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output] _
+
+tmp_path = PosixPath('/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0')
+kind = 'output'
+
+    @pytest.mark.parametrize("kind", ["review-root", "case", "linked", "output"])
+    def test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends(tmp_path, kind):
+        """Gaps 1 to 4, the pin side: a job queued before the pass that needs a place in a
+        finished job's tree (its review root, its folder typed in another case, the
+        repository its outside checkout uses, its `-o` path) keeps the tree whole:
+        `worktree-in-use`, nothing moved. Once the job ends the next pass retires it.
+        Failed on 0a91f070: `pruned ['retired']` with the job still queued."""
+        with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+            measured(daemon, harness)
+            tree, nested = retiring_tree(daemon, harness)
+            if kind == "linked":
+                external_checkout(tmp_path, nested)
+            job, place, role = needing(daemon, harness, tmp_path, tree, nested, kind)
+            before = snapshot(Path(tree))
+            result = retire(daemon)
+            assert "retired" not in result["pruned"] and result["pin_reasons"].get("retired") == "worktree-in-use", result
+            assert snapshot(Path(tree)) == before and daemon.store.get_job("retired")
+            assert daemon._job(job)["state"] in ("queued", "waiting")
+            if role is not None:
+                needs = daemon._submitted(job)["depends"]
+                recorded = needs.get({"review-root": "review_root", "output": "out_path"}.get(role, "")) or needs["git"]
+>               assert place == recorded or place in recorded, needs
+E               AssertionError: {'git': ['/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/work/.git']}
+E               assert ('/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/worktrees/retired/vendor/lib/result.md' == ['/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/work/.git'] or '/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/worktrees/retired/vendor/lib/result.md' in ['/private/tmp/sf-r272r3/cases-56145/pytest/test_c8_4_a_queued_job_that_ne0/state/work/.git'])
+
+tests/fake/test_retention_dependencies.py:163: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4499426672:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499426672:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 4.12s

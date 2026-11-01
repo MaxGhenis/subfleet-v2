@@ -1,0 +1,16 @@
+[
+  {
+    "label": "archive-worktree-rerun",
+    "args": [
+      "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass"
+    ],
+    "env": {
+      "SF_FIXTURE_ROOT": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/sf-r272r8-fixtures"
+    }
+  }
+]

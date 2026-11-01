@@ -1,0 +1,13 @@
+{
+  "queued": "2026-10-31T17:03:50.032981+00:00",
+  "args": [
+    "--mutant",
+    "r11-trial-spelling-revalidation-dropped",
+    "--runxfail",
+    "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/mutant-r11-trial-spelling-revalidation-dropped",
+  "linked": false,
+  "driver_pid": 72604,
+  "lock_process_group": 72797
+}

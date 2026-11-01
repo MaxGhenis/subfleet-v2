@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T18:20:23.606577+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r8.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/link-tmp/linked-test_retention_dependency_review_r8",
+  "linked": true,
+  "driver_pid": 20171,
+  "lock_process_group": 20373
+}

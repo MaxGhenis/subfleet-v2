@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r7-parent-objects-recording-dropped",
+  "start": "2026-10-31T03:57:22.191781+00:00",
+  "load": [
+    36.05224609375,
+    36.66748046875,
+    38.1787109375
+  ],
+  "args": [
+    "--mutant",
+    "r7-parent-objects-recording-dropped",
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0549692089998643,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 3.324824709000495,
+      "failure": "tests/fake/test_retention_parent_hint.py:31: in test_inferred_parent_objects_keeps_its_resolved_storage\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r7-parent-objects-recording-dropped/pytest-of-maxghenis/pytest-0/test_...container/worktrees/slot/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48688, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009247500000128639,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "e867f20d4e50e6b8340310b6279958390f297a78922f2f5cca8876b8f31cda81"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+  ],
+  "end": "2026-10-31T03:57:36.125503+00:00",
+  "seconds": 13.93310349999956,
+  "peak_rss_mib": 114.5,
+  "exit": 1
+}

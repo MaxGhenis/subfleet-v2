@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 04:15:58Z slot A load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_stable_objects_alias_keeps_the_tree_git_reads[live] ___________
+tests/fake/test_retention_dependency_review_r4.py:250: in test_stable_objects_alias_keeps_the_tree_git_reads
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r4-initial-objects-recording-dropped/pytest-of-maxghenis/pytest-0/test...objects_alias_keep0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48662, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]
+1 failed in 5.13s
+{"name": "mutant-r4-initial-objects-recording-dropped", "start": "2026-10-31T04:15:59.695591+00:00", "load": [26.91455078125, 32.07080078125, 34.93701171875], "seconds": 5.875793791999968, "exit": 1}

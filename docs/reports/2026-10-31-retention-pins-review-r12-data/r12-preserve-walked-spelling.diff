@@ -1,0 +1,70 @@
+--- a/subfleet/dependencies.py
++++ b/subfleet/dependencies.py
+@@ -166,8 +166,9 @@
+             gitdir = _gitfile(dotgit, folder, aliases=aliases)
+             if gitdir is not None:
+                 found.extend(_storage(gitdir, named=True, incomplete=incomplete, aliases=aliases))
+-    spelled = (folders.canonical(each) for each in found)
+-    recorded = list(dict.fromkeys(each for each in spelled if not _unreadable_location(each)))
++    spelled = ((folders.canonical(each), each) for each in found)
++    recorded = list(dict.fromkeys(each for each, walked in spelled
++                                  if not _unreadable_location(each, walked=walked)))
+     result = recorded + aliases.locations(start, recorded)
+     aliases.check(incomplete)
+     return result
+@@ -179,15 +180,19 @@
+             and folders.canonical(place) == place)
+ 
+ 
+-def _unreadable_location(place: str) -> bool:
++def _unreadable_location(place: str, *, walked: str | None = None) -> bool:
+     """A place that fails an equation and that the kernel refuses to walk."""
+     if _spelled_location(place):
+         return False
+-    try:
+-        os.stat(place)
+-    except OSError as exc:
+-        return exc.errno in (errno.ELOOP, errno.ENAMETOOLONG)
+-    return False
++    for path in dict.fromkeys((place, walked or place)):
++        try:
++            os.stat(path)
++        except OSError as exc:
++            if exc.errno not in (errno.ELOOP, errno.ENAMETOOLONG):
++                return False
++        else:
++            return False
++    return True
+ 
+ 
+ def _text(path: str) -> str | None:
+@@ -213,6 +218,7 @@
+         self.files: set[str] = set()
+         self.links: set[str] = set()
+         self.entries: set[str] = set()
++        self.entry_spellings: dict[str, str] = {}
+         self.scanned: set[str] = set()
+ 
+     @staticmethod
+@@ -292,7 +298,10 @@
+             with os.scandir(directory) as entries:
+                 for entry in entries:
+                     if entry.is_symlink():
+-                        self.entries.add(folders.canonical(self.resolve(entry.path)))
++                        walked = self.resolve(entry.path)
++                        place = folders.canonical(walked)
++                        self.entries.add(place)
++                        self.entry_spellings[place] = walked
+         except FileNotFoundError:
+             pass
+         except OSError as exc:
+@@ -307,7 +316,8 @@
+                      if os.path.dirname(place) not in ancestors}
+         # A resolved storage target can be a sibling of the checkout. Its
+         # parent being an ancestor does not make that target part of the job.
+-        entries = {place for place in self.entries if not _unreadable_location(place)}
++        entries = {place for place in self.entries
++                   if not _unreadable_location(place, walked=self.entry_spellings.get(place))}
+         return sorted(place for place in locations | entries
+                       if not any(folders.within(place, each) for each in recorded))
+ 

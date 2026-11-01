@@ -1,0 +1,51 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:32:55Z slot A load 
+START mutant-r8-pointer-file-location-recording-dropped 2026-10-31T06:32:57.278118+00:00 load=(34.7138671875, 34.5244140625, 33.93701171875)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_running_job_keeps_tree_containing_required_git_pointer[gitfile] _____
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-7726/pytest/test_running_job_keeps_tree_co0'), trusted=True, remote...f-r272r8/cases-7726/pytest/test_running_job_keeps_tree_co0/state'), store=<subfleet.store.Store object at 0x10bc53b60>)
+layout = 'gitfile'
+record_property = <function record_property.<locals>.append_property at 0x10c2231c0>
+
+    @pytest.mark.xfail(strict=True, reason="R8-F1: resolved storage omits required pointer-file and alias locations")
+    @pytest.mark.parametrize("layout", ["admin-path", "gitfile"])
+    def test_running_job_keeps_tree_containing_required_git_pointer(world, layout, record_property):
+        tree = world.job("owner")
+        owner, commit = source(world, tree)
+        stable = repo(world.base / "independent-storage")
+        fetched = git("-C", stable, "fetch", "-q", owner, "HEAD")
+        assert fetched.returncode == 0, fetched.stderr
+        checkout = world.base / "outside"
+        checkout.mkdir()
+        shutil.copy2(stable / "f.txt", checkout / "f.txt")
+        alias = tree / "storage-alias"
+        if layout == "admin-path":
+            alias.symlink_to(stable / ".git", target_is_directory=True)
+            (checkout / ".git").write_text("gitdir: " + str(alias) + "\n")
+        else:
+            alias.write_text("gitdir: " + str(stable / ".git") + "\n")
+            (checkout / ".git").symlink_to(alias)
+    
+        health = git("-C", checkout, "fsck", "--no-dangling")
+        before = git("-C", checkout, "show", commit + ":owner-only.txt")
+        status = git("-C", checkout, "status", "--porcelain")
+        assert health.returncode == before.returncode == status.returncode == 0
+        assert before.stdout == b"R5 owner-only storage\n" and status.stdout == b""
+        recorded = dependencies.record(str(checkout))
+        reader(world, recorded)
+        result = maintain(world)
+        after = git("-C", checkout, "show", commit + ":owner-only.txt")
+        record_property("R8-F1", json.dumps(dict(layout=layout, recorded=recorded, result=result,
+                                                 git_before=before.returncode, git_after=after.returncode,
+                                                 error_after=after.stderr.decode()), sort_keys=True))
+>       assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-7726/pytest/test_running_job_keeps_tree_co0/independent-storage/.git', '/priva...nning_job_keeps_tree_co0/outside']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48733, 'bytes_after': 0, ...})
+E       assert ('owner' not in ['owner'])
+
+tests/fake/test_retention_dependency_review_r8.py:45: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]
+1 failed in 5.57s

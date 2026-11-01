@@ -1,0 +1,9 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 23:10:54Z slot A load 
+START test_retention_shared_folders 2026-10-30T23:11:12.652846+00:00 load=(34.15576171875, 33.28759765625, 34.43603515625)
+................................
+============================ Hypothesis Statistics =============================
+!!!!!!!!!!!!!!!!!!! KeyboardInterrupt: 570 second hold bound !!!!!!!!!!!!!!!!!!!
+/private/tmp/sf-fix272r6/run_hold.py:81: KeyboardInterrupt: 570 second hold bound
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+32 passed in 554.18s (0:09:14)

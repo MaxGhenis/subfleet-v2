@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T12:02:09.984246+00:00",
+  "args": [
+    "tests/unit/test_retention_location_cycles.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/link-tmp/linked-test_retention_location_cycles",
+  "linked": true,
+  "driver_pid": 78449,
+  "lock_process_group": 79103
+}

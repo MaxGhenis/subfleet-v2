@@ -1,0 +1,51 @@
+{
+  "name": "admission-detached",
+  "start": "2026-10-31T19:14:28.412368+00:00",
+  "load": [
+    53.2841796875,
+    63.78369140625,
+    66.712890625
+  ],
+  "pytest_pid": 1122,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.15864191699802177,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 19.611544542000047,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005483749991981313,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T19:15:08.196950+00:00",
+  "seconds": 39.7844430000041,
+  "peak_rss_mib": 122.5625,
+  "exit": 0
+}

@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T03:52:09.791486+00:00",
+  "args": [
+    "--mutant",
+    "r4-initial-objects-revalidation-dropped",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ]
+}

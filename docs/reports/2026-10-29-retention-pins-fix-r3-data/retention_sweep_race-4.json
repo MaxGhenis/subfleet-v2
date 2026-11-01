@@ -1,0 +1,32 @@
+{
+  "label": "retention_sweep_race-4",
+  "start": "2026-10-29T20:37:48.249856+00:00",
+  "loads": [
+    15.5234375,
+    27.5087890625,
+    28.076171875
+  ],
+  "seconds": 391.85019929200007,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 383.3428724169994
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "phases": {
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 116686848
+}

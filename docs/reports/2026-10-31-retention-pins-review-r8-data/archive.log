@@ -1,0 +1,164 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:24:30Z slot B load 
+START archive 2026-10-31T05:24:36.504953+00:00 load=(34.068359375, 27.93994140625, 23.92138671875)
+F....FFFF............................................................... [ 66%]
+............F.......................                                     [100%]
+=================================== FAILURES ===================================
+__ test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit __
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-12875/pytest/test_round_trip_dirty_unpushed0'), trusted=True, remot...-r272r8/cases-12875/pytest/test_round_trip_dirty_unpushed0/state'), store=<subfleet.store.Store object at 0x10c20aba0>)
+
+    def test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit(world):
+        """d635 required case: archive, verify, remove, then the documented restore
+        brings back every byte (modes, links, hard links, the FIFO, ignored output)
+        and every commit, including one reachable only from the reflog."""
+        w = world
+        job = make_dirty_detached(w, "job-rt")
+        wt = job["worktree"]
+        before = snapshot(wt)
+        links_before = inode_groups(wt)
+        jobdir_before = snapshot(w.root / "jobs" / "job-rt")
+        admin_before = snapshot(w.admin("job-rt"))
+        result = run(w)
+        assert result["pruned"] == ["job-rt"], result
+        assert not wt.exists() and not (w.root / "jobs" / "job-rt").exists()
+        assert w.store.get_job("job-rt") is None
+        # The registration is removed with the tree (no locked registrations pile up),
+        # and nothing else in the repository was pruned.
+        assert not w.admin("job-rt").exists()
+        assert "job-rt" not in git(w.repo, "worktree", "list", "--porcelain")
+        archive = w.root / "archive" / "job-rt"
+        manifest = json.loads((archive / "manifest.json").read_text())
+        omitted = [e["p"] for e in manifest["trees"]["worktree"]["entries"] if e.get("blob")]
+>       assert "README.md" in omitted and "data.bin" in omitted            # unchanged, on origin/main
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert ('README.md' in [])
+
+tests/unit/test_retention_archive.py:116: AssertionError
+___________ test_blob_only_in_a_local_branch_is_archived_not_omitted ___________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-12875/pytest/test_blob_only_in_a_local_bran0'), trusted=True, remot...-r272r8/cases-12875/pytest/test_blob_only_in_a_local_bran0/state'), store=<subfleet.store.Store object at 0x10c706d50>)
+
+    def test_blob_only_in_a_local_branch_is_archived_not_omitted(world):
+        """Omit a blob only if a remote-tracking ref reaches it: a commit on a local
+        branch that was never pushed does not count, however durable the branch looks."""
+        w = world
+        (w.repo / "local-only.txt").write_text("committed locally, never pushed\n" * 100)
+        git(w.repo, "add", "local-only.txt")
+        git(w.repo, "commit", "--quiet", "-m", "local only")
+        w.job("job-local")
+        assert run(w)["pruned"] == ["job-local"]
+        manifest = json.loads((w.root / "archive" / "job-local" / "manifest.json").read_text())
+        entries = {e["p"]: e for e in manifest["trees"]["worktree"]["entries"]}
+        assert "store" in entries["local-only.txt"] and not entries["local-only.txt"].get("blob")
+>       assert entries["README.md"].get("blob")            # on origin/main: omitted
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert None
+E        +  where None = <built-in method get of dict object at 0x10caf8480>('blob')
+E        +    where <built-in method get of dict object at 0x10caf8480> = {'p': 'README.md', 'sha256': 'b860af096761758635428053935eb997297662e24e8eea1116c00673dd4ce919', 'sig': {'ctime': 1793424316815083234, 'dev': 16777234, 'ino': 2421608404, 'mode': 384, ...}, 'size': 500, ...}.get
+
+tests/unit/test_retention_archive.py:234: AssertionError
+____________________ test_local_path_remote_is_not_a_remote ____________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-12875/pytest/test_local_path_remote_is_not_0'), trusted=True, remot...-r272r8/cases-12875/pytest/test_local_path_remote_is_not_0/state'), store=<subfleet.store.Store object at 0x10c6c38a0>)
+
+    def test_local_path_remote_is_not_a_remote(world):
+        """A remote whose URL is a local path is another repository retention does
+        not control: nothing is omitted on its account."""
+        w = world
+        git(w.repo, "remote", "set-url", "origin", str(w.remote))
+        w.job("job-localremote")
+        assert run(w)["pruned"] == ["job-localremote"]
+        manifest = json.loads((w.root / "archive" / "job-localremote" / "manifest.json").read_text())
+>       assert manifest["git"]["scratch"] == "no network remote"
+E       AssertionError: assert 'scratch path' == 'no network remote'
+E         
+E         - no network remote
+E         + scratch path
+
+tests/unit/test_retention_archive.py:245: AssertionError
+_________ test_borrowed_or_shallow_object_store_is_scratch[alternates] _________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-12875/pytest/test_borrowed_or_shallow_objec0'), trusted=True, remot...-r272r8/cases-12875/pytest/test_borrowed_or_shallow_objec0/state'), store=<subfleet.store.Store object at 0x10c5bc270>)
+marker = 'alternates'
+
+    @pytest.mark.parametrize("marker", ["alternates", "shallow"])
+    def test_borrowed_or_shallow_object_store_is_scratch(world, marker):
+        w = world
+        if marker == "alternates":
+            (w.repo / ".git" / "objects" / "info" / "alternates").write_text(str(w.remote / "objects") + "\n")
+        else:
+            (w.repo / ".git" / "shallow").write_text(w.head() + "\n")
+        reason = rgit.scratch_reason(w.repo / ".git", w.root, rgit.network_remotes(w.repo / ".git"))
+>       assert reason in ("borrows objects (alternates)", "shallow clone")
+E       AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+
+tests/unit/test_retention_archive.py:257: AssertionError
+__________ test_borrowed_or_shallow_object_store_is_scratch[shallow] ___________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-12875/pytest/test_borrowed_or_shallow_objec1'), trusted=True, remot...-r272r8/cases-12875/pytest/test_borrowed_or_shallow_objec1/state'), store=<subfleet.store.Store object at 0x10c5fe850>)
+marker = 'shallow'
+
+    @pytest.mark.parametrize("marker", ["alternates", "shallow"])
+    def test_borrowed_or_shallow_object_store_is_scratch(world, marker):
+        w = world
+        if marker == "alternates":
+            (w.repo / ".git" / "objects" / "info" / "alternates").write_text(str(w.remote / "objects") + "\n")
+        else:
+            (w.repo / ".git" / "shallow").write_text(w.head() + "\n")
+        reason = rgit.scratch_reason(w.repo / ".git", w.root, rgit.network_remotes(w.repo / ".git"))
+>       assert reason in ("borrows objects (alternates)", "shallow clone")
+E       AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+
+tests/unit/test_retention_archive.py:257: AssertionError
+________________ test_survey_is_read_only_and_predicts_the_pass ________________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-12875/pytest/test_survey_is_read_only_and_p0'), trusted=True, remot...-r272r8/cases-12875/pytest/test_survey_is_read_only_and_p0/state'), store=<subfleet.store.Store object at 0x10bdfa350>)
+
+    def test_survey_is_read_only_and_predicts_the_pass(world):
+        """The live dry run applies the pass's eligibility and writes nothing: not
+        the state root, not the source repository (no index refresh, no ref)."""
+        from subfleet.retention_survey import survey
+        w = world
+        make_dirty_detached(w, "s-dirty")
+        w.job("s-clean")
+        w.job("s-pinned")
+        w.store.add_notice("s-pinned", "unread", "session-1")
+        before = {**_tree_state(w.root), **_tree_state(w.repo)}
+        report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+        assert {**_tree_state(w.root), **_tree_state(w.repo)} == before
+        predicted = {c["job_id"] for c in report["candidates"]}
+        assert predicted == {"s-dirty", "s-clean"}
+        assert report["kept"]["jobs_by_reason"]["unread-notice"] == 1
+        assert report["would_retire"]["with_worktree"] == 2
+>       assert report["would_retire"]["omittable_bytes_upper_bound"] > 0
+E       assert 0 > 0
+
+tests/unit/test_retention_archive.py:1553: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit
+FAILED tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted
+FAILED tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote
+FAILED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]
+FAILED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]
+FAILED tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass
+6 failed, 102 passed, 1 deselected in 353.64s (0:05:53)

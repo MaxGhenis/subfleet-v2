@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:40:42.038222+00:00",
+  "args": [
+    "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py",
+    "-k",
+    "not test_routine_matches_prerequisite"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/deep-and-unused",
+  "linked": false,
+  "driver_pid": 48936,
+  "lock_process_group": 49086
+}

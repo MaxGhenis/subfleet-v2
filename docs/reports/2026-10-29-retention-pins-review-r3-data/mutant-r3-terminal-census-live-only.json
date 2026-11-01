@@ -1,0 +1,29 @@
+{
+  "name": "mutant-r3-terminal-census-live-only",
+  "start": "2026-10-29T13:50:19.369182+00:00",
+  "load": [
+    26.45849609375,
+    23.1787109375,
+    23.11181640625
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "1eb7c76de60cf155a46f1ad7d46004169c0dde6d028ebc63b90fcace58108b27"
+    }
+  ],
+  "rc": 1,
+  "seconds": 11.215330916005769,
+  "rss": 114163712
+}

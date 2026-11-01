@@ -1,0 +1,297 @@
+{
+  "name": "baseline-route-files",
+  "start": "2026-10-31T11:37:04.445566+00:00",
+  "load": [
+    62.47802734375,
+    53.35986328125,
+    49.373046875
+  ],
+  "args": [
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py",
+    "-k",
+    "test_baseline_route_files"
+  ],
+  "phases": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[control-self-suffix-0-0]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.23001345800003037,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[control-self-suffix-0-0]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.8247817500014207,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[control-self-suffix-0-0]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042758299969136715,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-self-suffix-0-0]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001542042002256494,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-self-suffix-0-0]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5309572909973213,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-self-suffix-0-0]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00044999999954598024,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-self-suffix-0-2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015659579948987812,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-self-suffix-0-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2809985829953803,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-self-suffix-0-2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007280840000021271,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-tail-self-suffix-0-2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015727080026408657,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-tail-self-suffix-0-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.159270916999958,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-tail-self-suffix-0-2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003296249997220002,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[gitfile-self-suffix-128-4]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016468709000037052,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[gitfile-self-suffix-128-4]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4346192089942633,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[gitfile-self-suffix-128-4]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.056584124999062624,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[commondir-self-suffix-128-3]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0016031250052037649,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[commondir-self-suffix-128-3]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5290375830008998,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[commondir-self-suffix-128-3]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00036662500497186556,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[objects-alternates-self-suffix-0-2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018642499999259599,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[objects-alternates-self-suffix-0-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5138447919962346,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[objects-alternates-self-suffix-0-2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002643750049173832,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-two-link-suffix-0-0]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005061041003500577,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-two-link-suffix-0-0]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1921725000065635,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-two-link-suffix-0-0]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00029995899967616424,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-two-link-suffix-0-2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001334665998001583,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-two-link-suffix-0-2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5913750000036089,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-two-link-suffix-0-2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005297499956213869,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[control-self-suffix-0-0]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"self-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_cont0/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_cont0/checkout/.git/objects\"]}, \"route\": \"control\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-self-suffix-0-0]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"self-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_scan0/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_scan0/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_scan0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"]}, \"route\": \"scan\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-self-suffix-0-2]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"self-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte0/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte0/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'\"}]}, \"route\": \"alternates\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-tail-self-suffix-0-2]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"self-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte1/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte1/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates'\"}]}, \"route\": \"alternates-tail\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[gitfile-self-suffix-128-4]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"self-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_gitf0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir'\"}]}, \"route\": \"gitfile\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[commondir-self-suffix-128-3]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"self-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_comm0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'\"}]}, \"route\": \"commondir\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[objects-alternates-self-suffix-0-2]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"self-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_obje0/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_obje0/store\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_obje0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_obje0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_obje0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_obje0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_obje0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'\"}]}, \"route\": \"objects-alternates\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-two-link-suffix-0-0]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"two-link-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_scan1/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_scan1/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_scan1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\"]}, \"route\": \"scan\"}"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-two-link-suffix-0-2]",
+      "key": "baseline-route",
+      "value": "{\"cycle\": \"two-link-suffix\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte2/checkout/.git\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte2/checkout/.git/objects\", \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte2/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte2/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte2/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail'\"}, {\"file\": \"/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte2/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/baseline-route-files/pytest-of-maxghenis/pytest-0/test_baseline_route_files_alte2/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates'\"}]}, \"route\": \"alternates\"}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[control-self-suffix-0-0]",
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-self-suffix-0-0]",
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-self-suffix-0-2]",
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-tail-self-suffix-0-2]",
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[gitfile-self-suffix-128-4]",
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[commondir-self-suffix-128-3]",
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[objects-alternates-self-suffix-0-2]",
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[scan-two-link-suffix-0-0]",
+    "docs/reports/2026-10-31-retention-pins-fix-r10-data/probes.py::test_baseline_route_files[alternates-two-link-suffix-0-2]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T11:37:32.953236+00:00",
+  "seconds": 28.507057666000037,
+  "peak_rss_mib": 66.03125,
+  "exit": 0
+}

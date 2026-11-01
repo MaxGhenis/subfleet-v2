@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 17:08:39Z slot B load 
+.                                                                        [100%]
+1 passed in 68.44s (0:01:08)
+{"name": "earlier-test_retention_archive_properties-1", "start": "2026-10-31T17:08:43.110057+00:00", "load": [35.51513671875, 42.8984375, 52.1875], "seconds": 70.7527967499991, "exit": 0}

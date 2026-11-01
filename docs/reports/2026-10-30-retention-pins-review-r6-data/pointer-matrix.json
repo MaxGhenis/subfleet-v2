@@ -1,0 +1,792 @@
+{
+  "label": "pointer-matrix",
+  "start": "2026-10-30T19:15:58.550130+00:00",
+  "loads": [
+    39.4033203125,
+    45.2568359375,
+    50.81689453125
+  ],
+  "seconds": 43.08785120899847,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.10956395800167229
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.17701137499534525
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.08452204200148117
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.17999112499819603
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.10379333399760071
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.20622512500267476
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.27563216599810403
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.09562645900587086
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2969415419938741
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.21374083300179336
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.22683149999647867
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2454402500006836
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n-   -False-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.19692770901019685
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n-   -False-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.18721283400373068
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n-   -True-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.3664881250006147
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\n-   -True-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1922685830068076
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.21104024999658577
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1838677500054473
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.07248000000254251
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.10418866599502508
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2409873750002589
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.27461691699863877
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2496694169967668
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.18074245899333619
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.09409787500044331
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.22002966600121
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.3883054159960011
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.26109929200902116
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.23329070799809415
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.14012983300199267
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2971373750042403
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.04162466700654477
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[None-False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.176971417007735
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[None-False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.17348475000471808
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[None-True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.217329167004209
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[None-True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.24330362500040792
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[-False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.12857866700505838
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[-False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.21744195799692534
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[-True-False]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.13939599999866914
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[-True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2620035830041161
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[\\n-False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1994340000092052
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[\\n-False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.22839695900620427
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[\\n-True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.22809624999354128
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[\\n-True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.3769931249989895
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[\\r\\n-False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.13323333299194928
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[\\r\\n-False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2464738330018008
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[\\r\\n-True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2928953749942593
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_empty_common[\\r\\n-True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.38027887500356883
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1031978329992853
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8473265840002568
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8888480830064509
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9665252499980852
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1000692499947036
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_padded_pointer[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.070788333003293
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_padded_pointer[commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.0579830419883365
+    }
+  ],
+  "nodes": [
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-commondir]",
+    "pointer_matrix.py::test_empty_common[None-False-False]",
+    "pointer_matrix.py::test_empty_common[None-False-True]",
+    "pointer_matrix.py::test_empty_common[None-True-False]",
+    "pointer_matrix.py::test_empty_common[None-True-True]",
+    "pointer_matrix.py::test_empty_common[-False-False]",
+    "pointer_matrix.py::test_empty_common[-False-True]",
+    "pointer_matrix.py::test_empty_common[-True-False]",
+    "pointer_matrix.py::test_empty_common[-True-True]",
+    "pointer_matrix.py::test_empty_common[\\n-False-False]",
+    "pointer_matrix.py::test_empty_common[\\n-False-True]",
+    "pointer_matrix.py::test_empty_common[\\n-True-False]",
+    "pointer_matrix.py::test_empty_common[\\n-True-True]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-False-False]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-False-True]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-True-False]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-True-True]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+    "pointer_matrix.py::test_padded_pointer[gitfile]",
+    "pointer_matrix.py::test_padded_pointer[commondir]"
+  ],
+  "all_nodes": [
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-commondir]",
+    "pointer_matrix.py::test_empty_common[None-False-False]",
+    "pointer_matrix.py::test_empty_common[None-False-True]",
+    "pointer_matrix.py::test_empty_common[None-True-False]",
+    "pointer_matrix.py::test_empty_common[None-True-True]",
+    "pointer_matrix.py::test_empty_common[-False-False]",
+    "pointer_matrix.py::test_empty_common[-False-True]",
+    "pointer_matrix.py::test_empty_common[-True-False]",
+    "pointer_matrix.py::test_empty_common[-True-True]",
+    "pointer_matrix.py::test_empty_common[\\n-False-False]",
+    "pointer_matrix.py::test_empty_common[\\n-False-True]",
+    "pointer_matrix.py::test_empty_common[\\n-True-False]",
+    "pointer_matrix.py::test_empty_common[\\n-True-True]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-False-False]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-False-True]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-True-False]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-True-True]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+    "pointer_matrix.py::test_padded_pointer[gitfile]",
+    "pointer_matrix.py::test_padded_pointer[commondir]"
+  ],
+  "phases": {
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n-   -False-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n-   -False-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n-   -True-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\n-   -True-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[None-False-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[None-False-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[None-True-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[None-True-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[-False-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[-False-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[-True-False]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[-True-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[\\n-False-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[\\n-False-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[\\n-True-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[\\n-True-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[\\r\\n-False-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[\\r\\n-False-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[\\r\\n-True-False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_empty_common[\\r\\n-True-True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_padded_pointer[gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_padded_pointer[commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 118554624
+}

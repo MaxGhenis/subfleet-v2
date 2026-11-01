@@ -1,0 +1,62 @@
+[
+  {
+    "id": "D-R6-1",
+    "rank": "P3",
+    "age": "Older than fix round r5",
+    "files": [
+      "subfleet/retention_git.py:131",
+      "subfleet/retention_git.py:169"
+    ],
+    "executed_input": "A linked admin renamed to owner-space, with and without an existing trimmed twin; a valid space-named common alias.",
+    "observed": "Archive/survey miss the actual admin or select its trimmed twin; the actual admin survives outside the byte archive. The common alias defers as registration-not-direct. A physical space-named common with normal relative commondir archives and restores successfully.",
+    "doc_line": "Outside discovery, archive and survey retain legacy whitespace parsing: some valid spaced admin/common pointer spellings are missed or select a trimmed twin.",
+    "evidence": [
+      "reader-admin-space.json",
+      "reader-admin-decoy.json",
+      "reader-common-space.json",
+      "reader-physical-common-space.json"
+    ],
+    "additional_candidate": "The attempted running-borrower twin variant failed real Git fsck before retention: invalid worktrees/owner-space/ORIG_HEAD refname. It does not establish a stable-repository P2.",
+    "candidate_log": "reader-live-admin-probe.log"
+  },
+  {
+    "id": "D-R6-2",
+    "rank": "P3",
+    "age": "Older than fix round r5",
+    "files": [
+      "subfleet/retention_survey.py:322",
+      "subfleet/retention_archive.py:1780"
+    ],
+    "executed_input": "Nested gitfiles name external admins whose names are the owner admin plus a space or tab.",
+    "observed": "Survey classifies them as internal; archive permits retirement. No live borrower was present in this old-reader fixture.",
+    "doc_line": "Nested gitfile classification still strips target bytes and can treat a whitespace-suffixed external admin as internal.",
+    "evidence": [
+      "nested-' '.json",
+      "nested-'\\t'.json"
+    ]
+  },
+  {
+    "id": "D-R6-3",
+    "rank": "P3",
+    "age": "Older than fix round r5",
+    "files": [
+      "subfleet/retention_git.py:328"
+    ],
+    "executed_input": "A physical common directory named common-space and a valid trimmed common twin, both with the fixture registration.",
+    "observed": "discard_registration deletes the trimmed twin registration; the actual registration remains.",
+    "doc_line": "Registration cleanup still strips common-directory output and can act on a whitespace target's trimmed twin.",
+    "evidence": "reader-discard-registration.json"
+  },
+  {
+    "id": "D-R6-4",
+    "rank": "Observation",
+    "age": "Older than fix round r5",
+    "files": [
+      "subfleet/retention_git.py:872"
+    ],
+    "executed_input": "Complete bundle; commondir is a valid space-named alias, whose trimmed twin is absent.",
+    "observed": "The alternate written for verification differs from Git's common, yet the complete pack verifies correctly. No incorrect verification result was demonstrated.",
+    "doc_line": "Bundle verification still strips common targets when constructing its alternate; a complete pack can verify without using that alternate.",
+    "evidence": "reader-verify-bundle.json"
+  }
+]

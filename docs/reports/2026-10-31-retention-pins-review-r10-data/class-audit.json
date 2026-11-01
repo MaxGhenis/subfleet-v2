@@ -1,0 +1,9 @@
+{
+  "inputs": 55,
+  "classes": 33,
+  "distinct": 55,
+  "outcomes": {
+    "needs-owner": 55
+  },
+  "table_byte_identical": true
+}

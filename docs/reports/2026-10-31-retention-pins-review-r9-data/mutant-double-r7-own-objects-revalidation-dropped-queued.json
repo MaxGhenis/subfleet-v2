@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T08:42:17.093702+00:00",
+  "args": [
+    "--mutant",
+    "double-r7-own-objects-revalidation-dropped",
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/mutant-double-r7-own-objects-revalidation-dropped",
+  "linked": false,
+  "driver_pid": 25557,
+  "lock_process_group": 25561
+}

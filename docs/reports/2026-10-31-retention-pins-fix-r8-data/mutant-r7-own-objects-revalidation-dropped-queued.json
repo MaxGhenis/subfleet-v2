@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:29:50.388103+00:00",
+  "args": [
+    "--mutant",
+    "r7-own-objects-revalidation-dropped",
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r7-own-objects-revalidation-dropped",
+  "linked": false
+}

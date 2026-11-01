@@ -1,0 +1,23 @@
+{
+  "name": "test_detached_retention_fence-4",
+  "start": "2026-10-29T14:37:15.008705+00:00",
+  "load": [
+    37.57177734375,
+    35.615234375,
+    36.7138671875
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 5.501715874997899,
+  "rss": 118784000
+}

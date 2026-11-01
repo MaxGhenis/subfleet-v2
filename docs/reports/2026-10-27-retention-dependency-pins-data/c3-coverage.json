@@ -1,0 +1,1796 @@
+{
+  "base_required": 356,
+  "added_required": 1,
+  "required": 357,
+  "counts": {
+    "passed": 354,
+    "incomplete": 3
+  },
+  "nodes": {
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_fifo_where_a_gitfile_is_neither_blocks_nor_counts": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d6_the_pin_reads_use_the_job_index_and_a_lease_range": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction": {
+      "hold": "c3-units.json",
+      "start": "2026-10-28T20:22:17.002662+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]": {
+      "hold": "c3-firmlink.json",
+      "start": "2026-10-28T19:50:02.371024+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]": {
+      "hold": "c3-firmlink.json",
+      "start": "2026-10-28T19:50:02.371024+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]": {
+      "hold": "c3-firmlink.json",
+      "start": "2026-10-28T19:50:02.371024+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job": {
+      "hold": "c3-folded.json",
+      "start": "2026-10-28T20:52:31.627373+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs": {
+      "hold": "c3-properties-selection.json",
+      "start": "2026-10-28T21:01:39.066671+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference": {
+      "hold": "c3-properties-reference.json",
+      "start": "2026-10-28T21:28:25.538792+00:00",
+      "outcome": "incomplete"
+    },
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+      "hold": "c3-properties-monotone.json",
+      "start": "2026-10-28T21:51:03.174069+00:00",
+      "outcome": "incomplete"
+    },
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+      "hold": "c3-properties-fence.json",
+      "start": "2026-10-28T22:24:38.268744+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]": {
+      "hold": "c3-dependencies.json",
+      "start": "2026-10-28T20:32:42.088830+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-tree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-nested]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-tree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-nested]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_while_the_fence_is_held_it_is_the_whole_hold_and_the_next_look_finds_the_rest": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-tree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-nested]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-tree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-nested]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[read-only]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[worktree]": {
+      "hold": "c3-detached-basic-a.json",
+      "start": "2026-10-28T22:10:24.445681+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[read-only]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[worktree]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[recorded]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[legacy]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-subdirectory]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-symlink]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-case]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-subdirectory]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-symlink]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-case]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-as-recorded]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-other-case]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-as-recorded]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-other-case]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired2]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired:x]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired2]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired:x]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired2]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired:x]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired2]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired:x]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[read-only-in-place-writer]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[read-only-turn-row]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[read-only-gate-round]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[read-only-own-folder-writer]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[worktree-in-place-writer]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[worktree-turn-row]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[worktree-gate-round]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[worktree-own-folder-writer]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases": {
+      "hold": "c3-detached-generated.json",
+      "start": "2026-10-28T22:50:47.050696+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired": {
+      "hold": "c3-detached-interleavings.json",
+      "start": "2026-10-28T23:43:15.377765+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold0-Held: retention is removing a finished job's worktree that its folder /s/worktrees/j/vendor/lib is in (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold1-Held: retention is removing a finished job's worktree, its folder (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold2-Held: retention is removing a finished job's worktree it works in (/s/w/{j}); it waits until retention lets go of it (C-8.4)]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold3-(/s/worktrees/j); it waits until retention lets go of it (C-8.4); a lease it needs is also held by another job: out:/r.md]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_write_target_is_checked_before_workspace": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[present]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[quarantined-alias]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_absent_alias_is_fenced_before_workspace": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-read-only]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-allocated-writer]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-read-only]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-allocated-writer]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-read-only]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-allocated-writer]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-read-only]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-allocated-writer]": {
+      "hold": "c3-detached-basic-b.json",
+      "start": "2026-10-28T22:23:25.629070+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[reader]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[writer]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[reader]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[writer]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-tree]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-nested]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-external]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-tree]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-nested]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-external]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-fenced]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-free]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-fenced]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-free]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[False]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[True]": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_rediscovery.py::test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_every_blocker": {
+      "hold": "c3-writer-rediscovery.json",
+      "start": "2026-10-28T22:29:49.448641+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]": {
+      "hold": "c3-shared-basic-a.json",
+      "start": "2026-10-28T22:39:06.826592+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence": {
+      "hold": "c3-shared-generated.json",
+      "start": "2026-10-28T23:44:17.404084+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "hold": "c3-shared-reservation.json",
+      "start": "2026-10-28T23:22:57.579905+00:00",
+      "outcome": "incomplete"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": {
+      "hold": "c3-shared-generated.json",
+      "start": "2026-10-28T23:44:17.404084+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]": {
+      "hold": "c3-shared-basic-b.json",
+      "start": "2026-10-28T23:12:51.136695+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in": {
+      "hold": "c3-shared-basic-b-resume.json",
+      "start": "2026-10-28T23:55:47.073941+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_row_has_every_field": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_test_names_are_unique": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows": {
+      "hold": "c3-guards-plan.json",
+      "start": "2026-10-28T22:40:23.260848+00:00",
+      "outcome": "passed"
+    },
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends": {
+      "hold": "c3-killing-tests-green.json",
+      "start": "2026-10-28T22:47:21.517585+00:00",
+      "outcome": "passed"
+    }
+  }
+}

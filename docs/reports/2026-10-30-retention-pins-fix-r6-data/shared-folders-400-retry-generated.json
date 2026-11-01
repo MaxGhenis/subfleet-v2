@@ -1,0 +1,52 @@
+{
+  "label": "shared-folders-400-retry-generated",
+  "start": "2026-10-31T00:25:08.662280+00:00",
+  "loads": [
+    48.07421875,
+    44.4130859375,
+    42.50390625
+  ],
+  "seconds": 324.1152127079986,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 313.5513912500028,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "max_examples": 400,
+      "derandomize": true,
+      "database_none": true,
+      "phases": [
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 12
+    }
+  },
+  "loaded": [],
+  "rss": 131956736
+}

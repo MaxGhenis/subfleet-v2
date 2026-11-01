@@ -1,0 +1,25 @@
+{
+  "name": "test_retention_shared_folders-17",
+  "start": "2026-10-29T06:31:22.734326+00:00",
+  "load": [
+    22.81787109375,
+    23.59521484375,
+    23.0380859375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

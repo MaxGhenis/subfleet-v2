@@ -1,0 +1,13 @@
+{
+  "label": "named-False-own-False-content-b'\\n'",
+  "git_rc": 128,
+  "git_stdout": "",
+  "git_stderr": "fatal: not a git repository (or any of the parent directories): .git\n",
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__n_False_Fal0/checkout/.git",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__n_False_Fal0/checkout/.git/objects"
+    ]
+  },
+  "actual_storage_covered": false
+}

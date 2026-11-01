@@ -1,0 +1,44 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:22:51Z slot A load 
+ADMITTED 2026-10-29T05:23:02.179302+00:00 LOAD (38.3505859375, 32.82275390625, 28.47265625)
+....F...........                                                         [100%]
+=================================== FAILURES ===================================
+_______________ test_c8_4_alternates_match_git_bytes[octal-byte] _______________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-quote-unit/pytest-of-maxghenis/pytest-0/test_c8_4_alternates_match_git4')
+case = 'octal-byte'
+
+    @pytest.mark.parametrize("case", ["absolute", "relative", "octal-ascii", "octal-utf8", "octal-byte",
+                                      "quote", "backslash", "tab", "newline", "comment", "blank",
+                                      "leading-outside", "trailing-outside", "leading-inside", "trailing-inside",
+                                      "after-quote"])
+    def test_c8_4_alternates_match_git_bytes(tmp_path, case):
+        source = repo(tmp_path / "source")
+        borrower = repo(tmp_path / "borrower")
+        # This blob is absent from the borrower, so cat-file proves Git resolved the alternate.
+        oid = subprocess.check_output(["git", "-C", str(source), "hash-object", "-w", "--stdin"],
+                                      input=b"only in alternate\n").strip()
+        names = {"quote": 'with"quote', "backslash": 'with\\slash', "tab": 'with\ttab',
+                 "newline": 'with\nnewline', "octal-utf8": "non-é", "octal-byte": os.fsdecode(b"non-\xff"),
+                 "leading-inside": " leading", "trailing-inside": "trailing "}
+        target = tmp_path / names.get(case, "ordinary")
+>       shutil.copytree(source / ".git" / "objects", target)
+
+tests/unit/test_retention_alternates.py:28: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py:654: in copytree
+    return _copytree(entries=entries, src=src, dst=dst, symlinks=symlinks,
+/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py:552: in _copytree
+    os.makedirs(dst, exist_ok=dirs_exist_ok)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-quote-unit/pytest-of-maxghenis/pytest-0/test_c8_4_alternates_match_git4/non-\udcff')
+mode = 511, exist_ok = False
+
+>   ???
+E   PermissionError: [Errno 1] Operation not permitted: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-quote-unit/pytest-of-maxghenis/pytest-0/test_c8_4_alternates_match_git4/non-\udcff'
+
+<frozen os>:236: PermissionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_alternates.py::test_c8_4_alternates_match_git_bytes[octal-byte]
+1 failed, 15 passed in 40.28s

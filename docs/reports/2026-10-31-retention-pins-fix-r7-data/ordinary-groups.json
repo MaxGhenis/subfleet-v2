@@ -1,0 +1,79 @@
+{
+  "test_retention_dependency_review_r3": {
+    "args": [
+      "tests/fake/test_retention_dependency_review_r3.py",
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "tests/unit/test_retention_alternates_review_r2.py"
+    ],
+    "delegated": [
+      "test_retention_dependency_review_r2",
+      "test_retention_alternates_review_r2"
+    ]
+  },
+  "test_retention_dependency_review_r1": {
+    "args": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "tests/fake/test_retention_dependency_incomplete.py"
+    ],
+    "delegated": [
+      "test_retention_dependency_incomplete"
+    ]
+  },
+  "test_retention_job_dependencies": {
+    "args": [
+      "tests/unit/test_retention_job_dependencies.py",
+      "tests/fake/test_retention_dependencies.py"
+    ],
+    "delegated": [
+      "test_retention_dependencies"
+    ]
+  },
+  "test_retention_dependency_spelling": {
+    "args": [
+      "tests/fake/test_retention_dependency_spelling.py",
+      "tests/unit/test_retention_dependency_units.py",
+      "tests/unit/test_retention_folded_pin.py",
+      "tests/fake/test_retention_recovery_census.py"
+    ],
+    "delegated": [
+      "test_retention_dependency_units",
+      "test_retention_folded_pin",
+      "test_retention_recovery_census"
+    ]
+  },
+  "test_turn_retention_cwd": {
+    "args": [
+      "tests/fake/test_turn_retention_cwd.py",
+      "tests/fake/test_turn_retention_job_directory.py",
+      "tests/fake/test_turn_retention_quarantine.py"
+    ],
+    "delegated": [
+      "test_turn_retention_job_directory",
+      "test_turn_retention_quarantine"
+    ]
+  },
+  "test_state_contract": {
+    "args": [
+      "tests/fake/test_state_contract.py",
+      "tests/unit/test_test_module_names.py",
+      "tests/unit/test_invariants_index.py"
+    ],
+    "delegated": [
+      "test_test_module_names",
+      "test_invariants_index"
+    ]
+  },
+  "parent-controls": {
+    "args": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261030-223353-pr272-fix-r7/docs/reports/2026-10-31-retention-pins-fix-r7-data",
+      "docs/reports/2026-10-31-retention-pins-fix-r7-data/pointer_matrix.py::test_rejected_child_with_valid_parent",
+      "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+      "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+    ],
+    "delegated": [
+      "old-probe-controls"
+    ]
+  }
+}

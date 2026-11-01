@@ -1,0 +1,41 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:14:02Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_spelling_inputs_keep_the_places_real_git_traverses ____________
+tests/unit/test_retention_location_spelling.py:201: in test_spelling_inputs_keep_the_places_real_git_traverses
+    suppress_health_check=[HealthCheck.function_scoped_fixture])
+         ^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:206: in test_spelling_inputs_keep_the_places_real_git_traverses
+    observation = check_spelling_input(Path(directory), data)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/docs/reports/2026-10-31-retention-pins-fix-r9-data/run.py:103: in observed
+    result = original(base, data)
+             ^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:189: in check_spelling_input
+    assert_location_spelling(supplied, recorded.get("git", []))
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/revert-r9-text-canonicalization-dropped/tmpczkt1qrf/checkóut/.git
+E   assert '/private/tmp...checkóut/.git' == '/System/Volu...checkóut/.git'
+E     
+E     - /System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/revert-r9-text-canonicalization-dropped/tmpczkt1qrf/checkóut/.git
+E     ? --------------------
+E     + /private/tmp/sf-fix272r9/real-tmp/revert-r9-text-canonicalization-dropped/tmpczkt1qrf/checkóut/.git
+E   Failing test case: test_spelling_inputs_keep_the_places_real_git_traverses(
+E       record_property=append_property,
+E       data={'position': 'gitfile-target', 'spelling': 'data-volume', 'named': False},  # or any other generated value
+E   )
+E   {'position': 'gitfile-target', 'spelling': 'data-volume', 'named': False}
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses
+1 failed in 21.58s
+{"name": "revert-r9-text-canonicalization-dropped", "start": "2026-10-31T10:14:03.272877+00:00", "load": [33.87353515625, 34.1279296875, 34.7109375], "seconds": 22.563960292001866, "exit": 1}

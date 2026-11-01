@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:28:01Z slot B load 
+..                                                                       [100%]
+2 passed in 13.51s
+{"name": "link-fence-stability", "start": "2026-10-31T09:28:03.831447+00:00", "load": [32.8056640625, 33.9599609375, 37.5185546875], "seconds": 15.351940749998903, "exit": 0}

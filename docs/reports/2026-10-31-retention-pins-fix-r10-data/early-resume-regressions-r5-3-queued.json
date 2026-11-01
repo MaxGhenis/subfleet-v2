@@ -1,0 +1,14 @@
+{
+  "queued": "2026-10-31T14:16:44.229891+00:00",
+  "args": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/early-resume-regressions-r5-3",
+  "linked": false,
+  "driver_pid": 56269,
+  "lock_process_group": 56340
+}

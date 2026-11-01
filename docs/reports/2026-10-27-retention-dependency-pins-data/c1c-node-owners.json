@@ -1,0 +1,9 @@
+{
+  "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases": 47,
+  "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": 58,
+  "tests/unit/test_retention_case_alias.py::test_interleavings_with_case_aliases_never_delete_a_folder_a_row_names": 59,
+  "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": 60,
+  "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass": 61,
+  "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest": 62,
+  "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent": 62
+}

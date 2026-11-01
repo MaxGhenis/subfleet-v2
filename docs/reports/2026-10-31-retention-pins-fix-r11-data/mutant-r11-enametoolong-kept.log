@@ -1,0 +1,14 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:39:17Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_filter_stat_table[found-ENAMETOOLONG] __________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome not in ("ELOOP", "ENAMETOOLONG"))
+E   AssertionError: assert ('/private/tmp/sf-fix272r11/real-tmp/mutant-r11-enametoolong-kept/pytest-of-maxghenis/pytest-0/test_filter_stat_table_f...nglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong' in ['/private/tmp/sf-fix272r11/real-tmp/mutant-r11-enametoolong-kept/pytest-of-maxghenis/pytest-0/test_filter_stat_table_...glonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong']) == ('ENAMETOOLONG' not in ('ELOOP', 'ENAMETOOLONG'))
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]
+1 failed in 26.38s
+{"name": "mutant-r11-enametoolong-kept", "start": "2026-10-31T18:39:23.518650+00:00", "load": [60.59033203125, 61.138671875, 60.58056640625], "seconds": 32.130719999993744, "exit": 1}

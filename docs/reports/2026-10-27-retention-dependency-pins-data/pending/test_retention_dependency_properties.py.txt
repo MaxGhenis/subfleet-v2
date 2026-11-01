@@ -1,0 +1,235 @@
+"""C-8.4: generated dependency sets, selection, spelling and admission fences.
+
+The oracle below implements canonical caseless comparison independently of
+production helpers. Folding may intentionally keep distinct names on a sensitive
+volume: the conservative result is an extra pin or wait.
+"""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import unicodedata
+from pathlib import Path
+from unittest.mock import patch
+
+from hypothesis import HealthCheck, example, given, settings, strategies as st
+
+from subfleet import dependencies, folders, retention
+from subfleet import retention_archive as rarch
+from subfleet.store import Store
+
+TERMINAL = ("succeeded", "failed", "cancelled", "lost")
+STATES = ("queued", "waiting", "running", *TERMINAL)
+NAMES = ("first-desk", "k")
+ROLES = ("workdir", "worktree", "review_root", "out_path", "folder", "write_target", "git")
+PLACE = st.tuples(st.integers(0, 3), st.sampled_from(("", "/vendor/lib", "/vendor/lib/.git/worktrees/external")),
+                  st.integers(0, 3))
+JOB = st.fixed_dictionaries({"state": st.sampled_from(STATES),
+                            **{role: st.none() | PLACE for role in ROLES}})
+@st.composite
+def job_sets(draw):
+    jobs = draw(st.lists(JOB, min_size=4, max_size=8))
+    jobs[0]["state"] = draw(st.sampled_from(STATES[:3]))
+    jobs[1]["state"] = draw(st.sampled_from(TERMINAL))
+    # Every set contains every row/recorded role and multiple spellings.
+    for n, role in enumerate(ROLES):
+        target, below, _ = draw(PLACE)
+        if role == "git":
+            below = "/vendor/lib/.git/worktrees/external"
+        jobs[n % len(jobs)][role] = (target, below, n % 4)
+    return jobs
+
+
+SETS = job_sets()
+OPTIONS = dict(deadline=None, suppress_health_check=[HealthCheck.too_slow])
+
+
+def fold(path):
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", os.path.normpath(path)).casefold())
+
+
+def inside(path, tree):
+    a, b = fold(path), fold(tree)
+    return a == b or a.startswith(b.rstrip("/") + "/")
+
+
+def spell(path, how):
+    return (path, path.upper(), path.replace("first", "ﬁrſt").replace("desk", "deſK").replace("/k", "/K"),
+            unicodedata.normalize("NFD", path.swapcase()))[how]
+
+
+def place(root, spec):
+    if spec is None:
+        return None
+    n, below, how = spec
+    base = str(root / "worktrees" / NAMES[n]) if n < 2 else str(root / ("elsewhere" if n == 2 else "worktrees/first-desk2"))
+    return spell(base + below, how)
+
+
+def add(store, root, job, job_id):
+    paths = {role: place(root, job[role]) for role in ROLES}
+    store.add_job(job_id=job_id, request_id=job_id, payload_digest="d", kind="dispatch", state=job["state"],
+                  prompt_path="/p", sandbox="read-only", workdir=paths["workdir"] or str(root / "neutral"),
+                  **{role: paths[role] for role in ("worktree", "review_root", "out_path")})
+    data = {role: paths[role] for role in ("folder", "write_target") if paths[role]}
+    data["depends"] = {**({"git": [paths["git"]]} if paths["git"] else {}),
+                       **({"review_root": paths["review_root"]} if paths["review_root"] else {}),
+                       **({"out_path": paths["out_path"]} if paths["out_path"] else {})}
+    store.add_event("job.submitted", job_id=job_id, data=data)
+    return {p for p in paths.values() if p}
+
+
+def build(store, root, jobs):
+    for n, name in enumerate(NAMES):
+        tree = root / "worktrees" / name
+        tree.mkdir(parents=True)
+        (tree / "kept.txt").write_text("preserve")
+        store.add_job(job_id=name, request_id=name, payload_digest="d", kind="dispatch", state="succeeded",
+                      prompt_path="/p", sandbox="workspace-write", workdir=str(root / "neutral"),
+                      worktree=str(tree) if n == 0 else None)
+    return {f"j{n}": (job["state"], add(store, root, job, f"j{n}")) for n, job in enumerate(jobs)}
+
+
+def reference(evidence, tree):
+    return {job_id for job_id, (state, places) in evidence.items()
+            if state not in TERMINAL and any(inside(p, tree) for p in places)}
+
+
+def fresh():
+    return tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
+
+
+@settings(max_examples=150, **OPTIONS)
+@given(SETS)
+def test_selection_never_starts_a_tree_a_live_job_needs(jobs):
+    with fresh() as directory:
+        root = Path(directory) / "state"
+        store = Store(root / "subfleet.db")
+        try:
+            evidence = build(store, root, jobs)
+            selected = set()
+
+            def begin(retirement, job, pool):
+                selected.add(job["job_id"])
+                raise rarch.Defer("selection observed", 1)
+
+            with patch.object(rarch.Retirement, "begin", begin):
+                retention.maintenance(store, root, max_jobs=0, max_bytes=0, turn_keep_s=0,
+                                      holders=lambda *a, **k: {}, batch=100)
+            for name in NAMES:
+                if not reference(evidence, str(root / "worktrees" / name)):
+                    assert name in selected, "selection fixture must exercise unpinned owners"
+                if reference(evidence, str(root / "worktrees" / name)):
+                    assert name not in selected
+                    assert (root / "worktrees" / name / "kept.txt").read_text() == "preserve"
+        finally:
+            store.close()
+
+
+@settings(max_examples=150, **OPTIONS)
+@given(SETS)
+def test_python_pin_and_transaction_match_an_independent_brute_force_reference(jobs):
+    with fresh() as directory:
+        root = Path(directory) / "state"
+        store = Store(root / "subfleet.db")
+        try:
+            evidence = build(store, root, jobs)
+            pins = retention._pin_reasons(store, set(), None, root=root)
+            for name in NAMES:
+                tree = str(root / "worktrees" / name)
+                expected = reference(evidence, tree)
+                assert (pins.get(name) == "worktree-in-use") == bool(expected)
+                with store.transaction() as tx:
+                    actual = dependencies.dependents(lambda sql, params: tx.execute(sql, params).fetchall(),
+                                                     spell(tree, 2), exclude=name)
+                assert set(actual) == expected
+        finally:
+            store.close()
+
+
+@settings(max_examples=100, **OPTIONS)
+@given(st.lists(JOB, max_size=6), st.sampled_from(ROLES), st.integers(0, 3), st.sampled_from(TERMINAL))
+def test_adding_a_dependent_is_monotone_and_ending_the_last_one_releases_it(jobs, role, how, ended):
+    with fresh() as directory:
+        root = Path(directory) / "state"
+        store = Store(root / "subfleet.db")
+        try:
+            evidence = build(store, root, jobs)
+            before = retention._pin_reasons(store, set(), None, root=root)
+            extra = {**dict.fromkeys(ROLES), "state": "queued", role: (0, "/vendor/lib", how)}
+            add(store, root, extra, "extra")
+            after = retention._pin_reasons(store, set(), None, root=root)
+            assert {n for n in NAMES if before.get(n) == "worktree-in-use"} <= {
+                n for n in NAMES if after.get(n) == "worktree-in-use"}
+            assert after["first-desk"] == "worktree-in-use"
+            store.update_job("extra", state=ended)
+            final = retention._pin_reasons(store, set(), None, root=root)
+            assert (final.get("first-desk") == "worktree-in-use") == bool(
+                reference(evidence, str(root / "worktrees/first-desk")))
+            for job_id, (state, _) in evidence.items():
+                if state not in TERMINAL:
+                    store.update_job(job_id, state=ended)
+            assert "first-desk" not in retention._pin_reasons(store, set(), None, root=root)
+        finally:
+            store.close()
+
+
+@settings(max_examples=20, **OPTIONS)
+@example("output", 1, True)
+@given(st.sampled_from(("review-root", "linked", "output")), st.integers(0, 3), st.booleans())
+def test_submitting_under_a_needed_place_fence_waits_then_is_admitted(kind, how, gone):
+    from tests.fake.test_admission_latency import fleet_daemon
+    from tests.fake.test_admission_liveness import _end, _live
+    from tests.fake.test_retention_dependencies import external_checkout, needing
+    from tests.fake.test_writer_retention_fence import measured
+    from tests.unit.test_retention_shared_folders import retiring_tree
+
+    with fresh() as directory:
+        base = Path(directory)
+        with fleet_daemon(base / "state") as (daemon, harness, monkeypatch):
+            measured(daemon, harness)
+            tree, nested = retiring_tree(daemon, harness)
+            if kind == "linked":
+                external_checkout(base, nested)
+            fence = folders.exclusive_key(tree)
+            daemon.store.acquire_lease(fence, "retention:retired")
+            aside = Path(tree).with_name(".quarantined")
+            # An output destination can be absent at submit. Its parent may be
+            # in quarantine, leaving its case/Unicode alias unspellable.
+            if kind == "output" and gone:
+                Path(tree).rename(aside)
+            try:
+                named = spell(nested, how)
+                job, place, role = needing(daemon, harness, base, tree, named, kind)
+                daemon._admit()
+                assert not _live(daemon, job)
+                assert daemon._holds[job]["retiring"] == [fence]
+                assert daemon._holds[job]["needs"] == role
+            finally:
+                if aside.exists():
+                    aside.rename(tree)
+            daemon.store.release_leases("retention:retired")
+            daemon._admit()
+            assert _live(daemon, job), daemon._holds.get(job)
+            _end(daemon, job)
+
+
+@settings(max_examples=150, **OPTIONS)
+@given(st.lists(st.tuples(st.sampled_from(("review-root", "output", "git-storage")), PLACE),
+                min_size=1, max_size=6))
+def test_dependency_fences_match_folded_reference_even_when_names_are_absent(specs):
+    with fresh() as directory:
+        root = Path(directory) / "state"
+        store = Store(root / "subfleet.db")
+        try:
+            trees = [str(root / "worktrees" / name) for name in NAMES]
+            for name, tree in zip(NAMES, trees):
+                store.acquire_lease(folders.exclusive_key(tree), "retention:" + name)
+            places = [(role, place(root, spec)) for role, spec in specs]
+            expected = [(role, path, [folders.exclusive_key(tree) for tree in trees if inside(path, tree)])
+                        for role, path in places]
+            expected = [(role, path, keys) for role, path, keys in expected if keys]
+            assert dependencies.fences(store.query, places) == expected
+        finally:
+            store.close()

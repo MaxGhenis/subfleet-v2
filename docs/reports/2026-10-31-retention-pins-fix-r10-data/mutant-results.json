@@ -1,0 +1,130 @@
+[
+  {
+    "name": "r8-alias-location-recording-dropped",
+    "result": "Killed",
+    "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+    "assertion": "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r8-pointer-file-location-recording-dropped",
+    "result": "Killed",
+    "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]",
+    "assertion": "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r8-intermediate-link-walk-dropped",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+    "assertion": "assert held, recorded",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r8-lexical-dotdot",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+    "assertion": "assert str(paths[\"admin\"]) in recorded[\"git\"], recorded",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r8-link-location-followed",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+    "assertion": "assert held, recorded",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r8-top-level-links-dropped",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+    "assertion": "assert held, recorded",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r8-parent-hint-scanned",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+    "assertion": "assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r8-walk-revalidation-dropped",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+    "assertion": "assert any(error[\"file\"] == str(alias) for error in errors), errors",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r8-routine-skip-dropped",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+    "assertion": "assert recorded == expected",
+    "same_r9_assertion": true,
+    "same_r8_assertion": true
+  },
+  {
+    "name": "r9-text-canonicalization-dropped",
+    "result": "Killed",
+    "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+    "assertion": "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)",
+    "same_r9_assertion": true,
+    "same_r8_assertion": null
+  },
+  {
+    "name": "r9-alternates-canonicalization-dropped",
+    "result": "Killed",
+    "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+    "assertion": "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)",
+    "same_r9_assertion": true,
+    "same_r8_assertion": null
+  },
+  {
+    "name": "r9-scan-canonicalization-dropped",
+    "result": "Killed",
+    "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]",
+    "assertion": "assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)",
+    "same_r9_assertion": true,
+    "same_r8_assertion": null
+  },
+  {
+    "name": "r9-start-spelling-dropped",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+    "assertion": "assert recorded == expected",
+    "same_r9_assertion": true,
+    "same_r8_assertion": null
+  },
+  {
+    "name": "r10-found-filter-dropped",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+    "assertion": "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place",
+    "same_r9_assertion": null,
+    "same_r8_assertion": null
+  },
+  {
+    "name": "r10-entries-filter-dropped",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+    "assertion": "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place",
+    "same_r9_assertion": null,
+    "same_r8_assertion": null
+  },
+  {
+    "name": "r10-check-before-spelling",
+    "result": "Killed",
+    "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+    "assertion": "assert any(error[\"file\"] == str(entry) and \"alias changed\" in error[\"reason\"]",
+    "same_r9_assertion": null,
+    "same_r8_assertion": null
+  }
+]

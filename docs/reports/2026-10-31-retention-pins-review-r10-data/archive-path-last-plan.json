@@ -1,0 +1,9 @@
+[
+  [
+    "archive-path-last",
+    [
+      "--archive-path",
+      "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass"
+    ]
+  ]
+]

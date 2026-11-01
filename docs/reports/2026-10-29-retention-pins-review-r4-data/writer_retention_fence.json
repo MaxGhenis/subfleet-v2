@@ -1,0 +1,319 @@
+{
+  "label": "writer_retention_fence",
+  "start": "2026-10-30T03:17:41.445466+00:00",
+  "loads": [
+    25.671875,
+    26.517578125,
+    25.96337890625
+  ],
+  "seconds": 32.21767695900053,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8389558749986463
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.1431274999995367
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8122005420009373
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7899276659991301
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9966865420028626
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9503758330029086
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7090425830028835
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6356280830004835
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6457281250004598
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5573440420012048
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7117701250026585
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.44397258299795794
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8976093329983996
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.35140570800285786
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.918219999999565
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.023884124999313
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9539444580004783
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.689689124999859
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5739941669999098
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.21019874999910826
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.7571868329978315
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.629230082999129
+    },
+    {
+      "nodeid": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.504024624999147
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection",
+    "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]"
+  ],
+  "phases": {
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 125829120
+}

@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T03:58:29.281405+00:00",
+  "args": [
+    "--mutant",
+    "r5-gitfile-colon-without-space-accepted",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+  ]
+}

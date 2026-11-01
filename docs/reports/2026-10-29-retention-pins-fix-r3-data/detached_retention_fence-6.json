@@ -1,0 +1,176 @@
+{
+  "label": "detached_retention_fence-6",
+  "start": "2026-10-29T20:54:43.137792+00:00",
+  "loads": [
+    44.5703125,
+    58.71044921875,
+    50.26806640625
+  ],
+  "seconds": 59.01437045900002,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 38.06944958300028
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold0-Held: retention is removing a finished job's worktree that its folder /s/worktrees/j/vendor/lib is in (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.032586499999524676
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold1-Held: retention is removing a finished job's worktree, its folder (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00022612500015384285
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold2-Held: retention is removing a finished job's worktree it works in (/s/w/{j}); it waits until retention lets go of it (C-8.4)]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00019249999968451448
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold3-(/s/worktrees/j); it waits until retention lets go of it (C-8.4); a lease it needs is also held by another job: out:/r.md]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001977500005523325
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0236452090002786
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_write_target_is_checked_before_workspace",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9766917920005653
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[present]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.484240666000005
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[quarantined-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.842223790999924
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_absent_alias_is_fenced_before_workspace",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.5968650830000115
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.8197098749997167
+    },
+    {
+      "nodeid": "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.6310392079994926
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold0-Held: retention is removing a finished job's worktree that its folder /s/worktrees/j/vendor/lib is in (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold1-Held: retention is removing a finished job's worktree, its folder (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold2-Held: retention is removing a finished job's worktree it works in (/s/w/{j}); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold3-(/s/worktrees/j); it waits until retention lets go of it (C-8.4); a lease it needs is also held by another job: out:/r.md]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers",
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_write_target_is_checked_before_workspace",
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[present]",
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[quarantined-alias]",
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_absent_alias_is_fenced_before_workspace",
+    "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold0-Held: retention is removing a finished job's worktree that its folder /s/worktrees/j/vendor/lib is in (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold1-Held: retention is removing a finished job's worktree, its folder (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold2-Held: retention is removing a finished job's worktree it works in (/s/w/{j}); it waits until retention lets go of it (C-8.4)]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold3-(/s/worktrees/j); it waits until retention lets go of it (C-8.4); a lease it needs is also held by another job: out:/r.md]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_write_target_is_checked_before_workspace": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[present]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[quarantined-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_absent_alias_is_fenced_before_workspace": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 124682240
+}

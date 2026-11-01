@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:26:48Z slot A load 
+.                                                                        [100%]
+1 passed, 61 deselected in 58.44s
+{"name": "shared-property-3", "start": "2026-10-31T14:26:53.622508+00:00", "load": [78.9541015625, 72.4521484375, 70.30712890625], "seconds": 61.456056832998, "exit": 0}

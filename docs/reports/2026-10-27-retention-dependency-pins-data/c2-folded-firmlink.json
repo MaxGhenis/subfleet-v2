@@ -1,0 +1,45 @@
+{
+  "hold": "c2-folded-firmlink",
+  "start": "2026-10-28T17:18:55.623549+00:00",
+  "load": [
+    124.02099609375,
+    123.03369140625,
+    113.61669921875
+  ],
+  "args": [
+    "tests/unit/test_retention_folded_pin.py",
+    "-k",
+    "a_job_typed_through_the_firmlink",
+    "--basetemp=/Users/maxghenis/.subfleet/worktrees/20261028-125447-rdp217c2b/sf-rdp217c2-roots/firmlink"
+  ],
+  "collected": [
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]"
+  ],
+  "results": [
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "Imported fixture assertion at test_retention_folded_pin.py:312 expects workdir.startswith(\"/System/Volumes/Data/\"); submit recorded the canonical path instead."
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "Imported fixture assertion at test_retention_folded_pin.py:312 expects workdir.startswith(\"/System/Volumes/Data/\"); submit recorded the canonical path instead."
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "Imported fixture assertion at test_retention_folded_pin.py:312 expects workdir.startswith(\"/System/Volumes/Data/\"); submit recorded the canonical path instead."
+    }
+  ],
+  "statistics": {},
+  "exitstatus": 1,
+  "seconds": 151.62358587500057,
+  "maxrss_bytes": 127696896,
+  "lock": "locked"
+}

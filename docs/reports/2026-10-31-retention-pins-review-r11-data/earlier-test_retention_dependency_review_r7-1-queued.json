@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:40:27.759036+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r7-1",
+  "linked": false,
+  "driver_pid": 10954,
+  "lock_process_group": 11044
+}

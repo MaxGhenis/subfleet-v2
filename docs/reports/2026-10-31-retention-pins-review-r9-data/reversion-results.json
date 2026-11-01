@@ -1,0 +1,104 @@
+[
+  {
+    "decision": "decision1",
+    "property": "location",
+    "result": "Detected",
+    "first_failure": {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-decision1-location/tmpm53w8ipg/stable/container/admin', '/private/tmp/sf-r272r9/real-tmp/revert-decision1-location/tmpm53w8ipg/stable/container/admin/objects']}\nassert False"
+    }
+  },
+  {
+    "decision": "decision1",
+    "property": "focused",
+    "result": "Pass",
+    "first_failure": null
+  },
+  {
+    "decision": "decision2",
+    "property": "location",
+    "result": "Detected",
+    "first_failure": {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "HEAD",
+        "named": false,
+        "chain": 2,
+        "position": "gitfile-pointer",
+        "relative": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-decision2-location/tmpzej2ken2/stable/container/admin', '/private/tmp...ocation/tmpzej2ken2/stable/hop0', '/private/tmp/sf-r272r9/real-tmp/revert-decision2-location/tmpzej2ken2/stable/hop1']}\nassert False"
+    }
+  },
+  {
+    "decision": "decision2",
+    "property": "focused",
+    "result": "Pass",
+    "first_failure": null
+  },
+  {
+    "decision": "decision3",
+    "property": "location",
+    "result": "Detected",
+    "first_failure": {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-decision3-location/tmpsoh77xbb/stable/container/admin', '/private/tmp/sf-r272r9/real-tmp/revert-decision3-location/tmpsoh77xbb/stable/container/admin/objects']}\nassert False"
+    }
+  },
+  {
+    "decision": "decision3",
+    "property": "focused",
+    "result": "Pass",
+    "first_failure": null
+  },
+  {
+    "decision": "r7-f1",
+    "property": "location",
+    "result": "Detected",
+    "first_failure": {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "refs",
+        "named": true,
+        "chain": 1,
+        "position": "git-entry",
+        "relative": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir', 'reason': \"[...] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir'\"}] = <built-in method get of dict object at 0x1097f97c0>('incomplete')\n +    where <built-in method get of dict object at 0x1097f97c0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/worktrees/slot', '/privat... not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-location/tmptviojqfl/stable/container/commondir'\"}]}.get"
+    }
+  },
+  {
+    "decision": "r7-f1",
+    "property": "focused",
+    "result": "Detected",
+    "first_failure": {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "absent",
+        "parent": "unrelated-commondir",
+        "slot": 162,
+        "own": "plain"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpdksfpjks/container/worktrees/162', '/private/tmp/sf-...rrno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpdksfpjks/container/commondir'\"}]}\nassert not [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpdksfpjks/container/commondir', 'reason': \"[Errno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpdksfpjks/container/commondir'\"}]\n +  where [{'file': '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpdksfpjks/container/commondir', 'reason': \"[Errno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpdksfpjks/container/commondir'\"}] = <built-in method get of dict object at 0x10c534c40>('incomplete')\n +    where <built-in method get of dict object at 0x10c534c40> = {'git': ['/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpdksfpjks/container/worktrees/162', '/private/tmp/sf-...rrno 22] not a regular file: '/private/tmp/sf-r272r9/real-tmp/revert-r7-f1-focused/tmpdksfpjks/container/commondir'\"}]}.get"
+    }
+  }
+]

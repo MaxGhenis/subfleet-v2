@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:45:04.497204+00:00", "loads": [39.65625, 37.50146484375, 35.90576171875], "pid": 1028, "args": ["tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"], "fixture_root": "/private/tmp/sf-r272r8"}

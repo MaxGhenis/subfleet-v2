@@ -1,0 +1,18 @@
+{
+  "r2-post-read-identity-check-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "                    after = os.fstat(stream.fileno())\n                    named = os.stat(filename)\n                    fields = (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\")\n                    if (any(getattr(before, field) != getattr(after, field) for field in fields)\n                            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):\n                        raise ValueError(\"alternates changed during discovery\")\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+    ]
+  },
+  "r2-terminal-legacy-incomplete-dropped": {
+    "file": "subfleet/dependencies.py",
+    "old": "        errors = getattr(legacy_places, \"incomplete\", {}).get(row[\"job_id\"])\n        if errors:\n            found.incomplete[row[\"job_id\"]] = errors\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:31:08Z slot A load 
+..........................................................               [100%]
+58 passed, 4 deselected in 244.27s (0:04:04)
+{"name": "shared-folders", "start": "2026-10-31T09:31:14.561153+00:00", "load": [57.78857421875, 42.08349609375, 40.0234375], "seconds": 249.84745170799943, "exit": 0}

@@ -1,0 +1,13 @@
+{
+  "queued": "2026-10-31T20:32:34.545162+00:00",
+  "args": [
+    "--mutant",
+    "r12-enametoolong-drops",
+    "tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[alternates]",
+    "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r12/real-tmp/mutant-r12-enametoolong-drops",
+  "linked": false,
+  "driver_pid": 49798,
+  "lock_process_group": 49842
+}

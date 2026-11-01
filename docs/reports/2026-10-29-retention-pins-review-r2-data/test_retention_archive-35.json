@@ -1,0 +1,389 @@
+{
+  "name": "test_retention_archive-35",
+  "start": "2026-10-29T06:41:33.353098+00:00",
+  "load": [
+    21.54296875,
+    23.53955078125,
+    23.32470703125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]": {
+      "setup": {
+        "duration": 0.7414537089935038,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.29425412499404047,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0024439999979222193,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]": {
+      "setup": {
+        "duration": 0.3234960840054555,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.28803520801011473,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0030376659997273237,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-review]": {
+      "setup": {
+        "duration": 0.41220716599491425,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2972207080019871,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002490790997399017,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]": {
+      "setup": {
+        "duration": 0.32995041699905414,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.27124808401276823,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002672583010280505,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]": {
+      "setup": {
+        "duration": 0.3114479170035338,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.25432375000673346,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0023109169997042045,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]": {
+      "setup": {
+        "duration": 0.3019104580016574,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2659407080063829,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002460832998622209,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]": {
+      "setup": {
+        "duration": 0.2911587499984307,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.26932670900714584,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0020534170034807175,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]": {
+      "setup": {
+        "duration": 0.41993241698946804,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.26851479199831374,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0022796669945819303,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]": {
+      "setup": {
+        "duration": 0.4153192090016091,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.3404972499993164,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.003359624999575317,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]": {
+      "setup": {
+        "duration": 0.7219391249964247,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.39385429199319333,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.005602499993983656,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]": {
+      "setup": {
+        "duration": 0.42551925001316704,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.33280224999180064,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002954416995635256,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]": {
+      "setup": {
+        "duration": 0.45173891600279603,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2633362080086954,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002338040998438373,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]": {
+      "setup": {
+        "duration": 0.30961845800629817,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2589687919971766,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0019412919937167317,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]": {
+      "setup": {
+        "duration": 0.30329416699532885,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2614163329999428,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0024942500022007152,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]": {
+      "setup": {
+        "duration": 0.3275275409978349,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2645404170034453,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0022680419933749363,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]": {
+      "setup": {
+        "duration": 0.3554466659988975,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.27969804099120665,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.009352209002827294,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

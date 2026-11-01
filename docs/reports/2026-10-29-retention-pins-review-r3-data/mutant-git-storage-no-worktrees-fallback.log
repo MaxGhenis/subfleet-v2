@@ -1,0 +1,49 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:46:54Z slot B load 
+{"start": "2026-10-29T13:46:54.117675+00:00", "load": [20.8994140625, 20.93310546875, 22.5556640625], "name": "mutant-git-storage-no-worktrees-fallback"}
+Ftmp_path = PosixPath('/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0')
+
+    def test_d1_storage_a_gitfile_names_counts_when_it_is_gone(tmp_path):
+        """A `.git` file names its admin directory whether or not it is there: retention
+        may have the tree that holds it in quarantine. With the admin directory gone (no
+        `commondir` to read), the repository is the one two levels above `worktrees/`."""
+        nested = repo(tmp_path / "tree" / "lib")
+        outside = tmp_path / "outside"
+        git(nested, "worktree", "add", "--quiet", "--detach", str(outside), "HEAD")
+        moved = tmp_path / "quarantine"
+        (tmp_path / "tree").rename(moved)
+        found = dependencies.git_storage(str(outside))
+        assert str(tmp_path / "tree" / "lib" / ".git" / "worktrees" / "outside") in found
+>       assert str(tmp_path / "tree" / "lib" / ".git") in found
+E       AssertionError: assert '/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0/tree/lib/.git' in ['/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0/tree/lib/.git/worktrees/outside']
+E        +  where '/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0/tree/lib/.git' = str((((PosixPath('/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0') / 'tree') / 'lib') / '.git'))
+
+tests/unit/test_retention_dependency_units.py:115: AssertionError
+
+=================================== FAILURES ===================================
+____________ test_d1_storage_a_gitfile_names_counts_when_it_is_gone ____________
+
+tmp_path = PosixPath('/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0')
+
+    def test_d1_storage_a_gitfile_names_counts_when_it_is_gone(tmp_path):
+        """A `.git` file names its admin directory whether or not it is there: retention
+        may have the tree that holds it in quarantine. With the admin directory gone (no
+        `commondir` to read), the repository is the one two levels above `worktrees/`."""
+        nested = repo(tmp_path / "tree" / "lib")
+        outside = tmp_path / "outside"
+        git(nested, "worktree", "add", "--quiet", "--detach", str(outside), "HEAD")
+        moved = tmp_path / "quarantine"
+        (tmp_path / "tree").rename(moved)
+        found = dependencies.git_storage(str(outside))
+        assert str(tmp_path / "tree" / "lib" / ".git" / "worktrees" / "outside") in found
+>       assert str(tmp_path / "tree" / "lib" / ".git") in found
+E       AssertionError: assert '/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0/tree/lib/.git' in ['/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0/tree/lib/.git/worktrees/outside']
+E        +  where '/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0/tree/lib/.git' = str((((PosixPath('/private/tmp/sf-r272r3/cases-48609/pytest/test_d1_storage_a_gitfile_name0') / 'tree') / 'lib') / '.git'))
+
+tests/unit/test_retention_dependency_units.py:115: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 0.71s

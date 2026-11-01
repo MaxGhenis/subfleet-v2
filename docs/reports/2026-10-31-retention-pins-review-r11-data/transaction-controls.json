@@ -1,0 +1,431 @@
+{
+  "name": "transaction-controls",
+  "start": "2026-10-31T16:26:12.057379+00:00",
+  "load": [
+    100.9501953125,
+    107.28564453125,
+    109.701171875
+  ],
+  "pytest_pid": 45687,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/transaction_probes.py",
+    "-k",
+    "terminal_gone or recorded_link_entry or unused_link_width or r8_owner"
+  ],
+  "phases": [
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 5.268872041997383,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 25.72955720799655,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.2149457089981297,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.931232666000142,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 28.457425499997044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02626274999784073,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.807660417005536,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 23.55590900000243,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.4116998329991475,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.283383709000191,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 8.206596667005215,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004391333000967279,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0518278750023455,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.446202332997927,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.012551457999506965,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5542897080013063,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.696504166000523,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.037276583003404085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.44763316700118594,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.840422707995458,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002308957999048289,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7583592910013977,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.055052750001778,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024604589998489246,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.67088474999764,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.5827478330029408,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005493625001690816,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5541604999962146,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.9735241670059622,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0035409589982009493,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7811472079993109,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.1792084999979124,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0028437500004656613,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8323690410034033,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2250887080008397,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006861791996925604,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7472452500005602,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6855138749961043,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002849125005013775,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6104839170002379,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6056720420019701,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002904082997702062,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/state/worktrees/owner/broad\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": [\"borrower\"]}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"inside-owner\"}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[tree]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/state/worktrees/owner\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": [\"borrower\"]}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"tree\"}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[worktrees]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/state/worktrees\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"worktrees\"}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[home]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/home\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"home\"}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/state\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"fixture-root\"}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[slash]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif5/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif5/stable/.git/objects\", \"/\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"slash\"}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "key": "owner-removal",
+      "value": "{\"after\": 128, \"before\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/state/worktrees/owner/alias\"]}}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "key": "owner-removal",
+      "value": "{\"after\": 128, \"before\": 0, \"layout\": \"gitfile\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/state/worktrees/owner/alias\"]}}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+      "key": "stable-link-fence",
+      "value": "{\"after\": [[\"git-storage\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner\"]]], \"before\": [[\"git-storage\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays0/state/worktrees/owner\"]]], \"change\": \"retarget\"}"
+    },
+    {
+      "node": "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[unlink]",
+      "key": "stable-link-fence",
+      "value": "{\"after\": [[\"git-storage\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner\"]]], \"before\": [[\"git-storage\", \"/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner/storage-alias\", [\"worktree:/private/tmp/sf-r272r11/real-tmp/transaction-controls/pytest-of-maxghenis/pytest-0/test_recorded_link_entry_stays1/state/worktrees/owner\"]]], \"change\": \"unlink\"}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[inside-owner]",
+    "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[tree]",
+    "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[worktrees]",
+    "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[home]",
+    "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[fixture-root]",
+    "review-r11-data/transaction_probes.py::test_unused_link_width_and_lifetime[slash]",
+    "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+    "review-r11-data/transaction_probes.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+    "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+    "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+    "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+    "review-r11-data/transaction_probes.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+    "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[retarget]",
+    "review-r11-data/transaction_probes.py::test_recorded_link_entry_stays_stable_for_fences[unlink]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:29:41.136320+00:00",
+  "seconds": 209.07398349999858,
+  "peak_rss_mib": 116.234375,
+  "exit": 0
+}

@@ -1,0 +1,44 @@
+{
+  "name": "test_retention_archive-47",
+  "start": "2026-10-29T06:42:29.364062+00:00",
+  "load": [
+    20.09033203125,
+    22.58056640625,
+    22.96630859375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor": {
+      "setup": {
+        "duration": 0.6501154999859864,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 4.67540066599031,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002717208000831306,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

@@ -1,0 +1,918 @@
+{
+  "label": "task_holds",
+  "start": "2026-10-30T05:42:57.066830+00:00",
+  "loads": [
+    13.9697265625,
+    14.85400390625,
+    17.4052734375
+  ],
+  "seconds": 12.931758208003885,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_is_kept_exactly_when_it_is_one_printable_line_within_the_limit",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0191082919991459
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_control_anywhere_is_refused_before_anything_is_trimmed",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.23714308299531695
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_controls_are_every_c0_c1_and_del_and_the_line_and_paragraph_separators",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001429999974789098
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[None]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001640410046093166
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[0]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001415840015397407
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[value2]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001262500009033829
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001513339957455173
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[  ]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00011408299906179309
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\nb]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0002537079999456182
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\rb]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001903750016936101
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\tb]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00011437500506872311
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x00]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00013295799726620317
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00014350000128615648
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[token sk-ant-oat01-QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00033479199919383973
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\nbooking\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001417500025127083
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\tbooking\\t]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00014799999917158857
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00012066700583091006
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\rbooking]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00018699999782256782
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x7fbooking]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001389579992974177
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\x85]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00019041699852095917
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\u2028booking]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001262500009033829
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\u2029]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00011579100100789219
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x1bbooking]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00014291600382421166
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\u3000booking]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00013787500211037695
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_note_of_160_characters_and_unicode_is_kept",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0005147499978193082
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_is_kept_to_the_second_exactly_when_it_is_later_than_now",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2927641659989604
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[None]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.983300019986928e-05
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.541699985973537e-05
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[  ]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.87919998401776e-05
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[tomorrow]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.129199755378067e-05
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-13-01T00:00:00Z]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.166700040921569e-05
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T25:00]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.8959002015180886e-05
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T12:00:00Z]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00014516700321109965
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T11:59:59Z]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0003635829998529516
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T12:00:00.900Z]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0003647920020739548
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[1761307200]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.000393458001781255
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_end_with_no_zone_is_utc_and_an_offset_is_converted",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0017058330049621873
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_only_task_hold_rows_before_their_end_are_in_force",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8990771249955287
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_a_row_is_spelled_and_read_back",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001400420005666092
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_key_range_covers_exactly_the_task_hold_keys",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 9.337499795947224e-05
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_no_reaper_holder_or_job_id_looks_like_a_hold_holder",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00010866700176848099
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_refusals_read_their_templates",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003267583997512702
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_why_text_names_the_note_the_end_and_the_release",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001776670032995753
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[build-subfleet tasks release -- build]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.07268733299861196
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[data build-subfleet tasks release -- 'data build']",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.009102999996684957
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[-x-subfleet tasks release -- -x]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.008619125001132488
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[it's-subfleet tasks release -- 'it'\"'\"'s']",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.009064709003723692
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[$(touch x)-subfleet tasks release -- '$(touch x)']",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.008100624996586703
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_any_task_comes_back_whole_from_its_release_hint",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.31253745799767785
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_verbs_parse_to_their_handler",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.009557582998240832
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_and_release_reach_the_tasks_op",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.029094124998664483
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv0---note is required]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.008942125001340173
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv1-one line]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00915270899713505
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv2-at most 160]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.009179624998068903
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv3-one line]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.005339540999557357
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv4-one line]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.018616499997733627
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv5-one line]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.015019624996057246
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv6-one line]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.010539791001065169
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv7-ISO 8601]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.010846416000276804
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_an_older_daemon_is_named_as_older",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.02618616700056009
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_status_text_lists_the_holds_with_their_waiting_jobs",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00030249999690568075
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_status_text_counts_a_holds_jobs_from_its_own_total_not_the_rows_listed",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00020266700448701158
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_listing_carries_the_count_only_when_given_one",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00010929199925158173
+    },
+    {
+      "nodeid": "tests/unit/test_task_holds.py::test_the_protocol_names_the_op",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00015970800450304523
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_task_holds.py::test_a_note_is_kept_exactly_when_it_is_one_printable_line_within_the_limit",
+    "tests/unit/test_task_holds.py::test_a_control_anywhere_is_refused_before_anything_is_trimmed",
+    "tests/unit/test_task_holds.py::test_the_controls_are_every_c0_c1_and_del_and_the_line_and_paragraph_separators",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[None]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[0]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[value2]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[  ]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\nb]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\rb]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\tb]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x00]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[token sk-ant-oat01-QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\nbooking\\n]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\tbooking\\t]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\n]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\rbooking]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x7fbooking]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\x85]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\u2028booking]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\u2029]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x1bbooking]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\u3000booking]",
+    "tests/unit/test_task_holds.py::test_a_note_of_160_characters_and_unicode_is_kept",
+    "tests/unit/test_task_holds.py::test_an_end_is_kept_to_the_second_exactly_when_it_is_later_than_now",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[None]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[  ]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[tomorrow]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-13-01T00:00:00Z]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T25:00]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T12:00:00Z]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T11:59:59Z]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T12:00:00.900Z]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[1761307200]",
+    "tests/unit/test_task_holds.py::test_an_end_with_no_zone_is_utc_and_an_offset_is_converted",
+    "tests/unit/test_task_holds.py::test_only_task_hold_rows_before_their_end_are_in_force",
+    "tests/unit/test_task_holds.py::test_a_row_is_spelled_and_read_back",
+    "tests/unit/test_task_holds.py::test_the_key_range_covers_exactly_the_task_hold_keys",
+    "tests/unit/test_task_holds.py::test_no_reaper_holder_or_job_id_looks_like_a_hold_holder",
+    "tests/unit/test_task_holds.py::test_the_refusals_read_their_templates",
+    "tests/unit/test_task_holds.py::test_the_why_text_names_the_note_the_end_and_the_release",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[build-subfleet tasks release -- build]",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[data build-subfleet tasks release -- 'data build']",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[-x-subfleet tasks release -- -x]",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[it's-subfleet tasks release -- 'it'\"'\"'s']",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[$(touch x)-subfleet tasks release -- '$(touch x)']",
+    "tests/unit/test_task_holds.py::test_any_task_comes_back_whole_from_its_release_hint",
+    "tests/unit/test_task_holds.py::test_tasks_verbs_parse_to_their_handler",
+    "tests/unit/test_task_holds.py::test_tasks_hold_and_release_reach_the_tasks_op",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv0---note is required]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv1-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv2-at most 160]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv3-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv4-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv5-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv6-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv7-ISO 8601]",
+    "tests/unit/test_task_holds.py::test_an_older_daemon_is_named_as_older",
+    "tests/unit/test_task_holds.py::test_status_text_lists_the_holds_with_their_waiting_jobs",
+    "tests/unit/test_task_holds.py::test_status_text_counts_a_holds_jobs_from_its_own_total_not_the_rows_listed",
+    "tests/unit/test_task_holds.py::test_the_listing_carries_the_count_only_when_given_one",
+    "tests/unit/test_task_holds.py::test_the_protocol_names_the_op"
+  ],
+  "all_nodes": [
+    "tests/unit/test_task_holds.py::test_a_note_is_kept_exactly_when_it_is_one_printable_line_within_the_limit",
+    "tests/unit/test_task_holds.py::test_a_control_anywhere_is_refused_before_anything_is_trimmed",
+    "tests/unit/test_task_holds.py::test_the_controls_are_every_c0_c1_and_del_and_the_line_and_paragraph_separators",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[None]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[0]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[value2]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[  ]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\nb]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\rb]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\tb]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x00]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[token sk-ant-oat01-QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\nbooking\\n]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\tbooking\\t]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\n]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\rbooking]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x7fbooking]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\x85]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\u2028booking]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\u2029]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x1bbooking]",
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\u3000booking]",
+    "tests/unit/test_task_holds.py::test_a_note_of_160_characters_and_unicode_is_kept",
+    "tests/unit/test_task_holds.py::test_an_end_is_kept_to_the_second_exactly_when_it_is_later_than_now",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[None]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[  ]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[tomorrow]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-13-01T00:00:00Z]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T25:00]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T12:00:00Z]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T11:59:59Z]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T12:00:00.900Z]",
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[1761307200]",
+    "tests/unit/test_task_holds.py::test_an_end_with_no_zone_is_utc_and_an_offset_is_converted",
+    "tests/unit/test_task_holds.py::test_only_task_hold_rows_before_their_end_are_in_force",
+    "tests/unit/test_task_holds.py::test_a_row_is_spelled_and_read_back",
+    "tests/unit/test_task_holds.py::test_the_key_range_covers_exactly_the_task_hold_keys",
+    "tests/unit/test_task_holds.py::test_no_reaper_holder_or_job_id_looks_like_a_hold_holder",
+    "tests/unit/test_task_holds.py::test_the_refusals_read_their_templates",
+    "tests/unit/test_task_holds.py::test_the_why_text_names_the_note_the_end_and_the_release",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[build-subfleet tasks release -- build]",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[data build-subfleet tasks release -- 'data build']",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[-x-subfleet tasks release -- -x]",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[it's-subfleet tasks release -- 'it'\"'\"'s']",
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[$(touch x)-subfleet tasks release -- '$(touch x)']",
+    "tests/unit/test_task_holds.py::test_any_task_comes_back_whole_from_its_release_hint",
+    "tests/unit/test_task_holds.py::test_tasks_verbs_parse_to_their_handler",
+    "tests/unit/test_task_holds.py::test_tasks_hold_and_release_reach_the_tasks_op",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv0---note is required]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv1-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv2-at most 160]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv3-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv4-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv5-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv6-one line]",
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv7-ISO 8601]",
+    "tests/unit/test_task_holds.py::test_an_older_daemon_is_named_as_older",
+    "tests/unit/test_task_holds.py::test_status_text_lists_the_holds_with_their_waiting_jobs",
+    "tests/unit/test_task_holds.py::test_status_text_counts_a_holds_jobs_from_its_own_total_not_the_rows_listed",
+    "tests/unit/test_task_holds.py::test_the_listing_carries_the_count_only_when_given_one",
+    "tests/unit/test_task_holds.py::test_the_protocol_names_the_op"
+  ],
+  "phases": {
+    "tests/unit/test_task_holds.py::test_a_note_is_kept_exactly_when_it_is_one_printable_line_within_the_limit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_control_anywhere_is_refused_before_anything_is_trimmed": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_controls_are_every_c0_c1_and_del_and_the_line_and_paragraph_separators": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[None]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[0]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[value2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[  ]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\nb]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\rb]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[a\\tb]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x00]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[token sk-ant-oat01-QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\nbooking\\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\tbooking\\t]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\rbooking]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x7fbooking]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\x85]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\u2028booking]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[booking\\u2029]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\x1bbooking]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_that_is_not_one_printable_line_is_refused[\\u3000booking]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_note_of_160_characters_and_unicode_is_kept": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_is_kept_to_the_second_exactly_when_it_is_later_than_now": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[None]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[  ]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[tomorrow]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-13-01T00:00:00Z]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T25:00]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T12:00:00Z]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T11:59:59Z]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[2026-10-24T12:00:00.900Z]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_that_is_not_a_later_instant_is_refused[1761307200]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_end_with_no_zone_is_utc_and_an_offset_is_converted": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_only_task_hold_rows_before_their_end_are_in_force": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_a_row_is_spelled_and_read_back": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_key_range_covers_exactly_the_task_hold_keys": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_no_reaper_holder_or_job_id_looks_like_a_hold_holder": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_refusals_read_their_templates": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_why_text_names_the_note_the_end_and_the_release": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[build-subfleet tasks release -- build]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[data build-subfleet tasks release -- 'data build']": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[-x-subfleet tasks release -- -x]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[it's-subfleet tasks release -- 'it'\"'\"'s']": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash[$(touch x)-subfleet tasks release -- '$(touch x)']": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_any_task_comes_back_whole_from_its_release_hint": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_verbs_parse_to_their_handler": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_and_release_reach_the_tasks_op": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv0---note is required]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv1-one line]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv2-at most 160]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv3-one line]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv4-one line]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv5-one line]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv6-one line]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything[argv7-ISO 8601]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_an_older_daemon_is_named_as_older": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_status_text_lists_the_holds_with_their_waiting_jobs": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_status_text_counts_a_holds_jobs_from_its_own_total_not_the_rows_listed": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_listing_carries_the_count_only_when_given_one": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_task_holds.py::test_the_protocol_names_the_op": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 331481088
+}

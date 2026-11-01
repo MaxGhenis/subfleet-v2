@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r6-empty-common-initial-objects-not-recorded",
+  "start": "2026-10-31T04:24:47.695094+00:00",
+  "load": [
+    26.06298828125,
+    29.55029296875,
+    32.59912109375
+  ],
+  "args": [
+    "--mutant",
+    "r6-empty-common-initial-objects-not-recorded",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6153487500005212,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 2.13550049999958,
+      "failure": "tests/fake/test_retention_dependency_review_r6.py:45: in test_empty_common_target_keeps_the_own_store_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r6-empty-common-initial-objects-not-recorded/pytest-of-maxghenis/pytes...ommon_target_keeps0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49077, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009937079994415399,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "79052bf4ee389bca59b3b336c39d3c695e495a9d4c9cd5914044436449990365"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+  ],
+  "end": "2026-10-31T04:24:55.088986+00:00",
+  "seconds": 7.393636499999957,
+  "peak_rss_mib": 115.765625,
+  "exit": 1
+}

@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r3-census-moved-after-recovery",
+  "start": "2026-10-31T09:08:51.974313+00:00",
+  "load": [
+    33.67431640625,
+    47.208984375,
+    49.4853515625
+  ],
+  "args": [
+    "--mutant",
+    "r3-census-moved-after-recovery",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 8.290247083001304,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 4.687051665998297,
+      "failure": "tests/fake/test_retention_dependency_review_r3.py:125: in test_c8_4_recovery_discovers_incomplete_before_quarantine\n    assert observations == [True], (observations, result)\nE   AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})\nE   assert [False] == [True]\nE     \nE     At index 0 diff: False != True\nE     Use -v to get more diff"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07772041599673685,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.retention",
+      "original": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+      "mutated": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:09:13.596044+00:00",
+  "seconds": 21.621364457998425,
+  "peak_rss_mib": 113.109375,
+  "exit": 1
+}

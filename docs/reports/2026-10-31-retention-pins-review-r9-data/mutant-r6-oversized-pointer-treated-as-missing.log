@@ -1,0 +1,26 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:12:10Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_unreadable_common_pointer_keeps_allocated_trees[oversized] ________
+tests/fake/test_retention_pointer_failures.py:37: in test_unreadable_common_pointer_keeps_allocated_trees
+    assert any(error["file"] == str(pointer) for error in recorded.get("incomplete", [])), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r6-oversized-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0/...ersized-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0/test_unreadable_common_pointer0/outside/.git/objects']}
+E   assert False
+E    +  where False = any(<generator object test_unreadable_common_pointer_keeps_allocated_trees.<locals>.<genexpr> at 0x108f2c7c0>)
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]
+1 failed in 8.06s
+{"name": "mutant-r6-oversized-pointer-treated-as-missing", "start": "2026-10-31T09:12:14.008335+00:00", "load": [36.44970703125, 40.94921875, 46.2431640625], "seconds": 10.156237792001775, "exit": 1}

@@ -1,0 +1,14 @@
+{
+  "docs/acceptance-contract.md": {
+    "byte_identical": true,
+    "sha256": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7"
+  },
+  "tests/unit/test_retention_location_inputs.py": {
+    "byte_identical": true,
+    "sha256": "85ad31cd7dab3317625cd031cd3436ec139a6bae9173185704c550c92ad10827"
+  },
+  "tests/fake/test_retention_dependency_review_r9.py": {
+    "only_strict_mark_removed": true,
+    "sha256": "dd7eb6fb89dc2ab6aea7a95e94b4b1730b507feb2690a111a53a59dbcafb572d"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "job-directory-original",
+  "start": "2026-10-29T06:35:31.657682+00:00",
+  "load": [
+    26.123046875,
+    23.7333984375,
+    23.08837890625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "test_job_directory_probe.py::test_output_in_another_jobs_directory_keeps_that_directory"
+  ],
+  "phases": {
+    "test_job_directory_probe.py::test_output_in_another_jobs_directory_keeps_that_directory": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

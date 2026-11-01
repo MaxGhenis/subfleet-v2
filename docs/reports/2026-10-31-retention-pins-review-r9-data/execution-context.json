@@ -1,0 +1,16 @@
+{
+  "head": "a3b9cc246701147d09c24980f7602c79c1c61453",
+  "base": "373a7f5bf588",
+  "started": "2026-10-31T08:30:00+00:00",
+  "platform": "darwin",
+  "python": "3.14.7",
+  "git": "2.55.0",
+  "scratch": "/private/tmp/sf-r272r9",
+  "macos_scratch_denied": true,
+  "scratch_kib": 570976,
+  "worktree_fixture_kib": 3792,
+  "normal_property_environment_verified": true,
+  "first_hold": "2026-10-31T08:31:46.723463+00:00",
+  "last_test_end": "2026-10-31T09:35:24.412063+00:00",
+  "all_tool_test_sessions_completed": true
+}

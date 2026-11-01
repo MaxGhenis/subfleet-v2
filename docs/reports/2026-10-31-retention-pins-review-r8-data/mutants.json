@@ -1,0 +1,334 @@
+[
+  {
+    "label": "mutant-r2-post-read-identity-check-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "                    after = os.fstat(stream.fileno())\n                    named = os.stat(filename)\n                    fields = (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\")\n                    if (any(getattr(before, field) != getattr(after, field) for field in fields)\n                            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):\n                        raise ValueError(\"alternates changed during discovery\")\n",
+          "new": ""
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r2-terminal-legacy-incomplete-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "        errors = getattr(legacy_places, \"incomplete\", {}).get(row[\"job_id\"])\n        if errors:\n            found.incomplete[row[\"job_id\"]] = errors\n",
+          "new": ""
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r3-post-traversal-alias-check-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))",
+          "new": "    return list(dict.fromkeys(folders.canonical(each) for each in found))"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r3-census-moved-after-recovery",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+    ],
+    "patch": {
+      "file": "subfleet/retention.py",
+      "patches": [
+        {
+          "old": "    def run(self) -> dict[str, Any]:\n        # Recovery can quarantine: discover legacy dependencies before any move.\n        # If the census raises, this pass cannot enter recovery with empty evidence.\n        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)\n        in_flight = self._recover()\n        jobs = list(reversed(self.store.list_jobs()))        # oldest first\n        by_id = {job[\"job_id\"]: job for job in jobs}\n        self.hosted = nested_hosts(jobs, self.root)\n",
+          "new": "    def run(self) -> dict[str, Any]:\n        in_flight = self._recover()\n        jobs = list(reversed(self.store.list_jobs()))        # oldest first\n        by_id = {job[\"job_id\"]: job for job in jobs}\n        self.hosted = nested_hosts(jobs, self.root)\n        self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r3-write-metadata-check-dropped",
+    "args": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-fix-r7-data",
+      "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "                    if (any(getattr(before, field) != getattr(after, field) for field in fields)\n                            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):",
+          "new": "                    if (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino):"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r3-final-path-check-dropped",
+    "args": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-fix-r7-data",
+      "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "                    named = os.stat(filename)\n                    fields = (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\")\n                    if (any(getattr(before, field) != getattr(after, field) for field in fields)\n                            or (named.st_dev, named.st_ino) != (after.st_dev, after.st_ino)):\n",
+          "new": "                    fields = (\"st_dev\", \"st_ino\", \"st_size\", \"st_mtime_ns\", \"st_ctime_ns\")\n                    if any(getattr(before, field) != getattr(after, field) for field in fields):\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r3-terminal-census-live-only",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    for row in read(_DISCOVERING, ()):",
+          "new": "    for row in read(_LIVE, ()):"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r4-initial-objects-revalidation-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    target = aliases.resolve(objects)\n",
+          "new": "    target = os.path.realpath(objects)\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r4-initial-objects-recording-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    return list(dict.fromkeys([gitdir, common, target, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))",
+          "new": "    return list(dict.fromkeys([gitdir, common, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r5-commondir-whitespace-stripping-restored",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "        common = aliases.resolve(os.path.join(gitdir, pointer))\n",
+          "new": "        common = aliases.resolve(os.path.join(gitdir, pointer.strip()))\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r5-gitfile-whitespace-stripping-restored",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    text = (aliases.text(dotgit) or \"\").rstrip(\"\\r\\n\")\n",
+          "new": "    text = (aliases.text(dotgit) or \"\").strip()\n"
+        },
+        {
+          "old": "    named = text[len(\"gitdir: \"):]\n",
+          "new": "    named = text[len(\"gitdir: \"):].strip()\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r5-gitfile-colon-without-space-accepted",
+    "args": [
+      "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    if not text.startswith(\"gitdir: \"):\n",
+          "new": "    if not text.startswith(\"gitdir:\"):\n"
+        },
+        {
+          "old": "    named = text[len(\"gitdir: \"):]\n",
+          "new": "    named = text[len(\"gitdir:\"):]\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r6-empty-common-initial-objects-not-recorded",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "    return list(dict.fromkeys([gitdir, common, target, *_alternates(objects, incomplete=incomplete, aliases=aliases)]))",
+          "new": "    return list(dict.fromkeys([gitdir, common, *([target] if pointer != \"\" else []), *_alternates(objects, incomplete=incomplete, aliases=aliases)]))"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r6-pointer-read-failure-evidence-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "            if not (isinstance(exc, FileNotFoundError) and not os.path.lexists(path)):\n                self.errors.setdefault(path, str(exc))\n",
+          "new": ""
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r6-parent-common-fallback-restored",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "        inferred = os.path.dirname(os.path.dirname(gitdir))\n        own_objects = os.path.join(gitdir, \"objects\")\n        own = aliases.resolve(own_objects)\n        parent_objects = os.path.join(inferred, \"objects\")\n        parent = [inferred, aliases.resolve(parent_objects),\n                  *_alternates(parent_objects, incomplete=incomplete, aliases=aliases)]\n        alternates = _alternates(own_objects, incomplete=incomplete, aliases=aliases)\n        return list(dict.fromkeys([gitdir, *parent, own, *alternates]))\n",
+          "new": "        common = os.path.dirname(os.path.dirname(gitdir))\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r6-dangling-pointer-treated-as-missing",
+    "args": [
+      "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "            if not (isinstance(exc, FileNotFoundError) and not os.path.lexists(path)):\n                self.errors.setdefault(path, str(exc))\n",
+          "new": "            if not isinstance(exc, FileNotFoundError):\n                self.errors.setdefault(path, str(exc))\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r6-oversized-pointer-treated-as-missing",
+    "args": [
+      "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "            if not (isinstance(exc, FileNotFoundError) and not os.path.lexists(path)):\n                self.errors.setdefault(path, str(exc))\n",
+          "new": "            if not (isinstance(exc, FileNotFoundError) and not os.path.lexists(path)) and type(exc).__name__ != \"TooLarge\":\n                self.errors.setdefault(path, str(exc))\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r7-unused-parent-pointer-probing-restored",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "        parent_objects = os.path.join(inferred, \"objects\")\n        parent = [inferred, aliases.resolve(parent_objects),\n                  *_alternates(parent_objects, incomplete=incomplete, aliases=aliases)]\n",
+          "new": "        parent = _storage(inferred, named=False, incomplete=incomplete, aliases=aliases)\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r7-own-objects-revalidation-dropped",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "        own = aliases.resolve(own_objects)\n",
+          "new": "        own = os.path.realpath(own_objects)\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r7-parent-objects-recording-dropped",
+    "args": [
+      "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "        parent = [inferred, aliases.resolve(parent_objects),\n",
+          "new": "        aliases.resolve(parent_objects)\n        parent = [inferred,\n"
+        }
+      ]
+    }
+  },
+  {
+    "label": "mutant-r8-final-pointer-content-check-dropped",
+    "args": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-review-r8-data",
+      "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]"
+    ],
+    "patch": {
+      "file": "subfleet/dependencies.py",
+      "patches": [
+        {
+          "old": "        for path, before in self.pointers.items():\n            if _text(path) != before and incomplete is not None:\n                incomplete.append({\"file\": path, \"reason\": \"repository pointer changed during discovery\"})\n",
+          "new": ""
+        }
+      ]
+    }
+  }
+]

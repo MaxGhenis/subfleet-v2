@@ -1,0 +1,45 @@
+{
+  "label": "mutant-r5-gitfile-colon-without-space-accepted",
+  "start": "2026-10-30T22:25:35.148942+00:00",
+  "loads": [
+    14.291015625,
+    22.47119140625,
+    21.3759765625
+  ],
+  "seconds": 13.618402749998495,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.42761258300743066,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "baseline_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "mutated_sha256": "a3f4e54f25e4cb099bd926bd003dbea85f49e8c335cf86339f71a9e1e316d1d2"
+    }
+  ],
+  "rss": 116555776
+}

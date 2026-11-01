@@ -1,0 +1,11 @@
+{
+  "finished": "2026-10-29T21:13:10.553977+00:00",
+  "scratch_removed": [
+    "/private/tmp/sf-fix272r3",
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-155527-pr272-fix-r3-a1-elij_n08/sf-fix272r3"
+  ],
+  "scratch_observed_kib": 484676,
+  "own_kept_roots_removed": [],
+  "workspace_caches_removed": [],
+  "all_test_and_driver_sessions_completed": true
+}

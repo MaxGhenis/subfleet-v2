@@ -1,0 +1,43 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:25:44Z slot A load 
+ADMITTED 2026-10-29T06:25:45.175054+00:00 LOAD (19.9619140625, 18.53662109375, 21.0361328125)
+FOBSERVATION {"engines": [], "explicit": {}, "mutant": "git-storage-gitfile-relative-to-cwd", "loaded": ["subfleet.dependencies"]}
+
+=================================== FAILURES ===================================
+______________ test_d1_a_separate_git_dir_and_a_relative_gitfile _______________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-git-storage-gitfile-relative-to-cwd/pytest-of-maxghenis/pytest-0/test_d1_a_separate_git_dir_and0')
+
+    def test_d1_a_separate_git_dir_and_a_relative_gitfile(tmp_path):
+        """`git init --separate-git-dir` writes an absolute `gitdir:`; a submodule writes a
+        relative one, read relative to the folder holding the `.git` file."""
+        work = tmp_path / "work"
+        store = tmp_path / "elsewhere" / "store.git"
+        store.parent.mkdir()
+        git(tmp_path, "init", "--quiet", "--separate-git-dir", str(store), str(work))
+        assert dependencies.git_storage(str(work))[0] == folders.canonical(store)
+        assert set(git_says(work)) <= set(dependencies.git_storage(str(work)))
+        rel = tmp_path / "rel"
+        rel.mkdir()
+        (rel / ".git").write_text("gitdir: ../elsewhere/store.git\n")
+>       assert dependencies.git_storage(str(rel))[0] == folders.canonical(store)
+E       AssertionError: assert '/Users/maxgh...ere/store.git' == '/private/var...ere/store.git'
+E         
+E         - /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-mutant-git-storage-gitfile-relative-to-cwd/pytest-of-maxghenis/pytest-0/test_d1_a_separate_git_dir_and0/elsewhere/store.git
+E         + /Users/maxghenis/.subfleet/worktrees/elsewhere/store.git
+
+tests/unit/test_retention_dependency_units.py:130: AssertionError
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 2 warnings in 1.41s

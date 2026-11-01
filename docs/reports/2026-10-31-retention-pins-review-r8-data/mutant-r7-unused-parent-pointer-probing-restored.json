@@ -1,0 +1,89 @@
+{
+  "label": "mutant-r7-unused-parent-pointer-probing-restored",
+  "start": "2026-10-31T06:37:17.567709+00:00",
+  "loads": [
+    37.884765625,
+    36.25634765625,
+    34.88623046875
+  ],
+  "seconds": 9.84509637500014,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.094232125000417,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.8009683340005722,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0'), trusted=True, remot...-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/state'), store=<subfleet.store.Store object at 0x10a70a900>)\nvanished = False\n\n    @pytest.mark.parametrize(\"vanished\", [False, True], ids=[\"valid-repository\", \"vanished-target\"])\n    def test_unused_parent_pointer_must_not_globally_pin_trees(world, vanished):\n        tree = world.job(\"owner\")\n        parent = world.base / \"container\"\n        (parent / \"worktrees\").mkdir(parents=True)\n        admin = parent / \"worktrees\" / \"slot\"\n        checkout = world.base / \"outside\"\n        initialized = git(\"init\", \"-q\", \"--separate-git-dir\", admin, checkout)\n        assert initialized.returncode == 0, initialized.stderr\n        committed = git(\"-C\", checkout, \"-c\", \"user.name=Review\", \"-c\",\n                        \"user.email=review@example.test\", \"commit\", \"--allow-empty\", \"-qm\", \"own\")\n        assert committed.returncode == 0, committed.stderr\n        # Git uses admin's own store. This ordinary container is not a repository,\n        # and its directory named commondir is unrelated to the checkout.\n        (parent / \"commondir\").mkdir()\n        if vanished:\n            shutil.rmtree(admin)\n        health = git(\"-C\", checkout, \"fsck\", \"--no-dangling\")\n        read = git(\"-C\", checkout, \"show\", \"HEAD\")\n        assert (health.returncode == 0) == (not vanished), health.stderr\n        assert (read.returncode == 0) == (not vanished), read.stderr\n        recorded = dependencies.record(str(checkout))\n        reader(world, recorded)\n        result = maintain(world)\n>       assert not recorded.get(\"incomplete\"), (recorded, result)\nE       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/worktrees/slot', '/priv..._pointer_mus0/container/commondir'\"}]}, {'pruned': [], 'errors': [], 'bytes_before': 20026, 'bytes_after': 20026, ...})\nE       assert not [{'file': '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir', 'reason': \"... not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir'\"}]\nE        +  where [{'file': '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir', 'reason': \"... not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir'\"}] = <built-in method get of dict object at 0x10abaee40>('incomplete')\nE        +    where <built-in method get of dict object at 0x10abaee40> = {'git': ['/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/worktrees/slot', '/priva...not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus0/container/commondir'\"}]}.get\n\ntests/fake/test_retention_dependency_review_r7.py:36: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.16912333400068746,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8567663750000065,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.4577584170001501,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1'), trusted=True, remot...-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/state'), store=<subfleet.store.Store object at 0x10ab32c10>)\nvanished = True\n\n    @pytest.mark.parametrize(\"vanished\", [False, True], ids=[\"valid-repository\", \"vanished-target\"])\n    def test_unused_parent_pointer_must_not_globally_pin_trees(world, vanished):\n        tree = world.job(\"owner\")\n        parent = world.base / \"container\"\n        (parent / \"worktrees\").mkdir(parents=True)\n        admin = parent / \"worktrees\" / \"slot\"\n        checkout = world.base / \"outside\"\n        initialized = git(\"init\", \"-q\", \"--separate-git-dir\", admin, checkout)\n        assert initialized.returncode == 0, initialized.stderr\n        committed = git(\"-C\", checkout, \"-c\", \"user.name=Review\", \"-c\",\n                        \"user.email=review@example.test\", \"commit\", \"--allow-empty\", \"-qm\", \"own\")\n        assert committed.returncode == 0, committed.stderr\n        # Git uses admin's own store. This ordinary container is not a repository,\n        # and its directory named commondir is unrelated to the checkout.\n        (parent / \"commondir\").mkdir()\n        if vanished:\n            shutil.rmtree(admin)\n        health = git(\"-C\", checkout, \"fsck\", \"--no-dangling\")\n        read = git(\"-C\", checkout, \"show\", \"HEAD\")\n        assert (health.returncode == 0) == (not vanished), health.stderr\n        assert (read.returncode == 0) == (not vanished), read.stderr\n        recorded = dependencies.record(str(checkout))\n        reader(world, recorded)\n        result = maintain(world)\n>       assert not recorded.get(\"incomplete\"), (recorded, result)\nE       AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/worktrees/slot', '/priv..._pointer_mus1/container/commondir'\"}]}, {'pruned': [], 'errors': [], 'bytes_before': 20026, 'bytes_after': 20026, ...})\nE       assert not [{'file': '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir', 'reason': \"... not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir'\"}]\nE        +  where [{'file': '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir', 'reason': \"... not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir'\"}] = <built-in method get of dict object at 0x10a1654c0>('incomplete')\nE        +    where <built-in method get of dict object at 0x10a1654c0> = {'git': ['/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/worktrees/slot', '/priva...not a regular file: '/private/tmp/sf-r272r8/cases-10030/pytest/test_unused_parent_pointer_mus1/container/commondir'\"}]}.get\n\ntests/fake/test_retention_dependency_review_r7.py:36: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00447958299992024,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[valid-repository]",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees[vanished-target]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "8a8c7ed75037bcef8fc531a9685e139ad95edea91e04c55bbfb7cfda653ef770"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 117489664
+}

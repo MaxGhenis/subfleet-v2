@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T15:13:19.801971+00:00",
+  "args": [
+    "tests/unit/test_retention_worktrees.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/extra-test_retention_worktrees",
+  "linked": false,
+  "driver_pid": 78829,
+  "lock_process_group": 79167
+}

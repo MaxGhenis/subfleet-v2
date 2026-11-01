@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 12:48:46Z slot A load 
+......................                                                   [100%]
+22 passed, 31 deselected in 304.12s (0:05:04)
+{"name": "regressions-r4-remove", "start": "2026-10-31T12:49:04.060447+00:00", "load": [121.55078125, 121.95947265625, 108.70458984375], "seconds": 317.70985899999505, "exit": 0}

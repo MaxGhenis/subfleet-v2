@@ -1,0 +1,148 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 15:28:09Z slot B load
+ADMITTED {"utc": "2026-10-27T15:28:13Z", "load": [84.251953125, 103.06689453125, 98.1572265625], "pid": 52583}
+..................F........................................F             [100%]
+=================================== FAILURES ===================================
+_ test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217/hold-merge-core/pytest-of-maxghenis/pytest-0/test_c8_4_a_pending_export_kee0')
+
+    def test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive(tmp_path):
+        """Gap 4, after the job ends. A job's `-o` export is written after its job is
+        terminal (`_export`, after the transaction that ends it, and again on recovery),
+        while the job still holds `out:<path>`. That pending export keeps a tree its path
+        is in. Once written, the export owes the tree nothing (C-8.4): retention may
+        archive the tree, and the exported file goes into the archive with it, byte for
+        byte, while the job's own deliverable stays in its job directory.
+        Failed on 0a91f070: the tree pruned while the export was pending."""
+        with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+            measured(daemon, harness)
+            tree, nested = retiring_tree(daemon, harness)
+            patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
+            out = Path(nested) / "result.md"
+            job = submit(daemon, harness, workdir=str(harness.workdir), out_path=str(out))
+            daemon._admit()
+            assert _live(daemon, job), daemon._holds.get(job)
+            attempt = daemon.store.list_attempts(job)[-1]["attempt_id"]
+            deliverable = daemon.root / "jobs" / job / "deliverable.md"
+            contents = b"the accepted deliverable\n"
+            deliverable.write_bytes(contents)
+            daemon.store.add_artifact(attempt, role="deliverable", path=str(deliverable),
+                                      sha256=hashlib.sha256(contents).hexdigest(), bytes=len(contents))
+            daemon.store.update_attempt(attempt, state="succeeded")
+            daemon.store.update_job(job, state="succeeded", accepted_attempt_id=attempt)
+>           assert lease(daemon, f"out:{out}") == job              # ended, its export not written yet
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: assert None == '20261027-083757-astra'
+E            +  where None = lease(<subfleet.daemon.Daemon object at 0x10b4a0590>, 'out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217/hold-merge-core/pytest-of-maxghenis/pytest-0/test_c8_4_a_pending_export_kee0/state/worktrees/retired/vendor/lib/result.md')
+
+tests/fake/test_retention_dependencies.py:317: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4484367760:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4484367760:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+_ test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree _
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217/hold-merge-core/pytest-of-maxghenis/pytest-0/test_a_parent_typed_beyond_asc0')
+
+    def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree(tmp_path):
+        """C-8.4's legacy workdir limit for the folders above a tree (review of #141 at
+        7b9e7ca4, P3; its `Ünï`/`ünï` probe). The state root is `…/Ünï/state`, and a conversation's
+        cwd typed `…/ünï/state/worktrees/jOB/vendor/lib` is submitted while retention has
+        `Job` in quarantine. Admission spells the folder again, the state root as the
+        volume stores it, and compares the names it could not look up folded, so the turn
+        waits on the fence and takes no row. #140 canonically records the parent names
+        submission can still look up, so both fresh submissions keep the tree. A legacy
+        raw workdir is compared with SQLite's NOCASE and LIKE, which fold ASCII letters
+        only; that queued job still keeps no tree when its parent is typed `ünï`. With
+        the parent typed as stored (`Ünï`), only ASCII case differs and it keeps the tree."""
+        from tests.fake.test_admission_latency import fleet_daemon, measure
+        from tests.fake.test_admission_liveness import CODEX, _checkout, _live
+        from tests.fake.test_turn_wait_reasons import SETTINGS
+
+        with fleet_daemon(tmp_path / "Ünï" / "state") as (daemon, harness, patch):
+            _checkout(harness)
+            for lane in CODEX:
+                measure(daemon, lane)
+            wt, folder, alias, _ = tree_and_alias(daemon, harness, "nested")
+            tree, aside = folders.canonical(wt), wt.with_name(".Job.quarantined")
+            assert "/Ünï/state/worktrees/Job" in tree
+            typed = {"ascii-case": alias, "beyond-ascii": Path(str(alias).replace("/Ünï/", "/ünï/"))}
+            assert typed["beyond-ascii"].is_dir() and typed["beyond-ascii"].samefile(folder)
+            assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:Job")
+            kept, fresh_kept, turns = {}, {}, {}
+            for how, cwd in typed.items():
+                _, turns[how] = submit_while_moved(daemon, harness, cwd, lambda: wt.rename(aside),
+                                                   {**SETTINGS, "permission": "read-only"})
+                assert "/Ünï/state/" in daemon.store.get_job(turns[how])["workdir"]
+                fresh_kept[how] = retention._pin_reasons(daemon.store, set(), None, only="Job", root=daemon.root).get("Job")
+                # Preserve the pre-canonical-submission row this limit concerns.
+                # Its folder and unspelled flag retain their original meanings.
+                daemon.store.update_job(turns[how], workdir=str(cwd))
+                daemon._admit_turns()
+                hold = daemon._holds.get(turns[how]) or {}
+                assert not _live(daemon, turns[how]) and turn_rows(daemon, turns[how]) == [], hold
+                assert hold.get("reason") == "lease-held" and hold["leases"] == [folders.exclusive_key(tree)], hold
+                kept[how] = retention._pin_reasons(daemon.store, set(), None, only="Job", root=daemon.root).get("Job")
+                daemon.store.update_job(turns[how], state="cancelled", cancel_requested_at="2026-10-10T00:00:00Z")
+                aside.rename(wt)
+            assert fresh_kept == {"ascii-case": "worktree-in-use", "beyond-ascii": "worktree-in-use"}, fresh_kept
+>           assert kept == {"ascii-case": "worktree-in-use", "beyond-ascii": None}, kept
+E           AssertionError: {'ascii-case': 'worktree-in-use', 'beyond-ascii': 'worktree-in-use'}
+E           assert {'ascii-case'...ktree-in-use'} == {'ascii-case'...-ascii': None}
+E
+E             Omitting 1 identical items, use -vv to show
+E             Differing items:
+E             {'beyond-ascii': 'worktree-in-use'} != {'beyond-ascii': None}
+E             Use -v to get more diff
+
+tests/unit/test_retention_case_alias.py:384: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4485246528:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4485246528:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive
+FAILED tests/unit/test_retention_case_alias.py::test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree
+2 failed, 58 passed in 1150.39s (0:19:10)
+FINISHED {"load": [108.25048828125, 119.13330078125, 118.24365234375], "peak_rss_bytes": 133693440}

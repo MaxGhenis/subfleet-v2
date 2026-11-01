@@ -1,0 +1,20 @@
+{
+  "hold": "c2-spelling-not-ready",
+  "start": "2026-10-28T17:24:13.704985+00:00",
+  "load": [
+    51.99853515625,
+    97.7255859375,
+    106.0908203125
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_spelling.py",
+    "--tb=short"
+  ],
+  "collected": [],
+  "results": [],
+  "statistics": {},
+  "exitstatus": 4,
+  "seconds": 17.01619383400248,
+  "maxrss_bytes": 66781184,
+  "note": "No tests executed: dependent file-copy command had not completed. Corrected before the real red run."
+}

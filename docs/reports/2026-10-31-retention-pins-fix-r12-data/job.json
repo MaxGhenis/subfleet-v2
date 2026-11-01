@@ -1,0 +1,13 @@
+{
+  "start": "2026-10-31T20:10:51Z",
+  "cutoff": "2026-10-31T23:10:51Z",
+  "wall": "2026-11-01T02:10:51Z",
+  "input_head": "92a8635a05d692a6fbfbc1d32860eb9cf0c5d8db",
+  "scratch": "/private/tmp/sf-fix272r12",
+  "fallback": "Darwin scratch mkdir denied",
+  "initial_load": [
+    77.1,
+    83.07,
+    83.32
+  ]
+}

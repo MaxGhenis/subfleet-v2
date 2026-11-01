@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:33:50.418976+00:00",
+  "args": [
+    "tests/fake/test_turn_retention_job_directory.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/test_turn_retention_job_directory",
+  "linked": false
+}

@@ -1,0 +1,19 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 23:49:06Z slot A load 
+START shared-folders-remaining-6 2026-10-30T23:49:15.255118+00:00 load=(41.96826171875, 51.4345703125, 60.2958984375)
+.....                                                                    [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in:
+
+  - during generate phase (10.10 seconds):
+    - Typical runtimes: ~ 1-276 ms, of which ~ 0-7 ms in data generation
+    - 150 passing, 0 failing, and 42 invalid test cases
+    - Events:
+      * 30.73%, Retried draw from text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')).filter(lambda name: '/' not in name) to satisfy filter
+      * 5.73%, gave up because: Aborted test because unable to satisfy text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')).filter(lambda name: '/' not in name)
+      * 3.65%, Retried draw from text(characters(categories=(), include_characters='ab:;-0./'), min_size=1, max_size=4).filter(lambda name: name not in ('.', '..')) to satisfy filter
+
+  - Stopped because settings.max_examples=150
+
+
+5 passed in 32.96s

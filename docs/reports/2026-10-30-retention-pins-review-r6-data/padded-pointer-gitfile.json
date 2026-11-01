@@ -1,0 +1,70 @@
+{
+  "layout": "gitfile",
+  "bytes": 70113,
+  "git_rc": 0,
+  "git_stdout": "R5 owner-only storage\n",
+  "git_stderr": "",
+  "recorded": {},
+  "maintenance": {
+    "pruned": [
+      "owner"
+    ],
+    "errors": [],
+    "bytes_before": 48626,
+    "bytes_after": 0,
+    "deferred": {},
+    "in_flight": [],
+    "reclaimed": [
+      "owner"
+    ],
+    "conflicts": [],
+    "progressed": true,
+    "holder_scan_failed": false,
+    "tmpdir_left": [],
+    "freed_bytes": 0,
+    "freed_disk_bytes": 0,
+    "archived_bytes": 49353,
+    "added_bytes": 22401,
+    "pools": {
+      "detached": {
+        "jobs_before": 2,
+        "bytes_before": 48626,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 0,
+        "max_bytes": 0,
+        "jobs_after": 1,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 49353,
+        "added_bytes": 22401
+      },
+      "turn": {
+        "jobs_before": 0,
+        "bytes_before": 0,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 2000,
+        "max_bytes": 4294967296,
+        "jobs_after": 0,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      }
+    },
+    "protected": [
+      "borrower"
+    ],
+    "jobs_after": 1,
+    "more": false,
+    "pin_reasons": {
+      "borrower": "active"
+    }
+  },
+  "owner_exists_after": false,
+  "git_after_rc": 128,
+  "git_after_stderr": "fatal: not a git repository: (null)\n"
+}

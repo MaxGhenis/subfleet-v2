@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r4-initial-objects-recording-dropped",
+  "start": "2026-10-31T06:33:52.078905+00:00",
+  "loads": [
+    37.3896484375,
+    35.29736328125,
+    34.2578125
+  ],
+  "seconds": 11.965178749998813,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.332415292001315,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 1.5219577499992738,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-28515/pytest/test_stable_objects_alias_keep0'), trusted=True, remot...-r272r8/cases-28515/pytest/test_stable_objects_alias_keep0/state'), store=<subfleet.store.Store object at 0x10c56a7b0>)\nstate = 'running'\n\n    @pytest.mark.parametrize(\"state\", [\n        pytest.param(\"running\", id=\"live\"),\n        pytest.param(\"succeeded\", id=\"exporting-control\"),\n    ])\n    def test_stable_objects_alias_keeps_the_tree_git_reads(world, state):\n        tree = world.job(\"owner\")\n        source = repo(tree / \"source\")\n        (source / \"unique.txt\").write_text(\"R4 stable objects alias\\n\")\n        git(source, \"add\", \"unique.txt\")\n        git(source, \"commit\", \"--quiet\", \"-m\", \"unique source\")\n        commit = git(source, \"rev-parse\", \"HEAD\")\n        outside = repo(world.base / \"outside\")\n        objects = outside / \".git\" / \"objects\"\n        objects.rename(world.base / \"old-objects\")\n        objects.symlink_to(source / \".git\" / \"objects\", target_is_directory=True)\n        recorded = dependencies.record(str(outside))\n        assert not recorded.get(\"incomplete\"), recorded\n        assert git(outside, \"show\", commit + \":unique.txt\") == \"R4 stable objects alias\"\n        reader(world, recorded, state=state)\n        if state == \"succeeded\":\n            world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n        result = maintain(world)\n        if state == \"succeeded\":\n            # With complete discovery, a terminal exporter keeps its output paths.\n            assert \"owner\" in result[\"pruned\"] and not tree.exists(), result\n        else:\n>           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE           AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-28515/pytest/test_stable_objects_alias_keep0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48603, 'bytes_after': 0, ...})\nE           assert ('owner' not in ['owner'])\n\ntests/fake/test_retention_dependency_review_r4.py:250: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0029434999996738043,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "c4d512dceaa4af5e1fc9544b74b2df1b1e1d1ceaa7ddc9b3a0877c4ff717301e"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 119537664
+}

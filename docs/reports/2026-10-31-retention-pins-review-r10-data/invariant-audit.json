@@ -1,0 +1,30 @@
+{
+  "total": 440,
+  "files": [
+    {
+      "name": "audit-spelling",
+      "returns": 130,
+      "exit": 0
+    },
+    {
+      "name": "audit-location-inputs",
+      "returns": 55,
+      "exit": 0
+    },
+    {
+      "name": "audit-pointer-inputs",
+      "returns": 227,
+      "exit": 0
+    },
+    {
+      "name": "audit-r9",
+      "returns": 4,
+      "exit": 0
+    },
+    {
+      "name": "audit-locations",
+      "returns": 24,
+      "exit": 0
+    }
+  ]
+}

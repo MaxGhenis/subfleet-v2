@@ -1,0 +1,89 @@
+{
+  "name": "red-rename-final",
+  "start": "2026-10-31T18:10:15.491621+00:00",
+  "load": [
+    59.71826171875,
+    62.24609375,
+    57.13134765625
+  ],
+  "pytest_pid": 94918,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_location_readable.py",
+    "-k",
+    "more_readable_rename_forms"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.3953287080003065,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.9261457079992397,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_readable.py:270: in test_more_readable_rename_forms\n    assert changed\nE   AssertionError: assert 2 == 3\nE    +  where 2 = len(['/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/out...fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/outside/.git/objects'])"
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.016075166000518948,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5384594999995898,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.7123976669972762,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_readable.py:270: in test_more_readable_rename_forms\n    assert changed\nE   AssertionError: assert 2 == 3\nE    +  where 2 = len(['/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/out...fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/outside/.git/objects'])"
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0021376250006142072,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]",
+      "key": "rename-form",
+      "value": "{\"before\": 0, \"form\": \"parent-case\", \"middle\": 0, \"reader\": \"475f63278\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/outside/.git\", \"/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/outside/.git/objects\", \"/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form0/state/worktrees/owner/source/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]",
+      "key": "rename-form",
+      "value": "{\"before\": 0, \"form\": \"unicode-normalization\", \"middle\": 0, \"reader\": \"475f63278\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/outside/.git\", \"/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/outside/.git/objects\", \"/private/tmp/sf-fix272r11/real-tmp/red-rename-final/pytest-of-maxghenis/pytest-0/test_more_readable_rename_form1/state/worktrees/owner/sourc\\u00e9/.git/objects\"]}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[parent-case]",
+    "tests/unit/test_retention_location_readable.py::test_more_readable_rename_forms[unicode-normalization]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T18:10:46.833333+00:00",
+  "seconds": 31.34130329099571,
+  "peak_rss_mib": 118.515625,
+  "exit": 1
+}

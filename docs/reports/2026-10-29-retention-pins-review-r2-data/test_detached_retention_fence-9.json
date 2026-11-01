@@ -1,0 +1,67 @@
+{
+  "name": "test_detached_retention_fence-9",
+  "start": "2026-10-29T06:47:35.465862+00:00",
+  "load": [
+    15.48046875,
+    18.982421875,
+    21.18408203125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]": {
+      "setup": {
+        "duration": 0.02682204099255614,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.32090866699581966,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00041620800038799644,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]": {
+      "setup": {
+        "duration": 0.0013833749981131405,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.14894166700833011,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00023587500618305057,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

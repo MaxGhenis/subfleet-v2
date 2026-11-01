@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:18:50Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_c8_4_legacy_incomplete_census_survives_terminal_export[database] _____
+tests/fake/test_retention_dependency_review_r2.py:151: in test_c8_4_legacy_incomplete_census_survives_terminal_export
+    assert "borrower" in places.incomplete
+E   AssertionError: assert 'borrower' in {}
+E    +  where {} = {'borrower': {'/outside/result'}}.incomplete
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]
+1 failed in 8.40s
+{"name": "mutant-r2-terminal-legacy-incomplete-dropped", "start": "2026-10-31T07:18:52.473879+00:00", "load": [29.373046875, 32.92041015625, 34.32470703125], "seconds": 10.013044541999989, "exit": 1}
