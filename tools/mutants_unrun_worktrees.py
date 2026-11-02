@@ -20,7 +20,7 @@ import tempfile
 import time
 from pathlib import Path
 
-DAEMON, SCHEDULER = "subfleet/daemon.py", "subfleet/scheduler.py"
+DAEMON, SCHEDULER, RGIT = "subfleet/daemon.py", "subfleet/scheduler.py", "subfleet/retention_git.py"
 GIVES_BACK = 'return hold.get("reason") == "disk" or bool(hold.get("unprepared"))'
 STATE_RULE = 'if job["state"] not in ("queued", "waiting") or job["cancel_requested_at"] or not _gives_back(hold):'
 JOB_RULE = 'if (not job or job["kind"] == "turn" or job["sandbox"] != "workspace-write" or job["in_place"]'
@@ -39,6 +39,12 @@ PASS_LOCKED = ('            if self.stopping.is_set() or not lock.acquire(timeou
                '                    given.append(row["job_id"])\n'
                '            finally:\n'
                '                lock.release()\n')
+
+LOCK_RULE = 'if common is None or (admin is not None and os.path.lexists(admin / "locked")):'
+FIRST_RULE = ('        if admin is not None and discard_registration(job["workdir"], tree, timeout=cap, common=common) is None:\n'
+              '            return False\n')
+DROP_RULE = '                discard_registration(job["workdir"], workdir, timeout=cap, common=common)\n'
+COMMON_GIT = '["git", "-C", common, f"--git-dir={common}", f"--work-tree={common}"]'
 
 CANCEL_OFFER = ("        if unrun:\n"
                 "            # C-6.20: a job cancelled before any attempt gives back the tree admission cut;\n"
@@ -135,19 +141,69 @@ MUTANTS = [
      "                    *(folder for folder, _ in folders.exclusive_folders(self.store.query))))):",
      "                    ))):"),
     ("rule-removal-unverified", DAEMON,
-     '        if os.path.lexists(path):\n            return False\n        left = admin is not None',
-     '        left = admin is not None'),
-    ("rule-lock-ignored", DAEMON, 'if admin is not None and os.path.lexists(admin / "locked"):\n            return False\n',
-     'if False:\n            return False\n'),
-    ("rule-left-unsaid", DAEMON, '**({"registration_left": str(admin)} if left else {})', ""),
-    ("rule-event-no-repository", DAEMON, '**({"common_dir": str(common)} if common else {}),', ""),
+     '        if os.path.lexists(path):\n            return False\n        left = admin\n',
+     '        left = admin\n'),
+    ("rule-lock-ignored", DAEMON, LOCK_RULE, 'if common is None:'),
+    ("rule-left-unsaid", DAEMON, '**({"registration_left": str(left)} if left else {})', ""),
+    ("rule-event-no-repository", DAEMON, '"why": why, "common_dir": common,', '"why": why,'),
     ("rule-discards-from-checkout", DAEMON,
-     'self._discard_worktree(str(common) if common else self._tree_source(job, cap), tree, cap)',
-     'self._discard_worktree(job["workdir"], tree, cap)'),
+     'discard_registration(job["workdir"], tree, timeout=cap, common=common) is None',
+     'discard_registration(job["workdir"], tree, timeout=cap) is None'),
+    # The repository answers, not the tree.
+    ("record-unread", DAEMON,
+     "        common = self._recorded_common(job)\n        if common is None:\n            admin = gitfile_admin(",
+     "        common = None\n        if common is None:\n            admin = gitfile_admin("),
+    ("gitfile-believed", DAEMON, "                if found is not None:\n                    return str(admin.parent.parent), found\n",
+     "                return str(admin.parent.parent), found\n"),
+    ("no-record-no-checkout", DAEMON,
+     'common = git_common_dir(job["workdir"], timeout_s=cap) if os.path.isdir(job["workdir"]) else None', "common = None"),
+    ("no-record-timeout-raises", DAEMON, "            except SalvageError:\n                return None, None\n",
+     "            except ZeroDivisionError:\n                return None, None\n"),
+    ("nothing-names-it-goes", DAEMON, LOCK_RULE, 'if admin is not None and os.path.lexists(admin / "locked"):'),
+    ("unreadable-raises", DAEMON,
+     "            common, admin = self._tree_registration(job, tree, cap)\n        except OSError:\n",
+     "            common, admin = self._tree_registration(job, tree, cap)\n        except ZeroDivisionError:\n"),
+    ("unreadable-reads-as-locked", DAEMON,
+     "        except OSError:\n            return False\n        return admin is not None and",
+     "        except OSError:\n            return True\n        return admin is not None and"),
+    ("registration-any-backlink", RGIT,
+     "if os.path.realpath(_resolve(admin, backlink)) == wanted:\n            return admin\n    return None\n\n\ndef discard_registration",
+     "if True:\n            return admin\n    return None\n\n\ndef discard_registration"),
+    ("registration-through-a-link", RGIT, "        if admin.is_symlink() or not admin.is_dir():\n",
+     "        if not admin.is_dir():\n"),
+    ("registration-unreadable-is-none", RGIT,
+     '        admins = sorted((Path(common) / "worktrees").iterdir())\n    except FileNotFoundError:',
+     '        admins = sorted((Path(common) / "worktrees").iterdir())\n    except OSError:'),
+    # The registration first, so a lock that comes meanwhile loses nothing.
+    ("lock-that-came-ignored", DAEMON, FIRST_RULE,
+     '        if admin is not None:\n            discard_registration(job["workdir"], tree, timeout=cap, common=common)\n'),
+    ("registration-not-first", DAEMON, FIRST_RULE, ""),
+    ("discard-ignores-the-lock", RGIT, 'if admin is None or os.path.lexists(admin / "locked"):', "if admin is None:"),
+    ("left-unread", DAEMON, "            left = registration_of(common, tree)        # its removal failed part way\n",
+     "            pass\n"),
+    ("left-assumed-gone", DAEMON, "        left = admin\n        with contextlib.suppress(OSError):\n",
+     "        left = None\n        with contextlib.suppress(OSError):\n"),
+    # Other removals read the lock too.
+    ("fresh-ignores-the-lock", DAEMON, "if not self._tree_locked(job, str(path), cap):      # C-6.20: someone's claim", "if True:"),
+    ("broken-ignores-the-lock", DAEMON, "if self._tree_locked(job, workdir, cap):", "if False:"),
+    # A registration with no tree.
+    ("no-drop-before-the-add", DAEMON, DROP_RULE, ""),
+    ("drop-from-checkout", DAEMON, DROP_RULE,
+     '                discard_registration(job["workdir"], workdir, timeout=cap)\n'),
+    # How git runs in the common directory.
+    ("cut-discovers-the-repository", DAEMON, COMMON_GIT, '["git", "-C", common]'),
+    ("cut-no-work-tree", DAEMON, COMMON_GIT, '["git", "-C", common, f"--git-dir={common}"]'),
+    ("cut-no-git-dir", DAEMON, COMMON_GIT, '["git", "-C", common, f"--work-tree={common}"]'),
+    ("source-timeout-takes-the-repository", DAEMON, "        except SalvageError:\n            return checkout\n",
+     "        except SalvageError:\n            pass\n"),
+    ("discard-asks-git", DAEMON, "discard_registration(repository, workdir, timeout=cap, common=common)",
+     "discard_registration(repository, workdir, timeout=cap)"),
+    ("common-ignored", RGIT, "        if common is None:\n            out = run(", "        if True:\n            out = run("),
     # The repository, not the caller's checkout.
     ("submit-records-no-repository", DAEMON, '**({"common_dir": common} if common else {})', ""),
-    ("source-always-checkout", DAEMON, 'if common is None or not os.path.isdir(common):\n            return job["workdir"]',
-     'if True:\n            return job["workdir"]'),
+    ("source-always-checkout", DAEMON, '        if common is None:\n            return checkout\n',
+     '        if True:\n            return checkout\n'),
+    ("record-gone-still-read", DAEMON, 'return common if common is not None and os.path.isdir(common) else None', "return common"),
     ("source-always-repository", DAEMON,
      'if os.path.isdir(job["workdir"]) and git_common_dir(job["workdir"], timeout_s=cap) == common:', "if False:"),
     ("source-a-folder-is-enough", DAEMON,
@@ -155,11 +211,11 @@ MUTANTS = [
      'if os.path.isdir(job["workdir"]):'),
     ("source-ignores-the-give-back", DAEMON, 'common = json.loads(given["data_json"]).get("common_dir") if given else None',
      "common = None"),
-    ("cut-from-checkout", DAEMON, '["git", "-C", source, "worktree", "add", "--detach", workdir, job["workdir_head"]]',
+    ("cut-from-checkout", DAEMON, '[*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]]',
      '["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]]'),
-    ("broken-tree-from-checkout", DAEMON, 'self._discard_worktree(self._tree_source(job, cap), workdir, cap)',
+    ("broken-tree-from-checkout", DAEMON, 'self._discard_worktree(job["workdir"], workdir, cap, self._recorded_common(job))',
      'self._discard_worktree(job["workdir"], workdir, cap)'),
-    ("fresh-from-checkout", DAEMON, 'self._discard_worktree(self._tree_source(job, cap), str(path), cap)',
+    ("fresh-from-checkout", DAEMON, 'self._discard_worktree(job["workdir"], str(path), cap, self._recorded_common(job))',
      'self._discard_worktree(job["workdir"], str(path), cap)'),
     # A removal cut short.
     ("discard-git-not-first", DAEMON,
@@ -233,6 +289,10 @@ EQUIVALENTS = {
         "`_give_back_unrun` reads the job again under the lock and keeps every tree the filter "
         "drops; the filter only spares it those reads."
     ),
+    "broken-tree-from-checkout": (
+        "The discard's registration goes unread from a checkout that has gone, and the look's next "
+        "step, which drops a registration with no tree before the add, takes it from the common directory."
+    ),
     "unprepared-recorded-included": (
         "`jobs.worktree` is set only at reservation, which makes an attempt, so `not previous` "
         "already keeps every job with a recorded tree out."
@@ -290,6 +350,32 @@ FOCUSED = {
     "source-ignores-the-give-back": (TESTS[0], "older_than"),
     "cut-from-checkout": (TESTS[0], "whatever_becomes"),
     "broken-tree-from-checkout": (TESTS[0], "broken_tree"),
+    "record-unread": (TESTS[0], "forged_registration"),
+    "record-gone-still-read": (TESTS[0], "repository_moved"),
+    "gitfile-believed": (TESTS[0], "no_record"),
+    "no-record-no-checkout": (TESTS[0], "no_record"),
+    "no-record-timeout-raises": (TESTS[0], "no_record"),
+    "nothing-names-it-goes": (TESTS[0], "names_no_repository"),
+    "unreadable-raises": (TESTS[0], "cannot_be_read"),
+    "unreadable-reads-as-locked": (TESTS[0], "cannot_be_read"),
+    "registration-any-backlink": (TESTS[0], "registration_of"),
+    "registration-through-a-link": (TESTS[0], "registration_of"),
+    "registration-unreadable-is-none": (TESTS[0], "registration_of"),
+    "lock-that-came-ignored": (TESTS[0], "lock_that_comes"),
+    "registration-not-first": (TESTS[0], "lock_that_comes or stopped_after"),
+    "discard-ignores-the-lock": (TESTS[0], "lock_that_comes"),
+    "left-unread": (TESTS[0], "cancelled_before_any_attempt"),
+    "left-assumed-gone": (TESTS[0], "that_stayed"),
+    "fresh-ignores-the-lock": (TESTS[0], "refused_job_whose"),
+    "broken-ignores-the-lock": (TESTS[0], "broken_tree_someone_locked"),
+    "no-drop-before-the-add": (TESTS[0], "gone_with_its_registration"),
+    "drop-from-checkout": (TESTS[0], "gone_with_its_registration"),
+    "cut-discovers-the-repository": (TESTS[0], "git_cannot_enter"),
+    "cut-no-work-tree": (TESTS[0], "git_cannot_enter"),
+    "cut-no-git-dir": (TESTS[0], "git_cannot_enter"),
+    "source-timeout-takes-the-repository": (TESTS[0], "does_not_answer"),
+    "discard-asks-git": (TESTS[0], "refused_jobs or git_cannot_enter"),
+    "common-ignored": (TESTS[0], "git_cannot_enter"),
     "fresh-from-checkout": (TESTS[0], "refused_jobs"),
     "discard-git-not-first": (TESTS[0], "cut_short"),
     "discard-through-a-link": (TESTS[0], "through_a_link"),

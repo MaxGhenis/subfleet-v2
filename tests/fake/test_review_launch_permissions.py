@@ -232,7 +232,7 @@ def test_policy_review_worktree_sees_the_callers_uncommitted_and_untracked_files
 
 def test_a_review_gets_its_copy_in_a_tree_cut_after_the_callers_checkout_went(shell_state, tmp_path):
     """C-6.20: the copy is the job's own (`uncommitted.keep`), and git cuts the tree from the
-    repository once a session's worktree has gone (`_tree_source`)."""
+    repository once a session's worktree has gone (`_tree_git`)."""
     from tests.fake.test_workspace_contract import git
     service, harness = shell_state
     repo = repository(service, harness)

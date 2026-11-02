@@ -325,8 +325,30 @@ def refs_under(common: Path, prefix: str, *, cancel: threading.Event | None = No
     return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
 
 
+def registration_of(common: str | os.PathLike, tree: str | os.PathLike) -> Path | None:
+    """`tree`'s registration in the repository whose common directory is `common`: the admin
+    directory directly under ``<common>/worktrees`` whose ``gitdir`` backlink names ``tree/.git``,
+    or None. The repository answers, not the tree: a gitfile can be missing or name somewhere
+    else (C-6.20). A ``worktrees`` folder that cannot be read raises OSError, not None."""
+    wanted = os.path.realpath(Path(tree) / ".git")
+    try:
+        admins = sorted((Path(common) / "worktrees").iterdir())
+    except FileNotFoundError:
+        return None
+    for admin in admins:
+        if admin.is_symlink() or not admin.is_dir():
+            continue       # never follow a link out of the repository
+        try:
+            backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+        except OSError:
+            continue
+        if os.path.realpath(_resolve(admin, backlink)) == wanted:
+            return admin
+    return None
+
+
 def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike, *,
-                         timeout: float = 60) -> Path | None:
+                         timeout: float = 60, common: str | os.PathLike | None = None) -> Path | None:
     """Remove `tree`'s own registration from `repository`, and nothing else.
 
     Only the admin directory directly under ``<common>/worktrees`` whose
@@ -337,28 +359,23 @@ def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike,
     its HEAD and reflogs hold (d635: never run a repository-wide prune). Best
     effort, for callers about to re-add the tree: returns the directory
     removed, or None.
+
+    `common`, when the caller has it, is the repository's common directory, and
+    git does not run. Git cannot always run there: a submodule's enters its
+    `core.worktree`, which can have gone with its checkout, and a bare repository
+    is refused under `safe.bareRepository=explicit` (C-6.20).
     """
     try:
-        out = run(["rev-parse", "--git-common-dir"], cwd=Path(repository), timeout=timeout).stdout
-        common = _resolve(Path(repository), out.decode("utf-8", "surrogateescape").strip())
-        wanted = os.path.realpath(Path(tree) / ".git")
-        admins = sorted((common / "worktrees").iterdir())
+        if common is None:
+            out = run(["rev-parse", "--git-common-dir"], cwd=Path(repository), timeout=timeout).stdout
+            common = _resolve(Path(repository), out.decode("utf-8", "surrogateescape").strip())
+        admin = registration_of(common, tree)
     except (GitError, OSError):
         return None
-    for admin in admins:
-        if admin.is_symlink() or not admin.is_dir():
-            continue       # never follow a link out of the repository
-        try:
-            backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
-        except OSError:
-            continue
-        if os.path.realpath(_resolve(admin, backlink)) != wanted:
-            continue
-        if os.path.lexists(admin / "locked"):
-            return None
-        shutil.rmtree(admin, ignore_errors=True)
-        return admin
-    return None
+    if admin is None or os.path.lexists(admin / "locked"):
+        return None
+    shutil.rmtree(admin, ignore_errors=True)
+    return admin
 
 
 def object_format(common: Path, cancel: threading.Event | None = None) -> str:

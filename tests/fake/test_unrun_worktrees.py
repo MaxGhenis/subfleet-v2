@@ -367,14 +367,22 @@ def check_rule(daemon, harness, f, tmp_path_factory):
     tree = root / job_id
     outside = tmp_path_factory.mktemp("outside")
     (outside / "keep.txt").write_text("not the daemon's\n")
+    common = outside / "common"                 # the repository submit read, as the job's record names it
+    (common / "worktrees").mkdir(parents=True)
+    manifest = daemon.root / "jobs" / job_id / "manifest.json"
+    record = json.loads(manifest.read_text())
+    record["workspace"] = {**(record.get("workspace") or {}), "common_dir": str(common)}
+    manifest.unlink()
+    manifest.write_text(json.dumps(record))
     if f["link"]:
         tree.symlink_to(outside, target_is_directory=True)
     else:
         tree.mkdir()
         (tree / "file.txt").write_text("cut\n")
-        if f["locked"]:                         # a lock is a file beside what the gitfile names
-            admin = outside / "worktrees" / job_id
-            admin.mkdir(parents=True)
+        if f["locked"]:                         # a lock is a file in the registration that names the tree
+            admin = common / "worktrees" / job_id
+            admin.mkdir()
+            (admin / "gitdir").write_text(f"{tree}/.git\n")
             (admin / "locked").write_text("kept by a person\n")
             (tree / ".git").write_text(f"gitdir: {admin}\n")
     with daemon.store.transaction("test.shape") as tx:
@@ -690,8 +698,8 @@ def test_a_job_placed_in_a_tree_between_two_give_backs_keeps_it(state_daemon, re
     second, second_tree = cancelled_tree(daemon, harness, repo, "two")
     real = daemon._discard_worktree
 
-    def discard(workdir, tree, timeout):
-        real(workdir, tree, timeout)
+    def discard(workdir, tree, *rest):
+        real(workdir, tree, *rest)
         if tree == first_tree:              # a job submitted and placed between the two trees
             daemon.dispatch("submit", harness.submit_args(workdir=second_tree))
 
@@ -850,8 +858,8 @@ def test_a_job_runs_whatever_becomes_of_its_callers_checkout(state_daemon, repo,
 
 def test_a_give_back_after_the_checkout_went_takes_its_registration_too(state_daemon, repo, linked,  # noqa: F811
                                                                         offers):
-    """The tree's gitfile names its registration: `jobs.workdir` has gone, and git run there
-    answers nothing."""
+    """The repository names its registration: `jobs.workdir` has gone, and git run there answers
+    nothing."""
     daemon, harness = state_daemon
     job_id = submit(daemon, harness, linked)
     cut(daemon, job_id)
@@ -949,7 +957,7 @@ def test_a_job_from_a_bare_repositorys_checkout_runs_after_the_checkout_goes(sta
 
 def test_a_tree_cut_from_the_repository_is_the_tree_the_checkout_would_cut(state_daemon, repo, linked,  # noqa: F811
                                                                            offers):
-    """Differential: the two places `_tree_source` can send the cut agree on HEAD, a detached
+    """Differential: the two places `_tree_git` can send the cut agree on HEAD, a detached
     HEAD, what is tracked and a clean status."""
     daemon, harness = state_daemon
     (linked / "pkg").mkdir()
@@ -962,9 +970,12 @@ def test_a_tree_cut_from_the_repository_is_the_tree_the_checkout_would_cut(state
     first = submit(daemon, harness, linked, caller_session="first")
     second = submit(daemon, harness, linked, caller_session="second")
     from_checkout = cut(daemon, first)
-    assert daemon._tree_source(daemon.store.get_job(second), 5) == str(linked)
+    job = daemon.store.get_job(second)
+    common = daemon._recorded_common(job)
+    assert common == os.path.realpath(repo / ".git")
+    assert daemon._tree_git(job, common, 5) == ["git", "-C", str(linked)]
     end_session(repo, linked)
-    assert daemon._tree_source(daemon.store.get_job(second), 5) == os.path.realpath(repo / ".git")
+    assert daemon._tree_git(job, common, 5) == ["git", "-C", common, f"--git-dir={common}", f"--work-tree={common}"]
     from_repository = cut(daemon, second)
     for args in (["rev-parse", "HEAD"], ["ls-files", "-s"], ["status", "--porcelain"], ["symbolic-ref", "-q", "HEAD", "--short"]):
         read = [subprocess.run(["git", "-C", tree, *args], capture_output=True, text=True)
@@ -1051,12 +1062,338 @@ def test_discarding_through_a_link_takes_no_file_of_the_tree_it_names(state_daem
 
 
 def test_a_registration_that_stayed_is_named(state_daemon, repo, offers, monkeypatch):  # noqa: F811
-    """The event says the tree went, and says so when its registration did not."""
+    """The event says the tree went, and says so when its registration did not: the removal
+    answered, and the repository still registers the tree."""
     daemon, harness = state_daemon
     job_id = submit(daemon, harness, repo)
     cut(daemon, job_id)
     assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
-    monkeypatch.setattr(daemon, "_discard_worktree", lambda repository, tree, cap: shutil.rmtree(tree))
+    monkeypatch.setattr(daemon_module, "discard_registration", lambda *args, **kwargs: Path("/removal/failed"))
     assert swept(daemon) == 1
     (event,) = given_back(daemon, job_id)
     assert json.loads(event["data_json"])["registration_left"] == os.path.realpath(repo / ".git" / "worktrees" / job_id)
+
+
+def test_a_registration_that_stayed_unread_is_named(state_daemon, repo, offers, monkeypatch):  # noqa: F811
+    """A read that fails after the removal says nothing, so the event names what was there."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, repo)
+    admin = os.path.realpath(repo / ".git" / "worktrees" / job_id)
+    reads = iter([Path(admin)])
+
+    def read_once(common, tree):
+        try:
+            return next(reads)
+        except StopIteration:
+            raise PermissionError("no longer readable") from None
+    monkeypatch.setattr(daemon_module, "registration_of", read_once)
+    assert swept(daemon) == 1
+    (event,) = given_back(daemon, job_id)
+    assert json.loads(event["data_json"])["registration_left"] == admin
+
+
+# --- the repository answers, not the tree --------------------------------------------------------
+
+def forged(tree, elsewhere):
+    """A gitfile that names another repository, and that repository's folder that names this tree."""
+    admin = elsewhere / ".git" / "worktrees" / "forged"
+    admin.mkdir(parents=True)
+    (admin / "gitdir").write_text(f"{tree}/.git\n")
+    (Path(tree) / ".git").write_text(f"gitdir: {admin}\n")
+
+
+def test_a_locked_tree_with_no_gitfile_keeps_its_files(state_daemon, repo, offers):  # noqa: F811
+    """A person removes `.git`, or a removal cut short does. The lock stands in the repository."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, repo)
+    git(repo, "worktree", "lock", tree)
+    os.unlink(Path(tree) / ".git")
+    assert swept(daemon) == 0
+    assert (Path(tree) / "tracked.txt").is_file() and job_id in registered(repo)
+    assert not given_back(daemon, job_id)
+
+
+def test_a_gitfile_naming_somewhere_else_does_not_unlock_the_tree(state_daemon, repo, offers, tmp_path):  # noqa: F811
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, repo)
+    git(repo, "worktree", "lock", tree)
+    (Path(tree) / ".git").write_text(f"gitdir: {tmp_path}/elsewhere/.git/worktrees/{job_id}\n")
+    assert swept(daemon) == 0
+    assert (Path(tree) / "tracked.txt").is_file() and not given_back(daemon, job_id)
+
+
+def test_a_forged_registration_does_not_unlock_a_recorded_tree(state_daemon, repo, offers, tmp_path):  # noqa: F811
+    """The record comes first: a tree can't send the sweep to another repository's registration,
+    and no other repository reaches the event for a later cut to trust."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, repo)
+    git(repo, "worktree", "lock", tree)
+    forged(tree, tmp_path / "elsewhere")
+    assert swept(daemon) == 0
+    assert (Path(tree) / "tracked.txt").is_file() and not given_back(daemon, job_id)
+    git(repo, "worktree", "unlock", tree)
+    assert swept(daemon) == 1
+    (event,) = given_back(daemon, job_id)
+    assert json.loads(event["data_json"])["common_dir"] == os.path.realpath(repo / ".git")
+    assert job_id not in registered(repo)
+
+
+@pytest.mark.parametrize("locked", [True, False], ids=["locked", "unlocked"])
+def test_a_job_with_no_record_believes_a_gitfile_only_if_the_repository_registers_the_tree(  # noqa: F811
+        state_daemon, repo, linked, offers, tmp_path, locked):
+    """A gitfile that names a folder with no such registration is not believed: the caller's
+    checkout names the repository. With no record, that's the last word."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, linked)
+    forget_the_record(daemon, job_id)
+    if locked:
+        git(repo, "worktree", "lock", tree)
+    (tmp_path / "elsewhere" / ".git" / "worktrees").mkdir(parents=True)
+    (Path(tree) / ".git").write_text(f"gitdir: {tmp_path}/elsewhere/.git/worktrees/{job_id}\n")
+    assert swept(daemon) == (0 if locked else 1)
+    assert os.path.lexists(tree) == locked and (job_id in registered(repo)) == locked
+    if not locked:
+        (event,) = given_back(daemon, job_id)
+        assert json.loads(event["data_json"])["common_dir"] == os.path.realpath(repo / ".git")
+
+
+def test_a_job_with_no_record_keeps_its_tree_when_its_checkout_does_not_answer(state_daemon, repo, linked,  # noqa: F811
+                                                                               offers, monkeypatch):
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, linked)
+    forget_the_record(daemon, job_id)
+    os.unlink(Path(tree) / ".git")
+
+    def times_out(workdir, *, timeout_s=None):
+        raise daemon_module.SalvageError("git rev-parse timed out", transient=True)
+    monkeypatch.setattr(daemon_module, "git_common_dir", times_out)
+    assert swept(daemon) == 0
+    assert (Path(tree) / "tracked.txt").is_file() and not given_back(daemon, job_id)
+
+
+def test_a_tree_that_names_no_repository_stays(state_daemon, repo, linked, offers):  # noqa: F811
+    """No record, no gitfile, no checkout: it might be locked, and nothing can say."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, linked)
+    forget_the_record(daemon, job_id)
+    git(repo, "worktree", "lock", tree)
+    os.unlink(Path(tree) / ".git")
+    end_session(repo, linked)
+    assert swept(daemon) == 0
+    assert (Path(tree) / "tracked.txt").is_file() and not given_back(daemon, job_id)
+
+
+def test_a_registration_that_cannot_be_read_keeps_the_tree(state_daemon, repo, offers, monkeypatch):  # noqa: F811
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, repo)
+
+    def unreadable(common, tree):
+        raise PermissionError("worktrees")
+    monkeypatch.setattr(daemon_module, "registration_of", unreadable)
+    assert swept(daemon) == 0
+    assert (Path(tree) / "tracked.txt").is_file() and not given_back(daemon, job_id)
+    assert not daemon._tree_locked(daemon.store.get_job(job_id), tree, 5)   # others: as far as can be read
+
+
+def test_a_lock_that_comes_during_a_give_back_loses_nothing(state_daemon, repo, offers, monkeypatch):  # noqa: F811
+    """The registration goes first and reads the lock once more, so a lock taken after the sweep
+    read it stops the removal with every file in place, and none can come after."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, repo)
+    real = daemon_module.discard_registration
+
+    def locked_just_now(*args, **kwargs):
+        git(repo, "worktree", "lock", tree)
+        return real(*args, **kwargs)
+    with monkeypatch.context() as patched:
+        patched.setattr(daemon_module, "discard_registration", locked_just_now)
+        assert swept(daemon) == 0
+    assert (Path(tree) / ".git").is_file() and (Path(tree) / "tracked.txt").is_file()
+    assert job_id in registered(repo) and not given_back(daemon, job_id)
+    assert not git(tree, "status", "--porcelain")
+
+
+def test_a_give_back_stopped_after_the_registration_is_cut_again(state_daemon, repo, offers,  # noqa: F811
+                                                                 monkeypatch):
+    """What a stop there leaves: every file, and a gitfile that names nothing. A look reads no HEAD
+    through it, so it cuts the tree again, and the next give-back would still take it."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    tree = cut(daemon, job_id)
+    close_every_lane(daemon)
+    daemon._admit()
+    with monkeypatch.context() as stopped:
+        stopped.setattr(daemon, "_discard_worktree", lambda *args, **kwargs: None)
+        assert swept(daemon) == 0
+    assert (Path(tree) / ".git").is_file() and job_id not in registered(repo) and not given_back(daemon, job_id)
+    assert runs(daemon, job_id)["worktree"] == tree
+    assert job_id in registered(repo) and not git(tree, "status", "--porcelain")
+
+
+@pytest.mark.parametrize("checkout", ["stays", "goes"])
+def test_a_tree_gone_with_its_registration_left_is_cut_again(state_daemon, repo, linked, offers,  # noqa: F811
+                                                             checkout):
+    """A removal stopped between the files and the registration, or a tree someone deleted: git
+    refuses a missing but registered worktree, so the look drops the registration first."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, linked)
+    tree = cut(daemon, job_id)
+    shutil.rmtree(tree)
+    assert job_id in registered(repo)
+    if checkout == "goes":
+        end_session(repo, linked)
+    assert runs(daemon, job_id)["worktree"] == tree
+    assert (Path(tree) / "tracked.txt").read_text() == "baseline\n" and job_id in registered(repo)
+
+
+def test_a_tree_gone_with_its_registration_locked_fails_its_job(state_daemon, repo, offers):  # noqa: F811
+    """The look drops no lock: git then refuses, which is how the claim reaches someone."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    tree = cut(daemon, job_id)
+    git(repo, "worktree", "lock", tree)
+    shutil.rmtree(tree)
+    measure(daemon, "codex-1")
+    reopen(daemon, job_id)
+    daemon._admit()
+    assert daemon.store.get_job(job_id)["state"] == "failed" and not daemon.store.list_attempts(job_id)
+    assert (repo / ".git" / "worktrees" / job_id / "locked").is_file()
+
+
+def test_a_broken_tree_someone_locked_fails_its_job_and_keeps_its_files(state_daemon, repo, offers):  # noqa: F811
+    """The look can neither use it nor cut it again (git refuses a missing but locked worktree), so
+    the job fails and the claim keeps what it claimed."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    tree = cut(daemon, job_id)
+    git(repo, "worktree", "lock", tree)
+    os.unlink(Path(tree) / ".git")
+    measure(daemon, "codex-1")
+    reopen(daemon, job_id)
+    daemon._admit()
+    assert daemon.store.get_job(job_id)["state"] == "failed" and not daemon.store.list_attempts(job_id)
+    assert (Path(tree) / "tracked.txt").is_file() and job_id in registered(repo)
+
+
+def test_a_refused_job_whose_tree_someone_locked_keeps_its_files(state_daemon, repo, offers):  # noqa: F811
+    """C-6.12's discard reads the lock as the sweep does."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, repo)
+    git(repo, "worktree", "lock", tree)
+    daemon._discard_fresh_worktree(job_id)
+    assert (Path(tree) / "tracked.txt").is_file() and job_id in registered(repo)
+
+
+def test_a_checkout_that_does_not_answer_is_taken_as_it_stands(state_daemon, repo, linked, monkeypatch):  # noqa: F811
+    """`worktree add` then reports what is wrong (C-6.8)."""
+    daemon, harness = state_daemon
+    job = daemon.store.get_job(submit(daemon, harness, linked))
+    common = daemon._recorded_common(job)
+
+    def times_out(workdir, *, timeout_s=None):
+        raise daemon_module.SalvageError("git rev-parse timed out", transient=True)
+    monkeypatch.setattr(daemon_module, "git_common_dir", times_out)
+    assert daemon._tree_git(job, common, 5) == ["git", "-C", str(linked)]
+
+
+def test_registration_of_answers_by_the_backlink_alone(repo, tmp_path):
+    from subfleet.retention_git import registration_of
+    common = repo / ".git"
+    assert registration_of(common, tmp_path / "first") is None      # no `worktrees` folder yet
+    for name in ("first", "second"):
+        git(repo, "worktree", "add", "-q", "--detach", str(tmp_path / name))
+    assert registration_of(common, tmp_path / "second") == Path(os.path.realpath(common / "worktrees" / "second"))
+    assert registration_of(common, tmp_path / "first") == Path(os.path.realpath(common / "worktrees" / "first"))
+    assert registration_of(common, tmp_path / "third") is None
+    (common / "worktrees" / "a-link").symlink_to(common / "worktrees" / "second")
+    assert registration_of(common, tmp_path / "second").name == "second"
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "worktrees").write_text("not a folder\n")
+    with pytest.raises(OSError):
+        registration_of(plain, tmp_path / "first")
+
+
+def test_a_recorded_repository_moved_away_reads_as_no_record(state_daemon, repo, linked, tmp_path, offers):  # noqa: F811
+    """A record that names nothing now answers nothing: the tree's gitfile names nothing either
+    (its repository moved), and the checkout, which git repaired, names the repository."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, linked)
+    moved = tmp_path / "moved"
+    repo.rename(moved)
+    assert daemon._recorded_common(daemon.store.get_job(job_id)) is None
+    assert swept(daemon) == 0
+    assert (Path(tree) / "tracked.txt").is_file() and not given_back(daemon, job_id)
+
+
+# --- a repository git can't enter ----------------------------------------------------------------
+
+@pytest.fixture(params=["submodule", "explicit bare"])
+def shaped(request, repo, tmp_path, monkeypatch):
+    """A checkout, and a common directory git refuses to run in once that checkout has gone: a
+    submodule's enters its `core.worktree`, and a bare repository is refused under
+    `safe.bareRepository=explicit`."""
+    if request.param == "submodule":
+        sup = tmp_path / "sup"
+        sup.mkdir()
+        git(sup, "init", "-q", "-b", "main")
+        git(sup, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(repo), "sm")
+        git(sup, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "sm")
+        return sup / "sm", sup / ".git" / "modules" / "sm"
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text("[safe]\n\tbareRepository = explicit\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
+    bare = tmp_path / "bare.git"
+    git(tmp_path, "clone", "-q", "--bare", str(repo), str(bare))
+    checkout = tmp_path / "bare-checkout"
+    subprocess.run(["git", f"--git-dir={bare}", "worktree", "add", "-q", "-b", "session/bare", str(checkout)], check=True)
+    return checkout, bare
+
+
+def test_a_job_runs_after_a_checkout_whose_repository_git_cannot_enter_goes(state_daemon, shaped, offers):  # noqa: F811
+    daemon, harness = state_daemon
+    checkout, common = shaped
+    head = git(checkout, "rev-parse", "HEAD")
+    close_every_lane(daemon)
+    job_id = submit(daemon, harness, checkout)
+    daemon._admit()
+    shutil.rmtree(checkout)
+    with pytest.raises(subprocess.CalledProcessError):
+        git(common, "rev-parse", "HEAD")
+    job = runs(daemon, job_id)
+    tree = daemon.root / "worktrees" / job_id
+    assert job["worktree"] == str(tree) and (tree / "tracked.txt").read_text() == "baseline\n"
+    assert git(tree, "rev-parse", "HEAD") == head and not git(tree, "status", "--porcelain")
+    assert git(tree, "rev-parse", "--show-toplevel") == os.path.realpath(tree)
+    assert (common / "worktrees" / job_id / "gitdir").is_file()
+
+
+def test_a_give_back_takes_the_registration_from_a_repository_git_cannot_enter(state_daemon, shaped, offers):  # noqa: F811
+    daemon, harness = state_daemon
+    checkout, common = shaped
+    job_id, tree = cancelled_tree(daemon, harness, checkout)
+    assert (common / "worktrees" / job_id).is_dir()
+    shutil.rmtree(checkout)
+    assert swept(daemon) == 1
+    assert not os.path.lexists(tree) and not (common / "worktrees" / job_id).exists()
+    (event,) = given_back(daemon, job_id)
+    data = json.loads(event["data_json"])
+    assert data["common_dir"] == os.path.realpath(common) and "registration_left" not in data
+
+
+def test_a_tree_cut_from_the_repository_takes_the_main_checkouts_patterns(state_daemon, repo, linked, offers):  # noqa: F811
+    """The limit: `worktree add` passes on the settings of the place it runs in. Once a linked
+    checkout has gone that place is the common directory, which holds the main checkout's."""
+    daemon, harness = state_daemon
+    for folder in ("kept", "left"):
+        (linked / folder).mkdir()
+        (linked / folder / "file.txt").write_text(folder + "\n")
+    git(linked, "add", ".")
+    git(linked, "commit", "-q", "-m", "two folders")
+    git(repo, "sparse-checkout", "set", "kept")
+    job_id = submit(daemon, harness, linked)
+    end_session(repo, linked)
+    tree = Path(cut(daemon, job_id))
+    assert (tree / "kept" / "file.txt").is_file() and not (tree / "left").exists()

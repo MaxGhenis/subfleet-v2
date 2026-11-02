@@ -55,9 +55,9 @@ One sweep runs at a time and never beside a retention pass: retention holds `_un
 
 1. takes the detached pass lock, waiting at most 30 s, so no pass cuts that tree meanwhile;
 2. reads the job again and decides;
-3. reads the tree's gitfile, and keeps the tree if someone locked its registration;
-4. removes the tree with its own registration only, `.git` first (`_discard_worktree`; d635 forbids a repository-wide prune), running git in the repository the gitfile names;
-5. records one `job.worktree_given_back` event with `worktree`, `state`, `why`, `common_dir` and, if the registration stayed, `registration_left`.
+3. reads the tree's registration from the job's repository, and keeps the tree if someone locked it or if nothing can name that repository;
+4. removes that registration, reading the lock once more, and then the tree, `.git` first (`_discard_worktree`; d635 forbids a repository-wide prune);
+5. records one `job.worktree_given_back` event with `worktree`, `state`, `why`, `common_dir` and, if the repository still registers the tree, `registration_left`.
 
 It reads `dependencies.legacy`, which walks the filesystem, once per read and outside the lock: no job it finds is newer than the read. When the lock wait times out, the daemon is stopping, or anything raises, the sweep stays owed and the next offer or retention pass runs it. It logs an error and never raises it. `daemon.log` gets one line naming the jobs whose trees went back.
 
@@ -79,13 +79,26 @@ The sweep reads the last two for each tree under the lock, since a pass that ran
 
 Before C-6.20 the first look cut the tree, and later looks reused it through the repository's common directory. So a job needed `jobs.workdir` only at that first look. Now a job that no lane takes gets no tree, and a held job gives its tree back, so the look that finally cuts the tree can come hours later. A session in an isolated worktree can submit while every lane is held and archive meanwhile, and the look then failed the job (`git -C <gone> worktree add` exits 128, which is no transient error). A give-back from that checkout also left the registration behind while its event said the tree went.
 
-`_tree_source` now picks where git runs for a cut or a discard:
+`_recorded_common` and `_tree_git` now pick where git runs for a cut:
 
-1. The common directory: submit records it (`manifest.json`, `workspace.common_dir`); for a job older than that record, the latest `job.worktree_given_back` event names it. With neither, the answer is `jobs.workdir`, as before.
+1. The common directory: submit records it (`manifest.json`, `workspace.common_dir`); for a job older than that record, the latest `job.worktree_given_back` event names it. With neither, or once that directory has gone, the answer is `jobs.workdir`, as before.
 2. `jobs.workdir` while it answers with that same common directory, because `git worktree add` copies the per-worktree settings of the checkout it runs in (sparse patterns, `config.worktree`).
-3. Otherwise the common directory. That covers a folder that has gone, one whose `.git` names nothing now, and one that has become another repository.
+3. Otherwise the common directory, named by both `--git-dir` and `--work-tree`. That covers a folder that has gone, one whose `.git` names nothing now, and one that has become another repository. Git needs both names for two shapes of common directory: a submodule's, where `--git-dir` alone still enters a `core.worktree` that went with the checkout, and a bare repository under `safe.bareRepository=explicit`, where discovery refuses it. Git 2.55 cut a working tree from each with both names, and the tree reads neither setting.
 
-A give-back reads the repository from the tree's own gitfile, so it never depends on `jobs.workdir`.
+A discard runs no git there: `registration_of` finds the registration by its `gitdir` backlink under `<common>/worktrees`.
+
+### The repository answers, not the tree
+
+A give-back reads the lock and the registration from the job's repository (`_tree_registration`), not from what the tree holds, which can be missing or name somewhere else:
+
+1. The recorded common directory.
+2. For a job older than the record, the repository the tree's gitfile names, only if that repository registers this tree.
+3. Then the repository the caller's checkout answers with.
+4. With none of these, the tree stays: it might be locked, and nothing can say. A `worktrees` folder that cannot be read keeps it too.
+
+The registration goes first. `discard_registration` reads the lock once more, so a lock taken after the sweep's read stops the removal with every file in place, and none can come once the registration has gone. Then `.git` goes, then the files. A stop at any step leaves a state a look handles. A look cuts a tree again when its `.git` has gone or names nothing, and it drops a registration whose tree has gone before it adds one, since git refuses a missing but registered worktree.
+
+Two other removals read the lock now. C-6.12's discard leaves a locked tree. A look that finds a locked tree broken fails the job and keeps the files, since git would refuse to add the tree again.
 
 ### Scheduler
 
@@ -107,17 +120,17 @@ A give-back reads the repository from the tree's own gitfile, so it never depend
 | 10 | An `unprepared` wait counts as C-23.16's demand, as its look would have made it. | `c23_16` |
 | 11 | A look cuts no tree for a fresh job no lane takes now, and the first look a lane takes cuts it. A retry, a read-only job, an in-place job and a push get their look whatever the lanes. | `no_lane_takes`, `tree_cut_before`, `retry_keeps`, `cuts_no_tree`, `task_hold` |
 | 12 | A cancel offers a sweep exactly when it ends a job in the sweep's scope. `_unrun_scope`, which decides that from the job's columns, holds exactly when `UNRUN_TREES` would select the job, for every combination of those columns (differential, exhaustive). | `cancelled_before_any_attempt`, `outside_the_sweeps_scope`, `scope_check_is` |
-| 13 | A locked registration keeps its tree, whatever the shape that would give it back; the tree goes at the next sweep after an unlock, and a waiting job runs in it. | `property`, `claim_alone`, `someone_locked` |
-| 14 | A job runs at the HEAD submit recorded, in a tree registered in the repository submit read, for each way it can reach its first attempt (held from submit, given back, kept its tree) and each fate of its caller's checkout (stays, goes, loses its registration, becomes another repository). | `whatever_becomes`, `older_than`, `broken_tree`, `subfolder`, `bare`, `after_the_callers_checkout_went` |
+| 13 | A locked registration keeps its tree's files, whatever the shape that would give it back and whatever the tree's gitfile says: gone, naming somewhere else, or naming a forged registration. A lock that comes during a give-back loses nothing. The tree goes at the next sweep after an unlock, and a waiting job runs in it. | `property`, `claim_alone`, `someone_locked`, `no_gitfile`, `somewhere_else`, `forged_registration`, `lock_that_comes`, `refused_job_whose`, `broken_tree_someone_locked` |
+| 14 | A job runs at the HEAD submit recorded, in a tree registered in the repository submit read, for each way it can reach its first attempt (held from submit, given back, kept its tree), each fate of its caller's checkout (stays, goes, loses its registration, becomes another repository) and each shape of repository (a linked worktree's, a bare one's under `safe.bareRepository=explicit`, a submodule's). | `whatever_becomes`, `older_than`, `broken_tree`, `subfolder`, `bare`, `git_cannot_enter`, `after_the_callers_checkout_went` |
 | 15 | A tree cut from the common directory matches one cut from the checkout: HEAD, detached HEAD, every tracked mode and object, clean status (differential). Sparse patterns pass on while the checkout lasts. | `the_repository_is`, `sparse` |
-| 16 | A give-back takes the tree's own registration wherever its caller's checkout is now, or its event names what stayed. | `give_back_after_the_checkout`, `refused_jobs`, `that_stayed` |
-| 17 | `.git` goes first, never through a link, so a removal cut short leaves no tree a look reuses. | `cut_short`, `through_a_link` |
+| 16 | A give-back takes the tree's own registration wherever its caller's checkout is now, by the repository's word, and its event names any that stayed. A tree whose repository nothing names stays, and no other repository reaches the event. | `give_back_after_the_checkout`, `refused_jobs`, `that_stayed`, `git_cannot_enter`, `no_record`, `names_no_repository`, `cannot_be_read`, `moved_away`, `registration_of` |
+| 17 | A give-back takes the registration first and `.git` next, never through a link. So a removal cut short at any step leaves no tree a look reuses and no registration that stops a cut. | `cut_short`, `through_a_link`, `stopped_after`, `gone_with_its_registration` |
 
 The test names above abbreviate those in `tests/fake/test_unrun_worktrees.py`, and `after_the_callers_checkout_went` the one in `tests/fake/test_review_launch_permissions.py`.
 
 ## Tests
 
-`tests/fake/test_unrun_worktrees.py` holds 71 items and `tests/unit/test_unadmittable_now.py` 4.
+`tests/fake/test_unrun_worktrees.py` holds 95 items and `tests/unit/test_unadmittable_now.py` 4.
 
 - The property test draws 150 shapes over 14 fields.
 - `test_each_claim_alone_keeps_a_tree_that_would_go_back` starts from each of the three shapes that give a tree back and adds each of 17 claims alone (54 shapes in all).
@@ -127,7 +140,7 @@ The test names above abbreviate those in `tests/fake/test_unrun_worktrees.py`, a
 - `test_a_job_runs_whatever_becomes_of_its_callers_checkout` crosses three ways of reaching a first attempt with four fates of the caller's checkout (12 cases), with real git.
 - `swept()` requires each sweep to finish (`_unrun_dirty` false). So a sweep that fails quietly can't pass a test that expects a kept tree.
 
-On 3492445c6 both files passed: 39 passed in 47 s (the baseline in `mutants-rerun-link.log`). On the fix for defect 6, the C-6.20 file and `tests/unit/test_fake_daemon_borrowed_methods.py` pass (48 passed in 17.5 s), as do the ten conversation files CI had failed (430 passed, `ci-fix-conv.log`). The eight test files that read the contract pass on the edited contract, with `test_unadmittable_now.py` (530 passed, `ci-fix-contract.log`). On the fixes for review r1, those two files, `test_fake_daemon_borrowed_methods.py`, `test_review_launch_permissions.py` and `test_salvage.py` pass (147 passed in 71 s, `fix-r2-pr-files.log`). Of r1's 12 reproductions, 8 pass now, those for P1-1 and P2-1 among them. The other 4 fail as this report expects: `partial` models a state with `.git` left, which the removal no longer leaves, and `offers` (2) and `clock` show the limits below.
+On 3492445c6 both files passed: 39 passed in 47 s (the baseline in `mutants-rerun-link.log`). On the fix for defect 6, the C-6.20 file and `tests/unit/test_fake_daemon_borrowed_methods.py` pass (48 passed in 17.5 s), as do the ten conversation files CI had failed (430 passed, `ci-fix-conv.log`). The eight test files that read the contract pass on the edited contract, with `test_unadmittable_now.py` (530 passed, `ci-fix-contract.log`). On the fixes for review r1, those two files, `test_fake_daemon_borrowed_methods.py`, `test_review_launch_permissions.py` and `test_salvage.py` pass (147 passed in 71 s, `fix-r2-pr-files.log`). Of r1's 12 reproductions, 8 pass now, those for P1-1 and P2-1 among them. The other 4 fail as this report expects: `partial` models a state with `.git` left, which the removal no longer leaves, and `offers` (2) and `clock` show the limits below. On the fixes for the cloud review of 30d3fdb05, this PR's test files with `test_retention_archive.py` pass (`fix-r3-pr-files.log`).
 
 ## Evidence that the tests catch the defects
 
@@ -144,7 +157,9 @@ On 3492445c6 both files passed: 39 passed in 47 s (the baseline in `mutants-reru
 
 There are 68 mutants. The full run on 0e650e5e0 (`mutants.log`) killed 47, found 3 equivalent and left 11 alive. On rerun 1 (`mutants-rerun.log`), the one-claim test killed nine of those eleven, and the hub found a tenth, `unprepared-turn-pass-included`, equivalent. On rerun 2 (`mutants-rerun-link.log`), the link test killed `rule-link-followed`. None of those 61 survive. The fix for defect 6 added seven (`cancel-offer-ungated`, `cancel-scope-dropped` and one `scope-*-unchecked` for each column) and re-anchored `cancel-offer-removed`. Review r1 ran those eight, and their focused tests kill all eight (`review-r1-scratch/mutants-new8.log`). It also found that the delta's second `SCOPE` constant redirected `unprepared-retry-included`, `unprepared-read-only-included` and `unprepared-turn-pass-included` into invalid Python, so the table's outcomes for those three date from 0e650e5e0. The constant now has its own name, `CANCEL_SCOPE`, and the driver refuses a mutant that does not compile.
 
-The fixes for r1 add 14 mutants, for 82 in all (`rule-lock-ignored`, `rule-left-unsaid`, `rule-event-no-repository`, `rule-discards-from-checkout`, `submit-records-no-repository`, `source-always-checkout`, `source-always-repository`, `source-a-folder-is-enough`, `source-ignores-the-give-back`, `cut-from-checkout`, `broken-tree-from-checkout`, `fresh-from-checkout`, `discard-git-not-first`, `discard-through-a-link`). Each applies once and compiles. Fleet ops allowed those 14 alone before the release: `fix-r2-mutants14.log` ran them at 22:34:37Z to 22:36:15Z, and their focused tests killed all 14. The other 68 wait for the release to start.
+The fixes for r1 add 14 mutants, for 82 in all (`rule-lock-ignored`, `rule-left-unsaid`, `rule-event-no-repository`, `rule-discards-from-checkout`, `submit-records-no-repository`, `source-always-checkout`, `source-always-repository`, `source-a-folder-is-enough`, `source-ignores-the-give-back`, `cut-from-checkout`, `broken-tree-from-checkout`, `fresh-from-checkout`, `discard-git-not-first`, `discard-through-a-link`). Each applies once and compiles. Fleet ops allowed those 14 alone before the release: `fix-r2-mutants14.log` ran them at 22:34:37Z to 22:36:15Z, and their focused tests killed all 14. The cloud review of 30d3fdb05 then ran all 82 on Linux, Python 3.12.3 and git 2.43.0: 78 killed, 4 equivalent, none survived.
+
+The fixes for that review add 26 mutants, for 108 in all (`record-unread`, `record-gone-still-read`, `gitfile-believed`, `no-record-no-checkout`, `no-record-timeout-raises`, `nothing-names-it-goes`, `unreadable-raises`, `unreadable-reads-as-locked`, `registration-any-backlink`, `registration-through-a-link`, `registration-unreadable-is-none`, `lock-that-came-ignored`, `registration-not-first`, `discard-ignores-the-lock`, `left-unread`, `left-assumed-gone`, `fresh-ignores-the-lock`, `broken-ignores-the-lock`, `no-drop-before-the-add`, `drop-from-checkout`, `cut-discovers-the-repository`, `cut-no-work-tree`, `cut-no-git-dir`, `source-timeout-takes-the-repository`, `discard-asks-git`, `common-ignored`), and they re-anchor nine older ones. Each of the 108 applies once and compiles. `broken-tree-from-checkout` is now equivalent: the look's drop before the add takes that registration anyway. Fleet ops holds a serial run on the hub's host until the release starts, so the full run comes from the next review's VM.
 
 | Mutant | Outcome |
 |---|---|
@@ -221,6 +236,11 @@ The fixes for r1 add 14 mutants, for 82 in all (`rule-lock-ignored`, `rule-left-
 7. **The sweep deleted a locked tree's files (review r1, P1-1).** `_discard_worktree` removes the files first, and only `discard_registration` read the lock, so the files went and the locked registration stayed, while the event said the tree went back. A waiting job then failed at its next look: git refuses a missing but locked worktree. The sweep now reads the lock from the tree's gitfile before it removes anything.
 8. **A job needed its caller's checkout hours after submit (review r1, P2-1).** See "The repository, not the caller's checkout". It failed jobs that had run before C-6.20, under the lane holds this change targets.
 9. **A removal cut short left a tree a look reused (review r1, P3-1).** `_workspace` reads `.git`, HEAD and a copy's marker, never the files, and `rmtree` takes `.git` in no set order. C-6.20 removes trees of jobs that run later, so a daemon stopped part way could have started an attempt in a tree with files missing. `_discard_worktree` now takes `.git` first, never through a link. r1's reproduction modelled that state by deleting one file and keeping `.git`; `test_a_removal_cut_short_leaves_no_tree_a_look_reuses` stops the real removal at its `rmtree` instead.
+10. **The lock check rested on the tree (cloud review of 30d3fdb05, A).** The fix for defect 7 read the lock and `registration_left` through the tree's gitfile. With `.git` gone, or naming another place, the files went, the locked registration stayed, and the event did not say so; a forged one also put another repository in the event, which a later cut trusted. `registration_of` now reads the repository, and only a job with no record reads a gitfile, which it checks against the repository it names.
+11. **Two repositories git can't enter (cloud review, B).** The fix for defect 8 ran `git -C <common>`, which fails for a submodule's directory (`cannot chdir to '../../../sm'`) and a bare repository under `safe.bareRepository=explicit`, and failed those jobs where they had run before this PR. `_tree_git` now names the directory both ways, and a discard reads the folder and runs no git.
+12. **A registration with no tree failed its job (cloud review, C).** A removal stopped before its registration went, or a tree someone deleted, left a registration git refuses to add over. The look now drops it first, and a lock still stops the add.
+13. **A lock during a give-back lost the files (cloud review, D).** The check came before the removal, with the files first. The registration now goes first and reads the lock once more.
+14. **The report's own claim (cloud review, E).** It said a give-back never depends on `jobs.workdir`. For a job with no record and no usable gitfile, it does, and with neither the tree stays.
 
 ## Expected effect when installed
 
@@ -238,7 +258,12 @@ The following comes from the code and the 18:10:58Z reading; nobody has measured
 - **A fenced job.** The check comes before retention's fence look. So a job on a fence that no lane takes waits `unprepared`, a slot waiter and C-23.16's demand, where the fence would have held it `lease-held` and kept it out of both (review r1, P3-7). The lanes it waits for refuse every job until one opens, and at that look the fence holds it. A follow-up chip covers it.
 - **The label.** `unadmittable` lists each refusal string once, so lanes closed until one instant count once and `refusal_label` can settle a tie by walk order, where C-6.11's `dominant_rejection` counts one per lane. This affects display only (review r1, P3-6). A follow-up chip covers it.
 - **Unreachable HEADs.** A tree holds its HEAD against `gc`. A job with no tree relies on a ref or on `gc`'s prune window (two weeks by default) for a HEAD that its caller's checkout alone held, so a job could outwait it and fail at the cut. Nobody has built this case.
-- **A sparse caller.** The tree comes out whole once the caller's checkout has gone, because the sparse patterns went with it.
+- **A sparse caller.** Once the caller's checkout has gone, its sparse patterns have too, and the tree takes those of the place git runs in, the common directory: whole unless the main checkout is sparse, and then with the main checkout's patterns (`test_a_tree_cut_from_the_repository_takes_the_main_checkouts_patterns`).
+- **A tree whose repository nothing names.** A job older than the record, whose tree has no usable gitfile and whose checkout has gone, keeps its tree until retention retires the job. So does a job whose recorded repository has moved, when its gitfile and checkout no longer answer.
+- **A lock over a tree that can't serve.** With a lock on a registration whose tree has gone or broken, no look can cut the tree, because git refuses a missing but locked worktree, so the job fails. Someone unlocks it and submits again.
+- **A gitfile on a job with no record.** Such a job believes a gitfile whose named repository registers the tree. No attempt ran in the tree, so only someone working as the host's user could forge both. A job with a record never asks the gitfile for its registration.
+- **The instant inside `discard_registration`.** A lock taken between its read and its `rmtree` goes with the registration, and the files follow. No test reaches that instant.
+- **A killed `worktree add` (before this PR).** Git holds its own lock, `initializing`, while it adds a tree, and a kill leaves it (tried on git 2.55: the tree holds part of its files, HEAD resolves, and the next add refuses). From the code, a look after a daemon died mid-add reuses such a tree, and a job whose add the cap killed fails at its next look. Neither is new here, and the live `daemon.log` holds neither refusal (read 2026-11-02). A follow-up chip covers it.
 - **Push jobs.** The sweep never takes a push job's tree (C-8.5). None existed at 18:33:55Z.
 - **Lock time.** Each removal runs under the detached pass lock. On Python 3.13 and later, a blocked pass gets the lock after one tree; on 3.12, the sweep can take it back first, and review r1 measured a pass waiting through up to four trees of five (P3-4). The live daemon runs 3.14.7 (`ps`, 2026-11-02), and `requires-python` allows 3.12. The reading's trees average 56 MB (ended) and 40 MB (waiting). Nobody has timed a removal.
 
@@ -259,4 +284,5 @@ In `~/reviews/subfleet-hub/unrun-worktrees-2026-11-02/`:
 - `broad-files.txt`, `broad-partial-1757.log`;
 - `ci289-failed.txt`, `ci-fix-conv.log`, `ci-fix-contract.log`: defect 6's failures and the runs on its fix;
 - `review-r1-brief.md` and `review-r1.md`: the independent review's brief and its result; `review-r1-scratch/`: its reproductions and logs;
-- `fix-r2-pr-files.log`, `fix-r2-mutants14.log`, `fix-r2-neighbours.txt`, `fix-r2-neighbours.log`: the runs on the fixes for r1.
+- `fix-r2-pr-files.log`, `fix-r2-mutants14.log`, `fix-r2-neighbours.txt`, `fix-r2-neighbours.log`: the runs on the fixes for r1 (the hub stopped the neighbours run after about 26 minutes, and CI covers those files);
+- `fix-r3-pr-files.log`: the run on the fixes for the cloud review of 30d3fdb05, whose text is on the PR.
