@@ -1450,6 +1450,37 @@ def _jobs_from_wait(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return jobs
 
 
+#: C-15.9: how many skipped job ids `wait`'s one line names before "and N more".
+RETIRED_SHOWN = 5
+
+
+def _retired_from_wait(result: dict[str, Any]) -> list[str]:
+    """C-15.9: the resolved jobs a `wait` answer says retention retired during its poll."""
+    named = result.get("retired")
+    return [job_id for job_id in named if isinstance(job_id, str) and job_id] if isinstance(named, list) else []
+
+
+def _unknown_job(exc: BaseException) -> str | None:
+    """C-15.9: the job id an `unknown job <id>` refusal names (exit 2), else None.
+
+    The daemon names the id only when it is a job id's shape (`refusals`); a bare
+    `unknown job` names none, and nothing here guesses which job it meant."""
+    if not isinstance(exc, DaemonError) or exc.code != int(Exit.INVALID_INPUT):
+        return None
+    match = re.fullmatch(r"unknown job (\S+)", str(exc))
+    return match.group(1) if match else None
+
+
+def _retired_note(retired: set[str]) -> str:
+    """C-15.9: the one line `wait` prints for the resolved jobs it skipped."""
+    shown = sorted(retired)
+    count = len(shown)
+    names = ", ".join(shown[:RETIRED_SHOWN]) + (
+        f" and {count - RETIRED_SHOWN} more" if count > RETIRED_SHOWN else "")
+    return (f"{PROG} wait: skipped {count} retired job{'' if count == 1 else 's'}, which retention "
+            f"removed from the store while this wait ran: {names}")
+
+
 def _wait_summary(job: dict[str, Any]) -> str:
     row = job_row(job)
     state = str(row["state"] or "unknown").upper()
@@ -1486,6 +1517,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     # that mentions another job must not change what this call blocks on or
     # what it exits with (C-17.3).
     adopting = bool(mine) or bool(last) or not requested
+    retired: set[str] = set()       # C-15.9: resolved jobs retention retired meanwhile
     idle_polls = 0
     busy: DaemonError | None = None
     busy_streak = 0
@@ -1524,6 +1556,14 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 if timeout is not None and time.monotonic() - started >= timeout:
                     timed_out = True
                     break
+                # C-15.9: a daemon older than `retired` calls a job retention
+                # retired under a resolver's poll unknown. One this call did not
+                # name is skipped, once; the next poll's `list` no longer names it.
+                gone = _unknown_job(exc) if adopting else None
+                if gone is not None and gone not in requested and gone not in retired:
+                    retired.add(gone)
+                    pending.discard(gone)
+                    continue
                 # C-16.7: a daemon at its connection cap answers "try again
                 # shortly" before it reads the poll. The loop does, backing off,
                 # inside `--timeout` (review of the descriptor hotfix, F8). A
@@ -1561,6 +1601,9 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 timed_out = True
                 break
             busy, busy_streak, unverified_since = None, 0, None
+            if adopting:
+                retired.update(job_id for job_id in _retired_from_wait(result) if job_id not in requested)
+                pending -= retired
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
             progress = False
@@ -1576,6 +1619,8 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
             if not pending and (finished or jobs):
                 break
             if not pending and not finished and not result.get("timeout"):
+                if retired:
+                    note(_retired_note(retired))
                 note(f"{PROG} wait: nothing to wait for")
                 return int(Exit.OK)
             idle_polls = 0 if progress else idle_polls + 1
@@ -1620,6 +1665,8 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
             note(f"{PROG} wait: nothing reached a terminal state in "
                  f"{elapsed:.0f}s (timeout)")
         worst = max(worst, int(Exit.WAIT_TIMEOUT))
+    if retired:
+        note(_retired_note(retired))
     return worst
 
 
