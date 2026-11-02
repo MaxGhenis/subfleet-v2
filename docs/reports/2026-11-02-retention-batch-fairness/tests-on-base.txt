@@ -1,0 +1,12 @@
+new tests on base 18aa2a695 (subfleet from /Users/maxghenis/subfleet-v2-lanes/retention-batch-fairness-base/subfleet/__init__.py)
+E               AssertionError: (1, ['job-0', 'job-1'])
+E                   AssertionError: ('job-1', 4, 5, 4, ['job-0'], {})
+FAILED tests/unit/test_retention_batch_fairness.py::test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices
+FAILED tests/unit/test_retention_batch_fairness.py::test_a_stalled_job_backs_off_as_for_an_error
+FAILED tests/unit/test_retention_batch_fairness.py::test_review_r1_stub_a_job_parking_without_work_no_longer_holds_the_only_slot
+FAILED tests/unit/test_retention_batch_fairness.py::test_jobs_that_never_finish_take_turns_in_the_order_they_began_waiting
+FAILED tests/unit/test_retention_batch_fairness.py::test_parked_jobs_hold_at_most_batch_minus_one_slots_while_a_job_waits
+FAILED tests/unit/test_retention_batch_fairness.py::test_a_pass_past_its_deadline_still_starts_one_job_beside_parked_ones
+FAILED tests/unit/test_retention_batch_fairness_properties.py::test_every_waiting_job_starts_within_a_bounded_number_of_passes
+7 failed in 51.28s
+property test's shrunk counterexample on base: batch=1, plans=[('progress', 0), ('done', 0)] -> AssertionError: ('job-1', 4, 5, 4, ['job-0'], {}) (job-1 waited 5 passes, bound 4; only job-0 ever started)

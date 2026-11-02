@@ -1,0 +1,11 @@
+fix (working tree on 95a709dc7)
+pass pruned       in_flight    more  progressed  hot slice (last_work, last_reached)  deferred
+   1 []           ['job-hot']  True  True        (3, 4)                               {}
+   2 ['job-new']  []           True  True        -                                    {'job-hot': 'yielded: 1 slice since it started, for job-new'}
+   3 []           ['job-hot']  True  True        (1, 4)                               {}
+   4 []           ['job-hot']  True  True        (1, 4)                               {}
+   5 []           ['job-hot']  True  True        (1, 4)                               {}
+   6 []           []           False True        (1, 4)                               {'job-hot': 'stalled: 3 slices in a row got no further than step 4'}
+   7 []           []           False False       -                                    {'job-hot': 'stalled'}
+   8 []           []           False False       -                                    {'job-hot': 'stalled'}
+job-new still in the store: False
