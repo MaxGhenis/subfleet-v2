@@ -25,11 +25,18 @@ The synthetic fixture could not show either problem. Its repositories all had de
 ## What changed
 
 - **A certain negative.** A walk that reaches the root with no `.git` and no `HEAD` on the way needs no process. This covers 611 live workdirs. A filesystem boundary stays with Git.
-- **Config by allow-list.** The parser accepts only names tried against real Git with bad values: `extensions.worktreeConfig` (a boolean, since Git dies on anything else), `extensions.partialClone`, format versions 0 and 1, `core.hooksPath`, `core.untrackedCache`, the sparse booleans, and the named keys of `pull`, `http`, `submodule`, `rerere`, `gc`, `blame` and `user`. `core.compression`, `index.sparse` and `user.useconfigonly` fail Git on a bad value, so they stay refused.
-- **`config.worktree`.** Git reads the checkout's own file only with the extension on, so the parser does the same. A file it can't read as plain goes to Git.
-- **A targeted salvage search.** `rgit.no_refs_under` proves from the files ref store that a repository lacks a ref. A repository without one of the job's refs can't be the job's, so the search skips it. Any doubt (a loose folder, a packed line, a reftable store, an unreadable file) falls through to `for-each-ref`, as before.
-- **A deadline on listings.** `Context.salvage_refs` takes the same checkpoint as the census, and a deadline defers the job through the existing path.
+- **Config by allow-list.** Plain sections accept only names tried against real Git with bad values: `extensions.worktreeConfig` (a boolean, since Git dies on anything else), `extensions.partialClone`, format versions 0 and 1, `core.hooksPath`, `core.untrackedCache`, the core booleans (including sparse checkout), and the named keys of `pull`, `http`, `submodule`, `rerere`, `gc`, `blame` and `user`. Repository subsections are limited to `remote`, `branch` and `submodule`, whose keys Git reads lazily; differential cases try bad values on several keys in each. Every other subsection, including `[color "advice"]` and unknown sections, goes to Git. `core.compression`, `index.sparse` and `user.useconfigonly` fail Git on a bad value, so they stay refused.
+- **`config.worktree`.** Git reads the checkout's own file only with the extension on, so the parser does the same. It accepts only plain `[core]` sections there; any subsection or other section goes to Git.
+- **An ambient-config guard.** Once per census, `rgit.ambient_plain` uses `rgit.run` and retention's `rgit.environment()` to check system, global and XDG config. Scoped config outside any repository must load successfully and contain no `include.*` or `includeif.*` key. Git must also initialize and discover a fresh repository under the job's `TMPDIR`, catching ambient values rejected during repository startup. Failure logs once that pass and sends every workdir to Git. The guard costs a constant number of processes per census.
+- **A targeted salvage search.** `rgit.no_refs_under` proves absence only for an ASCII prefix without `*`, `?`, `[` or backslash, in a files ref store whose common directory has no `commondir` redirect. A repository without one of the job's refs can't be the job's, so the search skips it. Any doubt (a loose folder, a packed line, a reftable store, an unreadable file, another common-directory redirect or unsupported prefix) falls through to `for-each-ref`, as before.
+- **A deadline on listings.** `Context.salvage_refs` checks the census deadline and passes the time left to `refs_under`, capped at 120 s. A listing failure after the deadline defers the job for one hour through the existing path and is not cached; other failures keep the existing behavior.
 - **The job's own index.** `probe_tmpdir_rows` writes `+kind` when it filters by job, so the planner takes `events_job`. No schema changes.
+
+## Review r1 findings and fixes
+
+Review r1 found a decision change: unchecked subsections in a linked checkout's `config.worktree` could put a repository in the fast census even though Git refused it. Ambient conditional includes could do the same. The parser now limits repository subsections and refuses every subsection in `config.worktree`; the ambient guard sends every workdir to Git on includes or startup failures. Real-Git comparisons cover the admitted sections, the bad advice color, conditional includes and uniform bad ambient values.
+
+The review also found three unsound ref-absence proofs: a second `commondir`, Unicode normalization and Git pattern matching. All three now require Git. A slow salvage listing previously received the default 120 s even near the deadline and cached a timeout as an empty listing; it now gets the remaining time and a failure after expiry defers without caching. The contract and invariants below state those limits. The parked-job batch-slot finding P3-4 predates this branch and remains out of scope.
 
 ## Live results
 
@@ -61,26 +68,42 @@ Differential against real Git on the live set: 1,117 positives, covering every d
 
 These hold for every input the tests generate.
 
-1. **Git is the oracle.** `fast_common_dir(path)` equals `common_dir(path)`, across composed repository shapes and config lines. Where they disagree, the fast path is wrong.
+1. **Git is the oracle.** With the once-per-census ambient guard satisfied, `fast_common_dir(path)` equals `common_dir(path)` across the composed repository shapes and config lines the tests cover. A refused shape uses Git; a failed ambient guard makes the entire census use Git. A difference in a completed discovery is a bug.
 2. **Determinism.** The probe keeps no memory, so a second call gives the same answer.
 3. **Same census.** A complete `known_repositories` returns the same set as the old walk.
 4. **No partial census.** At the deadline `ctx.repositories` stays unset, the job defers, and no journal, lease, quarantine or archive remains.
 5. **The bound holds.** After the deadline, no walk starts another Git process, and a fallback gets only the time left.
-6. **Same salvage answer.** The targeted search finds the same repository as listing every repository, however the refs sit and whichever store holds them.
-7. **The negative is sound.** `no_refs_under` returning True implies `refs_under` is empty.
+6. **Same salvage answer.** For a completed search over stable, readable repositories, skipping only proved absences preserves the candidate order and finds the same repository as listing every repository. Common-directory redirects and unsupported stores or prefixes use Git.
+7. **The negative is sound.** For the same stable ref store, `no_refs_under` returning True implies a successful `refs_under` listing is empty. The proof refuses common-directory redirects, non-ASCII prefixes and Git pattern characters; it never proves absence from an unsupported or unreadable store.
 8. **Same probe rows.** One job's rows match what the `kind` scan returns.
 9. **Fail safe.** A repository missing from the census keeps the job, its registration and its salvage refs.
 
 ## Tests
 
-384 tests pass on 8738366e7 across the five retention test files (`test_retention_git_common_dir`, `test_retention_repository_walk`, `test_attempt_tmpdir_retention`, `test_retention_81_notes`, `test_retention_archive`). CI runs the whole suite.
+The pre-review run passed 384 tests on 8738366e7 across the five retention test files (`test_retention_git_common_dir`, `test_retention_repository_walk`, `test_attempt_tmpdir_retention`, `test_retention_81_notes`, `test_retention_archive`). CI runs the whole suite.
 
-Mutants: `mutants.py` removed 30 safety rules one at a time from a scratch copy, and ran the two fix test files against each. The first run killed 28. The two survivors were real gaps, and each now has a test:
+Review-r1 validation: all 461 tests passed serially, without `-n`, with `UV_CACHE_DIR=$TMPDIR/uv-cache`, in 1557.68 s under Git 2.55.0. Per-file case times include fixture work:
+
+| File | Passed | Time |
+| --- | ---: | ---: |
+| `test_retention_git_common_dir.py` | 249 | 94.64 s |
+| `test_retention_repository_walk.py` | 59 | 80.15 s |
+| `test_attempt_tmpdir_retention.py` | 6 | 0.72 s |
+| `test_retention_81_notes.py` | 38 | 264.83 s |
+| `test_retention_archive.py` | 109 | 1085.75 s |
+
+The job's sandbox refuses writes to the assigned checkout's Git index, which lives outside its writable workspace. The functional fix and validation evidence are therefore committed on `fix/retention-repo-walk` in temporary Git metadata rooted at the exact assigned base, with a portable `retention-review-r1.bundle` under the job's `TMPDIR`; the assigned checkout's HEAD and Git pointer remain unchanged.
+
+The committed driver is `tools/mutants_retention_repo_walk.py`; it resolves its source and test paths from the repository and mutates one rule at a time in a disposable scratch copy. Its baseline runs both fix test files; each mutant runs focused tests first and retries both complete files if those pass. All runs are serial. Its output is committed in `docs/reports/2026-11-01-retention-repo-walk-mutants.log`. The original 30-rule run below is historical evidence; the review-r1 run adds mutants for the subsection, ambient-config, ref-absence and listing-deadline rules.
+
+Review-r1 mutants: the final-source baseline passed all 308 fix tests. Of 61 mutations (the original 30 plus 31 review rules), 60 were killed, one was equivalent, and none survived unexpectedly; no mutation was unapplied and no driver error occurred. `include-unrefused` is now equivalent: removing its explicit check still leaves the plain-section and subsection allow-lists rejecting every include form. The driver confirmed that equivalence with all 308 fix tests passing. Every new review-rule mutant died, including the slow-Git timeout-forwarding mutant. The appended run is recorded in the committed mutant log.
+
+The original driver removed 30 safety rules one at a time. Its first run killed 28. The two survivors were real gaps, and each gained a test:
 
 - `include-unrefused`: no test used an include with a subsection, which is the only form the section allow-list doesn't already refuse. `[includeIf "gitdir:/"]` now has one, and a second test shows a bad included file failing Git and the probe alike.
 - `salvage-proof-needs-all`: the answer stayed the same and only the cost changed, because a repository lacking one of the job's refs still got listed. A test now counts the listings.
 
-The rerun killed both, so all 30 die on the final tests. `unterminated-quote-passes` matched its pattern and died in the first run.
+The original rerun killed both, so all 30 died on those tests. `unterminated-quote-passes` matched its pattern and died in the first run.
 
 ## What remains
 

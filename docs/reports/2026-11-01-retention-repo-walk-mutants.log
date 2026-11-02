@@ -40,3 +40,71 @@ hold 00:03:42Z slot A load { 21.85 30.17 47.41 }
 {"name": "include-unrefused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_doubtful_config_goes_to_git[[includeIf \"gitdir:/\"]\\n\\tpath = el", "seconds": 15.1}
 {"name": "salvage-proof-needs-all", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_search_skips_a_repository_that_lacks_any_one_of_the_re", "seconds": 34.9}
 end 2026-11-02T00:05:18Z rc 0
+
+# Review r1 fixes: repository-local driver, original rules and new safety rules
+start 2026-11-02T12:28:31.738933+00:00
+command: UV_CACHE_DIR="$TMPDIR/uv-cache" .venv/bin/python tools/mutants_retention_repo_walk.py
+{"name": "baseline", "rc": 0, "note": "308 passed in 265.53s (0:04:25)", "seconds": 279.6}
+{"name": "fallback-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_generated_matrix_matches_real_git[bare]", "seconds": 21.7}
+{"name": "no-repository-at-boundary", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_a_filesystem_boundary_is_left_to_git", "seconds": 28.0}
+{"name": "head-in-walk-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_generated_matrix_matches_real_git[bare]", "seconds": 137.2}
+{"name": "negative-goes-to-git", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_repository_up_to_the_root_needs_no_process", "seconds": 29.5}
+{"name": "sections-unrefused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[index]\\n\\tsparse = maybe\\n]", "seconds": 54.5}
+{"name": "section-keys-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[user]\\n\\tuseconfigonly = maybe\\n]", "seconds": 46.3}
+{"name": "include-unrefused", "killed": false, "rc": 0, "note": "308 passed in 367.51s (0:06:07)", "seconds": 418.0, "equivalent": true, "reason": "The plain-section allowlist rejects include/includeIf without subsections; the subsection allowlist rejects them with subsections. Removing the explicit include guard cannot admit either form."}
+{"name": "unknown-extensions-pass", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[core]\\n\\trepositoryformatversion = 1\\n[extensions]\\n\\tfrobnicate = 1\\n]", "seconds": 44.2}
+{"name": "extension-boolean-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[extensions]\\n\\tworktreeconfig = maybe\\n]", "seconds": 57.4}
+{"name": "version-2-passes", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[core]\\n\\trepositoryformatversion = 2\\n]", "seconds": 97.2}
+{"name": "core-keys-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[core]\\n\\tcompression = abc\\n]", "seconds": 55.7}
+{"name": "core-booleans-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[core]\\n\\tsparsecheckout = maybe\\n]", "seconds": 37.6}
+{"name": "worktree-key-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_unusual_metadata_is_left_to_git[missing-core-worktree]", "seconds": 32.2}
+{"name": "config-worktree-unread", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_worktree_matches_real_git[admin-on-[core]\\n\\tsparsecheckout = maybe\\n]", "seconds": 29.1}
+{"name": "unterminated-quote-passes", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[branch \"a\"]\\n\\tx = \"unterminated\\n]", "seconds": 43.8}
+{"name": "reftable-unrefused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_leaves_a_reftable_store_to_git", "seconds": 22.5}
+{"name": "loose-ref-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_never_contradicts_git", "seconds": 31.7}
+{"name": "packed-ref-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_takes_a_whole_ref_name[('add', 'pack')-refs/subfleet-salvage/job-a1-False]", "seconds": 48.4}
+{"name": "packed-limit-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_leaves_an_oversized_or_unreadable_store_to_git", "seconds": 40.6}
+{"name": "census-deadline-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_known_repositories_deadline_during_registration", "seconds": 22.4}
+{"name": "context-drops-deadline", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_context_does_not_publish_incomplete_repository_census", "seconds": 29.4}
+{"name": "pass-drops-deadline", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_discovery_deadline_defers_without_partial_retirement_and_backs_off", "seconds": 46.9}
+{"name": "partial-census-published", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_context_does_not_publish_incomplete_repository_census", "seconds": 38.8}
+{"name": "allocation-replay-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_allocation_created_during_census_invalidates_absent_snapshot", "seconds": 39.7}
+{"name": "allocation-casefold-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_allocation_snapshot_aliases_keep_original_per_path_checks[case-job-CASE-JOB]", "seconds": 27.8}
+{"name": "salvage-deadline-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_listing_stops_at_the_deadline_and_keeps_no_partial_answer", "seconds": 44.7}
+{"name": "salvage-proof-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_search_lists_only_the_repository_that_might_hold_the_refs", "seconds": 64.2}
+{"name": "salvage-proof-needs-all", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_search_skips_a_repository_that_lacks_any_one_of_the_refs", "seconds": 56.3}
+{"name": "salvage-proof-inverted", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_search_lists_only_the_repository_that_might_hold_the_refs", "seconds": 32.7}
+{"name": "probe-kind-index", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_one_jobs_probe_rows_use_the_job_index_and_match_the_kind_scan", "seconds": 36.5}
+{"name": "repository-subsections-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_doubtful_config_goes_to_git[[color \"advice\"]\\n\\thint = notacolor\\n]", "seconds": 54.2}
+{"name": "worktree-subsections-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_worktree_subsections_are_always_left_to_git[remote]", "seconds": 33.2}
+{"name": "remote-subsections-refused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_safe_config_needs_no_process[[remote \"o\"]\\n\\turl = \\n]", "seconds": 31.3}
+{"name": "branch-subsections-refused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_safe_config_needs_no_process[[branch \"a\"]\\n\\tgithub-pr-owner-number = \"owner#repository#1\"\\n]", "seconds": 34.5}
+{"name": "submodule-subsections-refused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_safe_config_needs_no_process[[submodule \"m\"]\\n\\tactive = true\\n]", "seconds": 22.7}
+{"name": "ambient-listing-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_config_matches_git_and_forces_census_fallback[plain-home]", "seconds": 30.9}
+{"name": "ambient-includes-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_config_matches_git_and_forces_census_fallback[include-home]", "seconds": 27.1}
+{"name": "ambient-unconditional-includes-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_config_matches_git_and_forces_census_fallback[include-home]", "seconds": 30.0}
+{"name": "ambient-conditional-includes-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_config_matches_git_and_forces_census_fallback[includeif-home]", "seconds": 23.5}
+{"name": "ambient-init-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_config_matches_git_and_forces_census_fallback[plain-home]", "seconds": 13.0}
+{"name": "ambient-startup-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_guard_has_constant_process_cost_and_runs_once_per_census", "seconds": 6.5}
+{"name": "ambient-errors-accepted", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_config_matches_git_and_forces_census_fallback[bad-value-home]", "seconds": 26.0}
+{"name": "ambient-unfiltered-environment", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_guard_uses_retention_environment_not_unpassed_git_config", "seconds": 21.4}
+{"name": "ambient-outside-cwd-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_guard_has_constant_process_cost_and_runs_once_per_census", "seconds": 11.5}
+{"name": "ambient-probe-budget-restarted", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_guard_requires_each_probe_and_shares_its_timeout[None]", "seconds": 15.5}
+{"name": "ambient-expired-probe-started", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_guard_starts_no_probe_after_timeout_or_cancellation", "seconds": 16.5}
+{"name": "ambient-probe-cancellation-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_guard_starts_no_probe_after_timeout_or_cancellation", "seconds": 18.4}
+{"name": "ambient-census-check-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_guard_has_constant_process_cost_and_runs_once_per_census", "seconds": 6.8}
+{"name": "ambient-census-gate-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_config_matches_git_and_forces_census_fallback[include-home]", "seconds": 24.5}
+{"name": "ambient-census-check-repeated", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_guard_has_constant_process_cost_and_runs_once_per_census", "seconds": 20.9}
+{"name": "ambient-fallback-log-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_ambient_config_matches_git_and_forces_census_fallback[include-home]", "seconds": 13.0}
+{"name": "redirected-ref-store-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_leaves_a_redirected_common_directory_to_git", "seconds": 14.0}
+{"name": "dangling-ref-redirect-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_refuses_even_a_dangling_commondir", "seconds": 15.9}
+{"name": "unicode-ref-prefix-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_leaves_unicode_normalization_to_git[NFD]", "seconds": 8.5}
+{"name": "pattern-ref-prefix-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_leaves_pattern_matching_to_git[job-a*]", "seconds": 17.8}
+{"name": "refs-listing-timeout-unforwarded", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_slow_git_listing_obeys_real_deadline_and_is_not_cached", "seconds": 11.8}
+{"name": "salvage-listing-time-left-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_listing_timeout_is_remaining_time_capped_at_120[3-3]", "seconds": 17.5}
+{"name": "salvage-listing-timeout-cap-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_listing_timeout_is_remaining_time_capped_at_120[300-120]", "seconds": 17.7}
+{"name": "salvage-listing-failure-deadline-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_failed_salvage_listing_only_caches_failures_before_deadline[True-GitError]", "seconds": 22.4}
+{"name": "salvage-expired-failure-cached", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_failed_salvage_listing_only_caches_failures_before_deadline[True-GitError]", "seconds": 20.8}
+{"name": "salvage-ordinary-failure-uncached", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_failed_salvage_listing_only_caches_failures_before_deadline[False-GitError]", "seconds": 20.7}
+{"name": "summary", "killed": 60, "equivalent": 1, "survived": 0, "unapplied": 0, "errors": 0}
+end 2026-11-02T13:13:59.441577+00:00 rc 0
