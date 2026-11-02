@@ -14,6 +14,7 @@ stops moving is how far the walk gets (`Retirement.last_reached`).
 from __future__ import annotations
 
 import os
+import threading
 import time
 
 import pytest
@@ -76,8 +77,8 @@ def test_a_real_archive_parks_without_progress_while_a_file_changes_between_slic
     """Review r1 of #286, P3-4, with no stub: the hot file's read outlasts the
     slice and the file changes between slices. Each slice reads it again, writes
     a progress record for its new version, and parks at the next entry. With
-    `batch=1` the job behind it must still start, and the hot job is put back
-    and deferred, its archive progress kept."""
+    `batch=1` the job behind it must still start, and the pass puts the hot
+    job back and defers it, keeping its archive progress."""
     w = world
     wt = hot_job(w, "job-hot", "2026-09-01T00:00:00Z")
     w.job("job-new", created="2026-09-01T00:01:00Z")
@@ -122,7 +123,7 @@ def test_a_real_archive_parks_without_progress_while_a_file_changes_between_slic
 def test_a_stalled_job_backs_off_as_for_an_error(world, monkeypatch):
     """The stall rule alone, real builder, no job waiting: the hot job parks
     once to set how far it got, then gets no further in `STALL_SLICES` slices
-    in a row and is put back, its archive kept. The deferral is the error
+    in a row, and the pass puts it back with its archive kept. The deferral is the error
     backoff's: 6 h, then twice that the next time it stalls."""
     w = world
     wt = hot_job(w, "job-hot", "2026-09-01T00:00:00Z")
@@ -200,7 +201,8 @@ def test_review_r1_stub_a_job_parking_without_work_no_longer_holds_the_only_slot
     """Review r1 of #286, P3-4, as the review ran it: `Retirement.archive`
     parks `job-a` without doing work every slice, `batch=1`. Before, over 4
     passes `job-b-new` never started. Now `job-a` yields at the second pass,
-    `job-b-new` retires there, and `job-a`, restarted, is put back as stalled."""
+    `job-b-new` retires there, and the pass puts `job-a`, restarted, back as
+    stalled."""
     w = world
     w.job("job-a", worktree=False, created="2026-09-01T00:00:00Z")
     w.job("job-b-new", worktree=False, created="2026-09-01T00:01:00Z")
@@ -318,13 +320,70 @@ def test_a_start_refused_at_selection_queues_behind_the_others(world, monkeypatc
     assert [r["pruned"] for r in results] == [[], ["job-b"], ["job-c"], []]
 
 
+def test_a_job_that_yields_queues_ahead_of_one_that_begins_waiting_after(world, monkeypatch):
+    """`job-a` yields for `job-b` and takes its ticket then. `job-x`, older but
+    deferred until after the yield, begins waiting a pass later, so it queues
+    behind `job-a`: age orders only the jobs that begin waiting in the same
+    pass."""
+    w = world
+    for n, job_id in enumerate(["job-x", "job-a", "job-b"]):
+        w.job(job_id, worktree=False, created=f"2026-09-01T00:0{n}:00Z")
+    clock = Clock()
+    slices = Slices(monkeypatch, clock, {"job-a": always("progress")})
+    state = retention.RetentionState()
+    state.defer("job-x", 10_000, "held by the test", clock())
+    results = [run(w, state=state, clock=clock, slice_s=60, batch=1) for _ in range(2)]
+    assert results[1]["deferred"]["job-a"] == "yielded: 1 slice since it started, for job-b", results[1]
+    assert results[1]["pruned"] == ["job-b"], results[1]
+    clock.advance(10_000)
+    results = [run(w, state=state, clock=clock, slice_s=60, batch=1) for _ in range(2)]
+    assert slices.starts == ["job-a", "job-b", "job-a", "job-x"], slices.starts
+    assert results[1]["pruned"] == ["job-x"] and results[1]["deferred"]["job-a"].startswith("yielded"), results[1]
+
+
+def test_a_job_cancelled_before_its_first_slice_keeps_its_slot_for_one(world, monkeypatch):
+    """A pass cancelled after it started `job-a` and before its slice leaves a
+    full batch of jobs that have had no slice since they started (with
+    `batch=1`, just `job-a`). The next pass gives `job-a` its slice rather than
+    asking it to yield, so a start always buys a slice; the pass after that, it
+    yields to `job-b`."""
+    w = world
+    w.job("job-a", worktree=False, created="2026-09-01T00:00:00Z")
+    w.job("job-b", worktree=False, created="2026-09-01T00:01:00Z")
+    clock = Clock()
+    slices = Slices(monkeypatch, clock, {"job-a": always("progress")})
+    cancel = threading.Event()
+    armed = [True]
+    check_holders = retention._Pass._check_holders
+
+    def cancelled_after_check1(self, retirements, *, second):
+        check_holders(self, retirements, second=second)
+        if not second and "job-a" in retirements and armed:
+            armed.clear()
+            cancel.set()
+
+    monkeypatch.setattr(retention._Pass, "_check_holders", cancelled_after_check1)
+    state = retention.RetentionState()
+    first = run(w, state=state, clock=clock, slice_s=60, batch=1, cancel=cancel)
+    assert first["interrupted"] == "cancelled" and slices.starts == ["job-a"] and slices.log == [], first
+    assert rarch.load_journal(w.root, "job-a")["state"] == "quarantined"
+    assert state.holds["job-a"].slices == 0
+    cancel.clear()
+    second = run(w, state=state, clock=clock, slice_s=60, batch=1, cancel=cancel)
+    assert "job-a" not in second["deferred"] and second["in_flight"] == ["job-a"] and second["more"], second
+    assert slices.log == ["job-a"] and slices.starts == ["job-a"], (slices.log, slices.starts)
+    third = run(w, state=state, clock=clock, slice_s=60, batch=1, cancel=cancel)
+    assert third["deferred"]["job-a"] == "yielded: 1 slice since it started, for job-b", third
+    assert third["pruned"] == ["job-b"], third
+
+
 BIG = 48 * 1024
 
 
 def test_slow_read_backs_are_progress_not_a_stall(world, monkeypatch):
     """Of a tree that does not change, every slice gets further, in each phase:
-    six files whose every read outlasts the slice park once a file while they
-    are archived and once a file while their copies are read back. None of
+    six files whose every read outlasts the slice park once a file while the
+    builder archives them and once a file while it reads their copies back. None of
     those slices is a stall, and the job retires."""
     w = world
     wt = w.job("job-big")

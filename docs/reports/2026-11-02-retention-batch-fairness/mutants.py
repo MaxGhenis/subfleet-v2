@@ -20,8 +20,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 R, A = "subfleet/retention.py", "subfleet/retention_archive.py"
-NEW = ["tests/unit/test_retention_batch_fairness.py", "tests/unit/test_retention_batch_fairness_properties.py"]
-N3 = ["tests/unit/test_retention_archive.py", "-k", "slice or turns or parks or slow"]
+#: Each group is one pytest call, so a `-k` filter selects only within its own group.
+NEW = [["tests/unit/test_retention_batch_fairness.py", "tests/unit/test_retention_batch_fairness_properties.py"]]
+N3 = [["tests/unit/test_retention_archive.py", "-k", "slice or turns or parks or slow"]]
 
 MUTANTS = [
     ("no-yield", R, "yielded = self._make_room(in_flight, order, by_id, counts, totals) if order else []",
@@ -55,13 +56,21 @@ MUTANTS = [
 ]
 
 
-def run(tests: list[str]) -> tuple[int, str]:
+def run(groups: list[list[str]]) -> tuple[int, str]:
+    """Run each group until one fails; a group that selects no test counts as a failure of the runner."""
     env = {**os.environ, "RETENTION_FAIRNESS_EXAMPLES": os.environ.get("RETENTION_FAIRNESS_EXAMPLES", "25")}
-    proc = subprocess.run([sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-x", "-rf", *tests],
-                          cwd=ROOT, env=env, capture_output=True, text=True)
-    failed = [line for line in proc.stdout.splitlines() if line.startswith("FAILED")]
-    tail = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else proc.stderr[-300:]
-    return proc.returncode, "; ".join(failed) or tail
+    details = []
+    for tests in groups:
+        proc = subprocess.run([sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-x", "-rf", *tests],
+                              cwd=ROOT, env=env, capture_output=True, text=True)
+        failed = [line for line in proc.stdout.splitlines() if line.startswith("FAILED")]
+        tail = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else proc.stderr[-300:]
+        details.append("; ".join(failed) or tail)
+        if proc.returncode == 5:
+            raise SystemExit(f"no test selected by {tests}")
+        if proc.returncode:
+            return proc.returncode, details[-1]
+    return 0, " | ".join(details)
 
 
 def main(names: list[str]) -> None:

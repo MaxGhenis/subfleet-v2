@@ -19,8 +19,8 @@ does not hold, and the archive is read back before the job's rows go. A pass:
 3. quarantines them and checks, with one process listing for the batch, that
    nothing holds them;
 4. archives each within a time slice (a job that needs more is parked with its
-   progress and continues next pass; the others go on). A parked job whose
-   slices stop getting further is put back and deferred, and while a job
+   progress and continues next pass; the others go on). The pass puts back
+   and defers a parked job whose slices stop getting further, and while a job
    waits, parked jobs hold at most `batch - 1` slots: the one that has had the
    most slices yields, and waiting jobs start in the order they began waiting;
 5. checks holders again, re-validates every signature, commits, and deletes.
@@ -61,8 +61,8 @@ _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 BATCH = 32
 #: Seconds of archiving a job gets per pass before it is parked.
 SLICE_S = 120.0
-#: Slices in a row a parked job may get no further before it is put back and
-#: deferred (review r1 of #286, P3-4). One slice that begins a walk again
+#: Slices in a row a parked job may get no further before the pass puts it
+#: back and defers it (review r1 of #286, P3-4). One slice that begins a walk again
 #: after finding a nested repository gets no further than the last one did.
 STALL_SLICES = 3
 #: A measured size is trusted this long; stale sizes are never a safety input.
@@ -752,10 +752,12 @@ class _Pass:
                    counts: dict[str, int], totals: dict[str, int]) -> list[str]:
         """With a job waiting, parked jobs hold at most `batch - 1` slots: while
         more are in flight, the parked job that has had the most slices since it
-        started yields. It is put back with its archive kept (an idle cache, so
-        its next start reads only what changed), not deferred, and queued behind
-        every job waiting now. A job yet to have a slice since it started is not
-        asked to yield. Returns the jobs that yielded."""
+        started yields. The pass puts it back with its archive kept (an idle
+        cache, so its next start reads only what changed), without a deferral,
+        and gives it a ticket behind every job waiting now. It never asks a job
+        yet to have a slice since it started to yield, so a start always buys a
+        slice, even after a pass cancelled between them. Returns the jobs that
+        yielded."""
         holds = self.state.holds
         needed = len(in_flight) - (self.batch - 1)
         parked = sorted((job_id for job_id in in_flight if job_id in holds and holds[job_id].slices > 0),
