@@ -290,3 +290,62 @@ def test_a_pass_past_its_deadline_still_starts_one_job_beside_parked_ones(world,
     result = run(w, state=state, clock=clock, slice_s=60, batch=3, deadline=clock() + 1, measure_s=0)
     assert slices.starts[3:] == ["job-d"], slices.starts
     assert result["pruned"] == ["job-d"] and result["in_flight"] == ["job-a"] and result["more"], result
+
+
+def test_a_start_refused_at_selection_queues_behind_the_others(world, monkeypatch):
+    """A start refused at selection (a turn on the tree, a lease, a pin that
+    holds only this pass) counts as the job's turn: it leaves the queue and,
+    still eligible next pass, queues behind the jobs that were waiting, so a job
+    refused every pass never keeps the head of the queue."""
+    w = world
+    for n, job_id in enumerate(["job-x", "job-b", "job-c"]):
+        w.job(job_id, worktree=False, created=f"2026-09-01T00:0{n}:00Z")
+    clock = Clock()
+    attempts = []
+    start = retention._Pass._start
+
+    def refusing(self, job, protected):
+        attempts.append(job["job_id"])
+        if job["job_id"] == "job-x":
+            protected.add("job-x")              # as `_start` does for "turn-folder"
+            return None
+        return start(self, job, protected)
+
+    monkeypatch.setattr(retention._Pass, "_start", refusing)
+    state = retention.RetentionState()
+    results = [run(w, state=state, clock=clock, batch=1) for _ in range(4)]
+    assert attempts == ["job-x", "job-b", "job-c", "job-x"], attempts
+    assert [r["pruned"] for r in results] == [[], ["job-b"], ["job-c"], []]
+
+
+BIG = 48 * 1024
+
+
+def test_slow_read_backs_are_progress_not_a_stall(world, monkeypatch):
+    """Of a tree that does not change, every slice gets further, in each phase:
+    six files whose every read outlasts the slice park once a file while they
+    are archived and once a file while their copies are read back. None of
+    those slices is a stall, and the job retires."""
+    w = world
+    wt = w.job("job-big")
+    for n in range(6):
+        (wt / f"big-{n}.bin").write_bytes(os.urandom(BIG))
+    clock = Clock()
+    original = rfs.read_hashes
+    reads = []
+
+    def slow(fd, size, fmt, check=None):
+        if size == BIG:
+            reads.append(size)
+            clock.advance(100)
+        return original(fd, size, fmt, check)
+
+    monkeypatch.setattr(rfs, "read_hashes", slow)
+    state = retention.RetentionState()
+    for _ in range(30):
+        result = run(w, state=state, clock=clock, slice_s=60)
+        assert not result["deferred"], result
+        if result["pruned"]:
+            break
+    assert result["pruned"] == ["job-big"], result
+    assert len(reads) >= 12, reads                  # archived and read back, each in its own slice
