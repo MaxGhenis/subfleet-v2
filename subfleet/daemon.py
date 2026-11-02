@@ -367,6 +367,12 @@ def _left_out(skipped: dict) -> str:
     return f"{count} nested repositor{'y' if count == 1 else 'ies'} with no commit, kept only in the worktree: {shown}"
 
 
+def _retired_field(retired: set[str] | None) -> dict:
+    """C-15.9: a `wait` answer's `retired`, the resolved jobs retention retired
+    during the poll, sorted; nothing when there are none."""
+    return {"retired": sorted(retired)} if retired else {}
+
+
 def _lane_fault_of(evidence_json: str | None) -> dict | None:
     """C-4.5: the lane fault an attempt's evidence records (`Daemon._lane_fault`), or None."""
     try:
@@ -4833,8 +4839,14 @@ class Daemon:
         except (TypeError, ValueError):
             raise protocol.ProtocolError("deadline_s must be a number", reason="wait-deadline") from None
         job_ids = args.job_ids
+        # C-15.9: ids this poll resolves itself (`--mine`, `--last`) were rows when
+        # `list` read them, and retention (C-8.4) may retire one before the poll
+        # ends. Such a job is skipped and named in `retired`; an id the caller
+        # named is still unknown when its row is gone (`_job`).
+        retired: set[str] | None = None
         if not job_ids:
             job_ids = [j["job_id"] for j in self.dispatch("list", {"mine": args.mine, "last": 1 if args.last else None})["jobs"]]
+            retired = set()
         # C-15.5: this waiter reads the store when it starts and when the hub,
         # which reads once for every waiter after each commit, says its jobs may
         # be done. It registers before its first read, so no commit is missed; a
@@ -4844,7 +4856,7 @@ class Daemon:
             while True:
                 if read:
                     ready.clear()
-                    answer = self._wait_answer(job_ids)
+                    answer = self._wait_answer(job_ids, retired=retired)
                     if answer is not None:
                         return answer
                     read_at = time.monotonic()
@@ -4857,8 +4869,10 @@ class Daemon:
                     # commit that has not woken this waiter yet, since the hub wakes
                     # only after its own read (reviews r2 and r3, P2). It costs one
                     # read per timed-out poll.
-                    answer = self._wait_answer(job_ids)
-                    return answer if answer is not None else {"timeout": True}
+                    answer = self._wait_answer(job_ids, retired=retired)
+                    # C-15.9: the next poll's `list` no longer names a job retired
+                    # in this one, so a timeout still says which were skipped.
+                    return answer if answer is not None else {"timeout": True, **_retired_field(retired)}
                 if client_gone is not None and client_gone():
                     # C-16.7: no one is left to read the answer. Stop now, not at
                     # the deadline, and free this thread and the client's descriptor.
@@ -4873,10 +4887,19 @@ class Daemon:
                 read = read or (not self.wait_hub.running
                                 and time.monotonic() - read_at >= self.wait_hub.recheck_s)
 
-    def _wait_answer(self, job_ids: list[str]) -> dict | None:
-        """The answer to a `wait` if every job has ended and every export is done."""
+    def _wait_answer(self, job_ids: list[str], *, retired: set[str] | None = None) -> dict | None:
+        """The answer to a `wait` if every job has ended and every export is done.
+
+        With `retired`, the poll resolved its own ids (C-15.9): a listed job whose
+        row retention has since deleted is added to it and left out. Without, a
+        missing row is an unknown job (exit 2)."""
         with self.store.snapshot():         # one committed state for the whole answer
-            jobs = [self._job(j) for j in job_ids]
+            if retired is None:
+                jobs = [self._job(j) for j in job_ids]
+            else:
+                rows = {j: self.store.get_job(j) for j in job_ids}
+                retired.update(j for j, row in rows.items() if row is None)
+                jobs = [row for row in rows.values() if row is not None]
             # C-8.5: a host push's outcome is part of the answer, as an export is.
             pending_exports = any(self.store.one("SELECT 1 FROM leases WHERE holder=? AND (lease_key LIKE 'out:%' "
                                                  "OR lease_key LIKE 'push:%')", (j["job_id"],))
@@ -4888,7 +4911,7 @@ class Daemon:
                     "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
                 job["attempt"] = shell_flags(attempt) if attempt is not None else None
                 job["notices"] = self.store.query("SELECT * FROM notices WHERE job_id=? ORDER BY notice_id", (job["job_id"],))
-        return {"jobs": jobs, "timeout": False}
+        return {"jobs": jobs, "timeout": False, **_retired_field(retired)}
 
     def _running_s(self, job_id: str) -> float:
         """D-WALL1: provider execution across attempts, ending at a known exit.
