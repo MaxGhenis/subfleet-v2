@@ -109,11 +109,19 @@ def main():
     print(json.dumps(dict(stage='fixture', jobs=len(jobs), unique_workdirs=5140,
                           existing_workdirs=2300, existing_owned_trees=3, repositories=3,
                           load_avg=os.getloadavg())), flush=True)
+    original_run = rgit.run
+    count = 0
+    def counted_run(*args, **kwargs):
+        nonlocal count
+        count += 1
+        return original_run(*args, **kwargs)
+    # Count the actual subprocess boundary, including the ambient guard.
+    rgit.run = counted_run
     if args.mode in ('old', 'first-loop'):
         started = time.perf_counter()
         found, registrations = first_loop(jobs, state, old_owned)
         result = dict(stage='old-first-loop', seconds=time.perf_counter() - started,
-                      registration_calls=registrations, repositories=len(found))
+                      registration_calls=registrations, git_processes=count, repositories=len(found))
         (SCRATCH / 'scale-old-first-loop.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result), flush=True)
     if args.mode == 'first-loop':
@@ -125,21 +133,15 @@ def main():
         found = archive.known_repositories(jobs_without_workdirs, state)
         result = dict(stage='new-first-loop', seconds=time.perf_counter() - started,
                       process_cpu_seconds=time.process_time() - started_cpu,
-                      repositories=len(found))
+                      git_processes=count, repositories=len(found))
         (SCRATCH / 'scale-new-first-loop.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result), flush=True)
-    original_common = rgit.common_dir
     count = 0
-    def counted_common(*args, **kwargs):
-        nonlocal count
-        count += 1
-        return original_common(*args, **kwargs)
-    rgit.common_dir = counted_common
     started = time.perf_counter()
     found = (old_walk if args.mode == 'old' else archive.known_repositories)(jobs, state)
     elapsed = time.perf_counter() - started
     assert sorted(map(str, found)) == expected, found
-    result = dict(stage=args.mode, seconds=elapsed, subprocess_common_dir_calls=count,
+    result = dict(stage=args.mode, seconds=elapsed, git_processes=count,
                   repositories=len(found), jobs=len(jobs), distinct_workdirs=5140,
                   existing_workdirs=2300, existing_owned_trees=3)
     (SCRATCH / f'scale-{args.mode}.json').write_text(json.dumps(result, indent=2) + '\n')
