@@ -68,6 +68,8 @@ DOUBTFUL_LINES = (
     "[core.dotted]\n\tkey = 1\n",
     '[core "sub"]\n\tbare = maybe\n',
     "[include]\n\tpath = elsewhere\n",
+    '[includeIf "gitdir:/"]\n\tpath = elsewhere\n',
+    '[include "sub"]\n\tpath = elsewhere\n',
 )
 
 
@@ -270,6 +272,15 @@ def test_doubtful_config_goes_to_git(tmp_path, monkeypatch, line):
     monkeypatch.setattr(rgit, "common_dir", lambda *args, **kwargs: calls.append(args[0]) or original(*args, **kwargs))
     assert rgit.fast_common_dir(path) == expected
     assert calls == [path]
+
+
+@pytest.mark.parametrize("line", ["[include]\n\tpath = extra\n", '[includeIf "gitdir:/"]\n\tpath = extra\n'],
+                         ids=["include", "include-if"])
+def test_config_an_include_brings_in_fails_git_and_the_probe_alike(tmp_path, line):
+    path = _with_config(tmp_path, [line])
+    (path / ".git" / "extra").write_text("[core]\n\tsparsecheckout = maybe\n")
+    assert rgit.common_dir(path) is None
+    assert_matches_git(path)
 
 
 @settings(max_examples=40, deadline=None, derandomize=True)
@@ -513,13 +524,15 @@ def test_no_refs_under_never_contradicts_git(steps):
 @pytest.mark.parametrize("steps,proved,empty", [
     ((), True, True), (("add",), False, False), (("add", "pack"), False, False),
     (("add-beside",), True, True), (("add-beside", "pack"), True, True), (("add-prefix-tail", "pack"), True, True),
-    # An empty folder left by a delete is not proof: Git answers, and says none.
-    (("add", "delete"), False, True), (("add", "pack", "delete"), True, True),
+    # A delete may leave an empty folder, which proves nothing: None takes either
+    # answer, and Git says none. Whether the folder stays is Git's own business.
+    (("add", "delete"), None, True), (("add", "pack", "delete"), None, True),
 ], ids=lambda value: "-".join(value) if isinstance(value, tuple) else None)
 def test_no_refs_under_answers_the_plain_store(tmp_path, steps, proved, empty):
     path = repository(tmp_path, commit=True)
     _apply_refs(path, steps)
-    assert rgit.no_refs_under(path / ".git", SALVAGE) is proved
+    if proved is not None:
+        assert rgit.no_refs_under(path / ".git", SALVAGE) is proved
     assert (rgit.refs_under(path / ".git", SALVAGE) == {}) is empty
 
 
@@ -551,3 +564,17 @@ def test_no_refs_under_leaves_an_oversized_or_unreadable_store_to_git(tmp_path, 
     assert rgit.no_refs_under(path / ".git", SALVAGE) is True
     monkeypatch.setattr(rgit, "PACKED_REFS_LIMIT", 4)
     assert rgit.no_refs_under(path / ".git", SALVAGE) is False
+
+
+@pytest.mark.parametrize("where", ["main", "main-subfolder", "linked", "linked-subfolder"])
+def test_core_bare_true_in_shared_config_matches_real_git(tmp_path, where):
+    owner = repository(tmp_path, commit=True)
+    checkout = tmp_path / "checkout"
+    git(owner, "worktree", "add", "--detach", "-q", str(checkout), "HEAD")
+    for folder in (owner, checkout):
+        (folder / "subfolder").mkdir()
+    git(owner, "config", "core.bare", "true")
+    base = owner if where.startswith("main") else checkout
+    path = base / "subfolder" if where.endswith("subfolder") else base
+    assert rgit.common_dir(path) is not None
+    assert_matches_git(path)

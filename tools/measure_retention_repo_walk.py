@@ -27,7 +27,7 @@ import sys
 import time
 
 REPO = Path(__file__).resolve().parents[1]
-SCRATCH = Path(os.environ.get('TMPDIR', '/private/tmp/sf-repo-walk'))
+SCRATCH = Path(os.path.realpath(os.environ.get('TMPDIR', '/private/tmp/sf-repo-walk')))
 BASELINE = '18aa2a69562fc454241a0bfde5a0d32536c63680'
 sys.path.insert(0, str(REPO))
 from subfleet import retention_archive as archive  # noqa: E402

@@ -472,6 +472,15 @@ def test_salvage_search_lists_only_the_repository_that_might_hold_the_refs(tmp_p
     assert listed == [commons[2]]
 
 
+def test_salvage_search_skips_a_repository_that_lacks_any_one_of_the_refs(tmp_path):
+    commons = _repositories_with_refs(tmp_path, [(REF_NAMES[0],), (REF_NAMES[1],), REF_NAMES[:2]])
+    digest = rarch.salvage_digest(git(commons[2].parent, "rev-parse", "HEAD"))
+    listed = []
+    _, common, lost = _salvage_source(commons, dict.fromkeys(REF_NAMES[:2], digest), listed)
+    assert (common, lost) == (commons[2], None)
+    assert listed == [commons[2]]
+
+
 @settings(max_examples=25, deadline=None, database=None, derandomize=True,
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(st.lists(st.sets(st.sampled_from(REF_NAMES), max_size=3), min_size=1, max_size=4),
