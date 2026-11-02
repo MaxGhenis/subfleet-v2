@@ -633,6 +633,13 @@ def _gives_back(hold: dict) -> bool:
     return hold.get("reason") == "disk" or bool(hold.get("unprepared"))
 
 
+def _unrun_scope(job: dict) -> bool:
+    """C-6.20: whether a job's own columns put it in `UNRUN_TREES`: a writable job that runs in
+    a tree admission cuts for it, which no recorded worktree, push or turn (in place) does."""
+    return (job["sandbox"] == "workspace-write" and not job["in_place"] and job["worktree"] is None
+            and job["push_branch"] is None and job["kind"] != "turn")
+
+
 def _later(stamp: str, seconds: float) -> str:
     """`stamp` plus `seconds`, retaining fractional precision (C-11.8, C-9.5)."""
     return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
@@ -5101,7 +5108,7 @@ class Daemon:
         wall_family = family and data.get("by") == "daemon" and data.get("reason") == "max_wall_s"
         if exited is None:
             exited = self._wall_exited_descendants(job_id) if wall_family else set()
-        changed = False
+        changed = unrun = False
         family_sql = ("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
                       "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
                       if family else "WITH family(job_id) AS (SELECT ?) ")
@@ -5176,12 +5183,15 @@ class Daemon:
                         earlier = self._earlier_attempt(inner, row)
                         summary = "cancelled while waiting to retry" + earlier if earlier else "cancelled before launch"
                         self._notice(inner, row, summary + retained + ("\n" + requester if requester else ""))
+                        unrun = unrun or _unrun_scope(row)
                     elif requester and row["caller_session"]:
                         inner.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
                                       "VALUES(?,?,'pending',?)", (row["caller_session"], f"{row['job_id']}: {requester}", now))
         if changed:
             self._notify()
-            # C-6.20: a job cancelled before any attempt gives back the tree admission cut.
+        if unrun:
+            # C-6.20: a job cancelled before any attempt gives back the tree admission cut;
+            # a cancel outside the sweep's scope, a turn's above all, offers nothing.
             self._offer_unrun_sweep()
         return changed
 
@@ -9055,11 +9065,12 @@ class Daemon:
           looks cut nothing until one would (`_admit_pass`).
         Never a turn's, an in-place job's, a push's, a tree recorded in
         `jobs.worktree`, or a tree another live job's folder, row or lease is in.
-        Offered at start, on a cancel, when a pass first holds a job so, and before
-        each retention pass. Never beside retention (`_unrun_lock`) and never
-        while a detached pass may be cutting a tree (`_pass_locks["detached"]`,
-        taken for each tree, so placement waits for one tree at a time). Never
-        raises; returns how many trees it gave back.
+        Offered at start, on a cancel in its scope (`_unrun_scope`), when a pass
+        first holds a job so, and before each retention pass. Never beside
+        retention (`_unrun_lock`) and never while a detached pass may be cutting
+        a tree (`_pass_locks["detached"]`, taken for each tree, so placement
+        waits for one tree at a time). Never raises; returns how many trees it
+        gave back.
         """
         if not self._unrun_lock.acquire(blocking=False):
             self._unrun_dirty = True    # retention is running; it sweeps once its pass ends

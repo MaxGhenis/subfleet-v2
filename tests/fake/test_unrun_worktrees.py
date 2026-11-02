@@ -128,6 +128,65 @@ def test_a_link_in_place_of_a_tree_leaves_the_tree_it_names_registered(state_dae
     assert not given_back(daemon, job_id)
 
 
+def test_a_give_back_leaves_a_stale_registration_elsewhere_in_the_repository(state_daemon, repo, offers,  # noqa: F811
+                                                                            tmp_path):
+    """d635: the sweep drops its own tree's registration and never runs a repository-wide
+    `git worktree prune`, which would also drop this one, whose tree is gone, with the HEAD and
+    reflogs only it holds."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    cut(daemon, job_id)
+    stale = tmp_path / "stale"
+    git(repo, "worktree", "add", "-q", "-b", "stale", str(stale))
+    (stale / "tracked.txt").unlink()
+    stale.joinpath(".git").unlink()
+    stale.rmdir()
+    prunable = subprocess.run(["git", "-C", str(repo), "worktree", "prune", "--dry-run", "-v"],
+                              capture_output=True, text=True, check=True)
+    assert "worktrees/stale" in prunable.stdout + prunable.stderr      # a prune would drop it
+    assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
+    assert swept(daemon) == 1
+    assert job_id not in registered(repo)
+    assert (repo / ".git" / "worktrees" / "stale" / "gitdir").is_file()
+
+
+@pytest.mark.parametrize("shape", ["read-only", "in-place", "push", "recorded", "turn"])
+def test_a_cancel_outside_the_sweeps_scope_offers_no_sweep(state_daemon, repo, offers, shape):  # noqa: F811
+    """A cancel offers the sweep only for a job `UNRUN_TREES` could hold: conversation stops
+    cancel turn jobs, which run in place, many times an hour."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo, **({"sandbox": "read-only"} if shape == "read-only" else {}))
+    column = {"in-place": ("in_place", 1), "push": ("push_branch", "push/branch"),
+              "recorded": ("worktree", str(repo)), "turn": ("kind", "turn")}.get(shape)
+    if column:
+        with daemon.store.transaction("test.shape") as tx:
+            tx.execute(f"UPDATE jobs SET {column[0]}=? WHERE job_id=?", (column[1], job_id))
+    offers.clear()
+    assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
+    assert daemon.store.get_job(job_id)["state"] == "cancelled"
+    assert offers == []
+
+
+def test_the_cancels_scope_check_is_the_sweeps_query(state_daemon):  # noqa: F811
+    """Differential: `_unrun_scope`, which gates a cancel's offer, holds for a job's columns
+    exactly when `UNRUN_TREES` would select the job, over every combination of those columns."""
+    daemon, harness = state_daemon
+    job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    seen = set()
+    for sandbox in ("workspace-write", "read-only"):
+        for in_place in (0, 1):
+            for worktree in (None, "/tmp/recorded"):
+                for push in (None, "push/branch"):
+                    for kind in ("dispatch", "turn"):
+                        with daemon.store.transaction("test.shape") as tx:
+                            tx.execute("UPDATE jobs SET sandbox=?,in_place=?,worktree=?,push_branch=?,kind=? "
+                                       "WHERE job_id=?", (sandbox, in_place, worktree, push, kind, job_id))
+                        selected = job_id in {row["job_id"] for row in daemon.store.query(daemon_module.UNRUN_TREES)}
+                        assert daemon_module._unrun_scope(daemon.store.get_job(job_id)) is selected
+                        seen.add(selected)
+    assert seen == {True, False}
+
+
 def test_the_disk_hold_takes_back_a_waiting_tree_and_placement_cuts_it_again(state_daemon, repo, offers,  # noqa: F811
                                                                             monkeypatch):
     daemon, harness = state_daemon

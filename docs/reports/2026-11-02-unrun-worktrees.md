@@ -47,7 +47,7 @@ The job's due look asks again. The first look that a lane would take cuts the tr
 The daemon offers the sweep:
 
 - at start, once it serves;
-- when a cancel lands;
+- when a cancel ends a job whose tree it could give back (`_unrun_scope`, the columns `UNRUN_TREES` reads; never a turn's);
 - when a detached pass first holds a job on the disk hold or `unprepared` (once per job for each stretch of such holds);
 - before each retention pass, and again after it when an offer came while it ran.
 
@@ -81,7 +81,7 @@ The sweep reads the last two for each tree under the lock, since a pass that ran
 
 | # | Property | Tests |
 |---|---|---|
-| 1 | The sweep removes only `worktrees/<job id>` of a job that is no turn, writes, runs neither in place nor as a push, has no attempt and no recorded worktree, and whose path is no link. It removes nothing outside that path, and no registration but the tree's own. | `property`, `claim_alone`, `link_in_place` |
+| 1 | The sweep removes only `worktrees/<job id>` of a job that is no turn, writes, runs neither in place nor as a push, has no attempt and no recorded worktree, and whose path is no link. It removes nothing outside that path, and no registration but the tree's own: never a repository-wide prune. | `property`, `claim_alone`, `link_in_place`, `stale_registration` |
 | 2 | An unended job's tree goes only while the job is queued or waiting, has no cancel pending, and holds a disk or `unprepared` hold from the last detached pass. | `property`, `claim_alone`, `not_disk_held` |
 | 3 | No tree goes beside a retention pass or while retention has the job. | `beside_retention`, `property`, `claim_alone` |
 | 4 | Each tree goes under the detached pass lock. | `detached_pass_may_be_cutting` |
@@ -92,19 +92,22 @@ The sweep reads the last two for each tree under the lock, since a pass that ran
 | 9 | A sweep that did not finish stays owed. | `read_again`, `sweep_that_fails`, `stopping`, `detached_pass_may_be_cutting` |
 | 10 | An `unprepared` wait counts as C-23.16's demand, as its look would have made it. | `c23_16` |
 | 11 | A look cuts no tree for a fresh job no lane takes now, and the first look a lane takes cuts it. A retry, a read-only job, an in-place job and a push get their look whatever the lanes. | `no_lane_takes`, `tree_cut_before`, `retry_keeps`, `cuts_no_tree`, `task_hold` |
+| 12 | A cancel offers a sweep exactly when it ends a job in the sweep's scope. `_unrun_scope`, which decides that from the job's columns, holds exactly when `UNRUN_TREES` would select the job, for every combination of those columns (differential, exhaustive). | `cancelled_before_any_attempt`, `outside_the_sweeps_scope`, `scope_check_is` |
 
 The test names above abbreviate those in `tests/fake/test_unrun_worktrees.py`.
 
 ## Tests
 
-`tests/fake/test_unrun_worktrees.py` holds 35 items and `tests/unit/test_unadmittable_now.py` 4.
+`tests/fake/test_unrun_worktrees.py` holds 42 items and `tests/unit/test_unadmittable_now.py` 4.
 
 - The property test draws 150 shapes over 13 fields.
 - `test_each_claim_alone_keeps_a_tree_that_would_go_back` starts from each of the three shapes that give a tree back and adds each of 16 claims alone (51 shapes in all).
 - `test_a_link_in_place_of_a_tree_leaves_the_tree_it_names_registered` points a link at a real registered worktree. `_discard_worktree` removes nothing through a link, but `discard_registration` resolves `<tree>/.git`, so only the rule's own link check keeps that worktree's registration.
+- `test_a_give_back_leaves_a_stale_registration_elsewhere_in_the_repository` leaves a registration whose tree is gone, which `git worktree prune --dry-run` lists, and checks that a give-back keeps it.
+- `test_a_cancel_outside_the_sweeps_scope_offers_no_sweep` cancels a read-only job, an in-place job, a push, a job with a recorded worktree and a turn, and checks that none offers a sweep. `test_the_cancels_scope_check_is_the_sweeps_query` compares `_unrun_scope` with `UNRUN_TREES` over all 32 combinations of the five columns.
 - `swept()` requires each sweep to finish (`_unrun_dirty` false). So a sweep that fails quietly can't pass a test that expects a kept tree.
 
-Both files pass on the head: 39 passed in 47 s (the baseline in `mutants-rerun-link.log`). The eight test files that read the contract pass on the edited contract (526 passed).
+On 3492445c6 both files passed: 39 passed in 47 s (the baseline in `mutants-rerun-link.log`). On the fix for defect 6, the C-6.20 file and `tests/unit/test_fake_daemon_borrowed_methods.py` pass (48 passed in 17.5 s), as do the ten conversation files CI had failed (430 passed, `ci-fix-conv.log`). The eight test files that read the contract pass on the edited contract, with `test_unadmittable_now.py` (530 passed, `ci-fix-contract.log`).
 
 ## Evidence that the tests catch the defects
 
@@ -119,7 +122,7 @@ Both files pass on the head: 39 passed in 47 s (the baseline in `mutants-rerun-l
 
 `tools/mutants_unrun_worktrees.py` changes one rule at a time in a scratch copy and requires a test to fail. It runs each mutant's focused tests first, then both files if those pass.
 
-There are 61 mutants. The full run on 0e650e5e0 (`mutants.log`) killed 47, found 3 equivalent and left 11 alive. On rerun 1 (`mutants-rerun.log`), the one-claim test killed nine of those eleven, and the hub found a tenth, `unprepared-turn-pass-included`, equivalent. On rerun 2 (`mutants-rerun-link.log`), the link test killed `rule-link-followed`. None survive.
+There are 68 mutants. The full run on 0e650e5e0 (`mutants.log`) killed 47, found 3 equivalent and left 11 alive. On rerun 1 (`mutants-rerun.log`), the one-claim test killed nine of those eleven, and the hub found a tenth, `unprepared-turn-pass-included`, equivalent. On rerun 2 (`mutants-rerun-link.log`), the link test killed `rule-link-followed`. None of those 61 survive. The fix for defect 6 added seven (`cancel-offer-ungated`, `cancel-scope-dropped` and one `scope-*-unchecked` for each column) and re-anchored `cancel-offer-removed`. Those eight have not run yet: Fleet ops asked that serial mutant runs wait until the Microcosm US release starts, and they run then (`mutants-gate.log`).
 
 | Mutant | Outcome |
 |---|---|
@@ -192,6 +195,7 @@ There are 61 mutants. The full run on 0e650e5e0 (`mutants.log`) killed 47, found
 3. **A C-23.16 gap.** `unprepared` waits first used `lane_wait=False`, so `_reset_demand` skipped them although the looks they replace counted. 0e650e5e0 sets it, and `test_c23_16_...` checks it for a read-only job and a writable one.
 4. **A property too sparse for single claims.** The mutant run on 0e650e5e0 found that the random property rarely drew a shape that a single claim keeps, so it could not catch a rule that forgets a claim. `test_each_claim_alone_keeps_a_tree_that_would_go_back` tries each claim alone.
 5. **A link test that could not fail.** The property's link pointed at a plain folder, where a sweep that let the link through still removed nothing, so `rule-link-followed` survived the one-claim test too. Through a link to a registered worktree, that sweep would have dropped the worktree's registration (`discard_registration` follows the link). `test_a_link_in_place_of_a_tree_leaves_the_tree_it_names_registered` checks that case.
+6. **Every cancel offered a sweep (CI run 41503935107 on 3492445c6).** `_request_cancel` offered one whenever it changed a job, a conversation turn's included. The stand-in daemons of the conversation tests borrow `_request_cancel` but have no `_offer_unrun_sweep`, and `test_legacy_hold.py` builds a `Daemon` with no `stopping`. So CI recorded 118 failures, 65 distinct tests in eleven files across the two Pythons: an `AttributeError`, or a turn left waiting after it. On a real daemon the offer was only waste: a turn runs in place, so its cancel can leave no tree, yet conversation stops cancel turns many times an hour. A cancel now offers a sweep only when it ends a job in the sweep's scope (`_unrun_scope`, the columns `UNRUN_TREES` reads). The stand-ins list the name in `EXEMPT`, with its reason, as they do for other names on paths their tests never take. The local broad run had stopped at about 70% before it reached these files.
 
 ## Expected effect when installed
 
@@ -209,6 +213,7 @@ The following comes from the code and the 18:10:58Z reading; nobody has measured
 ## Local and CI runs
 
 - Both files pass locally on the head (counts above).
+- CI run 41503935107 on 3492445c6 failed 9 of 10 shards with defect 6 (`ci289-failed.txt` lists the 118 failures). The fix is in the next commit; CI runs again on it.
 - A broad serial run of 126 neighbouring files (`broad-files.txt`) started at 17:57:30Z on the working tree between 2ccf3eb0b and 0e650e5e0. It had 2640 passed, 7 skipped and 2 xfailed, with no failures, when the hub stopped it at about 70% at 18:24Z, because the Disk manager asked for hub-local work to hold during the release (`broad-partial-1757.log`). CI runs the full suite on the head.
 
 ## Retained files
@@ -219,4 +224,5 @@ In `~/reviews/subfleet-hub/unrun-worktrees-2026-11-02/`:
 - `fails-before-2ccf3eb0b.log`;
 - `mutants.log` (0e650e5e0), `mutants-r0-partial.log` (the first run, stopped early), `mutants-rerun.log` (rerun 1, the eleven survivors with the one-claim test) and `mutants-rerun-link.log` (rerun 2, with the link test);
 - `broad-files.txt`, `broad-partial-1757.log`;
+- `ci289-failed.txt`, `ci-fix-conv.log`, `ci-fix-contract.log`: defect 6's failures and the runs on its fix;
 - `review-r1-brief.md` and `review-r1.md`: the independent review's brief and its result.

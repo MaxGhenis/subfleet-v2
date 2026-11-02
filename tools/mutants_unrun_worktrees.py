@@ -40,15 +40,29 @@ PASS_LOCKED = ('            if self.stopping.is_set() or not lock.acquire(timeou
                '            finally:\n'
                '                lock.release()\n')
 
+CANCEL_OFFER = ("        if unrun:\n"
+                "            # C-6.20: a job cancelled before any attempt gives back the tree admission cut;\n"
+                "            # a cancel outside the sweep's scope, a turn's above all, offers nothing.\n"
+                "            self._offer_unrun_sweep()\n")
+SCOPE = ('    return (job["sandbox"] == "workspace-write" and not job["in_place"] and job["worktree"] is None\n'
+         '            and job["push_branch"] is None and job["kind"] != "turn")\n')
+
 MUTANTS = [
     # Which holds give a waiting job's tree back.
     ("gives-back-disk-only", DAEMON, GIVES_BACK, 'return hold.get("reason") == "disk"'),
     ("gives-back-unprepared-only", DAEMON, GIVES_BACK, 'return bool(hold.get("unprepared"))'),
     ("gives-back-any-hold", DAEMON, GIVES_BACK, "return True"),
     # When a sweep is offered.
-    ("cancel-offer-removed", DAEMON,
-     "            # C-6.20: a job cancelled before any attempt gives back the tree admission cut.\n"
-     "            self._offer_unrun_sweep()\n", ""),
+    ("cancel-offer-removed", DAEMON, CANCEL_OFFER, ""),
+    ("cancel-offer-ungated", DAEMON, "        if unrun:\n            # C-6.20: a job cancelled",
+     "        if changed:\n            # C-6.20: a job cancelled"),
+    ("cancel-scope-dropped", DAEMON, "unrun = unrun or _unrun_scope(row)", "unrun = True"),
+    # Which cancels offer one: `_unrun_scope` against `UNRUN_TREES`, a conjunct at a time.
+    ("scope-sandbox-unchecked", DAEMON, SCOPE, SCOPE.replace('job["sandbox"] == "workspace-write" and ', "")),
+    ("scope-in-place-unchecked", DAEMON, SCOPE, SCOPE.replace('not job["in_place"] and ', "")),
+    ("scope-worktree-unchecked", DAEMON, SCOPE, SCOPE.replace(' and job["worktree"] is None', "")),
+    ("scope-push-unchecked", DAEMON, SCOPE, SCOPE.replace('job["push_branch"] is None and ', "")),
+    ("scope-turn-unchecked", DAEMON, SCOPE, SCOPE.replace(' and job["kind"] != "turn"', "")),
     ("start-offer-removed", DAEMON,
      "        # C-6.20: trees cut for jobs that ended unrun before this start.\n"
      "        self._offer_unrun_sweep()\n", ""),
@@ -209,6 +223,13 @@ FOCUSED = {
     "gives-back-unprepared-only": (TESTS[0], "property or disk_hold_takes"),
     "gives-back-any-hold": (TESTS[0], "property or not_disk_held"),
     "cancel-offer-removed": (TESTS[0], "cancelled_before_any_attempt"),
+    "cancel-offer-ungated": (TESTS[0], "outside_the_sweeps_scope"),
+    "cancel-scope-dropped": (TESTS[0], "outside_the_sweeps_scope"),
+    "scope-sandbox-unchecked": (TESTS[0], "scope_check_is or outside_the_sweeps_scope"),
+    "scope-in-place-unchecked": (TESTS[0], "scope_check_is or outside_the_sweeps_scope"),
+    "scope-worktree-unchecked": (TESTS[0], "scope_check_is or outside_the_sweeps_scope"),
+    "scope-push-unchecked": (TESTS[0], "scope_check_is or outside_the_sweeps_scope"),
+    "scope-turn-unchecked": (TESTS[0], "scope_check_is or outside_the_sweeps_scope"),
     "start-offer-removed": (TESTS[0], "offers_a_sweep_at_start"),
     "pass-offer-removed": (TESTS[0], "disk_hold_takes or tree_cut_before"),
     "pass-offer-every-pass": (TESTS[0], "disk_hold_takes"),
