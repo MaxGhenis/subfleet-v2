@@ -230,6 +230,26 @@ def test_policy_review_worktree_sees_the_callers_uncommitted_and_untracked_files
     assert lines[-2:] == [words, 'publish: denied']
 
 
+def test_a_review_gets_its_copy_in_a_tree_cut_after_the_callers_checkout_went(shell_state, tmp_path):
+    """C-6.20: the copy is the job's own (`uncommitted.keep`), and git cuts the tree from the
+    repository once a session's worktree has gone (`_tree_source`)."""
+    from tests.fake.test_workspace_contract import git
+    service, harness = shell_state
+    repo = repository(service, harness)
+    linked = tmp_path / 'session-worktree'
+    git(repo, 'worktree', 'add', '-q', '-b', 'session/work', str(linked))
+    (linked / 'tracked.txt').write_text('edited by the caller\n')
+    (linked / 'new_module.py').write_text('VALUE = 1\n')
+    job = policy_review(service, harness, workdir=str(linked))
+    git(repo, 'worktree', 'remove', '--force', str(linked))
+    assert not linked.exists()
+    service._admit()
+    worktree = Path(service.store.get_job(job)['worktree'])
+    assert worktree.parent == service.root / 'worktrees'
+    assert (worktree / 'tracked.txt').read_text() == 'edited by the caller\n'
+    assert (worktree / 'new_module.py').read_text() == 'VALUE = 1\n'
+
+
 def test_a_worktree_cut_without_its_copy_is_cut_again(shell_state):
     """#221 review r2, P3-1: the copy was applied only when `worktrees/<id>` did
     not exist yet. The review cut the worktree with `git worktree add --detach`,

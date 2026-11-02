@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
@@ -104,7 +106,9 @@ def test_a_job_cancelled_before_any_attempt_gives_back_its_tree(state_daemon, re
     assert not os.path.lexists(tree)
     assert job_id not in registered(repo)                 # its registration only (d635: no prune)
     (event,) = given_back(daemon, job_id)
-    assert '"why": "ended unrun"' in event["data_json"]
+    data = json.loads(event["data_json"])
+    assert data["why"] == "ended unrun" and data["common_dir"] == os.path.realpath(repo / ".git")
+    assert "registration_left" not in data
     assert swept(daemon) == 0           # nothing left to give back
 
 
@@ -333,6 +337,7 @@ FIELDS = st.fixed_dictionaries({
     "retention_dir": st.booleans(),
     "guest": st.booleans(),              # another live job's workdir is inside the tree
     "link": st.booleans(),               # the allocated path is a symlink
+    "locked": st.booleans(),             # `git worktree lock` on the tree's registration
 })
 
 
@@ -348,7 +353,7 @@ def expected(f):
              and not f["recorded"] and not f["push"] and not f["attempt"] and not f["link"])
     terminal = f["state"] in ("succeeded", "failed", "cancelled", "lost")
     held = (f["state"] in ("queued", "waiting") and not f["cancel_requested"] and f["hold"] in ("disk", "unprepared"))
-    if owned and (terminal or held) and not f["lease"] and not f["retention_dir"] and not f["guest"]:
+    if owned and (terminal or held) and not f["lease"] and not f["retention_dir"] and not f["guest"] and not f["locked"]:
         return "ended unrun" if terminal else "disk hold" if f["hold"] == "disk" else "no lane"
     return None
 
@@ -367,6 +372,11 @@ def check_rule(daemon, harness, f, tmp_path_factory):
     else:
         tree.mkdir()
         (tree / "file.txt").write_text("cut\n")
+        if f["locked"]:                         # a lock is a file beside what the gitfile names
+            admin = outside / "worktrees" / job_id
+            admin.mkdir(parents=True)
+            (admin / "locked").write_text("kept by a person\n")
+            (tree / ".git").write_text(f"gitdir: {admin}\n")
     with daemon.store.transaction("test.shape") as tx:
         tx.execute("UPDATE jobs SET state=?,kind=?,sandbox=?,in_place=?,worktree=?,push_branch=?,"
                    "cancel_requested_at=? WHERE job_id=?",
@@ -408,11 +418,11 @@ GIVEN = {"ended unrun": {"state": "cancelled"}, "disk hold": {"state": "queued",
          "no lane": {"state": "waiting", "hold": "unprepared"}}
 BARE = {"state": "queued", "kind": "dispatch", "sandbox": "workspace-write", "in_place": False, "recorded": False,
         "push": False, "attempt": False, "hold": None, "cancel_requested": False, "lease": None,
-        "retention_dir": False, "guest": False, "link": False}
+        "retention_dir": False, "guest": False, "link": False, "locked": False}
 #: Any one of these keeps the tree of every shape in GIVEN.
 CLAIMS = [{"kind": "turn"}, {"sandbox": "read-only"}, {"in_place": True}, {"recorded": True}, {"push": True},
           {"attempt": True}, {"link": True}, {"lease": "retire"}, {"lease": "own"}, {"retention_dir": True},
-          {"guest": True}, {"state": "running"}]
+          {"guest": True}, {"state": "running"}, {"locked": True}]
 #: These keep the tree of a job that has not ended, and leave an ended job's to go.
 LIVE_CLAIMS = [{"cancel_requested": True}, {"hold": None}, {"hold": "fleet-full"}, {"hold": "machine-busy"}]
 
@@ -726,3 +736,327 @@ def test_c23_16_an_unprepared_job_is_reset_demand_as_its_look_would_have_made_it
     daemon._admit()
     assert bool(daemon._holds[job_id].get("unprepared")) is (sandbox == "workspace-write")
     assert [entry["job_id"] for entry in daemon._reset_demand()] == [job_id]
+
+
+# --- a lock on a tree's registration is someone's claim ----------------------------------------
+
+def test_a_tree_someone_locked_keeps_its_files_until_it_is_unlocked(state_daemon, repo, offers):  # noqa: F811
+    """`git worktree lock` is a claim: git refuses to remove such a tree, retention defers it and
+    `discard_registration` keeps its registration. Submit's reply names the tree, so a person can
+    hold one before its job runs, and nothing archives what a give-back removes."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    tree = cut(daemon, job_id)
+    git(repo, "worktree", "lock", "--reason", "kept by a person", tree)
+    assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
+    assert swept(daemon) == 0
+    assert (Path(tree) / "tracked.txt").is_file() and job_id in registered(repo)
+    assert not given_back(daemon, job_id)
+    git(repo, "worktree", "unlock", tree)
+    assert swept(daemon) == 1
+    assert not os.path.lexists(tree) and job_id not in registered(repo)
+
+
+def test_a_waiting_job_whose_tree_someone_locked_runs_in_it(state_daemon, repo, offers):  # noqa: F811
+    """Had the tree gone, the look that reopens could cut nothing: git refuses a missing but locked
+    worktree, which is no transient error, so admission would fail the job."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    tree = cut(daemon, job_id)
+    git(repo, "worktree", "lock", tree)
+    close_every_lane(daemon)
+    daemon._admit()
+    assert daemon._holds[job_id]["unprepared"]
+    assert swept(daemon) == 0
+    assert runs(daemon, job_id)["worktree"] == tree
+
+
+# --- a job needs its repository, not its caller's checkout --------------------------------------
+
+@pytest.fixture
+def linked(repo, tmp_path):
+    """The caller's checkout: a linked worktree, as a session's isolated worktree is."""
+    path = tmp_path / "session-worktree"
+    git(repo, "worktree", "add", "-q", "-b", "session/work", str(path))
+    return path
+
+
+def end_session(repo, linked):
+    """The session archives and its worktree goes."""
+    git(repo, "worktree", "remove", "--force", str(linked))
+    assert not linked.exists()
+
+
+def forget_the_record(daemon, job_id):
+    """A job submitted before submit recorded its repository."""
+    path = daemon.root / "jobs" / job_id / "manifest.json"
+    manifest = json.loads(path.read_text())
+    assert manifest["workspace"].pop("common_dir")
+    path.unlink()
+    path.write_text(json.dumps(manifest))
+
+
+def runs(daemon, job_id):
+    """The look that follows a lane opening: it reserves an attempt in the job's tree."""
+    measure(daemon, "codex-1")
+    reopen(daemon, job_id)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    assert job["state"] != "failed" and daemon.store.list_attempts(job_id), dict(job)
+    return job
+
+
+def leaves(repo, linked, how):
+    """What can become of the caller's checkout while its job waits."""
+    if how == "goes":
+        end_session(repo, linked)
+    elif how == "loses its registration":
+        shutil.rmtree(repo / ".git" / "worktrees" / linked.name)
+        assert (linked / ".git").is_file()              # git finds no repository from here now
+    elif how == "becomes another repository":
+        end_session(repo, linked)
+        linked.mkdir()
+        git(linked, "init", "-q", "-b", "other")
+        git(linked, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "x")
+
+
+@pytest.mark.parametrize("how", ["stays", "goes", "loses its registration", "becomes another repository"])
+@pytest.mark.parametrize("before", ["held from submit", "given back", "kept its tree"])
+def test_a_job_runs_whatever_becomes_of_its_callers_checkout(state_daemon, repo, linked, offers,  # noqa: F811
+                                                             before, how):
+    """Invariant 14, every way a job can come to its first attempt by every fate of its checkout:
+    it runs at the HEAD submit recorded, in a tree registered in the repository submit read. A
+    session in an isolated worktree submits while every lane is held and archives: before the
+    record the job failed at the look that cut its tree, unless an earlier look had cut one."""
+    daemon, harness = state_daemon
+    head = git(linked, "rev-parse", "HEAD")
+    if before == "held from submit":
+        close_every_lane(daemon)
+    job_id = submit(daemon, harness, linked)
+    if before != "held from submit":
+        cut(daemon, job_id)
+        close_every_lane(daemon)
+    daemon._admit()
+    assert daemon._holds[job_id]["unprepared"]
+    if before == "given back":
+        assert swept(daemon) == 1
+    leaves(repo, linked, how)
+    job = runs(daemon, job_id)
+    tree = daemon.root / "worktrees" / job_id
+    assert job["worktree"] == str(tree) and (tree / "tracked.txt").read_text() == "baseline\n"
+    assert git(tree, "rev-parse", "HEAD") == head and not git(tree, "status", "--porcelain")
+    assert job_id in registered(repo)
+
+
+def test_a_give_back_after_the_checkout_went_takes_its_registration_too(state_daemon, repo, linked,  # noqa: F811
+                                                                        offers):
+    """The tree's gitfile names its registration: `jobs.workdir` has gone, and git run there
+    answers nothing."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, linked)
+    cut(daemon, job_id)
+    assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
+    end_session(repo, linked)
+    assert swept(daemon) == 1
+    assert job_id not in registered(repo)
+    (event,) = given_back(daemon, job_id)
+    data = json.loads(event["data_json"])
+    assert data["common_dir"] == os.path.realpath(repo / ".git") and "registration_left" not in data
+
+
+def test_a_job_older_than_the_record_is_cut_from_what_its_give_back_recorded(state_daemon, repo, linked,  # noqa: F811
+                                                                             offers):
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, linked)
+    forget_the_record(daemon, job_id)
+    cut(daemon, job_id)
+    close_every_lane(daemon)
+    daemon._admit()
+    assert swept(daemon) == 1
+    end_session(repo, linked)
+    assert runs(daemon, job_id)["worktree"] == str(daemon.root / "worktrees" / job_id)
+
+
+def test_a_job_with_no_record_still_needs_its_checkout(state_daemon, repo, linked, offers):  # noqa: F811
+    """The limit: older than the record, and no look ever cut a tree it could read one from."""
+    daemon, harness = state_daemon
+    close_every_lane(daemon)
+    job_id = submit(daemon, harness, linked)
+    forget_the_record(daemon, job_id)
+    daemon._admit()
+    end_session(repo, linked)
+    measure(daemon, "codex-1")
+    reopen(daemon, job_id)
+    daemon._admit()
+    assert daemon.store.get_job(job_id)["state"] == "failed" and not daemon.store.list_attempts(job_id)
+
+
+def test_a_broken_tree_is_cut_again_after_the_checkout_went(state_daemon, repo, linked, offers):  # noqa: F811
+    """Its registration has to go first, from the repository: git refuses a missing but registered
+    worktree."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, linked)
+    tree = cut(daemon, job_id)
+    (Path(tree) / ".git").unlink()
+    end_session(repo, linked)
+    assert runs(daemon, job_id)["worktree"] == tree
+    assert (Path(tree) / "tracked.txt").is_file() and not git(tree, "status", "--porcelain")
+
+
+def test_a_refused_jobs_tree_takes_its_registration_after_the_checkout_went(state_daemon, repo, linked,  # noqa: F811
+                                                                            offers):
+    """C-6.12's discard, which reads the same source."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, linked)
+    tree = cut(daemon, job_id)
+    assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
+    end_session(repo, linked)
+    daemon._discard_fresh_worktree(job_id)
+    assert not os.path.lexists(tree) and job_id not in registered(repo)
+
+
+def test_a_job_from_a_subfolder_starts_there_after_the_checkout_goes(state_daemon, repo, linked,  # noqa: F811
+                                                                     offers):
+    daemon, harness = state_daemon
+    (linked / "pkg").mkdir()
+    (linked / "pkg" / "module.txt").write_text("in a subfolder\n")
+    git(linked, "add", ".")
+    git(linked, "commit", "-q", "-m", "a subfolder")
+    close_every_lane(daemon)
+    job_id = submit(daemon, harness, linked / "pkg")
+    workspace = json.loads((daemon.root / "jobs" / job_id / "manifest.json").read_text())["workspace"]
+    assert workspace["prefix"] == "pkg" and workspace["common_dir"] == os.path.realpath(repo / ".git")
+    daemon._admit()
+    end_session(repo, linked)
+    runs(daemon, job_id)
+    assert (daemon.root / "worktrees" / job_id / "pkg" / "module.txt").is_file()
+
+
+def test_a_job_from_a_bare_repositorys_checkout_runs_after_the_checkout_goes(state_daemon, repo, tmp_path,  # noqa: F811
+                                                                             offers):
+    daemon, harness = state_daemon
+    bare = tmp_path / "bare.git"
+    git(tmp_path, "clone", "-q", "--bare", str(repo), str(bare))
+    checkout = tmp_path / "bare-checkout"
+    git(bare, "worktree", "add", "-q", "-b", "session/bare", str(checkout))
+    close_every_lane(daemon)
+    job_id = submit(daemon, harness, checkout)
+    daemon._admit()
+    git(bare, "worktree", "remove", "--force", str(checkout))
+    runs(daemon, job_id)
+    assert job_id in registered(bare)
+
+
+def test_a_tree_cut_from_the_repository_is_the_tree_the_checkout_would_cut(state_daemon, repo, linked,  # noqa: F811
+                                                                           offers):
+    """Differential: the two places `_tree_source` can send the cut agree on HEAD, a detached
+    HEAD, what is tracked and a clean status."""
+    daemon, harness = state_daemon
+    (linked / "pkg").mkdir()
+    (linked / "pkg" / "module.txt").write_text("tracked\n")
+    (linked / "script.sh").write_text("#!/bin/sh\n")
+    (linked / "script.sh").chmod(0o755)
+    (linked / "a-link").symlink_to("script.sh")
+    git(linked, "add", ".")
+    git(linked, "commit", "-q", "-m", "a few shapes")
+    first = submit(daemon, harness, linked, caller_session="first")
+    second = submit(daemon, harness, linked, caller_session="second")
+    from_checkout = cut(daemon, first)
+    assert daemon._tree_source(daemon.store.get_job(second), 5) == str(linked)
+    end_session(repo, linked)
+    assert daemon._tree_source(daemon.store.get_job(second), 5) == os.path.realpath(repo / ".git")
+    from_repository = cut(daemon, second)
+    for args in (["rev-parse", "HEAD"], ["ls-files", "-s"], ["status", "--porcelain"], ["symbolic-ref", "-q", "HEAD", "--short"]):
+        read = [subprocess.run(["git", "-C", tree, *args], capture_output=True, text=True)
+                for tree in (from_checkout, from_repository)]
+        assert (read[0].returncode, read[0].stdout) == (read[1].returncode, read[1].stdout), args
+    assert os.access(Path(from_repository) / "script.sh", os.X_OK)
+    assert os.path.islink(Path(from_repository) / "a-link")
+
+
+def test_a_sparse_callers_patterns_pass_on_while_its_checkout_lasts(state_daemon, repo, linked, offers):  # noqa: F811
+    """`worktree add` copies the per-worktree settings of the checkout it runs in, so the tree comes
+    from there while it lasts. Once it has gone the settings have too, and the tree is whole."""
+    daemon, harness = state_daemon
+    for folder in ("kept", "left"):
+        (linked / folder).mkdir()
+        (linked / folder / "file.txt").write_text(folder + "\n")
+    git(linked, "add", ".")
+    git(linked, "commit", "-q", "-m", "two folders")
+    git(linked, "sparse-checkout", "set", "kept")
+    assert not (linked / "left").exists()
+    first = submit(daemon, harness, linked, caller_session="first")
+    second = submit(daemon, harness, linked, caller_session="second")
+    sparse = Path(cut(daemon, first))
+    assert (sparse / "kept" / "file.txt").is_file() and not (sparse / "left").exists()
+    end_session(repo, linked)
+    whole = Path(cut(daemon, second))
+    assert (whole / "kept" / "file.txt").is_file() and (whole / "left" / "file.txt").is_file()
+
+
+@pytest.mark.parametrize("name", ["repo", "name that ends in a space ", "caf\u00e9"])
+def test_the_common_directory_answers_from_any_folder_of_a_checkout(tmp_path, name):
+    from subfleet.salvage import git_common_dir
+    main = tmp_path / name
+    (main / "sub").mkdir(parents=True)
+    git(main, "init", "-q", "-b", "task/example")
+    git(main, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "x")
+    other = tmp_path / "linked"
+    git(main, "worktree", "add", "-q", "-b", "other", str(other))
+    (other / "deep" / "er").mkdir(parents=True)
+    common = os.path.realpath(main / ".git")
+    for folder in (main, main / "sub", other, other / "deep" / "er", main / ".git"):
+        assert git_common_dir(folder) == common, folder
+    assert git_common_dir(tmp_path / "gone") is None
+    shutil.rmtree(main / ".git" / "worktrees" / "linked")
+    assert git_common_dir(other) is None                  # a gitfile that names nothing
+
+
+# --- a removal cut short -------------------------------------------------------------------------
+
+def test_a_removal_cut_short_leaves_no_tree_a_look_reuses(state_daemon, repo, offers, monkeypatch):  # noqa: F811
+    """`_workspace` reuses a tree on its `.git`, HEAD and (for a copy) marker, never its files, and
+    C-6.20 removes the trees of jobs that run later. A daemon stopped part way through had left a
+    tree with `.git` and some files gone, and the job's attempt ran in it."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    tree = cut(daemon, job_id)
+    close_every_lane(daemon)
+    daemon._admit()
+    real = shutil.rmtree
+
+    def stopped_part_way(path, **kwargs):
+        if str(path) != tree:
+            return real(path, **kwargs)
+        assert not os.path.lexists(os.path.join(tree, ".git"))
+        os.unlink(os.path.join(tree, "tracked.txt"))
+        return None
+
+    with monkeypatch.context() as patched:
+        patched.setattr(daemon_module.shutil, "rmtree", stopped_part_way)
+        assert swept(daemon) == 0
+    assert os.path.isdir(tree) and not given_back(daemon, job_id)
+    assert runs(daemon, job_id)["worktree"] == tree
+    assert (Path(tree) / "tracked.txt").read_text() == "baseline\n" and not git(tree, "status", "--porcelain")
+
+
+def test_discarding_through_a_link_takes_no_file_of_the_tree_it_names(state_daemon, repo, tmp_path):  # noqa: F811
+    daemon, _ = state_daemon
+    other = tmp_path / "other"
+    git(repo, "worktree", "add", "-q", "-b", "other", str(other))
+    link = tmp_path / "link"
+    link.symlink_to(other, target_is_directory=True)
+    daemon._discard_worktree(str(repo), str(link), 5)
+    assert (other / ".git").is_file() and (other / "tracked.txt").is_file()
+
+
+def test_a_registration_that_stayed_is_named(state_daemon, repo, offers, monkeypatch):  # noqa: F811
+    """The event says the tree went, and says so when its registration did not."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    cut(daemon, job_id)
+    assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
+    monkeypatch.setattr(daemon, "_discard_worktree", lambda repository, tree, cap: shutil.rmtree(tree))
+    assert swept(daemon) == 1
+    (event,) = given_back(daemon, job_id)
+    assert json.loads(event["data_json"])["registration_left"] == os.path.realpath(repo / ".git" / "worktrees" / job_id)

@@ -77,9 +77,9 @@ from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as
                      disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, startup_notes,
                      resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
-from .retention_git import discard_registration
+from .retention_git import discard_registration, gitfile_admin
 from .salvage import (
-    SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, os_error_text, path_text, pin_baseline,
+    SalvageError, _failure, _git_env, _transient_git, git_common_dir, git_head, git_toplevel, git_tree, os_error_text, path_text, pin_baseline,
     salvage, transient_os_error, utf8_text, validate_writable_workdir, working_tree,
 )
 from .sessions import registry
@@ -3329,6 +3329,8 @@ class Daemon:
                 cap = self.policy["caps"]["workspace_git_timeout_s"]
                 try:
                     top = str(push_top) if push_top else git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                    # C-6.20: the job can wait with no tree while this checkout goes (`_tree_source`).
+                    common = None if args.push_branch is not None else git_common_dir(str(workdir), timeout_s=cap)
                 except SalvageError as exc:
                     # C-6.8: exit 1 with nothing stored, as the checks above; only
                     # the prompt has been written, under a job id nobody was given.
@@ -3350,7 +3352,8 @@ class Daemon:
                     if held is False:
                         # Review B-4: the worktree will not hold it; start at the top.
                         prefix = "."
-                manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
+                manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix,
+                                         **({"common_dir": common} if common else {})}
                 note = (WORKSPACE_NOTE_UNCOMMITTED.format(worktree=worktree, top=top, head=head[:12], place=place,
                                                           files=copied["files"])
                         if copied else WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12],
@@ -6338,21 +6341,22 @@ class Daemon:
                 # reviewed as complete (#221 review r2, P3-1): its copy has no
                 # marker. Nothing has run here (the job has no attempt), so it is
                 # rebuilt rather than handed to a provider.
-                self._discard_worktree(job["workdir"], workdir, cap)
+                self._discard_worktree(self._tree_source(job, cap), workdir, cap)
             if not Path(workdir).exists():
+                source = self._tree_source(job, cap)
                 try:
                     # `backslashreplace`: git's messages can quote a file name that is
                     # not UTF-8, which a strict read raised as `UnicodeDecodeError`
                     # out of the admission pass on every try (review of cda4c161, N1).
-                    result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
+                    result = subprocess.run(["git", "-C", source, "worktree", "add", "--detach", workdir, job["workdir_head"]],
                                             capture_output=True, text=True, errors="backslashreplace",
                                             env=_git_env(None),
                                             timeout=self.policy["caps"]["worktree_add_timeout_s"])
                 except (OSError, subprocess.SubprocessError):
-                    self._discard_worktree(job["workdir"], workdir, cap)
+                    self._discard_worktree(source, workdir, cap)
                     raise
                 if result.returncode:
-                    self._discard_worktree(job["workdir"], workdir, cap)
+                    self._discard_worktree(source, workdir, cap)
                     # A git killed by a signal did not finish, as a timed-out one did not.
                     killed = _failure("worktree", result) if result.returncode < 0 else None
                     if killed:
@@ -6374,12 +6378,12 @@ class Daemon:
                     try:
                         uncommitted.apply(jobdir, workdir, timeout_s=cap)
                     except (uncommitted.CopyRefused, OSError) as exc:
-                        self._discard_worktree(job["workdir"], workdir, cap)
+                        self._discard_worktree(source, workdir, cap)
                         raise AdapterError(f"the caller's uncommitted changes could not be copied into the worktree: {exc}",
                                            fix="submit again, or pass -s read-only to review the checkout in place",
                                            reason="uncommitted-apply") from None
                     except SalvageError:
-                        self._discard_worktree(job["workdir"], workdir, cap)
+                        self._discard_worktree(source, workdir, cap)
                         raise
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
@@ -6472,13 +6476,44 @@ class Daemon:
         target = Path(root) / prefix
         return str(target) if target.is_dir() else root
 
+    def _tree_source(self, job: dict, cap: float) -> str:
+        """C-6.20: where git runs to cut or discard a job's tree: the caller's checkout while
+        it belongs to the repository submit read, since `worktree add` passes that checkout's
+        per-worktree settings (sparse patterns) on; else that repository's common directory.
+
+        A job can wait for hours with no tree, and a session's isolated checkout can go
+        meanwhile. Submit records the directory (`manifest.json`); for a job older than
+        that record, its last give-back does. A job with neither still needs its checkout.
+        A checkout that does not answer in time is taken as it stands: `worktree add` then
+        reports what is wrong (C-6.8)."""
+        common = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("workspace")
+                  or {}).get("common_dir")
+        if common is None:
+            given = self.store.one("SELECT data_json FROM events WHERE job_id=? AND +kind='job.worktree_given_back' "
+                                   "ORDER BY event_id DESC LIMIT 1", (job["job_id"],))
+            common = json.loads(given["data_json"]).get("common_dir") if given else None
+        if common is None or not os.path.isdir(common):
+            return job["workdir"]
+        try:
+            if os.path.isdir(job["workdir"]) and git_common_dir(job["workdir"], timeout_s=cap) == common:
+                return job["workdir"]
+        except SalvageError:
+            return job["workdir"]
+        return common
+
     @staticmethod
     def _discard_worktree(repository: str, workdir: str, cap: float) -> None:
         """Best effort: a failure here is reported by the add that follows it.
 
-        Only this path's registration is removed. A repository-wide `git
-        worktree prune` would also drop every other registration whose tree is
-        missing at that moment (d635: never run a repository-wide prune)."""
+        `.git` goes first, so a removal cut short (a reboot, a kill) leaves no tree a later
+        look reuses: its check reads `.git`, never the files (`_workspace`). Never through a
+        link, which would take the `.git` of the tree it names. Only this path's
+        registration is removed. A repository-wide `git worktree prune` would also drop
+        every other registration whose tree is missing at that moment (d635: never run a
+        repository-wide prune)."""
+        if not os.path.islink(workdir):
+            with contextlib.suppress(OSError):
+                os.unlink(os.path.join(workdir, ".git"))
         shutil.rmtree(workdir, ignore_errors=True)
         discard_registration(repository, workdir, timeout=cap)
 
@@ -9041,7 +9076,8 @@ class Daemon:
         path = self.root / "worktrees" / job_id
         if (job and job["state"] in TERMINAL and job["sandbox"] == "workspace-write" and not job["in_place"]
                 and not job["worktree"] and path.exists() and not self.store.list_attempts(job_id)):
-            self._discard_worktree(job["workdir"], str(path), self.policy["caps"]["workspace_git_timeout_s"])
+            cap = self.policy["caps"]["workspace_git_timeout_s"]
+            self._discard_worktree(self._tree_source(job, cap), str(path), cap)
 
     def _offer_unrun_sweep(self) -> None:
         """C-6.20: ask for `_sweep_unrun_worktrees` on a worker; a run already going reads again."""
@@ -9148,13 +9184,23 @@ class Daemon:
                     *folders.turn_folders(self.store.query),
                     *(folder for folder, _ in folders.exclusive_folders(self.store.query))))):
             return False
-        self._discard_worktree(job["workdir"], tree, self.policy["caps"]["workspace_git_timeout_s"])
+        # The tree's gitfile names its registration, wherever its caller's checkout is now. A
+        # lock there is someone's claim, as git, retention and `discard_registration` read it.
+        admin = gitfile_admin(path)[0]
+        if admin is not None and os.path.lexists(admin / "locked"):
+            return False
+        common = admin.parent.parent if admin is not None and admin.parent.name == "worktrees" else None
+        cap = self.policy["caps"]["workspace_git_timeout_s"]
+        self._discard_worktree(str(common) if common else self._tree_source(job, cap), tree, cap)
         if os.path.lexists(path):
             return False
+        left = admin is not None and os.path.lexists(admin)         # git failed, or a lock came meanwhile
         with self.store.transaction("job.worktree_given_back.recorded", job_id=job_id) as tx:
             tx.execute("INSERT INTO events(ts,kind,job_id,data_json) VALUES (?,?,?,?)",
                        (utcnow(), "job.worktree_given_back", job_id,
-                        json.dumps({"worktree": tree, "state": job["state"], "why": why})))
+                        json.dumps({"worktree": tree, "state": job["state"], "why": why,
+                                    **({"common_dir": str(common)} if common else {}),
+                                    **({"registration_left": str(admin)} if left else {})})))
         return True
 
     def _load_pin_episodes(self, job_id: str | None = None, *, read: Callable | None = None) -> dict[str, dict]:

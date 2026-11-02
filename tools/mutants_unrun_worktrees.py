@@ -44,8 +44,8 @@ CANCEL_OFFER = ("        if unrun:\n"
                 "            # C-6.20: a job cancelled before any attempt gives back the tree admission cut;\n"
                 "            # a cancel outside the sweep's scope, a turn's above all, offers nothing.\n"
                 "            self._offer_unrun_sweep()\n")
-SCOPE = ('    return (job["sandbox"] == "workspace-write" and not job["in_place"] and job["worktree"] is None\n'
-         '            and job["push_branch"] is None and job["kind"] != "turn")\n')
+CANCEL_SCOPE = ('    return (job["sandbox"] == "workspace-write" and not job["in_place"] and job["worktree"] is None\n'
+                '            and job["push_branch"] is None and job["kind"] != "turn")\n')
 
 MUTANTS = [
     # Which holds give a waiting job's tree back.
@@ -58,11 +58,11 @@ MUTANTS = [
      "        if changed:\n            # C-6.20: a job cancelled"),
     ("cancel-scope-dropped", DAEMON, "unrun = unrun or _unrun_scope(row)", "unrun = True"),
     # Which cancels offer one: `_unrun_scope` against `UNRUN_TREES`, a conjunct at a time.
-    ("scope-sandbox-unchecked", DAEMON, SCOPE, SCOPE.replace('job["sandbox"] == "workspace-write" and ', "")),
-    ("scope-in-place-unchecked", DAEMON, SCOPE, SCOPE.replace('not job["in_place"] and ', "")),
-    ("scope-worktree-unchecked", DAEMON, SCOPE, SCOPE.replace(' and job["worktree"] is None', "")),
-    ("scope-push-unchecked", DAEMON, SCOPE, SCOPE.replace('job["push_branch"] is None and ', "")),
-    ("scope-turn-unchecked", DAEMON, SCOPE, SCOPE.replace(' and job["kind"] != "turn"', "")),
+    ("scope-sandbox-unchecked", DAEMON, CANCEL_SCOPE, CANCEL_SCOPE.replace('job["sandbox"] == "workspace-write" and ', "")),
+    ("scope-in-place-unchecked", DAEMON, CANCEL_SCOPE, CANCEL_SCOPE.replace('not job["in_place"] and ', "")),
+    ("scope-worktree-unchecked", DAEMON, CANCEL_SCOPE, CANCEL_SCOPE.replace(' and job["worktree"] is None', "")),
+    ("scope-push-unchecked", DAEMON, CANCEL_SCOPE, CANCEL_SCOPE.replace('job["push_branch"] is None and ', "")),
+    ("scope-turn-unchecked", DAEMON, CANCEL_SCOPE, CANCEL_SCOPE.replace(' and job["kind"] != "turn"', "")),
     ("start-offer-removed", DAEMON,
      "        # C-6.20: trees cut for jobs that ended unrun before this start.\n"
      "        self._offer_unrun_sweep()\n", ""),
@@ -135,9 +135,38 @@ MUTANTS = [
      "                    *(folder for folder, _ in folders.exclusive_folders(self.store.query))))):",
      "                    ))):"),
     ("rule-removal-unverified", DAEMON,
-     '        if os.path.lexists(path):\n            return False\n'
-     '        with self.store.transaction("job.worktree_given_back.recorded"',
-     '        with self.store.transaction("job.worktree_given_back.recorded"'),
+     '        if os.path.lexists(path):\n            return False\n        left = admin is not None',
+     '        left = admin is not None'),
+    ("rule-lock-ignored", DAEMON, 'if admin is not None and os.path.lexists(admin / "locked"):\n            return False\n',
+     'if False:\n            return False\n'),
+    ("rule-left-unsaid", DAEMON, '**({"registration_left": str(admin)} if left else {})', ""),
+    ("rule-event-no-repository", DAEMON, '**({"common_dir": str(common)} if common else {}),', ""),
+    ("rule-discards-from-checkout", DAEMON,
+     'self._discard_worktree(str(common) if common else self._tree_source(job, cap), tree, cap)',
+     'self._discard_worktree(job["workdir"], tree, cap)'),
+    # The repository, not the caller's checkout.
+    ("submit-records-no-repository", DAEMON, '**({"common_dir": common} if common else {})', ""),
+    ("source-always-checkout", DAEMON, 'if common is None or not os.path.isdir(common):\n            return job["workdir"]',
+     'if True:\n            return job["workdir"]'),
+    ("source-always-repository", DAEMON,
+     'if os.path.isdir(job["workdir"]) and git_common_dir(job["workdir"], timeout_s=cap) == common:', "if False:"),
+    ("source-a-folder-is-enough", DAEMON,
+     'if os.path.isdir(job["workdir"]) and git_common_dir(job["workdir"], timeout_s=cap) == common:',
+     'if os.path.isdir(job["workdir"]):'),
+    ("source-ignores-the-give-back", DAEMON, 'common = json.loads(given["data_json"]).get("common_dir") if given else None',
+     "common = None"),
+    ("cut-from-checkout", DAEMON, '["git", "-C", source, "worktree", "add", "--detach", workdir, job["workdir_head"]]',
+     '["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]]'),
+    ("broken-tree-from-checkout", DAEMON, 'self._discard_worktree(self._tree_source(job, cap), workdir, cap)',
+     'self._discard_worktree(job["workdir"], workdir, cap)'),
+    ("fresh-from-checkout", DAEMON, 'self._discard_worktree(self._tree_source(job, cap), str(path), cap)',
+     'self._discard_worktree(job["workdir"], str(path), cap)'),
+    # A removal cut short.
+    ("discard-git-not-first", DAEMON,
+     '        if not os.path.islink(workdir):\n            with contextlib.suppress(OSError):\n'
+     '                os.unlink(os.path.join(workdir, ".git"))\n', ""),
+    ("discard-through-a-link", DAEMON, '        if not os.path.islink(workdir):\n            with contextlib.suppress(OSError):',
+     '        if True:\n            with contextlib.suppress(OSError):'),
     ("rule-event-unrecorded", DAEMON, 'tx.execute("INSERT INTO events(ts,kind,job_id,data_json) VALUES (?,?,?,?)",\n'
      '                       (utcnow(), "job.worktree_given_back", job_id,',
      'tx.execute("SELECT ?,?,?,?",\n                       (utcnow(), "job.worktree_given_back", job_id,'),
@@ -251,10 +280,24 @@ FOCUSED = {
     "rule-writer-folders-unchecked": (TESTS[0], "lease_holds"),
     "rule-removal-unverified": (TESTS[0], "did_not_go"),
     "rule-event-unrecorded": (TESTS[0], "cancelled_before_any_attempt"),
+    "rule-left-unsaid": (TESTS[0], "that_stayed"),
+    "rule-event-no-repository": (TESTS[0], "cancelled_before_any_attempt or older_than"),
+    "rule-discards-from-checkout": (TESTS[0], "give_back_after_the_checkout"),
+    "submit-records-no-repository": (TESTS[0], "whatever_becomes"),
+    "source-always-checkout": (TESTS[0], "whatever_becomes"),
+    "source-always-repository": (TESTS[0], "sparse or the_repository_is"),
+    "source-a-folder-is-enough": (TESTS[0], "whatever_becomes"),
+    "source-ignores-the-give-back": (TESTS[0], "older_than"),
+    "cut-from-checkout": (TESTS[0], "whatever_becomes"),
+    "broken-tree-from-checkout": (TESTS[0], "broken_tree"),
+    "fresh-from-checkout": (TESTS[0], "refused_jobs"),
+    "discard-git-not-first": (TESTS[0], "cut_short"),
+    "discard-through-a-link": (TESTS[0], "through_a_link"),
     **{name: (TESTS[0], "property or claim_alone or link_in_place") for name, *_ in MUTANTS
        if name.startswith("rule-") and name not in {
            "rule-dependents-unchecked", "rule-own-evidence-counted", "rule-turn-folders-unchecked",
-           "rule-writer-folders-unchecked", "rule-removal-unverified", "rule-event-unrecorded"}},
+           "rule-writer-folders-unchecked", "rule-removal-unverified", "rule-event-unrecorded",
+           "rule-left-unsaid", "rule-event-no-repository", "rule-discards-from-checkout"}},
     **{name: (TESTS[0], UNPREPARED) for name, *_ in MUTANTS if name.startswith("unprepared-")},
     **{name: (TESTS[1], "c6_20") for name, file, *_ in MUTANTS if file == SCHEDULER},
 }
@@ -317,7 +360,14 @@ def main() -> int:
                 emit(name=name, killed=False, rc=None, note=f"pattern matched {source.count(old)} times")
                 unapplied += 1
                 continue
-            path.write_text(source.replace(old, new))
+            mutated = source.replace(old, new)
+            try:
+                compile(mutated, file, "exec")
+            except SyntaxError as exc:      # pytest would exit 2 on it, which says nothing of the tests
+                emit(name=name, killed=False, rc=None, note=f"the mutant does not compile: {exc}")
+                unapplied += 1
+                continue
+            path.write_text(mutated)
             try:
                 selection = FOCUSED.get(name)
                 tests = [selection[0], "-k", selection[1]] if selection else TESTS
