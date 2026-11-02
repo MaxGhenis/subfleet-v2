@@ -1,7 +1,9 @@
+all named mutants at e6a8cbdb3, started 2026-11-02T15:31:11Z
 no-yield               KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices
 no-reserve             KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices
 no-stall               KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices
 work-is-progress       KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices
+finding-not-progress   KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress
 age-order              KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_jobs_that_never_finish_take_turns_in_the_order_they_began_waiting
 deadline-first-only    KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_pass_past_its_deadline_still_starts_one_job_beside_parked_ones
 yield-fresh            KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_job_cancelled_before_its_first_slice_keeps_its_slot_for_one
@@ -11,5 +13,9 @@ refused-keeps-ticket   KILLED  FAILED tests/unit/test_retention_batch_fairness.p
 victim-no-ticket       KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_job_that_yields_queues_ahead_of_one_that_begins_waiting_after
 stall-threshold-1      KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_stalled_job_backs_off_as_for_an_error
 no-count-walk          KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_slow_read_backs_are_progress_not_a_stall
-no-count-read-back     SURVIVED  11 passed in 95.57s (0:01:35) | 4 passed, 105 deselected in 50.54s
-no-retry-reset         SURVIVED  11 passed in 90.33s (0:01:30) | 4 passed, 105 deselected in 65.65s (0:01:05)
+no-count-read-back     KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_slice_that_only_reads_copies_back_gets_further
+no-retry-reset         KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_walk_begun_again_counts_from_the_tree_start
+no-count-found         KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress
+failed-yield-counts    KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_yield_whose_rollback_fails_keeps_its_slot
+pending-holds-slot     KILLED  FAILED tests/unit/test_retention_batch_fairness.py::test_a_yield_a_live_turn_holds_up_frees_the_slot_as_recovery_does
+finished 2026-11-02T15:36:38Z

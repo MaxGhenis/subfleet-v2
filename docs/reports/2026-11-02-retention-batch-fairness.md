@@ -221,12 +221,14 @@ this change, not of base, which had no stall rule. The property test's shrunk co
 `batch=1`, a job that never finishes ahead of one that finishes at once. The
 second waits 5 passes against a bound of 4 and never starts.
 
-Existing suites, run serially here at `342bfc8ac`, 273 passed in 592 s:
-`test_retention_archive.py`, `test_review130_pass.py`,
-`test_timers_retention.py`, `test_retention_shared_folders.py`,
-`test_retention_dependency_units.py`, `tests/fake/test_turn_retention_job_properties.py`,
-`tests/fake/test_native_maintenance_startup.py`. A capacity reservation held
-the host, so the full suite runs in CI.
+Existing suites, run serially under the suite lock at `e6a8cbdb3`, 327
+passed in 527 s (`targeted-suites.txt`): `test_retention_archive.py`,
+`test_review130_pass.py`, `test_timers_retention.py`,
+`test_retention_shared_folders.py`, `test_retention_dependency_units.py`,
+`test_retention_regenerable.py`, `test_retention_regenerable_properties.py`,
+`test_invariants_index.py`, `test_retention_turn_contract.py`,
+`tests/fake/test_turn_retention_job_properties.py` and
+`tests/fake/test_native_maintenance_startup.py`. The full suite runs in CI.
 
 ## Mutants
 
@@ -241,6 +243,7 @@ N3 slicing tests, then restores the file. Results: `mutants.txt`,
 | `no-reserve` | parked jobs may hold all `batch` slots while a job waits | killed | `test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices` |
 | `no-stall` | the stall rule never fires | killed | `test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices` |
 | `work-is-progress` | any new work counts as progress (base's test) | killed | `test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices` |
+| `finding-not-progress` | a slice that finds a repository in regenerable output is no progress | killed | `test_a_repository_found_in_regenerable_output_is_progress` |
 | `age-order` | waiting jobs start oldest first, not in the order they began waiting | killed | `test_jobs_that_never_finish_take_turns_in_the_order_they_began_waiting` |
 | `deadline-first-only` | past the deadline, no start while any job is in flight (base) | killed | `test_a_pass_past_its_deadline_still_starts_one_job_beside_parked_ones` |
 | `yield-fresh` | a job with no slice since it started may yield | killed | `test_a_job_cancelled_before_its_first_slice_keeps_its_slot_for_one` |
@@ -252,14 +255,16 @@ N3 slicing tests, then restores the file. Results: `mutants.txt`,
 | `no-count-walk` | walked entries don't count toward `reached` | killed | `test_slow_read_backs_are_progress_not_a_stall` |
 | `no-count-read-back` | a fresh read-back doesn't count toward `reached` | killed | `test_a_slice_that_only_reads_copies_back_gets_further` |
 | `no-retry-reset` | a walk begun again keeps counting from where it was | killed | `test_a_walk_begun_again_counts_from_the_tree_start` |
+| `no-count-found` | findings of repositories in regenerable output aren't counted | killed | `test_a_repository_found_in_regenerable_output_is_progress` |
 | `failed-yield-counts` | a yield whose rollback fails still counts as a yield | killed | `test_a_yield_whose_rollback_fails_keeps_its_slot` |
 | `pending-holds-slot` | a job with a rollback pending holds a slot | killed | `test_a_yield_a_live_turn_holds_up_frees_the_slot_as_recovery_does` |
 
-MUTANT_RUN_NOTE: the first run left `yield-fresh`, `victim-no-ticket`,
-`no-count-read-back` and `no-retry-reset` alive, and it ran `-k` across every
-file in one pytest call, which deselected most new tests for the N3 mutants.
-The tests added since kill all four; a rerun of all 17 at the final head
-follows.
+All 19 killed in one run at `e6a8cbdb3`, 2026-11-02 15:31–15:37Z
+(`mutants.txt`, `mutants.json`). An earlier run left `yield-fresh`,
+`victim-no-ticket`, `no-count-read-back` and `no-retry-reset` alive. That run
+also passed `-k` across every file in one pytest call, so for the N3 mutants
+it deselected most of the new tests. The tests added since kill all four, and
+the runner now gives each test group its own call.
 
 ## Costs and changed behaviour
 

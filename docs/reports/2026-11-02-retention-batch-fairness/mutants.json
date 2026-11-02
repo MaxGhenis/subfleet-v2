@@ -15,6 +15,10 @@
   "killed": true,
   "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_real_archive_parks_without_progress_while_a_file_changes_between_slices"
  },
+ "finding-not-progress": {
+  "killed": true,
+  "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress"
+ },
  "age-order": {
   "killed": true,
   "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_jobs_that_never_finish_take_turns_in_the_order_they_began_waiting"
@@ -59,6 +63,10 @@
   "killed": true,
   "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_walk_begun_again_counts_from_the_tree_start"
  },
+ "no-count-found": {
+  "killed": true,
+  "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress"
+ },
  "failed-yield-counts": {
   "killed": true,
   "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_yield_whose_rollback_fails_keeps_its_slot"
@@ -66,13 +74,5 @@
  "pending-holds-slot": {
   "killed": true,
   "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_yield_a_live_turn_holds_up_frees_the_slot_as_recovery_does"
- },
- "finding-not-progress": {
-  "killed": true,
-  "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress"
- },
- "no-count-found": {
-  "killed": true,
-  "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress"
  }
 }
