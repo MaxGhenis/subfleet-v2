@@ -25,6 +25,14 @@ KINDS = (
     "worktree-config", "worktree-config-linked", "sparse-checkout", "hooks-path", "gh-branch",
 )
 
+#: Keys whose values the probe never reads, in sections it admits.
+_UNREAD_VALUE_KEYS = (
+    ("blame", "ignorerevsfile"), ("gc", "auto"), ("http", "postbuffer"),
+    ("pull", "rebase"), ("rerere", "enabled"), ("submodule", "active"),
+    ("user", "name"), ('remote "origin"', "url"), ('branch "main"', "merge"),
+    ('submodule "module"', "url"),
+)
+
 #: Config this probe answers for: the shapes the live census meets (2026-11-01).
 SAFE_LINES = (
     "[core]\n\thookspath = /dev/null\n",
@@ -34,6 +42,8 @@ SAFE_LINES = (
     "[core]\n\tuntrackedcache = maybe\n",
     '[branch "a"]\n\tgithub-pr-owner-number = owner-repository-1\n',
     '[branch "a"]\n\tgithub-pr-base-branch = owner-repository-main\n',
+    '[branch "a"]\n\tgithub-pr-owner-number = "owner#repository#1"\n',
+    '[branch "a"]\n\tgithub-pr-base-branch = "owner#repository#main"\n',
     '[branch "x"]\n\trebase = maybe\n',
     '[branch "x"]\n\tmerge = \n',
     '[remote "o"]\n\turl = \n',
@@ -58,6 +68,11 @@ SAFE_LINES = (
     "[extensions]\n\tworktreeconfig = true\n",
     "[extensions]\n\tworktreeconfig = false\n",
     "[extensions]\n\tpartialclone = origin\n",
+) + tuple(
+    # A whole quoted value is safe where this probe never reads the value.
+    f'[{section}]\n\t{key} = {value}\n'
+    for section, key in _UNREAD_VALUE_KEYS
+    for value in ('"value"', '"value#comment"', '"value;comment"')
 )
 #: Config Git may refuse, or that this probe will not read for itself.
 DOUBTFUL_LINES = (
@@ -81,18 +96,14 @@ DOUBTFUL_LINES = (
     "[include]\n\tpath = elsewhere\n",
     '[includeIf "gitdir:/"]\n\tpath = elsewhere\n',
     '[include "sub"]\n\tpath = elsewhere\n',
-    '[branch "a"]\n\tgithub-pr-owner-number = "owner#repository#1"\n',
-    '[branch "a"]\n\tgithub-pr-base-branch = "owner#repository#main"\n',
 ) + tuple(
     f'[{section}]\n\t{key} = {value}\n'
-    for section, key in (
-        ("core", "hookspath"), ("extensions", "partialclone"),
-        ("blame", "ignorerevsfile"), ("gc", "auto"), ("http", "postbuffer"),
-        ("pull", "rebase"), ("rerere", "enabled"), ("submodule", "active"),
-        ("user", "name"), ('remote "origin"', "url"), ('branch "main"', "merge"),
-        ('submodule "module"', "url"),
-    )
-    for value in ("value#comment", "value;comment", '"value"')
+    for section, key in (("core", "hookspath"), ("extensions", "partialclone"), *_UNREAD_VALUE_KEYS)
+    for value in ("value#comment", "value;comment", '"unterminated', 'mid"quote"', '"value" # trailing')
+) + tuple(
+    # Git strips these quotes before it reads a value this probe also reads.
+    f'[{section}]\n\t{key} = "value"\n'
+    for section, key in (("core", "hookspath"), ("extensions", "partialclone"))
 )
 
 
@@ -230,7 +241,7 @@ def no_process(*args, **kwargs):
 
 @pytest.mark.parametrize("kind", ["plain", "subfolder", "linked", "linked-subfolder", "submodule",
                                   "nested", "symlinked-folder", "relative-commondir", "worktree-config",
-                                  "worktree-config-linked", "sparse-checkout", "hooks-path"])
+                                  "worktree-config-linked", "sparse-checkout", "hooks-path", "gh-branch"])
 def test_ordinary_shapes_do_not_start_a_git_subprocess(tmp_path, monkeypatch, kind):
     path = build_shape(tmp_path, Shape(kind))
     expected = rgit.common_dir(path)

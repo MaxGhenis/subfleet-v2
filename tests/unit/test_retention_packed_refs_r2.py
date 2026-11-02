@@ -41,7 +41,8 @@ def _write_packed(common: Path, contents: bytes) -> None:
     b"A" * 40 + b" " + OTHER + b"\n",
     OID + b" " + OTHER + b" extra\n",
     OID + b" " + OTHER + b"\nnot a packed record\n",
-    OID + b" refs/heads/a.b\n",  # Valid Git name outside our small subset.
+    OID + b" refs/heads/caf\xc3\xa9\n",  # Valid Git name outside printable ASCII.
+    OID + b" refs/heads/a\x7fb\n",
     OID + b" " + OTHER + b"\n" + b"1" * 64 + b" refs/heads/other\n",
 ], ids=[
     "empty-file", "missing-final-lf", "tab-separator", "cr-separator",
@@ -49,7 +50,7 @@ def _write_packed(common: Path, contents: bytes) -> None:
     "trailing-space", "crlf", "arbitrary-comment", "unknown-header-capability",
     "misplaced-header", "repeated-header", "orphan-peel", "repeated-peel", "nonhex-peel",
     "short-oid", "long-oid", "nonhex-oid", "uppercase-oid", "extra-field",
-    "arbitrary-line", "unfamiliar-refname", "mixed-hash-widths",
+    "arbitrary-line", "nonascii-refname", "delete-byte-refname", "mixed-hash-widths",
 ])
 def test_no_refs_under_refuses_noncanonical_packed_format(tmp_path, contents):
     """Absence of our prefix does not make unsupported bytes a proof."""
@@ -71,6 +72,36 @@ def test_no_refs_under_accepts_supported_packed_format(tmp_path, width, header, 
     assert rgit.no_refs_under(common, PREFIX) is True
     (common / "packed-refs").write_bytes(contents + oid + b" " + REF + b"\n")
     assert rgit.no_refs_under(common, PREFIX) is False
+
+
+@pytest.mark.parametrize("name", [b"refs/tags/v2.1.12", b"refs/heads/a+b", b"refs/remotes/origin/x@{y}~^:?*[\\"],
+                         ids=["dotted-tag", "plus", "punctuation"])
+def test_no_refs_under_accepts_printable_ascii_refnames(tmp_path, name):
+    """The live census's dotted tags keep the proof; the prefix test still decides."""
+    contents = HEADER + OID + b" " + name + b"\n"
+    common = tmp_path / "common"
+    _write_packed(common, contents)
+    assert rgit.no_refs_under(common, PREFIX) is True
+    (common / "packed-refs").write_bytes(contents + OID + b" " + REF + b".tag\n")
+    assert rgit.no_refs_under(common, PREFIX) is False
+
+
+def test_git_packed_dotted_refnames_keep_the_proof_and_agree_with_git(tmp_path):
+    """Git's own pack-refs output with dotted tags, before and after a salvage ref."""
+    path = repository(tmp_path, commit=True)
+    common = path / ".git"
+    git(path, "tag", "v2.1.12")
+    git(path, "branch", "fix/a+b.c")
+    git(path, "pack-refs", "--all", "--prune")
+    assert b"refs/tags/v2.1.12" in (common / "packed-refs").read_bytes()
+    assert rgit.refs_under(common, PREFIX) == {}
+    assert rgit.no_refs_under(common, PREFIX) is True
+    git(path, "update-ref", PREFIX + "job-a1.v2", "HEAD")
+    git(path, "pack-refs", "--all", "--prune")
+    assert rgit.refs_under(common, PREFIX)
+    assert rgit.no_refs_under(common, PREFIX) is False
+    assert rgit.no_refs_under(common, PREFIX + "job-a1.v2") is False
+    assert rgit.no_refs_under(common, PREFIX + "job-b1") is True
 
 
 @pytest.mark.parametrize("prefix", ["--include-root-refs", "--ignore-case", "--count=1", "--points-at=HEAD"])

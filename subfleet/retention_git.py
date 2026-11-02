@@ -352,10 +352,14 @@ def _plain_config(path: Path, common: Path, worktree: Path, *, repository: bool 
                                                    else {"core"}):
                 return None
             continue
-        match = re.fullmatch(r'([A-Za-z][A-Za-z0-9-]*)[ \t]*=[ \t]*([^#;"\\\x00-\x08\x0b-\x1f]*)', line)
+        match = re.fullmatch(r'([A-Za-z][A-Za-z0-9-]*)[ \t]*=[ \t]*([^#;"\\\x00-\x08\x0b-\x1f]*|"[^"\\\x00-\x1f]*")', line)
         if not section or match is None:
             return None
         key, value = match[1].lower(), match[2].strip()
+        if value.startswith('"') and section in {"core", "extensions"}:
+            # Git strips the quotes before reading a value; only values this
+            # parser never reads, such as gh's branch notes, may be quoted.
+            return None
         if section == "core":
             if key in _PLAIN_CORE_BOOLEANS:
                 if value.lower() not in _BOOLEANS or (key == "bare" and not repository and value.lower() in _TRUE):
@@ -489,13 +493,15 @@ def fast_common_dir(path: Path, timeout: float = 60, cancel: threading.Event | N
 PACKED_REFS_LIMIT = 64 << 20
 
 # A deliberately narrow subset of the files backend's packed format. Do not
-# reproduce Git's refname parser: unfamiliar names, headers or bytes need Git.
+# reproduce Git's refname parser: a name is any run of printable ASCII after
+# `refs/`, so dotted tags count, while spaces, control bytes, non-ASCII,
+# unfamiliar headers and other lines need Git.
 # Possessive repeats keep validation in the regex engine with no per-line
 # Python work or backtracking stack proportional to a large packed-refs file.
 # EOF is admitted here so the separate final-LF check remains explicit.
 _PACKED_REFS_EOL = rb"(?:\n|\Z)"
 _PACKED_REFS_HEADER = rb"(?:# pack-refs with:(?: peeled)?(?: fully-peeled)?(?: sorted)? " + _PACKED_REFS_EOL + rb")?+"
-_PACKED_REFS_NAME = rb"refs(?:/[A-Za-z0-9_-]++)++"
+_PACKED_REFS_NAME = rb"refs/[!-~]++"
 _PACKED_REFS_SEPARATOR = rb" "
 _PACKED_REFS_FORMATS = tuple(
     re.compile(_PACKED_REFS_HEADER
