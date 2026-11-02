@@ -1,0 +1,333 @@
+"""C-8.6: the daemon's `retire` op records a request that retention retire a finished job
+ahead of its pool's budget, or takes it back, and answers for each job what retention will
+do; a request makes retention due at once, and one recorded while a pass runs brings the
+next pass to `RETENTION_CATCH_UP_S`, never the hour. `subfleet retention retire` sends it.
+
+The op runs on a real daemon over a real store; the CLI tests stand a fake client in for
+the socket.
+"""
+from __future__ import annotations
+
+import json
+import threading
+import time
+
+import pytest
+
+from subfleet import cli, client as client_module
+from subfleet import daemon as daemon_module
+from subfleet import protocol, refusals, retention
+from subfleet.contracts import Exit
+from subfleet.client import DaemonError, DaemonUnavailable
+from tests.fake.test_state_contract import state_daemon  # noqa: F401
+
+
+def finished(daemon, harness, state: str = "succeeded") -> str:
+    job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    daemon.store.conn.execute("UPDATE jobs SET state=?, finished_at=? WHERE job_id=?",
+                              (state, daemon_module.utcnow(), job_id))
+    return job_id
+
+
+def retire(daemon, *ids, **flags) -> dict:
+    return daemon.dispatch("retire", {"job_ids": list(ids), **flags})
+
+
+def recorded(daemon, job_id) -> list[tuple[str, dict]]:
+    return [(row["kind"], json.loads(row["data_json"])) for row in daemon.store.query(
+        "SELECT kind,data_json FROM events WHERE job_id=? AND kind IN (?,?) ORDER BY event_id",
+        (job_id, retention.RETIRE_REQUESTED, retention.RETIRE_WITHDRAWN))]
+
+
+def due_in(daemon) -> float:
+    """Seconds until the control loop offers retention again."""
+    return daemon_module.RETENTION_INTERVAL_S - (time.monotonic() - daemon._last_maintenance)
+
+
+# --- the op -------------------------------------------------------------------------
+
+def test_a_request_records_one_event_that_names_the_job(state_daemon):  # noqa: F811
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    created = daemon.store.get_job(job_id)["created_at"]
+    first = daemon.dispatch("retire", {"job_ids": [job_id], "reason": "Track B", "session_id": "s-1"})
+    (row,) = first["jobs"]
+    assert row["outcome"] == "requested" and row["state"] == "succeeded" and first["recorded"] == 1
+    assert recorded(daemon, job_id) == [(retention.RETIRE_REQUESTED,
+                                         {"created_at": created, "reason": "Track B", "session_id": "s-1"})]
+    assert not daemon.store.query("SELECT 1 FROM events WHERE kind='retire.answered'")    # no audit beside it
+    again = retire(daemon, job_id)
+    assert again["jobs"][0]["outcome"] == "already-requested" and again["recorded"] == 0
+    assert again["jobs"][0]["requested_at"] == row["requested_at"]
+    assert len(recorded(daemon, job_id)) == 1
+    assert set(retention.retire_requests(daemon.store.query)) == {job_id}
+
+
+def test_what_a_request_cannot_take_is_answered_and_nothing_recorded(state_daemon):  # noqa: F811
+    daemon, harness = state_daemon
+    running = finished(daemon, harness, state="running")
+    daemon.store.conn.execute("INSERT INTO events(ts,kind,job_id,data_json) VALUES (?,?,?,?)",
+                              (daemon_module.utcnow(), "retention.pruned", "gone-job",
+                               json.dumps({"archive": "/state/archive/gone-job"})))
+    answer = retire(daemon, running, "gone-job", "never-a-job")
+    assert [(row["job_id"], row["outcome"]) for row in answer["jobs"]] == [
+        (running, "not-finished"), ("gone-job", "retired"), ("never-a-job", "unknown")]
+    assert answer["jobs"][1]["archive"] == "/state/archive/gone-job" and answer["recorded"] == 0
+    assert retention.retire_requests(daemon.store.query) == {}
+
+
+def test_a_withdrawal_takes_the_request_back_once(state_daemon):  # noqa: F811
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    retire(daemon, job_id)
+    assert retire(daemon, job_id, withdraw=True)["jobs"][0]["outcome"] == "withdrawn"
+    assert retire(daemon, job_id, withdraw=True)["jobs"][0]["outcome"] == "not-requested"
+    assert [kind for kind, _ in recorded(daemon, job_id)] == [retention.RETIRE_REQUESTED,
+                                                             retention.RETIRE_WITHDRAWN]
+    assert retention.retire_requests(daemon.store.query) == {}
+    assert retire(daemon, job_id)["jobs"][0]["outcome"] == "requested"      # asked again, it stands again
+
+
+def test_a_dry_run_answers_the_same_and_records_nothing(state_daemon):  # noqa: F811
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    daemon._last_maintenance = before = time.monotonic()
+    answer = retire(daemon, job_id, dry_run=True)
+    assert answer["jobs"][0]["outcome"] == "requested" and answer["dry_run"] is True and answer["recorded"] == 0
+    assert recorded(daemon, job_id) == [] and daemon._last_maintenance == before
+
+
+def test_each_job_is_answered_once(state_daemon):  # noqa: F811
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    answer = retire(daemon, job_id, job_id, job_id)
+    assert [row["job_id"] for row in answer["jobs"]] == [job_id] and len(recorded(daemon, job_id)) == 1
+
+
+def test_a_request_an_earlier_job_with_the_id_left_does_not_stand(state_daemon):  # noqa: F811
+    """A retirement keeps the job's events, so its request names its `created_at`."""
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    daemon.store.conn.execute("INSERT INTO events(ts,kind,job_id,data_json) VALUES (?,?,?,?)",
+                              (daemon_module.utcnow(), retention.RETIRE_REQUESTED, job_id,
+                               json.dumps({"created_at": "2026-01-01T00:00:00Z"})))
+    assert retire(daemon, job_id, withdraw=True)["jobs"][0]["outcome"] == "not-requested"
+    answer = retire(daemon, job_id)
+    assert answer["jobs"][0]["outcome"] == "requested" and answer["recorded"] == 1
+
+
+@pytest.mark.parametrize("args, reason", [
+    ({"job_ids": []}, "retire-ids"),
+    ({"job_ids": "a-job"}, "retire-ids"),
+    ({"job_ids": ["a", 7]}, "retire-ids"),
+    ({"job_ids": ["a", ""]}, "retire-ids"),
+    ({"job_ids": [f"j{n}" for n in range(protocol.RETIRE_MAX_JOBS + 1)]}, "retire-ids"),
+    ({"job_ids": ["a"], "withdraw": "yes"}, "retire-flags"),
+    ({"job_ids": ["a"], "dry_run": 1}, "retire-flags"),
+    ({"job_ids": ["a"], "reason": "x" * (protocol.RETIRE_REASON_MAX + 1)}, "retire-reason"),
+    ({"job_ids": ["a"], "reason": 5}, "retire-reason"),
+])
+def test_a_malformed_request_is_refused_whole(state_daemon, args, reason):  # noqa: F811
+    daemon, _ = state_daemon
+    with pytest.raises(protocol.ProtocolError) as refused:
+        daemon.dispatch("retire", args)
+    assert refused.value.reason == reason
+    # Its own words reach the wire, not the fallback a reason missing from the catalog reads as.
+    assert protocol.refusal_text(refused.value) == refusals.HANDLER_MESSAGES[reason]
+
+
+# --- the answer says what keeps a job -----------------------------------------------
+
+def test_the_answer_names_a_pin_a_deferral_and_a_retirement_in_flight(state_daemon, monkeypatch):  # noqa: F811
+    daemon, harness = state_daemon
+    pinned, deferred, flying, free = (finished(daemon, harness) for _ in range(4))
+    monkeypatch.setattr(daemon, "_retention_pins", lambda: {pinned})
+    daemon._retention_state.defer(deferred, 600, "holder: pid 4242", time.monotonic())
+    daemon.store.conn.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES (?,?,?)",
+                              (f"retire:{flying}", f"retention:{flying}", daemon_module.utcnow()))
+    rows = {row["job_id"]: row for row in retire(daemon, pinned, deferred, flying, free)["jobs"]}
+    assert rows[pinned]["kept"] == "conversation"
+    assert rows[deferred]["deferred"]["reason"] == "holder: pid 4242" and 0 < rows[deferred]["deferred"]["for_s"] <= 600
+    assert rows[flying]["retiring"] is True
+    assert not {"kept", "deferred", "retiring"} & set(rows[free]), rows[free]
+    withdrawn = {row["job_id"]: row for row in retire(daemon, flying, withdraw=True)["jobs"]}
+    assert withdrawn[flying]["outcome"] == "withdrawn" and withdrawn[flying]["retiring"] is True
+
+
+# --- when retention runs ------------------------------------------------------------
+
+def test_a_request_makes_retention_due_now_and_nothing_else_does(state_daemon):  # noqa: F811
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    daemon._last_maintenance = time.monotonic()
+    retire(daemon, job_id, dry_run=True)
+    assert due_in(daemon) > 3000 and daemon._retire_asked == 0
+    retire(daemon, job_id)
+    assert due_in(daemon) <= 0 and daemon._retire_asked == 1
+    daemon._last_maintenance = time.monotonic()
+    retire(daemon, job_id)                              # already requested: records nothing
+    retire(daemon, job_id, withdraw=True)               # a withdrawal needs no pass
+    assert due_in(daemon) > 3000 and daemon._retire_asked == 1
+
+
+@pytest.mark.parametrize("outcome", [{"pruned": []},
+                                     {"pruned": [], "interrupted": "deadline", "progressed": False}])
+def test_a_request_during_a_pass_brings_the_next_pass_to_catch_up(state_daemon, monkeypatch, caplog,  # noqa: F811
+                                                                  outcome):
+    """A pass that read the requests before one arrived would otherwise rearm the hour."""
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    monkeypatch.delenv(daemon_module.RETENTION_DORMANT_ENV, raising=False)
+    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: retire(daemon, job_id) and dict(outcome))
+    with caplog.at_level("WARNING"):
+        daemon._retention()
+    assert 0 < due_in(daemon) <= daemon_module.RETENTION_CATCH_UP_S
+    if outcome.get("interrupted"):
+        assert "for a retire request" in caplog.text
+        assert daemon.timers.status()["retention"]["last_error_type"] == "TimeoutError"
+
+
+@pytest.mark.parametrize("outcome", [{"pruned": []},
+                                     {"pruned": [], "interrupted": "deadline", "progressed": False}])
+def test_a_pass_with_no_request_after_it_began_waits_the_hour(state_daemon, monkeypatch, outcome):  # noqa: F811
+    daemon, harness = state_daemon
+    retire(daemon, finished(daemon, harness))           # before the pass: the pass reads it
+    monkeypatch.delenv(daemon_module.RETENTION_DORMANT_ENV, raising=False)
+    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: dict(outcome))
+    daemon._retention()
+    assert due_in(daemon) > daemon_module.RETENTION_INTERVAL_S - 60
+
+
+@pytest.mark.parametrize("outcome", [{"pruned": []},
+                                     {"pruned": [], "interrupted": "deadline", "progressed": False}])
+def test_a_pass_whose_mark_fails_stays_due(state_daemon, monkeypatch, outcome):  # noqa: F811
+    """C-8.4: `_last_maintenance` is set last, so a failed status mark leaves retention due."""
+    daemon, _ = state_daemon
+    monkeypatch.delenv(daemon_module.RETENTION_DORMANT_ENV, raising=False)
+    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: dict(outcome))
+
+    def mark(name, **fields):
+        raise OSError("disk full")
+    monkeypatch.setattr(daemon.timers, "mark", mark)
+    daemon._last_maintenance = time.monotonic() - 2 * daemon_module.RETENTION_INTERVAL_S
+    with pytest.raises(OSError):
+        daemon._retention()
+    assert due_in(daemon) <= 0
+
+
+def test_a_request_while_a_pass_marks_its_end_is_not_lost(state_daemon, monkeypatch):  # noqa: F811
+    """The lock spans the mark: a request arriving then sets the clock after the pass does."""
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    monkeypatch.delenv(daemon_module.RETENTION_DORMANT_ENV, raising=False)
+    monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: {"pruned": []})
+    real_mark, asking = daemon.timers.mark, []
+
+    def mark(name, **fields):
+        real_mark(name, **fields)
+        thread = threading.Thread(target=retire, args=(daemon, job_id))
+        thread.start()
+        thread.join(0.3)                # it waits for the lock this pass holds
+        asking.append(thread)
+    monkeypatch.setattr(daemon.timers, "mark", mark)
+    daemon._retention()
+    (thread,) = asking
+    thread.join(10)
+    assert not thread.is_alive() and daemon._retire_asked == 1
+    assert due_in(daemon) <= 0
+
+
+def test_the_next_pass_retires_a_requested_job_and_keeps_the_rest(state_daemon, monkeypatch, caplog):  # noqa: F811
+    daemon, harness = state_daemon
+    asked, other = finished(daemon, harness), finished(daemon, harness)
+    monkeypatch.delenv(daemon_module.RETENTION_DORMANT_ENV, raising=False)
+    real = daemon_module.maintenance
+    monkeypatch.setattr(daemon_module, "maintenance",
+                        lambda *args, **kwargs: real(*args, **{**kwargs, "holders": lambda watches, **_: {}}))
+    retire(daemon, asked)
+    with caplog.at_level("INFO"):
+        daemon._retention()
+    assert daemon.store.get_job(asked) is None and daemon.store.get_job(other) is not None
+    assert daemon.store.query("SELECT 1 FROM events WHERE job_id=? AND kind='retention.pruned'", (asked,))
+    assert "retired 1 jobs, 1 on request" in caplog.text
+    assert retire(daemon, asked)["jobs"][0]["outcome"] == "retired"
+
+
+# --- the CLI ------------------------------------------------------------------------
+
+@pytest.fixture
+def sent(monkeypatch, tmp_path):
+    """`call_settled` recorded, answering with `reply` (or raising it)."""
+    monkeypatch.setenv("SUBFLEET_HOME", str(tmp_path / "state"))
+    calls: list[tuple[str, dict]] = []
+    reply: dict = {}
+
+    def call_settled(self, op, args=None, **_):
+        calls.append((op, args))
+        if isinstance(reply.get("raise"), Exception):
+            raise reply["raise"]
+        return reply["result"]
+    monkeypatch.setattr(client_module.Client, "call_settled", call_settled)
+    return calls, reply
+
+
+def test_the_cli_sends_each_job_once_with_its_flags(sent, capsys, monkeypatch):
+    calls, reply = sent
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.setenv("SUBFLEET_SESSION_ID", "s-cli")
+    reply["result"] = {"jobs": [{"job_id": "a", "outcome": "requested", "state": "succeeded"},
+                                {"job_id": "b", "outcome": "already-requested", "requested_at": "T1",
+                                 "kept": "unread-notice"}],
+                       "recorded": 1, "withdraw": False, "dry_run": False, "retention": {"dormant": False}}
+    assert cli.main(["retention", "retire", "a", "b", "a", "--reason", "Track B"]) == Exit.OK
+    assert calls == [("retire", {"job_ids": ["a", "b"], "withdraw": False, "dry_run": False,
+                                 "reason": "Track B", "session_id": "s-cli"})]
+    shown = capsys.readouterr()
+    assert shown.out.splitlines() == ["a  requested", "b  already requested at T1; kept while pinned: unread-notice"]
+    assert "next pass, which starts now" in shown.err
+
+
+def test_the_cli_exits_refused_when_a_job_could_not_be_taken(sent, capsys):
+    calls, reply = sent
+    reply["result"] = {"jobs": [{"job_id": "r", "outcome": "not-finished", "state": "running"}],
+                       "recorded": 0, "withdraw": False, "dry_run": False, "retention": {"dormant": True}}
+    assert cli.main(["retention", "retire", "r", "--json"]) == Exit.REFUSED
+    shown = capsys.readouterr()
+    assert json.loads(shown.out)["jobs"][0]["outcome"] == "not-finished"
+
+
+def test_the_cli_says_a_daemon_too_old_for_requests(sent, capsys):
+    _, reply = sent
+    reply["raise"] = DaemonError(int(Exit.INVALID_INPUT), f"{protocol.UNKNOWN_OP}: op must name a supported operation")
+    assert cli.main(["retention", "retire", "a"]) == Exit.DAEMON_UNAVAILABLE
+    err = capsys.readouterr().err
+    assert "predates retire requests" in err and cli.RESTART_DAEMON in err
+
+
+def test_the_cli_counts_a_retired_job_as_settled_and_a_dry_run_as_unrecorded(sent, capsys):
+    _, reply = sent
+    reply["result"] = {"jobs": [{"job_id": "g", "outcome": "retired", "retired_at": "T2", "archive": "/a/g"},
+                                {"job_id": "h", "outcome": "requested", "state": "failed",
+                                 "deferred": {"reason": "holder: pid 9", "for_s": 30}}],
+                       "recorded": 0, "withdraw": False, "dry_run": True, "retention": {"dormant": False}}
+    assert cli.main(["retention", "retire", "g", "h", "--dry-run"]) == Exit.OK
+    shown = capsys.readouterr()
+    assert shown.out.splitlines() == ["g  retired at T2 (archive /a/g)",
+                                      "h  requested; deferred 30 s more: holder: pid 9"]
+    assert "dry run: nothing was recorded" in shown.err and "starts now" not in shown.err
+
+
+def test_the_cli_says_an_unanswered_request_is_safe_to_send_again(sent, capsys):
+    _, reply = sent
+    reply["raise"] = client_module.OutcomeUnknown("retire", "r-1", ["timed out", "connection reset"])
+    assert cli.main(["retention", "retire", "a", "--json"]) == Exit.OPERATIONAL
+    shown = capsys.readouterr()
+    assert json.loads(shown.out)["outcome"] == "unknown"
+    assert "timed out; then connection reset" in shown.err and "records nothing twice" in shown.err
+
+
+def test_the_cli_records_nothing_without_a_daemon(sent, capsys):
+    _, reply = sent
+    reply["raise"] = DaemonUnavailable("no daemon is listening")
+    assert cli.main(["retention", "retire", "a", "--withdraw"]) == Exit.DAEMON_UNAVAILABLE
+    assert "only the daemon records a request" in capsys.readouterr().err

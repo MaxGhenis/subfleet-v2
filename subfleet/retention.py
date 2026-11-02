@@ -15,7 +15,8 @@ does not hold, and the archive is read back before the job's rows go. A pass:
 1. finishes what earlier passes committed (verified deletion, resumable);
 2. picks the oldest unpinned jobs of each pool over its budget, a bounded batch,
    without sizing the whole tree first (sizes are measured lazily, cached, and
-   only a lower bound is needed to know a pool is over);
+   only a lower bound is needed to know a pool is over); an unpinned job whose
+   retirement was asked for (C-8.6) is picked whatever its pool's budget, first;
 3. quarantines them and checks, with one process listing for the batch, that
    nothing holds them;
 4. archives each within a time slice (a job that needs more is parked with its
@@ -70,6 +71,10 @@ FENCE_STALE_S = 600.0
 #: doubling on each failure up to `SIZE_ERROR_MAX_S` (review of a9a6cbf4, N2).
 SIZE_ERROR_S = 3600.0
 SIZE_ERROR_MAX_S = 24 * 3600.0
+#: C-8.6: the events that ask for a finished job's retirement ahead of its
+#: pool's budget, and that withdraw the request.
+RETIRE_REQUESTED = "job.retire_requested"
+RETIRE_WITHDRAWN = "job.retire_withdrawn"
 
 
 class _Interrupted(Exception):
@@ -354,6 +359,38 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int], *,
     return set(_pin_reasons(store, explicit, landed_salvage, pins=pins, turn_keep_s=turn_keep_s))
 
 
+# --- retirement on request (C-8.6) ------------------------------------------------
+
+def retire_requests(query: Callable[..., list[dict[str, Any]]],
+                    job_id: str | None = None) -> dict[str, dict[str, Any]]:
+    """C-8.6: job id -> its standing retire request (the request's data, and `at`, when it was
+    recorded). A job's latest request or withdrawal decides. A retirement deletes a job's rows
+    and leaves its events, so a request names its job by `created_at` too (`requested`), and
+    one that names no `created_at` is no request: it can take no job, and leaves standing
+    whatever stood before it."""
+    standing: dict[str, dict[str, Any]] = {}
+    one, params = ("AND job_id=? ", (job_id,)) if job_id is not None else ("", ())
+    for row in query(f"SELECT ts,kind,job_id,data_json FROM events WHERE kind IN (?,?) AND job_id IS NOT NULL "
+                     f"{one}ORDER BY event_id", (RETIRE_REQUESTED, RETIRE_WITHDRAWN, *params)):
+        if row["kind"] == RETIRE_WITHDRAWN:
+            standing.pop(row["job_id"], None)
+            continue
+        try:
+            data = json.loads(row["data_json"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(data, dict) and isinstance(data.get("created_at"), str):
+            standing[row["job_id"]] = {**data, "at": row["ts"]}
+    return standing
+
+
+def requested(jobs: Iterable[dict[str, Any]], requests: dict[str, dict[str, Any]]) -> set[str]:
+    """C-8.6: the jobs a standing request names: its id and its `created_at`, so a job that
+    took a retired job's id is never taken for the request the retired one had."""
+    return {job["job_id"] for job in jobs
+            if job["job_id"] in requests and requests[job["job_id"]]["created_at"] == job["created_at"]}
+
+
 # --- state kept across passes ---------------------------------------------------
 
 #: What a pass reports about the disk, apart from the pools' live-tree bytes
@@ -422,8 +459,10 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
 
     Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
     `turn_max_jobs`/`turn_max_bytes` (C-26.12); a pool over its budget never
-    prunes the other. `deadline` bounds when new work may start (a started
-    job finishes its slice); `cancel` stops at the next checkpoint and leaves
+    prunes the other. A job with a standing retire request (C-8.6,
+    `retire_requests`) is retired whatever its pool's budget, before the rest.
+    `deadline` bounds when new work may start (a started job finishes its
+    slice); `cancel` stops at the next checkpoint and leaves
     every retirement in its journal for the next pass. `holders` lists the
     processes holding a batch's trees (default: `lsof`). `pins` is asked again
     inside every delete transaction. `salvage_referenced_elsewhere` is kept for
@@ -501,6 +540,8 @@ class _Pass:
         self.legacy: dict[str, list[str]] = {}
         #: Journal-less retention leases left by selection or old half-removal.
         self.leftovers = state.leftovers
+        #: C-8.6: jobs whose retirement was asked for, read once a pass.
+        self.requested: set[str] = set()
 
     # pins ------------------------------------------------------------------------
 
@@ -533,6 +574,11 @@ class _Pass:
                                legacy=self.legacy)
         return reasons.get(job_id)
 
+    def _rank(self, job_id: str) -> int:
+        """The order a pass takes eligible jobs in, oldest first within each rank: an
+        orphan lease's job, then one whose retirement was asked for (C-8.6), then the rest."""
+        return 0 if job_id in self.leftovers else 1 if job_id in self.requested else 2
+
     # the pass ----------------------------------------------------------------------
 
     def run(self) -> dict[str, Any]:
@@ -542,6 +588,7 @@ class _Pass:
         in_flight = self._recover()
         jobs = list(reversed(self.store.list_jobs()))        # oldest first
         by_id = {job["job_id"]: job for job in jobs}
+        self.requested = requested(jobs, retire_requests(self.store.query))
         self.hosted = nested_hosts(jobs, self.root)
         reasons = self._reasons()
         for job_id in in_flight:
@@ -585,10 +632,11 @@ class _Pass:
         now = self.clock()
         waiting = False
         chosen: list[str] = []
-        for job in sorted(jobs, key=lambda job: job["job_id"] not in self.leftovers):
+        for job in sorted(jobs, key=lambda job: self._rank(job["job_id"])):
             job_id = job["job_id"]
             pool = _pool(job)
-            if job_id in in_flight or job_id in protected or not over(pool):
+            # C-8.6: a request lifts the budget only; every pin, deferral and the batch still bind.
+            if job_id in in_flight or job_id in protected or not (over(pool) or job_id in self.requested):
                 continue
             deferral = self.state.deferral(job_id, now)
             if deferral is not None:
@@ -679,7 +727,7 @@ class _Pass:
         result = {**self.progress, "protected": sorted(protected - set(self.progress["pruned"])),
                 "bytes_before": before, "bytes_after": sum(after.values()),
                 "jobs_after": len(remaining), "pools": pools, "more": more, "progressed": self.acted > 0,
-                "pin_reasons": reasons}
+                "pin_reasons": reasons, "requested": sorted(self.requested & set(self.progress["pruned"]))}
         if more and self.deadline is not None and self.clock() >= self.deadline:
             result["interrupted"] = "deadline"
         return result

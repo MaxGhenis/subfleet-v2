@@ -1,8 +1,9 @@
 """A read-only dry run of retention by archive over a live state root (d635).
 
 It applies the same eligibility as a retention pass (pins and their reasons,
-pool budgets, oldest first) and the same per-job preflight (registration,
-scratch sources, salvage refs, nested linked worktrees, holders) without writing
+pool budgets, standing retire requests first (C-8.6), then oldest first) and
+the same per-job preflight (registration, scratch sources, salvage refs, nested
+linked worktrees, holders) without writing
 anything: SQLite is opened read-only, git runs with ``GIT_OPTIONAL_LOCKS=0`` and
 only reading commands, and ``lsof`` lists processes. The conversation service's
 in-memory pins are not visible from outside the daemon; the report says so.
@@ -159,6 +160,7 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         jobs = list(reversed(store.list_jobs()))
         reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=turn_keep_s,
                                    hosted=ret.nested_hosts(jobs, root), root=root)
+        requested = ret.requested(jobs, ret.retire_requests(store.query))      # C-8.6
         journals = rarch.journals(root)
         live_trees = [job.get("worktree") for job in jobs] + [
             j.get("worktree") for j in journals.values() if isinstance(j, dict)]
@@ -181,7 +183,8 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     for job in jobs:
         job_id = job["job_id"]
         info: dict[str, Any] = {"job_id": job_id, "pool": ret._pool(job), "created_at": job["created_at"],
-                                "state": job["state"], "kind": job["kind"], "pin": reasons.get(job_id)}
+                                "state": job["state"], "kind": job["kind"], "pin": reasons.get(job_id),
+                                "requested": job_id in requested}
         try:
             worktree = ret._owned_worktree(job, root)
         except ValueError as exc:
@@ -215,7 +218,8 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
                     info["issue"] = f"nested-linked-worktree: {foreign[0]}"
         info.pop("_omit", None)
         rows[job_id] = info
-    # Budgets, oldest first, as a pass decides them (no batch limit here).
+    # Budgets, oldest first, as a pass decides them (no batch limit here): a job whose
+    # retirement was asked for first, whatever its pool's budget (C-8.6).
     counts = Counter(r["pool"] for r in rows.values())
     totals = defaultdict(int)
     for r in rows.values():
@@ -223,11 +227,11 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     report["pools"] = {p: {"jobs": counts[p], "bytes": totals[p], "max_jobs": budgets[p][0],
                            "max_bytes": budgets[p][1]} for p in budgets}
     would: list[str] = []
-    for job in jobs:
+    for job in sorted(jobs, key=lambda job: job["job_id"] not in requested):
         r = rows[job["job_id"]]
         pool = r["pool"]
         over = counts[pool] > budgets[pool][0] or totals[pool] > budgets[pool][1]
-        if not over:
+        if not over and not r["requested"]:
             r["kept"] = "within budget"
             continue
         if r.get("pin"):
@@ -278,7 +282,8 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     worktree_bytes = sum(r.get("worktree_bytes", 0) for r in wt_retiring)
     archived = sum(r.get("bytes", 0) for r in retiring) - omittable
     report["would_retire"] = {
-        "jobs": len(retire), "with_worktree": len(wt_retiring),
+        "jobs": len(retire), "requested": sum(1 for r in retiring if r["requested"]),
+        "with_worktree": len(wt_retiring),
         "bytes": sum(r.get("bytes", 0) for r in retiring), "worktree_bytes": worktree_bytes,
         "job_dir_bytes": sum(r.get("job_dir_bytes", 0) for r in retiring),
         "omittable_bytes_upper_bound": omittable, "archived_bytes": archived,

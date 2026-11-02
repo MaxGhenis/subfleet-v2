@@ -76,7 +76,8 @@ from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, check_lane_credentials,
                      disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, startup_notes,
                      resolve_model, turn_cap)
-from .retention import RetentionState, maintenance
+from .retention import (RETIRE_REQUESTED, RETIRE_WITHDRAWN, RetentionState, _pin_reasons, maintenance,
+                        retire_requests)
 from .retention_git import discard_registration
 from .salvage import (
     SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, os_error_text, path_text, pin_baseline,
@@ -617,6 +618,15 @@ def after(seconds: float) -> str:
         timespec="seconds").replace("+00:00", "Z")
 
 
+def _json_object(text: str | None) -> dict:
+    """A JSON object a row records, or {} for anything else."""
+    try:
+        value = json.loads(text) if text else None
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _later(stamp: str, seconds: float) -> str:
     """`stamp` plus `seconds`, retaining fractional precision (C-11.8, C-9.5)."""
     return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
@@ -906,6 +916,11 @@ class Daemon:
         self._retention_dormant_logged = False
         # d635: deferrals and measured sizes carried between retention passes.
         self._retention_state = RetentionState()
+        # C-8.6: retire requests recorded since start, counted under the lock that also
+        # orders them against a pass's rearm (`_rearm_retention`), so a pass that ends
+        # after one arrived never leaves it the hour.
+        self._retire_lock = threading.Lock()
+        self._retire_asked = 0
         # C-16.7: every client connection held, from `accept` until its last
         # reply has been written; what the cap counts, and what `close()` shuts.
         self._connections: set[socket.socket] = set()
@@ -4239,6 +4254,8 @@ class Daemon:
                              client_gone=client_gone)
         if op == "kill":
             return self.kill(protocol.coerce_args(protocol.KillArgs, args), pid=peer.pid if peer else None)
+        if op == "retire":
+            return self._retire(protocol.coerce_args(protocol.RetireArgs, args))
         if op == "lanes":
             a = protocol.coerce_args(protocol.LanesArgs, args)
             if a.action == "transfer":
@@ -5781,6 +5798,120 @@ class Daemon:
         return {"session_id": a.session_id, "withdrawn": [-notice_id for notice_id in sorted(withdrawn)],
                 "kept": [-notice_id for notice_id in wanted if notice_id not in withdrawn]}
 
+    def _retire(self, a: protocol.RetireArgs) -> dict:
+        """C-8.6: record requests that retention retire finished jobs ahead of their pool's
+        budget, or take them back (`withdraw`), and say for each job what retention will do.
+
+        A request is a `job.retire_requested` event naming the job and its `created_at`. A
+        pass reads the standing ones when it starts (`retention.retire_requests`) and takes
+        those jobs after orphan leases' and before the rest. A request lifts the budget only:
+        a pin, a deferral and a retirement in flight still bind, and the answer names them,
+        except what only a pass sees (a process holding the tree, a job registered in a
+        repository inside it). A request that records anything makes retention due now;
+        `dry_run` answers the same and records nothing.
+        """
+        ids = a.job_ids
+        if (not isinstance(ids, list) or not 1 <= len(ids) <= protocol.RETIRE_MAX_JOBS
+                or not all(isinstance(job_id, str) and job_id for job_id in ids)):
+            raise protocol.ProtocolError("job_ids must list 1 to 500 job ids", reason="retire-ids")
+        if not isinstance(a.withdraw, bool) or not isinstance(a.dry_run, bool):
+            raise protocol.ProtocolError("withdraw and dry_run must be true or false", reason="retire-flags")
+        if a.reason is not None and (not isinstance(a.reason, str) or len(a.reason) > protocol.RETIRE_REASON_MAX):
+            raise protocol.ProtocolError("reason must be text of at most 500 characters", reason="retire-reason")
+        kind = RETIRE_WITHDRAWN if a.withdraw else RETIRE_REQUESTED
+        record = {key: value for key, value in (("session_id", a.session_id), ("reason", a.reason)) if value}
+        rows: list[dict] = []
+        recorded = 0
+        # Never audited as `kind`: an audit event has no `created_at`, which no request lacks.
+        with self.store.transaction("retire.answered") as tx:
+            def read(sql, params):
+                return [dict(row) for row in tx.execute(sql, params).fetchall()]
+            for job_id in dict.fromkeys(ids):
+                job = tx.execute("SELECT state,created_at FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+                if job is None:
+                    # Retired (its events outlive its rows) or never a job here.
+                    gone = tx.execute("SELECT ts,data_json FROM events WHERE job_id=? AND kind='retention.pruned' "
+                                      "ORDER BY event_id DESC LIMIT 1", (job_id,)).fetchone()
+                    rows.append({"job_id": job_id, "outcome": "unknown"} if gone is None else
+                                {"job_id": job_id, "outcome": "retired", "retired_at": gone["ts"],
+                                 "archive": _json_object(gone["data_json"]).get("archive")})
+                    continue
+                standing = retire_requests(read, job_id).get(job_id)
+                if standing is not None and standing["created_at"] != job["created_at"]:
+                    standing = None             # a retired job's, whose id this job took
+                row = {"job_id": job_id, "state": job["state"]}
+                if job["state"] not in TERMINAL:
+                    row["outcome"] = "not-requested" if a.withdraw else "not-finished"
+                elif a.withdraw:
+                    row["outcome"] = "withdrawn" if standing else "not-requested"
+                elif standing:
+                    row.update(outcome="already-requested", requested_at=standing["at"])
+                else:
+                    row["outcome"] = "requested"
+                if row["outcome"] in ("requested", "withdrawn") and not a.dry_run:
+                    at = utcnow()
+                    tx.execute("INSERT INTO events(ts,kind,job_id,data_json) VALUES (?,?,?,?)",
+                               (at, kind, job_id, json.dumps({"created_at": job["created_at"], **record},
+                                                             sort_keys=True)))
+                    recorded += 1
+                    if not a.withdraw:
+                        row["requested_at"] = at
+                rows.append(row)
+            self.store.audit_as(None)           # each job's event is the record
+        self._retire_annotate(rows)
+        if recorded and not a.withdraw:
+            with self._retire_lock:
+                self._retire_asked += 1
+                self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S
+        return {"jobs": rows, "withdraw": a.withdraw, "dry_run": a.dry_run, "recorded": recorded,
+                "retention": {"dormant": os.environ.get(RETENTION_DORMANT_ENV) == "1"}}
+
+    def _retire_annotate(self, rows: list[dict]) -> None:
+        """C-8.6: what keeps each finished job named in a retire answer: a retirement in
+        flight (it finishes, withdrawn or not), a pin (`kept`, its reason as a pass reads
+        it) or a deferral. Read after the request's transaction, outside any."""
+        budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
+        legacy = None
+        for row in rows:
+            if row["outcome"] not in ("requested", "already-requested", "withdrawn"):
+                continue
+            job_id = row["job_id"]
+            held = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (f"retire:{job_id}",))
+            if held is not None and held["holder"] == f"retention:{job_id}":
+                row["retiring"] = True
+            if row["outcome"] == "withdrawn":
+                continue
+            try:
+                if legacy is None:
+                    legacy = dependencies.legacy(self.store.query)
+                pin = _pin_reasons(self.store, set(), None, pins=self._retention_pins,
+                                   turn_keep_s=float(budget["turn_keep_days"]) * 86400, only=job_id,
+                                   root=self.root, legacy=legacy).get(job_id)
+            except Exception as exc:
+                # The request stands either way; a pass reads the pins again.
+                row["pins_unread"] = type(exc).__name__
+                continue
+            if pin:
+                row["kept"] = pin
+            deferred = self._retention_state.deferred.get(job_id)
+            now = time.monotonic()
+            if deferred is not None and deferred[0] > now:
+                row["deferred"] = {"reason": deferred[1], "for_s": round(deferred[0] - now)}
+
+    def _rearm_retention(self, asked: int, *, error: str | None = None) -> float:
+        """Make retention due in an hour, or in `RETENTION_CATCH_UP_S` when a retire request
+        was recorded after this pass began (C-8.6): the pass may have read the requests
+        before it, and the request would wait the hour. Returns the delay.
+
+        `_last_maintenance` is set last (C-8.4), so a failed mark leaves retention due; the
+        lock spans the mark, so a request recorded meanwhile sets it after this does.
+        """
+        with self._retire_lock:
+            delay = float(RETENTION_INTERVAL_S if self._retire_asked == asked else RETENTION_CATCH_UP_S)
+            self.timers.mark("retention", error=error, next_due=after(delay))
+            self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S + delay
+        return delay
+
     def _retention_pins(self):
         """Keep the ledger until its starts leave C-6.18's restart window.
 
@@ -5805,6 +5936,8 @@ class Daemon:
         # retirement archives before it deletes; a pass retires a bounded batch,
         # oldest first, and says when more is waiting, so a backlog is worked
         # off in catch-up passes seconds apart instead of timing out hourly.
+        # C-8.6: the retire requests recorded before this pass reads them.
+        asked = self._retire_asked
         # Once per retention call (one bounded batch), including interruptions.
         self._sweep_attempt_tmpdirs()
         try:
@@ -5853,10 +5986,11 @@ class Daemon:
             return
         if interrupted:
             if not progressed:
-                self.timers.mark("retention", error="TimeoutError", next_due=after(RETENTION_INTERVAL_S))
+                delay = self._rearm_retention(asked, error="TimeoutError")
                 self.log.warning("retention: deadline reached before it pruned a job or advanced; "
-                                 "%d jobs in the store; next pass in an hour", result.get("jobs_after", 0))
-                self._last_maintenance = time.monotonic()
+                                 "%d jobs in the store; next pass in %s", result.get("jobs_after", 0),
+                                 "an hour" if delay >= RETENTION_INTERVAL_S else
+                                 f"{delay:g} seconds, for a retire request")
                 return
             self.log.warning("retention: deadline reached after progress (%d jobs pruned); "
                              "%d jobs in the store; retrying on the worker clock", pruned, result.get("jobs_after", 0))
@@ -5866,10 +6000,11 @@ class Daemon:
             self.log.warning("retention: %s: %s", error.get("job_id"), refusals.scrubbed_line(str(error.get("error")), 300))
         if result.get("more") and progressed:
             delay = RETENTION_CATCH_UP_S
-            self.log.info("retention catch-up: retired %d jobs (freed %d bytes, %d on disk; moved %d bytes into the "
-                          "archive, which added %d bytes; net %d on disk), %d in flight, %d deferred; "
+            self.log.info("retention catch-up: retired %d jobs, %d on request (freed %d bytes, %d on disk; moved %d "
+                          "bytes into the archive, which added %d bytes; net %d on disk), %d in flight, %d deferred; "
                           "continuing in %g seconds",
-                          len(result.get("pruned") or ()), result.get("freed_bytes") or 0,
+                          len(result.get("pruned") or ()), len(result.get("requested") or ()),
+                          result.get("freed_bytes") or 0,
                           result.get("freed_disk_bytes") or 0, result.get("archived_bytes") or 0,
                           result.get("added_bytes") or 0,
                           (result.get("freed_disk_bytes") or 0) - (result.get("added_bytes") or 0),
@@ -5878,15 +6013,15 @@ class Daemon:
             self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S + delay
             return
         if result.get("pruned"):
-            self.log.info("retention: retired %d jobs; freed %d bytes (%d on disk), moved %d bytes into the archive, "
-                          "which added %d bytes (bundles, manifests, rows); net %d on disk",
-                          len(result["pruned"]), result.get("freed_bytes") or 0, result.get("freed_disk_bytes") or 0,
+            self.log.info("retention: retired %d jobs, %d on request; freed %d bytes (%d on disk), moved %d bytes "
+                          "into the archive, which added %d bytes (bundles, manifests, rows); net %d on disk",
+                          len(result["pruned"]), len(result.get("requested") or ()),
+                          result.get("freed_bytes") or 0, result.get("freed_disk_bytes") or 0,
                           result.get("archived_bytes") or 0, result.get("added_bytes") or 0,
                           (result.get("freed_disk_bytes") or 0) - (result.get("added_bytes") or 0))
-        self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
         # A raising pass remains due so the worker retry clock can re-offer it.
         # Completed and non-advancing passes rearm the hourly interval last.
-        self._last_maintenance = time.monotonic()
+        self._rearm_retention(asked)
 
     def _prune_service_notices(self) -> int:
         """C-23.26: a service notice is pruned 14 days after it was written, once delivered.
