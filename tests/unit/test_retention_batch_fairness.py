@@ -513,6 +513,34 @@ def test_slow_read_backs_are_progress_not_a_stall(world, monkeypatch):
     assert len([c for c in calls if c[0] == "parked"]) >= 11 and strictly_further(calls), calls
 
 
+def test_a_slice_that_only_reads_copies_back_gets_further(world, monkeypatch):
+    """A job with no worktree whose last two files each outlast the slice: the
+    slice that reads the last one parks where the read-back begins, and the
+    next slice only reads copies back. A copy read back counts as progress, so
+    that slice gets further too."""
+    w = world
+    w.job("job-copies", worktree=False,
+          files={"stdout": b"out\n", "z1.bin": os.urandom(BIG), "z2.bin": os.urandom(BIG)})
+    clock = Clock()
+    original = rfs.read_hashes
+
+    def slow(fd, size, fmt, check=None):
+        if size == BIG:
+            clock.advance(100)
+        return original(fd, size, fmt, check)
+
+    monkeypatch.setattr(rfs, "read_hashes", slow)
+    calls = record_reached(monkeypatch, "job-copies")
+    state = retention.RetentionState()
+    for _ in range(10):
+        result = run(w, state=state, clock=clock, slice_s=60)
+        assert not result["deferred"], result
+        if result["pruned"]:
+            break
+    assert result["pruned"] == ["job-copies"], result
+    assert len([c for c in calls if c[0] == "parked"]) >= 3 and strictly_further(calls), calls
+
+
 def test_a_walk_begun_again_counts_from_the_tree_start(world, monkeypatch):
     """A `node_modules` package that holds a repository sends the slice's walk
     round again with that package archived (`NotRegenerable`). Twenty files
