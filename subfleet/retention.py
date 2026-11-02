@@ -369,9 +369,14 @@ def retire_requests(query: Callable[..., list[dict[str, Any]]],
     one that names no `created_at` is no request: it can take no job, and leaves standing
     whatever stood before it."""
     standing: dict[str, dict[str, Any]] = {}
-    one, params = ("AND job_id=? ", (job_id,)) if job_id is not None else ("", ())
-    for row in query(f"SELECT ts,kind,job_id,data_json FROM events WHERE kind IN (?,?) AND job_id IS NOT NULL "
-                     f"{one}ORDER BY event_id", (RETIRE_REQUESTED, RETIRE_WITHDRAWN, *params)):
+    if job_id is None:
+        sql, params = ("SELECT ts,kind,job_id,data_json FROM events WHERE kind IN (?,?) AND job_id IS NOT NULL "
+                       "ORDER BY event_id", (RETIRE_REQUESTED, RETIRE_WITHDRAWN))
+    else:
+        # `+kind`: one job's own events (events_job), never every request ever made.
+        sql, params = ("SELECT ts,kind,job_id,data_json FROM events WHERE job_id=? AND +kind IN (?,?) "
+                       "ORDER BY event_id", (job_id, RETIRE_REQUESTED, RETIRE_WITHDRAWN))
+    for row in query(sql, params):
         if row["kind"] == RETIRE_WITHDRAWN:
             standing.pop(row["job_id"], None)
             continue

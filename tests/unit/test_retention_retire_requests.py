@@ -202,6 +202,22 @@ def test_a_request_that_names_no_created_at_is_none(root, data_json):
     assert run(root, max_jobs=10)["pruned"] == ["odd"]
 
 
+def test_the_request_reads_stay_indexed(root):
+    """A pass reads every request by kind (events_kind); the daemon's answer reads one
+    job's by that job's own events (events_job), never every request ever made."""
+    seen: list[tuple[str, tuple]] = []
+
+    def query(sql, params=()):
+        seen.append((sql, params))
+        return root.store.query(sql, params)
+    retention.retire_requests(query)
+    retention.retire_requests(query, "a-job")
+    every, one = (" | ".join(row["detail"] for row in root.store.query("EXPLAIN QUERY PLAN " + sql, params))
+                  for sql, params in seen)
+    assert "events_kind" in every and "SCAN events" not in every, every
+    assert "events_job" in one, one
+
+
 OPS = st.lists(st.tuples(st.sampled_from(["j1", "j2", "j3"]), st.sampled_from(["request", "withdraw"])),
                max_size=12)
 

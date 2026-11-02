@@ -40,6 +40,7 @@ The contract text is C-8.6 in `docs/acceptance-contract.md`.
 | 4 | oracle with `requests=False` | differential, 164 worlds with no request |
 | 5 | `test_a_request_makes_retention_due_now_and_nothing_else_does`, `test_a_request_during_a_pass_brings_the_next_pass_to_catch_up` (2 outcomes), `test_a_pass_with_no_request_after_it_began_waits_the_hour` (2), `test_a_pass_whose_mark_fails_stays_due` (2), `test_a_request_while_a_pass_marks_its_end_is_not_lost` | mutants `not-due`, `withdrawal-due`, `no-catch-up`, `asked-at-end`, `clock-first`, `mark-unlocked` |
 | 6 | `test_a_request_records_one_event_that_names_the_job`, `test_a_dry_run_answers_the_same_and_records_nothing`, `test_each_job_is_answered_once` | mutant `dry-run-records` |
+| answer, CLI, survey | `test_what_a_request_cannot_take_is_answered_and_nothing_recorded`, `test_the_answer_names_a_pin_a_deferral_and_a_retirement_in_flight`, `test_the_answer_reads_each_job_by_its_own_events`, the six CLI tests, `test_the_survey_counts_a_request_as_a_pass_does` | mutants `takes-unfinished`, `hides-pin`, `pruned-by-kind`, `cli-retired-refused`, `survey-blind` |
 
 ## The differential against 2.1.12
 
@@ -60,6 +61,10 @@ The pairs ran at 2026-11-02 about 21:00Z with seed 86; logs: `differential.log`,
 - **Rearm order.** The first rearm helper set `_last_maintenance` before the status mark, which breaks C-8.4's rule that a failed mark leaves retention due. Three existing tests in `tests/fake/test_native_maintenance_startup.py` failed on it. The helper now holds the request lock across the mark and sets the clock after it. `test_a_pass_whose_mark_fails_stays_due` and `test_a_request_while_a_pass_marks_its_end_is_not_lost` pin both halves.
 - **Audit events read as requests.** `store.add_event` writes an audit event of the same kind with `{}` data beside the row. Read as the latest event, it unbound the request before it. The op now writes its rows directly in a `retire.answered` transaction with no audit, and the reader treats an event that names no `created_at` as no request.
 
+## Reads stay indexed
+
+The answer runs inside the request's write transaction, so its reads must stay small. A read-only plan on the live store at 2026-11-02 21:20Z showed that the first lookup of a retired job's `retention.pruned` event planned on `events_kind`: for an id with no rows, SQLite walked all 4,757 retirements recorded so far, 3.18 ms each (mean of 50), or about 1.6 s for a request naming 500 such ids, and that cost grows with every retirement. With `+kind`, the house idiom (`dependencies.py`, `Daemon._batches`), it plans on `events_job` and takes no measurable time. The per-job request read already planned on `events_job`; `+kind` pins that too. A pass reads every request by kind on `events_kind`, then sorts the few rows it finds. `test_the_answer_reads_each_job_by_its_own_events` and `test_the_request_reads_stay_indexed` check the plans, and the old lookup fails the first.
+
 ## Test runs
 
 All from `~/subfleet-v2-lanes/retire-request`, serial (no xdist), under the shared suite lock, with private `--basetemp` folders. Logs sit in `~/reviews/subfleet-hub/retire-request-2026-11-02/`.
@@ -68,13 +73,13 @@ All from `~/subfleet-v2-lanes/retire-request`, serial (no xdist), under the shar
 |---|---|---|
 | `targeted-r1.log` | the two new files and 21 retention, protocol, refusal and borrowed-method files | 1,395 passed, 7 failed in 411 s: 3 from the rearm order above; 4 in `test_fake_daemon_borrowed_methods.py`, which read method source by line number after `daemon.py` changed mid-run |
 | `targeted-r2.log` | the 2 failing files, the 2 new files and 3 schedule files | 179 passed in 34.6 s |
-| final new files | `tests/unit/test_retention_retire_requests.py`, `tests/fake/test_retire_request_daemon.py` | 48 passed in 18.5 s |
+| final new files | `tests/unit/test_retention_retire_requests.py`, `tests/fake/test_retire_request_daemon.py` | 50 passed in 12.4 s |
 
 CI runs the whole suite on the pull request.
 
 ## Mutants
 
-`tools/retire_request_mutants.py` names 21 mutants, one per broken rule; each swaps one function in memory for a copy with one edit and leaves the source alone. Each edit matches its function once and compiles. Fleet ops held serial mutant runs until the Microcosm US release starts, so the runs come after that, and their results go into this report.
+`tools/retire_request_mutants.py` names 22 mutants, one per broken rule; each swaps one function in memory for a copy with one edit and leaves the source alone. Each edit matches its function once and compiles. Fleet ops held serial mutant runs until the Microcosm US release starts, so the runs come after that, and their results go into this report.
 
 ## The live read
 

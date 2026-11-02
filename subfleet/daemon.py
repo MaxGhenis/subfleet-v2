@@ -5829,8 +5829,10 @@ class Daemon:
             for job_id in dict.fromkeys(ids):
                 job = tx.execute("SELECT state,created_at FROM jobs WHERE job_id=?", (job_id,)).fetchone()
                 if job is None:
-                    # Retired (its events outlive its rows) or never a job here.
-                    gone = tx.execute("SELECT ts,data_json FROM events WHERE job_id=? AND kind='retention.pruned' "
+                    # Retired (its events outlive its rows) or never a job here. `+kind`: by
+                    # the job's own events (events_job); by kind, an unknown id walked every
+                    # retirement ever recorded, 3 ms each at 4,757 on 2026-11-02.
+                    gone = tx.execute("SELECT ts,data_json FROM events WHERE job_id=? AND +kind='retention.pruned' "
                                       "ORDER BY event_id DESC LIMIT 1", (job_id,)).fetchone()
                     rows.append({"job_id": job_id, "outcome": "unknown"} if gone is None else
                                 {"job_id": job_id, "outcome": "retired", "retired_at": gone["ts"],

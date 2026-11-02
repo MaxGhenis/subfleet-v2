@@ -76,6 +76,24 @@ def test_what_a_request_cannot_take_is_answered_and_nothing_recorded(state_daemo
     assert retention.retire_requests(daemon.store.query) == {}
 
 
+def test_the_answer_reads_each_job_by_its_own_events(state_daemon):  # noqa: F811
+    """Inside the write transaction, by kind an unknown id walked every retirement ever
+    recorded (3 ms each at 4,757 on 2026-11-02); by the job's own events it reads its own."""
+    daemon, harness = state_daemon
+    statements: list[str] = []
+    daemon.store.conn.set_trace_callback(statements.append)
+    try:
+        retire(daemon, "never-a-job", finished(daemon, harness))
+    finally:
+        daemon.store.conn.set_trace_callback(None)
+    reads = [sql for sql in statements if sql.lstrip().upper().startswith("SELECT") and "FROM events" in sql
+             and ("job.retire_" in sql or "retention.pruned" in sql)]
+    assert len(reads) == 2, statements      # the unknown id's retirement, the finished job's requests
+    for sql in reads:
+        plan = " | ".join(row["detail"] for row in daemon.store.query("EXPLAIN QUERY PLAN " + sql))
+        assert "events_job" in plan, (sql, plan)
+
+
 def test_a_withdrawal_takes_the_request_back_once(state_daemon):  # noqa: F811
     daemon, harness = state_daemon
     job_id = finished(daemon, harness)
