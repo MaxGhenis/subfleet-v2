@@ -1,0 +1,42 @@
+start 2026-11-01T23:47:57Z
+hold 23:47:57Z slot A load { 71.37 74.37 81.67 }
+{"name": "baseline", "rc": 0, "note": "224 passed in 57.44s", "seconds": 58.1}
+{"name": "fallback-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_generated_matrix_matches_real_git[bare]", "seconds": 2.1}
+{"name": "no-repository-at-boundary", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_a_filesystem_boundary_is_left_to_git", "seconds": 15.0}
+{"name": "head-in-walk-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_generated_matrix_matches_real_git[bare]", "seconds": 13.1}
+{"name": "negative-goes-to-git", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_repository_up_to_the_root_needs_no_process", "seconds": 21.2}
+{"name": "sections-unrefused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[index]\\n\\tsparse = maybe\\n]", "seconds": 16.6}
+{"name": "section-keys-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[user]\\n\\tuseconfigonly = maybe\\n]", "seconds": 19.8}
+{"name": "include-unrefused", "killed": false, "rc": 0, "note": "224 passed in 56.30s", "seconds": 56.9}
+{"name": "unknown-extensions-pass", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[core]\\n\\trepositoryformatversion ", "seconds": 14.5}
+{"name": "extension-boolean-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[extensions]\\n\\tworktreeconfig = m", "seconds": 14.5}
+{"name": "version-2-passes", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[core]\\n\\trepositoryformatversion ", "seconds": 14.8}
+{"name": "core-keys-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[core]\\n\\tcompression = abc\\n]", "seconds": 13.2}
+{"name": "core-booleans-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[core]\\n\\tsparsecheckout = maybe\\n", "seconds": 12.9}
+{"name": "worktree-key-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_unusual_metadata_is_left_to_git[missing-core-worktree]", "seconds": 30.7}
+{"name": "config-worktree-unread", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_worktree_matches_real_git[admin-on-[core]\\n\\tsparsecheck", "seconds": 21.5}
+{"name": "unterminated-quote-passes", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[branch \"a\"]\\n\\tx = \"unterminated\\", "seconds": 14.3}
+{"name": "reftable-unrefused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_leaves_a_reftable_store_to_git", "seconds": 33.0}
+{"name": "loose-ref-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_never_contradicts_git", "seconds": 28.2}
+{"name": "packed-ref-unchecked", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_takes_a_whole_ref_name[('add', 'pack')-refs/subfl", "seconds": 29.3}
+{"name": "packed-limit-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_no_refs_under_leaves_an_oversized_or_unreadable_store_to_git", "seconds": 32.1}
+{"name": "census-deadline-ignored", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_known_repositories_deadline_during_registration", "seconds": 34.6}
+{"name": "context-drops-deadline", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_context_does_not_publish_incomplete_repository_census", "seconds": 35.1}
+{"name": "pass-drops-deadline", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_discovery_deadline_defers_without_partial_retirement_and_backs", "seconds": 36.4}
+{"name": "partial-census-published", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_context_does_not_publish_incomplete_repository_census", "seconds": 32.6}
+{"name": "allocation-replay-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_allocation_created_during_census_invalidates_absent_snapshot", "seconds": 36.2}
+{"name": "allocation-casefold-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_allocation_snapshot_aliases_keep_original_per_path_checks[case", "seconds": 32.8}
+{"name": "salvage-deadline-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_listing_stops_at_the_deadline_and_keeps_no_partial_ans", "seconds": 36.8}
+{"name": "salvage-proof-removed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_search_lists_only_the_repository_that_might_hold_the_r", "seconds": 31.3}
+{"name": "salvage-proof-needs-all", "killed": false, "rc": 0, "note": "224 passed in 45.66s", "seconds": 46.2}
+{"name": "salvage-proof-inverted", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_search_lists_only_the_repository_that_might_hold_the_r", "seconds": 36.5}
+{"name": "probe-kind-index", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_one_jobs_probe_rows_use_the_job_index_and_match_the_kind_scan", "seconds": 46.6}
+end 2026-11-02T00:02:24Z rc 0
+
+# rerun of the two survivors after their tests landed
+start 2026-11-02T00:03:42Z
+hold 00:03:42Z slot A load { 21.85 30.17 47.41 }
+{"name": "baseline", "rc": 0, "note": "231 passed in 44.07s", "seconds": 44.6}
+{"name": "include-unrefused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_doubtful_config_goes_to_git[[includeIf \"gitdir:/\"]\\n\\tpath = el", "seconds": 15.1}
+{"name": "salvage-proof-needs-all", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_repository_walk.py::test_salvage_search_skips_a_repository_that_lacks_any_one_of_the_re", "seconds": 34.9}
+end 2026-11-02T00:05:18Z rc 0
