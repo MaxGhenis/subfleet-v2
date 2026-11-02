@@ -627,6 +627,12 @@ def after(seconds: float) -> str:
         timespec="seconds").replace("+00:00", "Z")
 
 
+def _gives_back(hold: dict) -> bool:
+    """C-6.20: whether a detached pass's hold lets a job that never ran give back its tree:
+    the door's disk hold (C-6.17), or no lane taking it now (`unprepared`)."""
+    return hold.get("reason") == "disk" or bool(hold.get("unprepared"))
+
+
 def _later(stamp: str, seconds: float) -> str:
     """`stamp` plus `seconds`, retaining fractional precision (C-11.8, C-9.5)."""
     return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
@@ -7214,9 +7220,10 @@ class Daemon:
             self._pass_holds[kind] = None
             lock.release()
         if kind == "detached":
-            # C-6.20, C-6.17: a job the door's disk hold took this pass gives back the
-            # tree an earlier look cut for it; offered once per job and episode.
-            held = frozenset(job_id for job_id, hold in holds.items() if hold.get("reason") == "disk")
+            # C-6.20, C-6.17: a job the door's disk hold took this pass, or one no lane would
+            # take now, gives back the tree an earlier look cut for it; offered once per job
+            # and stretch of such holds.
+            held = frozenset(job_id for job_id, hold in holds.items() if _gives_back(hold))
             fresh, self._unrun_offered = held - self._unrun_offered, held
             if fresh:
                 self._offer_unrun_sweep()
@@ -7822,20 +7829,22 @@ class Daemon:
                              and scheduler.competes(compared_models(waiter), waiter[1], lanes, waiter[2])
                              and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
 
-            def unadmittable_now():
+            def unadmittable_now(far_s=None):
                 """C-11.8, C-6.12: the standing refusals that keep every lane from this job now (or
                 None), and whether its route can be evaluated. The lanes its attempts excluded are
                 merged in (C-4.5) as its route merges them: a lane re-enrolled since a `limited`
                 attempt is excluded under its successor's id, which only `_retry_pin` knows (review
                 of #201 r1). A merge that cannot be made (a stored exclusion that is not a name) is
                 its route's problem, a `route` wait once it is looked at, which holds nobody: so such
-                a job holds nobody meanwhile either (review of #201 r2)."""
+                a job holds nobody meanwhile either (review of #201 r2). With `far_s` 0, every
+                closure in force counts, however soon it ends (C-6.20)."""
                 try:
                     effective = ({**job, "exclusions": self._merged_exclusions(job, extra_exclusions)}
                                  if extra_exclusions else job)
                 except Unroutable:
                     return None, False
-                return scheduler.unadmittable(self.policy, pin_view(), effective, memo=for_good_memo), True
+                return scheduler.unadmittable(self.policy, pin_view(), effective, memo=for_good_memo,
+                                              far_s=far_s), True
             behind = None if defer_fifo else ahead(models, lanes)
             for_good = None
             if (behind and not saturated.get(pool) and job["wait_reason"] == "capacity"
@@ -7935,6 +7944,36 @@ class Daemon:
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
+            if (kind == "detached" and not previous and job["sandbox"] == "workspace-write"
+                    and not job["in_place"] and not job.get("worktree") and job.get("push_branch") is None):
+                # C-6.20: a job no attempt has used, which every lane refuses now for a reason no
+                # slot ends (a hold, a provider limit, a lost login: any closure in force counts,
+                # however soon it ends), could only wait in the tree a look would cut for it. So no
+                # tree is cut and no git runs, and one an earlier look cut goes back
+                # (`_sweep_unrun_worktrees`, `unprepared`). It waits on its capacity clock (C-6.10)
+                # with no decision, as a job held before its look does, holds back whom it held
+                # back before (C-6.9), and its due look asks again.
+                refused = unadmittable_now(far_s=0)[0]          # None too for a route not evaluated
+                if refused:
+                    for_good = unadmittable_now()[0]
+                    hold = {"reason": scheduler.refusal_label(refused), "refused_now": refused, "unprepared": True,
+                            **({"for_good": for_good} if for_good else {})}
+                    # No lane would take it: C-23.16's demand, as the look it skipped would have found.
+                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + "|".join(refused), hold,
+                                                   lane_wait=True)
+                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    with self.store.transaction("job.unprepared_wait", job_id=job["job_id"]) as tx:
+                        taken = self._task_held_at_write(tx, job, holds)            # C-11.10 (R3-1)
+                        if taken is None:
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                                       "WHERE job_id=? AND state IN ('queued','waiting') "
+                                       "AND cancel_requested_at IS NULL", (next_check, job["job_id"]))
+                    if taken is not None:
+                        continue
+                    if not for_good:
+                        wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                    continue
             needs = self._needs(job)
             run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
             detached_answers = {}                  # filesystem answers for this admission look only
@@ -9003,7 +9042,7 @@ class Daemon:
         """C-6.20, C-6.17: give back the worktrees admission cut for jobs no attempt used.
 
         `_workspace` cuts `worktrees/<job id>/` on a job's first look, before the
-        job's route is evaluated, and a job that then waits keeps it. Two kinds of
+        job's route is evaluated, and a job that then waits keeps it. Three kinds of
         such tree are given back here, by `_discard_worktree`, as a refused job's is:
         - a job that ended with no attempt (cancelled while it waited, refused or
           failed at admission): retention would free its tree only when it retires
@@ -9011,10 +9050,12 @@ class Daemon:
         - a queued or waiting job that the last detached pass held at the door on
           the disk hold (C-6.17): the door takes it before any git, so the look
           that lets it through cuts its tree again from the HEAD submit recorded,
-          and it is then where a job held at the door from its submission is.
+          and it is then where a job held at the door from its submission is;
+        - one that pass held `unprepared`, since no lane would take it now: its
+          looks cut nothing until one would (`_admit_pass`).
         Never a turn's, an in-place job's, a push's, a tree recorded in
         `jobs.worktree`, or a tree another live job's folder, row or lease is in.
-        Offered at start, on a cancel, when the disk hold takes a job, and before
+        Offered at start, on a cancel, when a pass first holds a job so, and before
         each retention pass. Never beside retention (`_unrun_lock`) and never
         while a detached pass may be cutting a tree (`_pass_locks["detached"]`,
         taken for each tree, so placement waits for one tree at a time). Never
@@ -9045,28 +9086,32 @@ class Daemon:
     def _unrun_pass(self, given: list[str]) -> bool:
         """One read of `UNRUN_TREES`, each tree checked and given back under the detached
         pass lock, its job id added to `given`. Whether it got through them all."""
-        held = {job_id for job_id, hold in self._holds_by_kind["detached"].items()
-                if hold.get("reason") == "disk"}
+        held = {job_id for job_id, hold in self._holds_by_kind["detached"].items() if _gives_back(hold)}
         rows = [row for row in self.store.query(UNRUN_TREES)
                 if (row["state"] in TERMINAL or row["job_id"] in held)
                 and os.path.lexists(self.root / "worktrees" / row["job_id"])]
-        context: dict = {}
+        if not rows:
+            return True
+        # Filesystem work, read once a pass outside the lock, as retention reads it: no job it
+        # finds is newer than the pass (`dependencies.legacy`).
+        legacy = dependencies.legacy(self.store.query)
         lock = self._pass_locks["detached"]
         for row in rows:
             if self.stopping.is_set() or not lock.acquire(timeout=UNRUN_PASS_WAIT_S):
                 return False
             try:
-                if self._give_back_unrun(row["job_id"], context):
+                if self._give_back_unrun(row["job_id"], legacy):
                     given.append(row["job_id"])
             finally:
                 lock.release()
         return True
 
-    def _give_back_unrun(self, job_id: str, context: dict) -> bool:
+    def _give_back_unrun(self, job_id: str, legacy: dependencies.Places | None = None) -> bool:
         """C-6.20: one tree, read again under the detached pass lock; see `_sweep_unrun_worktrees`.
 
-        `context` keeps what the sweep reads once: the places live jobs need and
-        the folders rows and leases hold."""
+        `legacy` is `dependencies.legacy`, read once a sweep pass. What live jobs need, and the
+        folders turns and leases hold, are read here for each tree: a detached pass that ran
+        between two trees may have placed a job in this one."""
         job = self.store.get_job(job_id)
         path = self.root / "worktrees" / job_id
         if (not job or job["kind"] == "turn" or job["sandbox"] != "workspace-write" or job["in_place"]
@@ -9077,21 +9122,20 @@ class Daemon:
             why = "ended unrun"
         else:
             hold = self._holds_by_kind["detached"].get(job_id) or {}
-            if job["state"] not in ("queued", "waiting") or job["cancel_requested_at"] or hold.get("reason") != "disk":
+            if job["state"] not in ("queued", "waiting") or job["cancel_requested_at"] or not _gives_back(hold):
                 return False
-            why = "disk hold"
+            why = "disk hold" if hold.get("reason") == "disk" else "no lane"
         # Retention's own: a fence on the job, or a retirement it has begun.
         if os.path.lexists(self.root / "retention" / job_id) or self.store.one(
                 "SELECT 1 FROM leases WHERE lease_key=? OR holder=? LIMIT 1", (f"retire:{job_id}", job_id)):
             return False
-        if not context:
-            context["needs"] = dependencies.live(self.store.query, dependencies.legacy(self.store.query))
-            context["users"] = dependencies.users(context["needs"])
-            context["folders"] = ([*folders.turn_folders(self.store.query)]
-                                  + [folder for folder, _ in folders.exclusive_folders(self.store.query)])
         tree = str(path)
-        if (context["needs"].incomplete or context["users"].get(dependencies.key(tree), set()) - {job_id}
-                or any(folders.within(folder, tree) for folder in context["folders"])):
+        # As retention's: another job that needs a place in the tree, or whose evidence is
+        # incomplete, keeps it (`dependents`), and so does a turn's or a lease's folder in it.
+        if (dependencies.dependents(self.store.query, tree, exclude=job_id, legacy_places=legacy)
+                or any(folders.within(folder, tree) for folder in (
+                    *folders.turn_folders(self.store.query),
+                    *(folder for folder, _ in folders.exclusive_folders(self.store.query))))):
             return False
         self._discard_worktree(job["workdir"], tree, self.policy["caps"]["workspace_git_timeout_s"])
         if os.path.lexists(path):

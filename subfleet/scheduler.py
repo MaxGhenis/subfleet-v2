@@ -1104,7 +1104,8 @@ def standing_refusals(reasons: Iterable[str], detail: Mapping[str, Any], lane: M
     return found
 
 
-def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any] | None:
+def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any, *,
+                     far_s: float | None = None) -> dict[str, Any] | None:
     """C-11.8: why the lane a job is pinned to can never admit it, or None.
 
     The pin is resolved and its lane judged exactly as `evaluate` resolves and
@@ -1131,7 +1132,7 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
         reasons, detail = judge_lane(setup, setup["chain"][0], lane, (), closures, in_flight=0,
                                      unavailable=view.get("unavailable_lanes") or {})
         found = standing_refusals(reasons, detail, lane, closures, setup["now"],
-                                  admission_settings(policy)["pin_hold_far_s"])
+                                  admission_settings(policy)["pin_hold_far_s"] if far_s is None else far_s)
     except _ROUTE_RAISES:
         return None
     if not found:
@@ -1148,7 +1149,8 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
 
 
 def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
-                 memo: dict | None = None, *, permanent_only: bool = False) -> list[str] | None:
+                 memo: dict | None = None, *, permanent_only: bool = False,
+                 far_s: float | None = None) -> list[str] | None:
     """C-11.8, C-6.9: the standing refusals that keep every lane from a job now,
     whatever capacity does, or None when some lane could take it once capacity
     comes back. With `permanent_only`, operator holds and provider limits with
@@ -1161,14 +1163,17 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
     `view` is what `pin_unadmittable` reads. `memo`, kept for one pass, answers
     again for a model and the few job fields a standing refusal turns on
     (exclusions, `allow_desktop`, a turn): a queue of like jobs costs one look
-    per model. None too for a job whose route cannot be evaluated (C-6.12)."""
+    per model. None too for a job whose route cannot be evaluated (C-6.12).
+    `far_s` replaces `admission.pin_hold_far_s` as the horizon a closure must
+    end beyond: with 0, every closure in force now counts, which answers "would
+    any lane take this job now, given room" (C-6.20)."""
     job = _row(job)
     if job.get("pinned_lane"):
-        found = pin_unadmittable(policy, view, job)
+        found = pin_unadmittable(policy, view, job, far_s=far_s)
         return found["reasons"] if found else None
     try:
         setup = prepare(policy, view, job)
-        far = admission_settings(policy)["pin_hold_far_s"]
+        far = admission_settings(policy)["pin_hold_far_s"] if far_s is None else far_s
         closures: dict[str, list[dict[str, Any]]] = {}
         for item in view.get("closures", ()):
             row = _row(item)
@@ -1176,7 +1181,7 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
         found: list[str] = []
         for short in setup["chain"]:
             key = (short, frozenset(setup["excluded"]), bool(job.get("allow_desktop")), setup["is_turn"],
-                   permanent_only)
+                   permanent_only, far)
             if memo is not None and key in memo:
                 refusals = memo[key]
             else:
@@ -1539,6 +1544,17 @@ def verdict_signature(decision: Decision | Mapping[str, Any]) -> str:
     material = [list(value.get("chain", ())), value.get("chosen_lane"), value.get("chosen_model"),
                 value.get("policy_hash"), walked]
     return hashlib.sha256(json.dumps(material, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def refusal_label(reasons: Iterable[str]) -> str:
+    """C-6.11, C-6.20: one short label for the refusals `unadmittable` names,
+    grouped as `dominant_rejection` groups a decision's: a closure by its scope,
+    without its end. The commonest wins, the first named on a tie."""
+    counts: dict[str, int] = {}
+    for reason in reasons:
+        label = ":".join(reason.split(":")[:2]) if reason.startswith("closed:") else reason
+        counts[label] = counts.get(label, 0) + 1
+    return max(counts, key=counts.__getitem__) if counts else "not-evaluated"
 
 
 def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
