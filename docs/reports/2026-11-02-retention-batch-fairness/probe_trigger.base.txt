@@ -1,0 +1,11 @@
+base 18aa2a695
+pass pruned       in_flight    more  progressed  hot slice (last_work, last_reached)  deferred
+   1 []           ['job-hot']  True  True        (3, 'n/a')                           {}
+   2 []           ['job-hot']  True  True        (1, 'n/a')                           {}
+   3 []           ['job-hot']  True  True        (1, 'n/a')                           {}
+   4 []           ['job-hot']  True  True        (1, 'n/a')                           {}
+   5 []           ['job-hot']  True  True        (1, 'n/a')                           {}
+   6 []           ['job-hot']  True  True        (1, 'n/a')                           {}
+   7 []           ['job-hot']  True  True        (1, 'n/a')                           {}
+   8 []           ['job-hot']  True  True        (1, 'n/a')                           {}
+job-new still in the store: True
