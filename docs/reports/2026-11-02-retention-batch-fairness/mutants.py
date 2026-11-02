@@ -2,24 +2,29 @@
 
 Run from the repository root, nothing else writing the checkout:
 
-    TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)rbf-tmp .venv/bin/python -I \
+    TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)sf-rbf .venv/bin/python -I \
         docs/reports/2026-11-02-retention-batch-fairness/mutants.py [name ...]
 
 Each mutant replaces one exact span (it must occur once), runs the tests
-serially, and restores the file in `finally`. The result is written beside
-this file as `mutants.json` and printed.
+serially, and restores the file in `finally`. Each pytest call holds the
+machine-wide suite lock (the hub's test-run rule) and gets a fresh TMPDIR
+under `$TMPDIR`, removed after. Results merge into `mutants.json` beside this
+file after each mutant, and print.
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 R, A = "subfleet/retention.py", "subfleet/retention_archive.py"
+LOCK = ["/usr/bin/lockf", "-k", "/private/tmp/claude-501/subfleet-suites.lock"]
 #: Each group is one pytest call, so a `-k` filter selects only within its own group.
 NEW = [["tests/unit/test_retention_batch_fairness.py", "tests/unit/test_retention_batch_fairness_properties.py"]]
 N3 = [["tests/unit/test_retention_archive.py", "-k", "slice or turns or parks or slow"]]
@@ -53,16 +58,23 @@ MUTANTS = [
      NEW + N3),
     ("no-retry-reset", A, "                    self.reached = reached          # a walk begun again counts from its start",
      "                    pass", NEW + N3),
+    ("failed-yield-counts", R, "if self._holds_slot(job_id):", "if False:", NEW),
+    ("pending-holds-slot", R, 'and not journal.get("rollback_pending")', "and True", NEW),
 ]
 
 
 def run(groups: list[list[str]]) -> tuple[int, str]:
     """Run each group until one fails; a group that selects no test counts as a failure of the runner."""
-    env = {**os.environ, "RETENTION_FAIRNESS_EXAMPLES": os.environ.get("RETENTION_FAIRNESS_EXAMPLES", "25")}
     details = []
     for tests in groups:
-        proc = subprocess.run([sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-x", "-rf", *tests],
-                              cwd=ROOT, env=env, capture_output=True, text=True)
+        tmp = tempfile.mkdtemp(prefix="sf-rbf-mut-")
+        env = {**os.environ, "TMPDIR": tmp + "/",
+               "RETENTION_FAIRNESS_EXAMPLES": os.environ.get("RETENTION_FAIRNESS_EXAMPLES", "25")}
+        try:
+            proc = subprocess.run([*LOCK, sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-x", "-rf",
+                                   *tests], cwd=ROOT, env=env, capture_output=True, text=True)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
         failed = [line for line in proc.stdout.splitlines() if line.startswith("FAILED")]
         tail = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else proc.stderr[-300:]
         details.append("; ".join(failed) or tail)
@@ -74,7 +86,8 @@ def run(groups: list[list[str]]) -> tuple[int, str]:
 
 
 def main(names: list[str]) -> None:
-    results = {}
+    out = HERE / "mutants.json"
+    results = json.loads(out.read_text()) if out.exists() else {}
     for name, path, old, new, tests in MUTANTS:
         if names and name not in names:
             continue
@@ -88,7 +101,7 @@ def main(names: list[str]) -> None:
             file.write_text(original)
         results[name] = {"killed": code != 0, "detail": detail}
         print(f"{name:<22} {'KILLED' if code else 'SURVIVED'}  {detail}", flush=True)
-    (HERE / "mutants.json").write_text(json.dumps(results, indent=1) + "\n")
+        out.write_text(json.dumps(results, indent=1) + "\n")
 
 
 if __name__ == "__main__":

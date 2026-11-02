@@ -22,7 +22,7 @@ import pytest
 from subfleet import retention
 from subfleet import retention_archive as rarch
 from subfleet import retention_fs as rfs
-from tests.unit.retention_world import Clock, World, trust_temporary_directories
+from tests.unit.retention_world import Clock, World, git, trust_temporary_directories
 
 
 @pytest.fixture
@@ -377,7 +377,107 @@ def test_a_job_cancelled_before_its_first_slice_keeps_its_slot_for_one(world, mo
     assert third["pruned"] == ["job-b"], third
 
 
+def slot_holders(w: World) -> list[str]:
+    """Jobs holding a batch slot: a journal in flight with no rollback pending."""
+    return sorted(job_id for job_id, j in rarch.journals(w.root).items()
+                  if j["state"] in rarch.IN_FLIGHT and not j.get("rollback_pending"))
+
+
+def test_a_yield_whose_rollback_fails_keeps_its_slot(world, monkeypatch):
+    """A yield whose rollback raises before it records itself (a journal
+    write that fails, say) leaves `job-a` in flight. The pass counts no yield,
+    starts nothing in its place and gives `job-a` its slice, so the batch
+    still holds one job; the next pass yields it."""
+    w = world
+    w.job("job-a", worktree=False, created="2026-09-01T00:00:00Z")
+    w.job("job-b", worktree=False, created="2026-09-01T00:01:00Z")
+    clock = Clock()
+    slices = Slices(monkeypatch, clock, {"job-a": always("progress")})
+    rollback = rarch.Retirement.rollback
+    failing = [False]
+
+    def flaky(self, reason, **kwargs):
+        if failing and failing[0] and reason.startswith("yielded"):
+            raise OSError(28, "No space left on device")
+        return rollback(self, reason, **kwargs)
+
+    monkeypatch.setattr(rarch.Retirement, "rollback", flaky)
+    state = retention.RetentionState()
+    run(w, state=state, clock=clock, slice_s=60, batch=1)
+    failing[0] = True
+    second = run(w, state=state, clock=clock, slice_s=60, batch=1)
+    assert any("rollback failed: OSError" in e["error"] for e in second["errors"]), second
+    assert slices.starts == ["job-a"] and slices.log == ["job-a", "job-a"], (slices.starts, slices.log)
+    assert second["in_flight"] == ["job-a"] and "job-a" not in second["deferred"], second
+    assert slot_holders(w) == ["job-a"]
+    failing[0] = False
+    third = run(w, state=state, clock=clock, slice_s=60, batch=1)
+    assert third["deferred"]["job-a"] == "yielded: 1 slice since it started, for job-b", third
+    assert third["pruned"] == ["job-b"] and slot_holders(w) == [], third
+
+
+def test_a_yield_a_live_turn_holds_up_frees_the_slot_as_recovery_does(world, monkeypatch):
+    """A live turn in the quarantine folder holds the yield's rollback up
+    (`kept`). Recovery has always left a job with a rollback pending out of
+    the batch, so the yield frees the slot at once: `job-b` starts, and
+    `job-a` waits in quarantine, never sliced, until the turn ends and
+    recovery puts it back."""
+    w = world
+    w.job("job-a", worktree=False, created="2026-09-01T00:00:00Z")
+    w.job("job-b", worktree=False, created="2026-09-01T00:01:00Z")
+    clock = Clock()
+    slices = Slices(monkeypatch, clock, {"job-a": always("progress")})
+    fence = rarch.Retirement._fence_quarantine
+    turn = [False]
+
+    def turn_in_quarantine(self):
+        if turn[0] and self.job_id == "job-a":
+            return "turn-folder: a turn in job-a's quarantine"
+        return fence(self)
+
+    monkeypatch.setattr(rarch.Retirement, "_fence_quarantine", turn_in_quarantine)
+    state = retention.RetentionState()
+    run(w, state=state, clock=clock, slice_s=60, batch=1)
+    turn[0] = True
+    second = run(w, state=state, clock=clock, slice_s=60, batch=1)
+    assert second["deferred"]["job-a"] == "yielded: 1 slice since it started, for job-b", second
+    assert second["pruned"] == ["job-b"] and slices.starts == ["job-a", "job-b"], second
+    journal = rarch.load_journal(w.root, "job-a")
+    assert journal["state"] == "quarantined" and journal["rollback_pending"]["reason"].startswith("yielded")
+    assert slot_holders(w) == []
+    third = run(w, state=state, clock=clock, slice_s=60, batch=1)
+    assert third["deferred"]["job-a"].startswith("turn-folder") and slices.log.count("job-a") == 1, third
+    turn[0] = False
+    fourth = run(w, state=state, clock=clock, slice_s=60, batch=1)
+    # Recovery puts it back (no deferral left), and the same pass starts it again.
+    assert slices.starts == ["job-a", "job-b", "job-a"] and slot_holders(w) == ["job-a"], fourth
+    assert not fourth["errors"] and fourth["in_flight"] == ["job-a"], fourth
+
+
 BIG = 48 * 1024
+
+
+def record_reached(monkeypatch, job_id: str) -> list[tuple[str, int, int]]:
+    """Each archive call of `job_id`: its outcome, `last_work` and `last_reached`."""
+    calls: list[tuple[str, int, int]] = []
+    archive = rarch.Retirement.archive
+
+    def recorded(self, slice_end):
+        outcome = "raised"
+        try:
+            outcome = archive(self, slice_end)
+            return outcome
+        finally:
+            if self.job_id == job_id:
+                calls.append((outcome, self.last_work, self.last_reached))
+
+    monkeypatch.setattr(rarch.Retirement, "archive", recorded)
+    return calls
+
+
+def strictly_further(calls: list[tuple[str, int, int]]) -> bool:
+    parked = [reached for outcome, _, reached in calls if outcome == "parked"]
+    return all(a < b for a, b in zip(parked, parked[1:]))
 
 
 def test_slow_read_backs_are_progress_not_a_stall(world, monkeypatch):
@@ -400,6 +500,7 @@ def test_slow_read_backs_are_progress_not_a_stall(world, monkeypatch):
         return original(fd, size, fmt, check)
 
     monkeypatch.setattr(rfs, "read_hashes", slow)
+    calls = record_reached(monkeypatch, "job-big")
     state = retention.RetentionState()
     for _ in range(30):
         result = run(w, state=state, clock=clock, slice_s=60)
@@ -408,3 +509,56 @@ def test_slow_read_backs_are_progress_not_a_stall(world, monkeypatch):
             break
     assert result["pruned"] == ["job-big"], result
     assert len(reads) >= 12, reads                  # archived and read back, each in its own slice
+    # Strictly further every parked slice, across the walk, Git step and read-back.
+    assert len([c for c in calls if c[0] == "parked"]) >= 11 and strictly_further(calls), calls
+
+
+def test_a_walk_begun_again_counts_from_the_tree_start(world, monkeypatch):
+    """A `node_modules` package that holds a repository sends the slice's walk
+    round again with that package archived (`NotRegenerable`). Twenty files
+    precede it; six files whose every read outlasts the slice follow it. The
+    slice that finds the repository counts the walk begun again from the
+    tree's start, so later slices, which do not walk into it, still get
+    further than it did: no stall, and the job retires."""
+    w = world
+    wt = w.job("job-nested")
+    (wt / ".gitignore").write_text((wt / ".gitignore").read_text() + "node_modules/\n")
+    for n in range(20):
+        (wt / f"a{n:02}.txt").write_text(f"before {n}\n")
+    (wt / "package.json").write_text('{"name": "web"}\n')
+    pkg = wt / "node_modules" / "pkg"
+    pkg.mkdir(parents=True)
+    (pkg / "package.json").write_text('{"name": "pkg"}\n')
+    (pkg / "index.js").write_text("module.exports = 1;\n")
+    git(pkg, "init", "--quiet")
+    git(pkg, "add", "index.js")
+    git(pkg, "commit", "--quiet", "-m", "only here")
+    for n in range(6):
+        (wt / f"z{n}.bin").write_bytes(os.urandom(BIG))
+    clock = Clock()
+    original = rfs.read_hashes
+
+    def slow(fd, size, fmt, check=None):
+        if size == BIG:
+            clock.advance(100)
+        return original(fd, size, fmt, check)
+
+    monkeypatch.setattr(rfs, "read_hashes", slow)
+    walks = []
+    walk_init = rfs.RegenerableWalk.__init__
+
+    def counting(self, root_fd, clear, denied=frozenset()):
+        walks.append(set(denied))
+        walk_init(self, root_fd, clear, denied)
+
+    monkeypatch.setattr(rfs.RegenerableWalk, "__init__", counting)
+    calls = record_reached(monkeypatch, "job-nested")
+    state = retention.RetentionState()
+    for _ in range(30):
+        result = run(w, state=state, clock=clock, slice_s=60)
+        assert not result["deferred"], result
+        if result["pruned"]:
+            break
+    assert result["pruned"] == ["job-nested"], result
+    assert walks[:2] == [set(), {"node_modules/pkg"}], walks      # the first slice walked round again
+    assert strictly_further(calls), calls

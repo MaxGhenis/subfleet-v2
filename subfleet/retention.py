@@ -756,8 +756,9 @@ class _Pass:
         cache, so its next start reads only what changed), without a deferral,
         and gives it a ticket behind every job waiting now. It never asks a job
         yet to have a slice since it started to yield, so a start always buys a
-        slice, even after a pass cancelled between them. Returns the jobs that
-        yielded."""
+        slice, even after a pass cancelled between them. A job whose rollback
+        fails before it records itself still holds its slot, so it does not
+        count. Returns the jobs that yielded."""
         holds = self.state.holds
         needed = len(in_flight) - (self.batch - 1)
         parked = sorted((job_id for job_id in in_flight if job_id in holds and holds[job_id].slices > 0),
@@ -773,6 +774,12 @@ class _Pass:
             slices = holds[job_id].slices
             self._rollback(retirement, "yielded", 0,
                            f"{slices} slice{'' if slices == 1 else 's'} since it started, for {order[0]}")
+            if self._holds_slot(job_id):
+                # The rollback failed before it recorded itself: the job is
+                # still in flight, so it keeps its slot and this pass's slice.
+                self.progress["deferred"].pop(job_id, None)
+                self.state.deferred.pop(job_id, None)
+                continue
             yielded.append(job_id)
             self.state.queue[job_id] = self.state.tickets
             self.state.tickets += 1
@@ -781,6 +788,17 @@ class _Pass:
                 counts[_pool(job)] += 1
                 totals[_pool(job)] += self.sizes.get(job_id, 0)
         return yielded
+
+    def _holds_slot(self, job_id: str) -> bool:
+        """Whether the job holds a batch slot: its journal is in flight with no
+        rollback pending. Recovery leaves a job whose rollback a live turn
+        holds up (`rollback_pending`) out of the batch on every later pass."""
+        try:
+            journal = rarch.load_journal(self.root, job_id)
+        except (OSError, ValueError):
+            return False                # recovery reports it next pass and leaves it out of the batch
+        return journal is not None and journal.get("state") in rarch.IN_FLIGHT \
+            and not journal.get("rollback_pending")
 
     # recovery --------------------------------------------------------------------
 
