@@ -258,6 +258,8 @@ class Context:
             # The listing search over the census answers to the census's bound.
             _repository_checkpoint(self.cancel, self.deadline, self.clock)
             timeout = 120 if self.deadline is None else min(120, self.deadline - self.clock())
+            if timeout <= 0:
+                raise Defer("repository discovery deadline", DEFER_CHANGED_S)
             try:
                 self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/",
                                                            timeout=timeout, cancel=self.cancel)
@@ -1346,6 +1348,8 @@ def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
 
     check()
     ambient_timeout = 60 if deadline is None else min(60, deadline - clock())
+    if ambient_timeout <= 0:
+        raise Defer("repository discovery deadline", DEFER_CHANGED_S)
     ambient_plain = rgit.ambient_plain(timeout=ambient_timeout, cancel=cancel)
     check()
     if not ambient_plain:
@@ -1422,6 +1426,8 @@ def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
         if os.path.isdir(workdir):
             check()
             timeout = 60 if deadline is None else min(60, deadline - clock())
+            if timeout <= 0:
+                raise Defer("repository discovery deadline", DEFER_CHANGED_S)
             if ambient_plain:
                 common = rgit.fast_common_dir(Path(workdir), timeout=timeout, cancel=cancel,
                                               checkpoint=check, deadline=deadline, clock=clock)

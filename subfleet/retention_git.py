@@ -27,6 +27,7 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import tempfile
@@ -83,14 +84,18 @@ def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
 def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = None,
         stdin: bytes | None = None, timeout: float = 120, cancel: threading.Event | None = None,
         env: dict[str, str] | None = None, ok: Iterable[int] = (0,), stdin_file=None) -> subprocess.CompletedProcess:
-    """One git command with a wall cap; cancellation kills it and raises `Cancelled`."""
+    """One git command with a wall cap; cancellation kills its process group.
+
+    A wrapper or Git child can retain the output pipes after its parent dies.
+    Kill the whole session's group and bound the final drain as well.
+    """
     argv = ["git", *GIT_CONFIG]
     if git_dir is not None:
         argv.append(f"--git-dir={git_dir}")
     argv.extend(args)
     process = subprocess.Popen(rqos.argv(argv), cwd=cwd, env=environment(env),
                                stdin=stdin_file if stdin_file is not None else (subprocess.PIPE if stdin is not None else subprocess.DEVNULL),
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     deadline = time.monotonic() + timeout
     first = True
     while True:
@@ -101,8 +106,19 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
         except subprocess.TimeoutExpired:
             first = False
             if (cancel is not None and cancel.is_set()) or time.monotonic() >= deadline:
-                process.kill()
-                process.communicate()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.communicate(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    # Even a descendant that escaped the group must not hold
+                    # this caller past its deadline by retaining these pipes.
+                    for pipe in (process.stdin, process.stdout, process.stderr):
+                        if pipe is not None:
+                            pipe.close()
+                    process.poll()
                 if cancel is not None and cancel.is_set():
                     raise Cancelled(f"git {argv[len(GIT_CONFIG) + 1]} cancelled") from None
                 raise GitError(f"git {' '.join(list(args)[:2])} timed out after {timeout:g} s") from None
@@ -117,9 +133,12 @@ def ambient_plain(*, timeout: float = 60, cancel: threading.Event | None = None)
     """Whether the census may discover repositories without reading ambient config.
 
     Includes can select different config for each checkout, so any include
-    leaves every path to Git. A separate fresh repository catches ambient
-    values that `config --list` prints but repository startup rejects. These
-    three processes are a constant cost once per census, under retention's
+    leaves every path to Git. A template-free fresh repository with its local
+    config emptied catches ambient values that `config --list` prints but
+    repository startup rejects, without a template or init's local overrides.
+    Git ignores ambient core.repositoryformatversion at startup, so any such
+    key is refused rather than independently parsing a value Git has not checked.
+    These three processes are a constant cost once per census, under retention's
     selected environment rather than the caller's unfiltered environment.
     """
     deadline = time.monotonic() + timeout
@@ -144,8 +163,11 @@ def ambient_plain(*, timeout: float = 60, cancel: threading.Event | None = None)
                 key = setting.partition("=")[0].lower()
                 if key.startswith(("include.", "includeif.")):
                     return False
+                if key == "core.repositoryformatversion":
+                    return False
             repository = outside / "repository"
-            probe(["init", "--quiet", str(repository)], outside)
+            probe(["init", "--quiet", "--template=", str(repository)], outside)
+            (repository / ".git" / "config").write_bytes(b"")
             probe(["rev-parse", "--git-common-dir"], repository)
     except (GitError, OSError):
         return False
@@ -330,7 +352,7 @@ def _plain_config(path: Path, common: Path, worktree: Path, *, repository: bool 
                                                    else {"core"}):
                 return None
             continue
-        match = re.fullmatch(r'([A-Za-z][A-Za-z0-9-]*)[ \t]*=[ \t]*([^"\\\x00-\x08\x0b-\x1f]*|"[^"\\\x00-\x1f]*")', line)
+        match = re.fullmatch(r'([A-Za-z][A-Za-z0-9-]*)[ \t]*=[ \t]*([^#;"\\\x00-\x08\x0b-\x1f]*)', line)
         if not section or match is None:
             return None
         key, value = match[1].lower(), match[2].strip()
@@ -455,7 +477,9 @@ def fast_common_dir(path: Path, timeout: float = 60, cancel: threading.Event | N
     if common is _NO_REPOSITORY:
         return None
     if common is None:
-        remaining = timeout if deadline is None else min(timeout, max(0.0, deadline - clock()))
+        remaining = timeout if deadline is None else min(timeout, deadline - clock())
+        if remaining <= 0:
+            raise GitError("repository discovery deadline")
         common = common_dir(path, timeout=remaining, cancel=cancel)
         check()
     return common
@@ -464,6 +488,22 @@ def fast_common_dir(path: Path, timeout: float = 60, cancel: threading.Event | N
 #: Larger than any packed-refs a census should read in passing; Git answers it.
 PACKED_REFS_LIMIT = 64 << 20
 
+# A deliberately narrow subset of the files backend's packed format. Do not
+# reproduce Git's refname parser: unfamiliar names, headers or bytes need Git.
+# Possessive repeats keep validation in the regex engine with no per-line
+# Python work or backtracking stack proportional to a large packed-refs file.
+# EOF is admitted here so the separate final-LF check remains explicit.
+_PACKED_REFS_EOL = rb"(?:\n|\Z)"
+_PACKED_REFS_HEADER = rb"(?:# pack-refs with:(?: peeled)?(?: fully-peeled)?(?: sorted)? " + _PACKED_REFS_EOL + rb")?+"
+_PACKED_REFS_NAME = rb"refs(?:/[A-Za-z0-9_-]++)++"
+_PACKED_REFS_SEPARATOR = rb" "
+_PACKED_REFS_FORMATS = tuple(
+    re.compile(_PACKED_REFS_HEADER
+               + rb"(?:" + oid + _PACKED_REFS_SEPARATOR + _PACKED_REFS_NAME + _PACKED_REFS_EOL
+               + rb"(?:\^" + oid + _PACKED_REFS_EOL + rb")?+)*+")
+    for oid in (rb"[0-9a-f]{40}", rb"[0-9a-f]{64}")
+)
+
 
 def no_refs_under(common: Path, prefix: str) -> bool:
     """True when the files ref store proves no ref starts with `prefix`.
@@ -471,10 +511,15 @@ def no_refs_under(common: Path, prefix: str) -> bool:
     `prefix` may be a whole ref name. Only ever a negative, and False only means
     ask `refs_under`: a loose folder, a packed line, a reftable store or any
     unreadable file all leave it to Git. So do a common directory redirect,
-    non-ASCII spelling (Git may normalize it), and Git's pattern characters.
-    A job's salvage search asks this of every repository in the census, where
-    a `for-each-ref` for each would take most of the pass.
+    prefixes outside `refs/` (which Git may parse as options), non-ASCII
+    spelling (Git may normalize it), and Git's pattern characters.
+    Packed refs must use a supported exact format, including one ASCII space
+    between oid and name and a final LF. A job's salvage search asks this of
+    every repository in the census, where a `for-each-ref` for each would take
+    most of the pass.
     """
+    if not prefix.startswith("refs/"):
+        return False
     if not prefix.isascii() or any(character in prefix for character in "*?[\\"):
         return False
     try:
@@ -486,6 +531,10 @@ def no_refs_under(common: Path, prefix: str) -> bool:
         except FileNotFoundError:
             return True
     except (OSError, ValueError):
+        return False
+    if not packed.endswith(b"\n"):
+        return False
+    if not any(pattern.fullmatch(packed) is not None for pattern in _PACKED_REFS_FORMATS):
         return False
     return (" " + prefix).encode() not in packed
 

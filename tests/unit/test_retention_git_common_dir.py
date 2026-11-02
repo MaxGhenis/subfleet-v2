@@ -32,8 +32,8 @@ SAFE_LINES = (
     "[core]\n\tsparsecheckout = true\n",
     "[core]\n\tsparsecheckoutcone = false\n",
     "[core]\n\tuntrackedcache = maybe\n",
-    '[branch "a"]\n\tgithub-pr-owner-number = "owner#repository#1"\n',
-    '[branch "a"]\n\tgithub-pr-base-branch = "owner#repository#main"\n',
+    '[branch "a"]\n\tgithub-pr-owner-number = owner-repository-1\n',
+    '[branch "a"]\n\tgithub-pr-base-branch = owner-repository-main\n',
     '[branch "x"]\n\trebase = maybe\n',
     '[branch "x"]\n\tmerge = \n',
     '[remote "o"]\n\turl = \n',
@@ -81,6 +81,18 @@ DOUBTFUL_LINES = (
     "[include]\n\tpath = elsewhere\n",
     '[includeIf "gitdir:/"]\n\tpath = elsewhere\n',
     '[include "sub"]\n\tpath = elsewhere\n',
+    '[branch "a"]\n\tgithub-pr-owner-number = "owner#repository#1"\n',
+    '[branch "a"]\n\tgithub-pr-base-branch = "owner#repository#main"\n',
+) + tuple(
+    f'[{section}]\n\t{key} = {value}\n'
+    for section, key in (
+        ("core", "hookspath"), ("extensions", "partialclone"),
+        ("blame", "ignorerevsfile"), ("gc", "auto"), ("http", "postbuffer"),
+        ("pull", "rebase"), ("rerere", "enabled"), ("submodule", "active"),
+        ("user", "name"), ('remote "origin"', "url"), ('branch "main"', "merge"),
+        ('submodule "module"', "url"),
+    )
+    for value in ("value#comment", "value;comment", '"value"')
 )
 
 
@@ -218,7 +230,7 @@ def no_process(*args, **kwargs):
 
 @pytest.mark.parametrize("kind", ["plain", "subfolder", "linked", "linked-subfolder", "submodule",
                                   "nested", "symlinked-folder", "relative-commondir", "worktree-config",
-                                  "worktree-config-linked", "sparse-checkout", "hooks-path", "gh-branch"])
+                                  "worktree-config-linked", "sparse-checkout", "hooks-path"])
 def test_ordinary_shapes_do_not_start_a_git_subprocess(tmp_path, monkeypatch, kind):
     path = build_shape(tmp_path, Shape(kind))
     expected = rgit.common_dir(path)
@@ -283,6 +295,109 @@ def test_doubtful_config_goes_to_git(tmp_path, monkeypatch, line):
     monkeypatch.setattr(rgit, "common_dir", lambda *args, **kwargs: calls.append(args[0]) or original(*args, **kwargs))
     assert rgit.fast_common_dir(path) == expected
     assert calls == [path]
+
+
+@pytest.mark.parametrize("syntax", ["relative-hash", "relative-semicolon", "relative-quotes",
+                                  "absolute-hash", "absolute-semicolon", "quoted-absolute-hash",
+                                  "quoted-absolute-semicolon"])
+def test_core_worktree_comment_and_quote_syntax_matches_git(tmp_path, monkeypatch, syntax):
+    """Git parses values before resolving them, so every syntax form needs Git."""
+    name = ('repo"literal"' if "quotes" in syntax else
+            "repo#comment" if "hash" in syntax else "repo;comment")
+    path = repository(tmp_path, name)
+    value = "../../" + name if syntax.startswith("relative-") else str(path)
+    if syntax.startswith("quoted-"):
+        value = '"' + value + '"'
+    with (path / ".git" / "config").open("a") as handle:
+        handle.write(f"[core]\n\tworktree = {value}\n")
+    expected = rgit.common_dir(path)
+    if syntax.startswith("relative-"):
+        assert expected is None
+    if syntax.startswith("quoted-"):
+        assert expected == (path / ".git").resolve()
+    original = rgit.common_dir
+    calls = []
+    monkeypatch.setattr(rgit, "common_dir", lambda *args, **kwargs: calls.append(args[0]) or original(*args, **kwargs))
+    assert rgit.fast_common_dir(path) == expected
+    assert calls == [path]
+
+
+@pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
+def test_simple_core_worktree_value_needs_no_process(tmp_path, monkeypatch, absolute):
+    path = repository(tmp_path)
+    value = str(path) if absolute else "../../repo"
+    with (path / ".git" / "config").open("a") as handle:
+        handle.write(f"[core]\n\tworktree = {value}\n")
+    expected = rgit.common_dir(path)
+    assert expected == (path / ".git").resolve()
+    monkeypatch.setattr(rgit, "run", no_process)
+    assert rgit.fast_common_dir(path) == expected
+
+
+@pytest.fixture
+def isolated_ambient_home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    for name in list(os.environ):
+        if name.startswith("GIT_") or name == "XDG_CONFIG_HOME":
+            monkeypatch.delenv(name)
+    return home
+
+
+@pytest.mark.parametrize("section,key", [("index", "sparse"), ("core", "commitGraph")])
+@pytest.mark.parametrize("source", ["init.templateDir", "GIT_TEMPLATE_DIR"])
+def test_ambient_template_cannot_override_a_bad_global_value(tmp_path, monkeypatch, isolated_ambient_home,
+                                                          section, key, source):
+    target = repository(tmp_path, "existing")
+    template = tmp_path / "template"
+    template.mkdir()
+    (template / "config").write_text(f"[{section}]\n\t{key} = false\n")
+    config = f"[{section}]\n\t{key} = maybe\n"
+    if source == "init.templateDir":
+        config += f"[init]\n\ttemplateDir = {template}\n"
+    else:
+        monkeypatch.setenv("GIT_TEMPLATE_DIR", str(template))
+    (isolated_ambient_home / ".gitconfig").write_text(config)
+    with helper_policy({"env": {"pass": ["GIT_TEMPLATE_DIR"]}}):
+        assert not rgit.ambient_plain()
+        assert rgit.common_dir(target) is None
+
+
+@pytest.mark.parametrize("key", ["repositoryformatversion", "filemode", "bare", "logallrefupdates",
+                               "ignorecase", "precomposeunicode", "symlinks"])
+def test_ambient_init_config_cannot_override_a_bad_global_value(tmp_path, isolated_ambient_home, key):
+    """Include platform-dependent init keys even when this filesystem omits them."""
+    target = repository(tmp_path, "existing")
+    (target / ".git" / "config").write_bytes(b"")
+    (isolated_ambient_home / ".gitconfig").write_text(f"[core]\n\t{key} = maybe\n")
+    if key not in {"repositoryformatversion", "logallrefupdates"}:
+        assert rgit.common_dir(target) is None
+    assert not rgit.ambient_plain()
+
+
+@pytest.mark.parametrize("value", ["0", "1", "maybe"])
+def test_ambient_repository_format_version_is_always_left_to_git(isolated_ambient_home, value):
+    """Startup ignores this key outside local config, so it cannot validate it."""
+    (isolated_ambient_home / ".gitconfig").write_text(f"[core]\n\trepositoryformatversion = {value}\n")
+    assert not rgit.ambient_plain()
+
+
+def test_ambient_probe_has_no_template_or_local_config_override(tmp_path, monkeypatch, isolated_ambient_home):
+    calls = []
+    original = rgit.run
+
+    def record(args, **kwargs):
+        calls.append(tuple(args))
+        if args[0] == "init":
+            assert args[:3] == ["init", "--quiet", "--template="]
+        if args[0] == "rev-parse":
+            assert (kwargs["cwd"] / ".git" / "config").read_bytes() == b""
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(rgit, "run", record)
+    assert rgit.ambient_plain()
+    assert [args[0] for args in calls] == ["config", "init", "rev-parse"]
 
 
 @pytest.mark.parametrize("line", ["[include]\n\tpath = extra\n", '[includeIf "gitdir:/"]\n\tpath = extra\n'],

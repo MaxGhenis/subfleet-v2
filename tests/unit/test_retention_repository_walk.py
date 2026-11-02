@@ -642,6 +642,10 @@ def test_ambient_guard_requires_each_probe_and_shares_its_timeout(tmp_path, monk
         clock.advance(2)
         if args[0] == failure:
             raise rgit.GitError("ambient probe failed")
+        if args[0] == "init":
+            config = Path(args[-1]) / ".git" / "config"
+            config.parent.mkdir(parents=True)
+            config.write_text("[core]\n\tfilemode = true\n")
         return SimpleNamespace(stdout=b"global\tuser.name=test\n" if args[0] == "config" else b".git\n")
 
     monkeypatch.setattr(rgit, "run", run)
