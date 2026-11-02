@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +34,15 @@ SAFE_LINES = (
     "[core]\n\tuntrackedcache = maybe\n",
     '[branch "a"]\n\tgithub-pr-owner-number = "owner#repository#1"\n',
     '[branch "a"]\n\tgithub-pr-base-branch = "owner#repository#main"\n',
+    '[branch "x"]\n\trebase = maybe\n',
+    '[branch "x"]\n\tmerge = \n',
+    '[remote "o"]\n\turl = \n',
+    '[remote "o"]\n\tfetch = bogus\n',
+    '[remote "o"]\n\tmirror = maybe\n',
     '[submodule "m"]\n\tactive = true\n',
+    '[submodule "m"]\n\tactive = maybe\n',
+    '[submodule "m"]\n\tupdate = bogus\n',
+    '[submodule "m"]\n\turl = \n',
     "[submodule]\n\tactive = .\n",
     "[user]\n\tname = x\n",
     "[user]\n\temail = x@example.invalid\n",
@@ -67,6 +76,8 @@ DOUBTFUL_LINES = (
     '[branch "a"]\n\tx = "unterminated\n',
     "[core.dotted]\n\tkey = 1\n",
     '[core "sub"]\n\tbare = maybe\n',
+    '[color "advice"]\n\thint = notacolor\n',
+    '[unknown "sub"]\n\tkey = value\n',
     "[include]\n\tpath = elsewhere\n",
     '[includeIf "gitdir:/"]\n\tpath = elsewhere\n',
     '[include "sub"]\n\tpath = elsewhere\n',
@@ -303,7 +314,9 @@ def test_composed_config_matches_real_git(lines, version, linked):
 WORKTREE_FILES = ("[core]\n\tbare = true\n", "[core]\n\tbare = false\n", "[core]\n\tworktree = /nonexistent-ret-walk\n",
                   "[core]\n\tsparsecheckout = maybe\n", "[core]\n\tsparsecheckout = true\n",
                   "[core]\n\tuntrackedcache = maybe\n", "[core\n", "[index]\n\tsparse = maybe\n",
-                  "[extensions]\n\tworktreeconfig = true\n")
+                  "[extensions]\n\tworktreeconfig = true\n",
+                  '[color "advice"]\n\thint = notacolor\n',
+                  '[remote "o"]\n\tfetch = bogus\n', '[core "sub"]\n\tbare = false\n')
 
 
 @pytest.mark.parametrize("text", WORKTREE_FILES)
@@ -320,6 +333,19 @@ def test_config_worktree_matches_real_git(tmp_path, text, enabled, where):
     (folder / "config.worktree").write_text(text)
     assert_matches_git(checkout)
     assert_matches_git(path)
+
+
+@pytest.mark.parametrize("section", ["remote", "branch", "submodule", "unknown", "core"])
+def test_config_worktree_subsections_are_always_left_to_git(tmp_path, monkeypatch, section):
+    path = repository(tmp_path, "owner", commit=True)
+    git(path, "config", "extensions.worktreeConfig", "true")
+    (path / ".git" / "config.worktree").write_text(f'[{section} "sub"]\n\tkey = value\n')
+    expected = rgit.common_dir(path)
+    original = rgit.common_dir
+    calls = []
+    monkeypatch.setattr(rgit, "common_dir", lambda *args, **kwargs: calls.append(args[0]) or original(*args, **kwargs))
+    assert rgit.fast_common_dir(path) == expected
+    assert calls == [path]
 
 
 @pytest.mark.parametrize("kind", ["bare", "broken-gitfile", "missing-gitfile-target",
@@ -556,6 +582,61 @@ def test_no_refs_under_leaves_a_reftable_store_to_git(tmp_path):
     git(path, "update-ref", SALVAGE + "job-a1", head)
     assert rgit.no_refs_under(path / ".git", SALVAGE) is False
     assert set(rgit.refs_under(path / ".git", SALVAGE)) == {SALVAGE + "job-a1"}
+
+
+def test_no_refs_under_leaves_a_redirected_common_directory_to_git(tmp_path):
+    """Git's --git-dir follows commondir again even after census discovery."""
+    owner = repository(tmp_path, commit=True)
+    _apply_refs(owner, ("add",))
+    common = tmp_path / "redirect.git"
+    (common / "objects").mkdir(parents=True)
+    (common / "refs").mkdir()
+    (common / "HEAD").write_text("ref: refs/heads/main\n")
+    (common / "config").write_text("[core]\n\trepositoryformatversion = 0\n")
+    (common / "commondir").write_text(str(owner / ".git") + "\n")
+    admin = common / "worktrees" / "checkout"
+    admin.mkdir(parents=True)
+    (admin / "HEAD").write_bytes(git(owner, "rev-parse", "HEAD").stdout)
+    (admin / "commondir").write_text("../..\n")
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / ".git").write_text(f"gitdir: {admin}\n")
+    (admin / "gitdir").write_text(str(checkout / ".git") + "\n")
+
+    assert rgit.fast_common_dir(checkout) == rgit.common_dir(checkout) == common.resolve()
+    assert rgit.no_refs_under(common, SALVAGE + "job-a1") is False
+    assert set(rgit.refs_under(common, SALVAGE)) == {SALVAGE + "job-a1"}
+
+
+@pytest.mark.parametrize("spelling", ["NFC", "NFD"])
+def test_no_refs_under_leaves_unicode_normalization_to_git(tmp_path, spelling):
+    path = repository(tmp_path, commit=True)
+    git(path, "config", "core.precomposeunicode", "true")
+    ref = unicodedata.normalize("NFC", SALVAGE + "café-a1")
+    git(path, "update-ref", ref, "HEAD")
+    git(path, "pack-refs", "--all", "--prune")
+    prefix = unicodedata.normalize(spelling, ref)
+    assert rgit.no_refs_under(path / ".git", prefix) is False
+    # Git normalizes the NFD argument on macOS; other platforms may leave it
+    # unmatched. In both cases Git owns the answer for this spelling.
+    assert set(rgit.refs_under(path / ".git", prefix)).issubset({ref})
+    assert set(rgit.refs_under(path / ".git", ref)) == {ref}
+
+
+@pytest.mark.parametrize("tail", ["job-a*", "job-a?", "job-a[1]", r"job-a\1"])
+def test_no_refs_under_leaves_pattern_matching_to_git(tmp_path, tail):
+    path = repository(tmp_path, commit=True)
+    _apply_refs(path, ("add", "pack"))
+    prefix = SALVAGE + tail
+    assert rgit.no_refs_under(path / ".git", prefix) is False
+    assert set(rgit.refs_under(path / ".git", prefix)) == {SALVAGE + "job-a1"}
+
+
+def test_no_refs_under_refuses_even_a_dangling_commondir(tmp_path):
+    path = repository(tmp_path)
+    common = path / ".git"
+    (common / "commondir").symlink_to(tmp_path / "missing")
+    assert rgit.no_refs_under(common, SALVAGE) is False
 
 
 def test_no_refs_under_leaves_an_oversized_or_unreadable_store_to_git(tmp_path, monkeypatch):

@@ -113,6 +113,45 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
     return result
 
 
+def ambient_plain(*, timeout: float = 60, cancel: threading.Event | None = None) -> bool:
+    """Whether the census may discover repositories without reading ambient config.
+
+    Includes can select different config for each checkout, so any include
+    leaves every path to Git. A separate fresh repository catches ambient
+    values that `config --list` prints but repository startup rejects. These
+    three processes are a constant cost once per census, under retention's
+    selected environment rather than the caller's unfiltered environment.
+    """
+    deadline = time.monotonic() + timeout
+
+    def probe(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+        if cancel is not None and cancel.is_set():
+            raise Cancelled("ambient Git config probe cancelled")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise GitError("ambient Git config probe deadline")
+        return run(args, cwd=cwd, timeout=remaining, cancel=cancel)
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="subfleet-retention-git-",
+                                         dir=environment().get("TMPDIR")) as folder:
+            outside = Path(folder)
+            config = probe(["config", "--list", "--show-scope"], outside).stdout.decode("utf-8", "surrogateescape")
+            for line in config.splitlines():
+                _, separator, setting = line.partition("\t")
+                if not separator:
+                    return False
+                key = setting.partition("=")[0].lower()
+                if key.startswith(("include.", "includeif.")):
+                    return False
+            repository = outside / "repository"
+            probe(["init", "--quiet", str(repository)], outside)
+            probe(["rev-parse", "--git-common-dir"], repository)
+    except (GitError, OSError):
+        return False
+    return True
+
+
 # --- the registration ------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -242,6 +281,10 @@ _BOOLEANS = _TRUE | {"false", "no", "off", "0"}
 _PLAIN_CORE_BOOLEANS = frozenset({"bare", "filemode", "logallrefupdates", "ignorecase", "precomposeunicode",
                                   "symlinks", "sparsecheckout", "sparsecheckoutcone"})
 _PLAIN_CORE_ANY = frozenset({"hookspath", "untrackedcache"})
+#: These subsection settings are read lazily by Git, after repository startup.
+#: Every admitted section has differential cases with bad values on several
+#: keys; an unrecognised section may instead hold a startup-validated setting.
+_PLAIN_SUBSECTIONS = frozenset({"remote", "branch", "submodule"})
 _PLAIN_SECTION_KEYS = {
     "blame": frozenset({"ignorerevsfile"}),
     "gc": frozenset({"auto", "reflogexpire", "reflogexpireunreachable"}),
@@ -281,7 +324,7 @@ def _plain_config(path: Path, common: Path, worktree: Path, *, repository: bool 
             section, subsection = match[1].lower(), match[2] is not None
             if section in {"include", "includeif"}:
                 return None
-            if subsection and section in {"core", "extensions"}:
+            if subsection and (not repository or section not in _PLAIN_SUBSECTIONS):
                 return None
             if not subsection and section not in ({"core", "extensions", *_PLAIN_SECTION_KEYS} if repository
                                                    else {"core"}):
@@ -427,12 +470,16 @@ def no_refs_under(common: Path, prefix: str) -> bool:
 
     `prefix` may be a whole ref name. Only ever a negative, and False only means
     ask `refs_under`: a loose folder, a packed line, a reftable store or any
-    unreadable file all leave it to Git. A job's salvage search asks this of
-    every repository in the census, where a `for-each-ref` for each would take
-    most of the pass.
+    unreadable file all leave it to Git. So do a common directory redirect,
+    non-ASCII spelling (Git may normalize it), and Git's pattern characters.
+    A job's salvage search asks this of every repository in the census, where
+    a `for-each-ref` for each would take most of the pass.
     """
+    if not prefix.isascii() or any(character in prefix for character in "*?[\\"):
+        return False
     try:
-        if os.path.lexists(common / "reftable") or os.path.lexists(common / prefix.rstrip("/")):
+        if (os.path.lexists(common / "commondir") or os.path.lexists(common / "reftable")
+                or os.path.lexists(common / prefix.rstrip("/"))):
             return False
         try:
             packed = rfs.read_regular(common / "packed-refs", limit=PACKED_REFS_LIMIT)
@@ -543,10 +590,11 @@ def repository_near(path: Path, timeout: float = 60, cancel: threading.Event | N
     return None
 
 
-def refs_under(common: Path, prefix: str, *, cancel: threading.Event | None = None) -> dict[str, str]:
+def refs_under(common: Path, prefix: str, *, timeout: float = 120,
+               cancel: threading.Event | None = None) -> dict[str, str]:
     """ref -> object id of every ref under `prefix` (one `for-each-ref`)."""
     out = run(["for-each-ref", "--format=%(refname) %(objectname)", prefix], git_dir=common,
-              cancel=cancel).stdout.decode("utf-8", "surrogateescape")
+              timeout=timeout, cancel=cancel).stdout.decode("utf-8", "surrogateescape")
     return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
 
 

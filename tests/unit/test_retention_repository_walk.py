@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 from subfleet import attempt_tmp, retention
 from subfleet import retention_archive as rarch
 from subfleet import retention_git as rgit
+from subfleet.launch_env import helper_policy
 from tests.unit.retention_world import Clock, World, git, snapshot, trust_temporary_directories
 
 
@@ -415,7 +417,7 @@ def test_salvage_listing_stops_at_the_deadline_and_keeps_no_partial_answer(tmp_p
     ctx = rarch.Context(tmp_path, SimpleNamespace(), clock=clock, deadline=5)
     calls = []
 
-    def listing(common, prefix, cancel=None):
+    def listing(common, prefix, cancel=None, timeout=120):
         calls.append(common)
         clock.advance(10)
         return {}
@@ -535,3 +537,279 @@ def test_one_jobs_probe_rows_use_the_job_index_and_match_the_kind_scan(world):
     assert [row["holder"] for row in rows] == ["probe-a"] and "/b" in rows[0]["tmpdir"]
     every = attempt_tmp.probe_tmpdir_rows(w.store)
     assert sorted(row["holder"] for row in every) == ["probe-a", "probe-c"]
+
+
+@pytest.mark.parametrize("source", ["home", "global", "xdg"])
+@pytest.mark.parametrize("shape", ["plain", "include", "includeif", "bad-value", "malformed"])
+def test_ambient_config_matches_git_and_forces_census_fallback(tmp_path, monkeypatch, caplog, source, shape):
+    repo = tmp_path / "repo"
+    git(tmp_path, "init", "--quiet", str(repo))
+    git(repo, "commit", "--quiet", "--allow-empty", "-m", "base")
+    linked = tmp_path / "linked"
+    git(repo, "worktree", "add", "--quiet", "--detach", str(linked), "HEAD")
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    xdg = tmp_path / "xdg"
+    (xdg / "git").mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    if shape in {"include", "includeif"}:
+        included = tmp_path / "bad.inc"
+        included.write_text('[color "advice"]\n\thint = notacolor\n' if shape == "includeif"
+                            else '[user]\n\tname = harmless include\n')
+        section = 'includeIf "gitdir:**/worktrees/**"' if shape == "includeif" else "include"
+        text = f'[{section}]\n\tpath = {included}\n'
+    else:
+        text = {"plain": "[user]\n\tname = test\n", "bad-value": "[core]\n\tcompression = abc\n",
+                "malformed": "[broken\n"}[shape]
+    config = {"home": home / ".gitconfig", "global": tmp_path / "global.config",
+              "xdg": xdg / "git" / "config"}[source]
+    config.write_text(text)
+    if source == "global":
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    calls = []
+    original = rgit.run
+
+    def record(args, **kwargs):
+        calls.append((tuple(args), kwargs.get("cwd")))
+        return original(args, **kwargs)
+
+    rows = [dict(job_id=str(index), sandbox="read-only", workdir=str(workdir))
+            for index, workdir in enumerate((repo, linked))]
+    with helper_policy({"env": {"pass": ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "XDG_CONFIG_HOME"]}}):
+        monkeypatch.setattr(rgit, "run", record)
+        assert rgit.ambient_plain() is (shape == "plain")
+        guard_calls = list(calls)
+        assert len(guard_calls) <= 3
+        assert guard_calls[0][0] == ("config", "--list", "--show-scope")
+        assert guard_calls[0][1] not in (repo, linked)
+        if shape == "bad-value":
+            # Printing the bad value succeeds; repository startup is the second gate.
+            assert len(guard_calls) >= 2
+        expected = _old_known_repositories(rows, tmp_path)
+        if shape != "plain":
+            monkeypatch.setattr(rgit, "fast_common_dir", lambda *a, **k: pytest.fail("ambient doubt used fast discovery"))
+        caplog.set_level("INFO", logger=rarch.__name__)
+        ctx = rarch.Context(tmp_path, SimpleNamespace(list_jobs=lambda: rows))
+        assert ctx.known_repositories() == expected
+        count = len(calls)
+        assert ctx.known_repositories() == expected
+        assert len(calls) == count
+    messages = [record for record in caplog.records if "ambient config is not plain" in record.message]
+    assert len(messages) == (0 if shape == "plain" else 1)
+    if shape == "includeif":
+        assert expected == [Path(os.path.realpath(repo / ".git"))]
+        assert rgit.object_format(repo / ".git") == "sha1"
+    elif shape == "include":
+        assert expected == [Path(os.path.realpath(repo / ".git"))]
+    elif shape != "plain":
+        assert expected == []
+
+
+def test_ambient_guard_has_constant_process_cost_and_runs_once_per_census(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    repo = tmp_path / "repo"
+    git(tmp_path, "init", "--quiet", str(repo))
+    rows = []
+    for index in range(20):
+        workdir = repo / str(index)
+        workdir.mkdir()
+        rows.append(dict(job_id=str(index), sandbox="read-only", workdir=str(workdir)))
+    calls = []
+    original = rgit.run
+
+    def record(args, **kwargs):
+        calls.append((tuple(args), kwargs.get("cwd")))
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(rgit, "run", record)
+    assert rarch.known_repositories(rows, tmp_path) == [Path(os.path.realpath(repo / ".git"))]
+    assert [args[0] for args, cwd in calls] == ["config", "init", "rev-parse"]
+    assert calls[0][1].resolve().is_relative_to(Path(os.path.realpath(os.environ["TMPDIR"])))
+
+
+@pytest.mark.parametrize("failure", [None, "config", "init", "rev-parse"])
+def test_ambient_guard_requires_each_probe_and_shares_its_timeout(tmp_path, monkeypatch, failure):
+    clock = Clock(10)
+    calls = []
+    monkeypatch.setattr(rgit.time, "monotonic", clock)
+
+    def run(args, **kwargs):
+        calls.append((args[0], kwargs["timeout"]))
+        clock.advance(2)
+        if args[0] == failure:
+            raise rgit.GitError("ambient probe failed")
+        return SimpleNamespace(stdout=b"global\tuser.name=test\n" if args[0] == "config" else b".git\n")
+
+    monkeypatch.setattr(rgit, "run", run)
+    assert rgit.ambient_plain(timeout=6) is (failure is None)
+    expected = [("config", 6), ("init", 4), ("rev-parse", 2)]
+    assert calls == expected[:next((index + 1 for index, (command, _) in enumerate(expected)
+                                    if command == failure), len(expected))]
+
+
+def test_ambient_guard_starts_no_probe_after_timeout_or_cancellation(tmp_path, monkeypatch):
+    clock = Clock(0)
+    cancel = threading.Event()
+    calls = []
+    monkeypatch.setattr(rgit.time, "monotonic", clock)
+
+    def run(args, **kwargs):
+        calls.append(args[0])
+        clock.advance(2)
+        return SimpleNamespace(stdout=b"global\tuser.name=test\n")
+
+    monkeypatch.setattr(rgit, "run", run)
+    assert not rgit.ambient_plain(timeout=1)
+    assert calls == ["config"]
+    cancel.set()
+    with pytest.raises(rgit.Cancelled):
+        rgit.ambient_plain(cancel=cancel)
+    assert calls == ["config"]
+
+
+def test_ambient_guard_uses_retention_environment_not_unpassed_git_config(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text("[user]\n\tname = plain\n")
+    bad = tmp_path / "bad.config"
+    bad.write_text("[core]\n\tcompression = abc\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(bad))
+    assert "GIT_CONFIG_GLOBAL" not in rgit.environment()
+    assert rgit.ambient_plain()
+    with helper_policy({"env": {"pass": ["GIT_CONFIG_GLOBAL"]}}):
+        assert not rgit.ambient_plain()
+
+
+def test_rejected_checkout_config_cannot_change_retirement_decision(world):
+    w = world
+    _gone_job(w, "job-gone", salvage=True)
+    lane = w.base / "lane-checkout"
+    git(w.repo, "worktree", "add", "--quiet", "--detach", str(lane), w.head())
+    git(w.repo, "config", "extensions.worktreeConfig", "true")
+    (w.repo / ".git" / "worktrees" / "lane-checkout" / "config.worktree").write_text(
+        '[color "advice"]\n\thint = notacolor\n')
+    w.store.add_job(job_id="job-lane", request_id="req-lane", payload_digest="d", kind="dispatch",
+                    workdir=str(lane), workdir_head=w.head(), worktree=None, prompt_path="/prompt",
+                    sandbox="read-only", state="succeeded")
+    (w.root / "jobs" / "job-lane").mkdir()
+    jobs = w.store.list_jobs()
+    assert _old_known_repositories(jobs, w.root) == rarch.known_repositories(jobs, w.root) == []
+    admin_before = snapshot(w.admin("job-gone"))
+    result = _maintenance(w, referenced_job_ids=["job-lane"])
+    assert result["pruned"] == [] and result["errors"] == [], result
+    assert result["deferred"]["job-gone"].startswith("salvage not archivable")
+    assert w.store.get_job("job-gone") is not None
+    assert snapshot(w.admin("job-gone")) == admin_before
+    assert git(w.repo, "show-ref", "--verify", "refs/subfleet-salvage/repository-walk-a1")
+
+
+@pytest.mark.parametrize("remaining,expected", [(None, 120), (300, 120), (3, 3)])
+def test_salvage_listing_timeout_is_remaining_time_capped_at_120(tmp_path, monkeypatch, remaining, expected):
+    clock = Clock(10)
+    ctx = rarch.Context(tmp_path, SimpleNamespace(), clock=clock,
+                        deadline=None if remaining is None else clock() + remaining)
+    seen = []
+
+    def listing(common, prefix, *, timeout, cancel):
+        seen.append(timeout)
+        return {"refs/subfleet-salvage/job-a1": "a" * 40}
+
+    monkeypatch.setattr(rgit, "refs_under", listing)
+    assert ctx.salvage_refs(tmp_path)
+    assert ctx.salvage_refs(tmp_path)
+    assert seen == [expected]
+
+
+@pytest.mark.parametrize("error", [rgit.GitError, OSError])
+@pytest.mark.parametrize("expired", [False, True])
+def test_failed_salvage_listing_only_caches_failures_before_deadline(tmp_path, monkeypatch, error, expired):
+    clock = Clock(0)
+    ctx = rarch.Context(tmp_path, SimpleNamespace(), clock=clock, deadline=10)
+    calls = []
+
+    def listing(common, prefix, **kwargs):
+        calls.append(common)
+        clock.advance(10 if expired else 1)
+        raise error("listing failed")
+
+    monkeypatch.setattr(rgit, "refs_under", listing)
+    if expired:
+        with pytest.raises(rarch.Defer) as caught:
+            ctx.salvage_refs(tmp_path)
+        assert caught.value.reason == "repository discovery deadline"
+        assert caught.value.seconds == rarch.DEFER_CHANGED_S
+        assert str(tmp_path) not in ctx.salvage_listings
+        ctx.deadline = 100
+    assert ctx.salvage_refs(tmp_path) == {}
+    assert ctx.salvage_refs(tmp_path) == {}
+    assert len(calls) == (2 if expired else 1)
+
+
+def _slow_listing_shim(tmp_path, monkeypatch):
+    real_git = shutil.which("git")
+    bindir = tmp_path / "slow-bin"
+    bindir.mkdir()
+    shim = bindir / "git"
+    # exec keeps the slow listing in the owned process, so its timeout kills it completely.
+    import sys
+    shim.write_text(f"#!{sys.executable}\nimport os, sys, time\n"
+                    "if 'for-each-ref' in sys.argv: time.sleep(3)\n"
+                    f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n")
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ["PATH"])
+
+
+def test_slow_git_listing_obeys_real_deadline_and_is_not_cached(tmp_path, monkeypatch):
+    common = _repositories_with_refs(tmp_path, [(REF_NAMES[0],)])[0]
+    _slow_listing_shim(tmp_path, monkeypatch)
+    started = time.monotonic()
+    ctx = rarch.Context(tmp_path, SimpleNamespace(), deadline=started + 0.5)
+    with pytest.raises(rarch.Defer) as caught:
+        ctx.salvage_refs(common)
+    assert caught.value.reason == "repository discovery deadline"
+    assert caught.value.seconds == rarch.DEFER_CHANGED_S
+    assert time.monotonic() - started < 2.5
+    assert str(common) not in ctx.salvage_listings
+
+
+def test_salvage_listing_deadline_rolls_back_end_to_end_and_backs_off(world, monkeypatch):
+    w = world
+    _gone_job(w, "job-gone", salvage=True)
+    shutil.rmtree(w.admin("job-gone"))
+    w.job("job-evidence", worktree=False)
+    before = snapshot(w.root / "jobs" / "job-gone")
+    state = retention.RetentionState()
+    original = rgit.refs_under
+    clock = Clock(0)
+    calls = []
+
+    def listing(common, prefix, **kwargs):
+        calls.append(kwargs["timeout"])
+        clock.advance(kwargs["timeout"])
+        raise rgit.GitError("slow git listing timed out")
+
+    monkeypatch.setattr(rgit, "refs_under", listing)
+    first = _maintenance(w, state=state, clock=clock, deadline=5, referenced_job_ids=["job-evidence"])
+    assert first["pruned"] == [] and first["errors"] == [], first
+    assert first["deferred"]["job-gone"].startswith("repository discovery deadline")
+    assert snapshot(w.root / "jobs" / "job-gone") == before
+    assert rarch.journals(w.root) == {}
+    assert w.store.query("SELECT * FROM leases WHERE holder=?", ("retention:job-gone",)) == []
+    assert not (w.root / "archive" / "job-gone").exists()
+    assert not (w.root / "retention" / "job-gone").exists()
+    assert git(w.repo, "show-ref", "--verify", "refs/subfleet-salvage/repository-walk-a1")
+    assert calls == [5]
+    second = _maintenance(w, state=state, clock=clock, deadline=clock() + 100,
+                          referenced_job_ids=["job-evidence"])
+    assert second["deferred"]["job-gone"] == "repository discovery deadline"
+    assert calls == [5]
+    clock.advance(rarch.DEFER_CHANGED_S + 1)
+    monkeypatch.setattr(rgit, "refs_under", original)
+    third = _maintenance(w, state=state, clock=clock, deadline=clock() + 1000,
+                         referenced_job_ids=["job-evidence"])
+    assert third["pruned"] == ["job-gone"], third

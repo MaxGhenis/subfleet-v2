@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import stat
 import threading
@@ -256,9 +257,12 @@ class Context:
         if key not in self.salvage_listings:
             # The listing search over the census answers to the census's bound.
             _repository_checkpoint(self.cancel, self.deadline, self.clock)
+            timeout = 120 if self.deadline is None else min(120, self.deadline - self.clock())
             try:
-                self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/", cancel=self.cancel)
+                self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/",
+                                                           timeout=timeout, cancel=self.cancel)
             except (rgit.GitError, OSError):
+                _repository_checkpoint(self.cancel, self.deadline, self.clock)
                 self.salvage_listings[key] = {}
         return self.salvage_listings[key]
 
@@ -1341,6 +1345,11 @@ def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
         _repository_checkpoint(cancel, deadline, clock)
 
     check()
+    ambient_timeout = 60 if deadline is None else min(60, deadline - clock())
+    ambient_plain = rgit.ambient_plain(timeout=ambient_timeout, cancel=cancel)
+    check()
+    if not ambient_plain:
+        logging.getLogger(__name__).info("Repository census uses Git for every workdir: ambient config is not plain")
     found: dict[str, Path] = {}
     workdirs: set[str] = set()
     allocated_root = root / "worktrees"
@@ -1413,8 +1422,11 @@ def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
         if os.path.isdir(workdir):
             check()
             timeout = 60 if deadline is None else min(60, deadline - clock())
-            common = rgit.fast_common_dir(Path(workdir), timeout=timeout, cancel=cancel,
-                                          checkpoint=check, deadline=deadline, clock=clock)
+            if ambient_plain:
+                common = rgit.fast_common_dir(Path(workdir), timeout=timeout, cancel=cancel,
+                                              checkpoint=check, deadline=deadline, clock=clock)
+            else:
+                common = rgit.common_dir(Path(workdir), timeout=timeout, cancel=cancel)
             check()
             if common is not None:
                 found.setdefault(str(common), common)
