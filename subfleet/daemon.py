@@ -231,6 +231,10 @@ RETENTION_INTERVAL_S = 3600
 RETENTION_DORMANT_ENV = "SUBFLEET_RETENTION_DORMANT"
 #: d635: seconds between passes while a backlog is being worked off.
 RETENTION_CATCH_UP_S = 5
+#: C-8.6: a retire answer reads C-8.4's pins job by job for at most this many jobs, and
+#: once for every job above it. On the live store on 2026-11-02, one job's read took
+#: 0.11 s and every job's 3.5 s (14,848 jobs): 32 one-job reads cost about one of all.
+RETIRE_PIN_READ_EACH = 32
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
 #: They have their own pool, so they never queue behind a view build or a write
 #: waiting for the store lock on the general request pool.
@@ -5830,8 +5834,8 @@ class Daemon:
                 job = tx.execute("SELECT state,created_at FROM jobs WHERE job_id=?", (job_id,)).fetchone()
                 if job is None:
                     # Retired (its events outlive its rows) or never a job here. `+kind`: by
-                    # the job's own events (events_job); by kind, an unknown id walked every
-                    # retirement ever recorded, 3 ms each at 4,757 on 2026-11-02.
+                    # the job's own events (events_job); by kind, an unknown id walks every
+                    # retirement recorded (1.8 ms each at 4,777 on 2026-11-02).
                     gone = tx.execute("SELECT ts,data_json FROM events WHERE job_id=? AND +kind='retention.pruned' "
                                       "ORDER BY event_id DESC LIMIT 1", (job_id,)).fetchone()
                     rows.append({"job_id": job_id, "outcome": "unknown"} if gone is None else
@@ -5872,33 +5876,46 @@ class Daemon:
         """C-8.6: what keeps each finished job named in a retire answer: a retirement in
         flight (it finishes, withdrawn or not), a pin (`kept`, its reason as a pass reads
         it) or a deferral. Read after the request's transaction, outside any."""
-        budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
-        legacy = None
-        for row in rows:
-            if row["outcome"] not in ("requested", "already-requested", "withdrawn"):
-                continue
-            job_id = row["job_id"]
-            held = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (f"retire:{job_id}",))
-            if held is not None and held["holder"] == f"retention:{job_id}":
+        named = [row for row in rows if row["outcome"] in ("requested", "already-requested", "withdrawn")]
+        for row in named:
+            held = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (f"retire:{row['job_id']}",))
+            if held is not None and held["holder"] == f"retention:{row['job_id']}":
                 row["retiring"] = True
-            if row["outcome"] == "withdrawn":
-                continue
-            try:
-                if legacy is None:
-                    legacy = dependencies.legacy(self.store.query)
-                pin = _pin_reasons(self.store, set(), None, pins=self._retention_pins,
-                                   turn_keep_s=float(budget["turn_keep_days"]) * 86400, only=job_id,
-                                   root=self.root, legacy=legacy).get(job_id)
-            except Exception as exc:
-                # The request stands either way; a pass reads the pins again.
-                row["pins_unread"] = type(exc).__name__
-                continue
-            if pin:
-                row["kept"] = pin
-            deferred = self._retention_state.deferred.get(job_id)
-            now = time.monotonic()
+        standing = [row for row in named if row["outcome"] != "withdrawn"]
+        if standing:
+            self._retire_pins(standing)
+        now = time.monotonic()
+        for row in standing:
+            deferred = self._retention_state.deferred.get(row["job_id"])
             if deferred is not None and deferred[0] > now:
                 row["deferred"] = {"reason": deferred[1], "for_s": round(deferred[0] - now)}
+
+    def _retire_pins(self, rows: list[dict]) -> None:
+        """C-8.6: name each row's pin as a pass reads it (`kept`), or why its pins went
+        unread (`pins_unread`: the request stands, and a pass reads them again). Most of a
+        read's cost does not depend on how many jobs it names, so above
+        `RETIRE_PIN_READ_EACH` rows this reads every job's pins once."""
+        reads = [(row["job_id"], [row]) for row in rows] if len(rows) <= RETIRE_PIN_READ_EACH else [(None, rows)]
+        pins: dict[str, str] = {}
+        unread: dict[str, str] = {}
+        try:
+            budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
+            turn_keep_s = float(budget["turn_keep_days"]) * 86400
+            legacy = dependencies.legacy(self.store.query)
+            conversation = set(self._retention_pins())
+        except Exception as exc:
+            reads, unread = [], dict.fromkeys((row["job_id"] for row in rows), type(exc).__name__)
+        for only, group in reads:
+            try:
+                pins.update(_pin_reasons(self.store, set(), None, pins=lambda: conversation,
+                                         turn_keep_s=turn_keep_s, only=only, root=self.root, legacy=legacy))
+            except Exception as exc:
+                unread.update(dict.fromkeys((row["job_id"] for row in group), type(exc).__name__))
+        for row in rows:
+            if row["job_id"] in unread:
+                row["pins_unread"] = unread[row["job_id"]]
+            elif pins.get(row["job_id"]):
+                row["kept"] = pins[row["job_id"]]
 
     def _rearm_retention(self, asked: int, *, error: str | None = None) -> float:
         """Make retention due in an hour, or in `RETENTION_CATCH_UP_S` when a retire request

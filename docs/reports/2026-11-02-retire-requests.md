@@ -18,7 +18,7 @@ So 2.1.12 reaches these 39 only after it retires those 10,132. It had no way to 
 - One transaction answers every named job. For each job it requests or withdraws, it records one event, `job.retire_requested` or `job.retire_withdrawn`, whose data names the job's `created_at` (and the session and reason when given). Events need no schema change, and they outlive a retired job's rows.
 - A pass reads the standing requests when it starts. It takes orphaned `retention:` leases' jobs first, requested jobs next and the rest last, oldest first within each. A request lifts only its pool's budget. Every pin, deferral, holder check, the batch of 32, the pass deadline and archive-first retirement still bind.
 - A recorded request (not a withdrawal, not a dry run) makes retention due at once. A request recorded while a pass runs brings the next pass 5 s after that pass ends, in every outcome that would otherwise rearm the hour.
-- The answer names each job's outcome and what holds a requested job now: a retirement in flight, a pin (C-8.4's pin read for that job, conversation pins included), or a deferral. Only a pass sees a process holding the tree or a job registered in a repository inside it.
+- The answer names each job's outcome and what holds a requested job now: a retirement in flight, a pin (C-8.4's pin read for that job, conversation pins included), or a deferral. It reads pins job by job for up to 32 jobs and once for every job above that. Only a pass sees a process holding the tree or a job registered in a repository inside it.
 - `subfleet retention survey` counts a standing request as a pass would.
 
 The contract text is C-8.6 in `docs/acceptance-contract.md`.
@@ -40,7 +40,7 @@ The contract text is C-8.6 in `docs/acceptance-contract.md`.
 | 4 | oracle with `requests=False` | differential, 164 worlds with no request |
 | 5 | `test_a_request_makes_retention_due_now_and_nothing_else_does`, `test_a_request_during_a_pass_brings_the_next_pass_to_catch_up` (2 outcomes), `test_a_pass_with_no_request_after_it_began_waits_the_hour` (2), `test_a_pass_whose_mark_fails_stays_due` (2), `test_a_request_while_a_pass_marks_its_end_is_not_lost` | mutants `not-due`, `withdrawal-due`, `no-catch-up`, `asked-at-end`, `clock-first`, `mark-unlocked` |
 | 6 | `test_a_request_records_one_event_that_names_the_job`, `test_a_dry_run_answers_the_same_and_records_nothing`, `test_each_job_is_answered_once` | mutant `dry-run-records` |
-| answer, CLI, survey | `test_what_a_request_cannot_take_is_answered_and_nothing_recorded`, `test_the_answer_names_a_pin_a_deferral_and_a_retirement_in_flight`, `test_the_answer_reads_each_job_by_its_own_events`, the six CLI tests, `test_the_survey_counts_a_request_as_a_pass_does` | mutants `takes-unfinished`, `hides-pin`, `pruned-by-kind`, `cli-retired-refused`, `survey-blind` |
+| answer, CLI, survey | `test_what_a_request_cannot_take_is_answered_and_nothing_recorded`, `test_the_answer_names_a_pin_a_deferral_and_a_retirement_in_flight`, `test_the_answer_reads_each_job_by_its_own_events`, `test_above_the_limit_the_answer_reads_every_jobs_pins_once` (2), `test_pins_that_could_not_be_read_are_named_and_nothing_else_is_lost`, the six CLI tests, `test_the_survey_counts_a_request_as_a_pass_does` | mutants `takes-unfinished`, `hides-pin`, `pruned-by-kind`, `pins-each-always`, `pins-once-always`, `unread-silent`, `unread-spreads`, `unread-hides-deferral`, `cli-retired-refused`, `survey-blind` |
 
 ## The differential against 2.1.12
 
@@ -56,14 +56,16 @@ The first run stopped at world 11 on one difference (`differential-r1-found-defe
 
 The pairs ran at 2026-11-02 about 21:00Z with seed 86; logs: `differential.log`, `differential-control.log`.
 
-## Two defects the tests caught in the first draft
+## Defects found in the first draft
 
 - **Rearm order.** The first rearm helper set `_last_maintenance` before the status mark, which breaks C-8.4's rule that a failed mark leaves retention due. Three existing tests in `tests/fake/test_native_maintenance_startup.py` failed on it. The helper now holds the request lock across the mark and sets the clock after it. `test_a_pass_whose_mark_fails_stays_due` and `test_a_request_while_a_pass_marks_its_end_is_not_lost` pin both halves.
 - **Audit events read as requests.** `store.add_event` writes an audit event of the same kind with `{}` data beside the row. Read as the latest event, it unbound the request before it. The op now writes its rows directly in a `retire.answered` transaction with no audit, and the reader treats an event that names no `created_at` as no request.
+- **A pin read for every job named.** The answer ran C-8.4's pin read once per job. A read-only measure on the live store at 2026-11-02 21:10Z (`pin_read_cost.py`, `pin-read-cost.json`) found 0.11 s for one job (5 jobs read) and 3.5 s for all 14,848 jobs at once, since most of the read's queries cover every job whatever it names. A request naming 500 jobs would have taken about 55 s, past the client's 15 s timeout. The answer now reads job by job for up to 32 jobs (`RETIRE_PIN_READ_EACH`) and once above that, so it stays near 3.5 s at today's size, and it reads the conversation pins once per answer. `test_above_the_limit_the_answer_reads_every_jobs_pins_once` checks both paths give one answer.
+- **A failed pin read hid the deferral.** When the pin read failed, the first draft named `pins_unread` and skipped the deferral. The answer now names both, and one job's failed read leaves the other jobs' pins named (`test_pins_that_could_not_be_read_are_named_and_nothing_else_is_lost`).
 
 ## Reads stay indexed
 
-The answer runs inside the request's write transaction, so its reads must stay small. A read-only plan on the live store at 2026-11-02 21:20Z showed that the first lookup of a retired job's `retention.pruned` event planned on `events_kind`: for an id with no rows, SQLite walked all 4,757 retirements recorded so far, 3.18 ms each (mean of 50), or about 1.6 s for a request naming 500 such ids, and that cost grows with every retirement. With `+kind`, the house idiom (`dependencies.py`, `Daemon._batches`), it plans on `events_job` and takes no measurable time. The per-job request read already planned on `events_job`; `+kind` pins that too. A pass reads every request by kind on `events_kind`, then sorts the few rows it finds. `test_the_answer_reads_each_job_by_its_own_events` and `test_the_request_reads_stay_indexed` check the plans, and the old lookup fails the first.
+The answer runs inside the request's write transaction, so its reads must stay small. A read-only plan on the live store at 2026-11-02 21:17:52Z (`plan_read_cost.py`, `plan-read-cost.json`) showed that the first draft's lookup of a retired job's `retention.pruned` event plans on `events_kind`: for an id with no rows, SQLite walks all 4,777 retirements recorded so far, 1.8 ms each (mean of 50), or about 0.9 s for a request naming 500 such ids, and that cost grows with every retirement. With `+kind`, the house idiom (`dependencies.py`, `Daemon._batches`), it plans on `events_job` and takes 0.002 ms. The per-job request read already planned on `events_job`; `+kind` pins that too. A pass reads every request by kind on `events_kind`, then sorts the few rows it finds. `test_the_answer_reads_each_job_by_its_own_events` and `test_the_request_reads_stay_indexed` check the plans, and the old lookup fails the first.
 
 ## Test runs
 
@@ -73,13 +75,13 @@ All from `~/subfleet-v2-lanes/retire-request`, serial (no xdist), under the shar
 |---|---|---|
 | `targeted-r1.log` | the two new files and 21 retention, protocol, refusal and borrowed-method files | 1,395 passed, 7 failed in 411 s: 3 from the rearm order above; 4 in `test_fake_daemon_borrowed_methods.py`, which read method source by line number after `daemon.py` changed mid-run |
 | `targeted-r2.log` | the 2 failing files, the 2 new files and 3 schedule files | 179 passed in 34.6 s |
-| final new files | `tests/unit/test_retention_retire_requests.py`, `tests/fake/test_retire_request_daemon.py` | 50 passed in 12.4 s |
+| new files, after the pin-read change | `tests/unit/test_retention_retire_requests.py`, `tests/fake/test_retire_request_daemon.py` | 53 passed in 13.2 s |
 
 CI runs the whole suite on the pull request.
 
 ## Mutants
 
-`tools/retire_request_mutants.py` names 22 mutants, one per broken rule; each swaps one function in memory for a copy with one edit and leaves the source alone. Each edit matches its function once and compiles. Fleet ops held serial mutant runs until the Microcosm US release starts, so the runs come after that, and their results go into this report.
+`tools/retire_request_mutants.py` names 27 mutants, one per broken rule; each swaps one function in memory for a copy with one edit and leaves the source alone. Each edit matches its function once and compiles. Fleet ops held serial mutant runs until the Microcosm US release starts, so the runs come after that, and their results go into this report.
 
 ## The live read
 

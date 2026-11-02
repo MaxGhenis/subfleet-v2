@@ -9,6 +9,7 @@ the socket.
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 import time
 
@@ -77,8 +78,8 @@ def test_what_a_request_cannot_take_is_answered_and_nothing_recorded(state_daemo
 
 
 def test_the_answer_reads_each_job_by_its_own_events(state_daemon):  # noqa: F811
-    """Inside the write transaction, by kind an unknown id walked every retirement ever
-    recorded (3 ms each at 4,757 on 2026-11-02); by the job's own events it reads its own."""
+    """Inside the write transaction, by kind an unknown id walks every retirement recorded
+    (1.8 ms each at 4,777 on 2026-11-02); by the job's own events it reads its own."""
     daemon, harness = state_daemon
     statements: list[str] = []
     daemon.store.conn.set_trace_callback(statements.append)
@@ -170,6 +171,55 @@ def test_the_answer_names_a_pin_a_deferral_and_a_retirement_in_flight(state_daem
     assert not {"kept", "deferred", "retiring"} & set(rows[free]), rows[free]
     withdrawn = {row["job_id"]: row for row in retire(daemon, flying, withdraw=True)["jobs"]}
     assert withdrawn[flying]["outcome"] == "withdrawn" and withdrawn[flying]["retiring"] is True
+
+
+def spy_pin_reads(monkeypatch, fail_for: str | None = None) -> list:
+    """Each `only` the answer's pin reads name, in order; the read for `fail_for` fails."""
+    reads, real = [], daemon_module._pin_reasons
+
+    def pin_reasons(*args, **kwargs):
+        reads.append(kwargs["only"])
+        if fail_for is not None and kwargs["only"] == fail_for:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*args, **kwargs)
+    monkeypatch.setattr(daemon_module, "_pin_reasons", pin_reasons)
+    return reads
+
+
+@pytest.mark.parametrize("each", [3, 2])
+def test_above_the_limit_the_answer_reads_every_jobs_pins_once(state_daemon, monkeypatch, each):  # noqa: F811
+    """One job's pin read cost 0.11 s and every job's 3.5 s on the live store, so a request
+    naming more than `RETIRE_PIN_READ_EACH` jobs reads them all once; both give one answer."""
+    daemon, harness = state_daemon
+    pinned, *free = (finished(daemon, harness) for _ in range(3))
+    monkeypatch.setattr(daemon_module, "RETIRE_PIN_READ_EACH", each)
+    monkeypatch.setattr(daemon, "_retention_pins", lambda: {pinned})
+    reads = spy_pin_reads(monkeypatch)
+    rows = {row["job_id"]: row for row in retire(daemon, pinned, *free)["jobs"]}
+    assert reads == ([pinned, *free] if each == 3 else [None])
+    assert rows[pinned]["kept"] == "conversation"
+    assert not any({"kept", "pins_unread"} & set(rows[job_id]) for job_id in free), rows
+
+
+def test_pins_that_could_not_be_read_are_named_and_nothing_else_is_lost(state_daemon, monkeypatch):  # noqa: F811
+    daemon, harness = state_daemon
+    broken, pinned = (finished(daemon, harness) for _ in range(2))
+    daemon._retention_state.defer(broken, 600, "holder: pid 4242", time.monotonic())
+    monkeypatch.setattr(daemon, "_retention_pins", lambda: {pinned})
+    spy_pin_reads(monkeypatch, fail_for=broken)
+    answer = retire(daemon, broken, pinned)
+    rows = {row["job_id"]: row for row in answer["jobs"]}
+    assert rows[broken]["pins_unread"] == "OperationalError" and "kept" not in rows[broken]
+    assert rows[broken]["deferred"]["reason"] == "holder: pid 4242"
+    assert rows[pinned]["kept"] == "conversation" and "pins_unread" not in rows[pinned]
+    assert answer["recorded"] == 2 and [kind for kind, _ in recorded(daemon, broken)] == [retention.RETIRE_REQUESTED]
+
+    def no_pins():
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(daemon, "_retention_pins", no_pins)
+    rows = {row["job_id"]: row for row in retire(daemon, broken, pinned)["jobs"]}
+    assert all(row["pins_unread"] == "OperationalError" and "kept" not in row for row in rows.values()), rows
+    assert rows[broken]["deferred"]["reason"] == "holder: pid 4242"
 
 
 # --- when retention runs ------------------------------------------------------------
