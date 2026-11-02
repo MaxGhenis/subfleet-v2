@@ -23,6 +23,7 @@ from subfleet import retention
 from subfleet import retention_archive as rarch
 from subfleet import retention_fs as rfs
 from tests.unit.retention_world import Clock, World, git, trust_temporary_directories
+from tests.unit.test_retention_regenerable import ignore, install, write
 
 
 @pytest.fixture
@@ -590,3 +591,46 @@ def test_a_walk_begun_again_counts_from_the_tree_start(world, monkeypatch):
     assert result["pruned"] == ["job-nested"], result
     assert walks[:2] == [set(), {"node_modules/pkg"}], walks      # the first slice walked round again
     assert strictly_further(calls), calls
+
+
+SLOW = 40 * 1024
+
+
+def test_a_repository_found_in_regenerable_output_is_progress(world, monkeypatch):
+    """The walk verifies a venv's installed files by hash, one slow file a
+    slice, then finds an editable clone (a `.git`) deeper in the same venv. It
+    begins again with the venv archived, so each file it verified must now be
+    stored, slice by slice, short of where the earlier slices got. The slice
+    that finds the repository counts as progress and its position becomes the
+    furthest, so the slices after it are no stall, and the job retires."""
+    w = world
+    wt = w.job("job-venv")
+    ignore(wt, ".venv/")
+    venv = wt / ".venv"
+    write(venv / "pyvenv.cfg", "home = /usr/local/bin\nversion_info = 3.14\n")
+    install(venv, "pkg", {f"pkg/d{n}.bin": os.urandom(SLOW) for n in range(5)})
+    clone = venv / "lib" / "python3.14" / "site-packages" / "zz-editable"
+    write(clone / "mod.py", "work that exists only here\n")
+    git(clone, "init", "--quiet")
+    git(clone, "add", "mod.py")
+    git(clone, "commit", "--quiet", "-m", "only here")
+    clock = Clock()
+    original = rfs.read_hashes
+
+    def slow(fd, size, fmt, check=None):
+        if size == SLOW:
+            clock.advance(100)
+        return original(fd, size, fmt, check)
+
+    monkeypatch.setattr(rfs, "read_hashes", slow)
+    calls = record_reached(monkeypatch, "job-venv")
+    state = retention.RetentionState()
+    for _ in range(40):
+        result = run(w, state=state, clock=clock, slice_s=60)
+        assert not result["deferred"], (result["deferred"], calls)
+        if result["pruned"]:
+            break
+    assert result["pruned"] == ["job-venv"], result
+    # The shape happened: a slice after the finding got less far than an earlier one.
+    assert not strictly_further(calls), calls
+

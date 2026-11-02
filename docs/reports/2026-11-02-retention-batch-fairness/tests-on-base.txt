@@ -27,7 +27,8 @@ FAILED tests/unit/test_retention_batch_fairness.py::test_a_yield_a_live_turn_hol
 FAILED tests/unit/test_retention_batch_fairness.py::test_slow_read_backs_are_progress_not_a_stall
 FAILED tests/unit/test_retention_batch_fairness.py::test_a_slice_that_only_reads_copies_back_gets_further   (run alone on base after the others; AttributeError: 'Retirement' object has no attribute 'last_reached')
 FAILED tests/unit/test_retention_batch_fairness.py::test_a_walk_begun_again_counts_from_the_tree_start
+FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress   (run alone on base; AttributeError: 'Retirement' object has no attribute 'last_reached'. It guards a regression of this change: base has no stall rule.)
 FAILED tests/unit/test_retention_batch_fairness_properties.py::test_every_waiting_job_starts_within_a_bounded_number_of_passes
-14 failed in 11.36s (the 15th, run alone: 1 failed in 1.68s)
-Ten fail on behaviour. Five fail only because base lacks the names they read: STALL_SLICES (test_a_stalled_job_backs_off_as_for_an_error), RetentionState.holds (test_a_job_cancelled_before_its_first_slice_keeps_its_slot_for_one) and Retirement.last_reached (test_slow_read_backs_are_progress_not_a_stall, test_a_slice_that_only_reads_copies_back_gets_further, test_a_walk_begun_again_counts_from_the_tree_start).
+14 failed in 11.36s (the 15th and 16th, each run alone: 1 failed in 1.68 s, 1 failed in 1.95 s)
+Ten fail on behaviour. Six fail only because base lacks the names they read: STALL_SLICES (test_a_stalled_job_backs_off_as_for_an_error), RetentionState.holds (test_a_job_cancelled_before_its_first_slice_keeps_its_slot_for_one) and Retirement.last_reached (test_slow_read_backs_are_progress_not_a_stall, test_a_slice_that_only_reads_copies_back_gets_further, test_a_walk_begun_again_counts_from_the_tree_start, test_a_repository_found_in_regenerable_output_is_progress).
 property test's shrunk counterexample on base: batch=1, plans=[('progress', 0), ('done', 0)] -> AssertionError: ('job-1', 4, 5, 4, ['job-0'], {}) (job-1 waited 5 passes, bound 4; only job-0 ever started)

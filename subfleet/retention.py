@@ -62,8 +62,9 @@ BATCH = 32
 #: Seconds of archiving a job gets per pass before it is parked.
 SLICE_S = 120.0
 #: Slices in a row a parked job may get no further before the pass puts it
-#: back and defers it (review r1 of #286, P3-4). One slice that begins a walk again
-#: after finding a nested repository gets no further than the last one did.
+#: back and defers it (review r1 of #286, P3-4). Three, not one: a file that
+#: changes between two slices costs the next slice its progress (it reads the
+#: file again), and a writer finishing up can do that twice.
 STALL_SLICES = 3
 #: A measured size is trusted this long; stale sizes are never a safety input.
 SIZE_TTL_S = 6 * 3600.0
@@ -677,7 +678,11 @@ class _Pass:
             if outcome == "parked":
                 hold = self.state.holds.setdefault(job_id, _Hold())
                 hold.slices += 1
-                if retirement.last_work and retirement.last_reached > hold.reached:
+                if retirement.last_work and (retirement.last_reached > hold.reached or retirement.last_found):
+                    # Further than its furthest, or it found a repository in
+                    # regenerable output, which it now archives file by file
+                    # from the tree's start: this slice's position is the new
+                    # furthest. A tree holds finitely many such roots.
                     hold.reached, hold.stalls = retirement.last_reached, 0
                 else:
                     hold.stalls += 1

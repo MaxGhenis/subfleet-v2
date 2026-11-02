@@ -66,5 +66,13 @@
  "pending-holds-slot": {
   "killed": true,
   "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_yield_a_live_turn_holds_up_frees_the_slot_as_recovery_does"
+ },
+ "finding-not-progress": {
+  "killed": true,
+  "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress"
+ },
+ "no-count-found": {
+  "killed": true,
+  "detail": "FAILED tests/unit/test_retention_batch_fairness.py::test_a_repository_found_in_regenerable_output_is_progress"
  }
 }

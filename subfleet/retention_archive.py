@@ -376,8 +376,12 @@ class Retirement:
         self.last_work = 0
         #: How far the last `archive` call got: entries and checks it completed,
         #: in the builder's order (`_Builder.reached`). Of a tree that does not
-        #: change, each slice that parks gets further than the one before.
+        #: change, each slice that parks gets further than the one before,
+        #: except one that finds a repository in regenerable output.
         self.last_reached = 0
+        #: Repositories the last `archive` call found in regenerable output
+        #: (`_Builder.found`).
+        self.last_found = 0
 
     # --- journal ------------------------------------------------------------------
 
@@ -810,6 +814,7 @@ class Retirement:
         finally:
             self.last_work = builder.work
             self.last_reached = builder.reached
+            self.last_found = builder.found
 
     def manifest(self) -> dict[str, Any]:
         base = self.building
@@ -1554,6 +1559,11 @@ class _Builder:
         #: how far it got; a slice that re-reads a changed file and parks right
         #: after it gets no further than the last (review r1 of #286, P3-4).
         self.reached = 0
+        #: Regenerable roots this call found to hold a repository. Each sends the
+        #: walk round again with that root archived, file by file: the walk
+        #: counts from the tree's start, and getting back to where it was can
+        #: take many slices.
+        self.found = 0
 
     # progress --------------------------------------------------------------------------
 
@@ -1657,6 +1667,7 @@ class _Builder:
                     except rfs.NotRegenerable as exc:
                         denied.add(exc.root)
                         self._note({"k": prefix + exc.root})
+                        self.found += 1
                 for key, value in counts.items():
                     totals[key] += value
                 regenerable.extend(records)

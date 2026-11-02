@@ -82,12 +82,13 @@ I haven't shown such a writer. The fix doesn't depend on the trigger.
 completes, cached or new, in the builder's order: every tree's entries, each
 omitted object checked, the Git step, each stored copy read back. A slice
 parks between two of these, so `reached` says how far it got.
-`Retirement.last_reached` keeps it. When the walk finds a repository inside
-regenerable output (`NotRegenerable`), it begins again and counts from the
-tree's start. On a tree that doesn't change, each parked slice gets strictly
-further than the last: the cache now holds the items the last slice
-finished, and the slice finishes the first one the last slice didn't before
-it parks.
+`Retirement.last_reached` keeps it. On a tree that doesn't change, each
+parked slice gets strictly further than the last: the cache now holds the
+items the last slice finished, and the slice finishes the first one the last
+slice didn't before it parks. The one exception: when the walk finds a
+repository inside regenerable output (`NotRegenerable`), it begins again
+with that output archived and counts from the tree's start
+(`_Builder.found`, `Retirement.last_found`).
 
 **Stall rule.** `RetentionState.holds[job]` keeps the slices a job has had
 since it started, its furthest `reached`, and its stall count. A park with no
@@ -96,8 +97,22 @@ progress resets the count. At `STALL_SLICES = 3` the pass rolls the job back
 with its archive kept (an idle cache) and defers it through the error backoff:
 `_rollback(..., DEFER_ERROR_S)` doubles with the journal's `failures`, so 6 h,
 then 12 h, up to 24 h (`test_a_stalled_job_backs_off_as_for_an_error`
-measures 6 h then 12 h). Three, not one, because a walk begun again after a
-nested repository can get less far once.
+measures 6 h then 12 h). Three, not one: a file that changes between two
+slices costs the next slice its progress (it reads the file again), and a
+writer finishing up can do that twice.
+
+**A finding is progress.** A slice that finds a repository in regenerable
+output resets the job's furthest to its own position and its stall count to
+zero. Without this, the first version of this change stalled a real shape:
+the walk verifies a venv's installed files by hash, one slow file a slice,
+then finds an editable clone deeper in the same venv. Every file it verified
+must now be stored, so the slices after the finding sit at steps 9, 10, 11,
+short of the step 13 the earlier slices reached, and the job went back as
+stalled (`test_a_repository_found_in_regenerable_output_is_progress`, red
+at `db1afa04d`: "stalled: 3 slices in a row got no further than step 13").
+Base had no stall rule, so this was a regression of this change, fixed
+before the first review returned. A tree holds finitely many such roots, and
+the walk remembers each finding, so findings can't keep a stalled job going.
 
 **Yield rule.** Selection now finds every eligible job, the ones it would
 start with no batch, and queues them. While one waits, parked jobs hold at
@@ -151,9 +166,14 @@ start for it.
 3. **Bounded waiting.** Some pass attempts to start a waiting job within
    2(q + 1) passes of the first pass it waits in, q being the jobs queued
    ahead of it after that pass. So never more than 2N passes for N jobs.
-4. **Stalls end.** A parked job that gets no further holds its slot for at
-   most `STALL_SLICES + 1` slices since it started (one to set its furthest,
-   three more).
+4. **Stalls end.** A parked job holds its slot through at most
+   `STALL_SLICES - 1` slices in a row that neither get further than its
+   furthest nor find a repository in regenerable output; the next such slice
+   puts it back. A job that gets no further from its start leaves after
+   `STALL_SLICES + 1` slices (one to set its furthest, three more).
+5. **Slices get further.** On a tree that doesn't change, each parked slice
+   reaches strictly further than the one before, or finds a repository in
+   regenerable output (at most once per regenerable root).
 
 Why 3 holds:
 - Every pass with a job waiting and a free slot attempts the head of the queue.
@@ -174,7 +194,7 @@ holds; jobs take tickets again oldest first).
 
 ## Tests
 
-New, in `tests/unit/test_retention_batch_fairness.py` (14 tests): the real
+New, in `tests/unit/test_retention_batch_fairness.py` (15 tests): the real
 trigger, stall backoff, review r1's stub, turns in queue order, the batch
 bound with four jobs that never finish, a start past the deadline, a refused
 start, a yielded job's ticket against a job that begins waiting a pass later,
@@ -184,17 +204,20 @@ every parked slice reaches strictly further: six slow files through the walk,
 Git step and read-back; a job folder whose last two files are slow, so one
 slice parks where the read-back begins and the next only reads copies back;
 and a `node_modules` package holding a repository that sends the first
-slice's walk round again. In `tests/unit/test_retention_batch_fairness_properties.py`, a
+slice's walk round again. One more, on the real builder, pins that a finding
+is progress: a venv verified by hash over several slices, then found to hold
+an editable clone. In `tests/unit/test_retention_batch_fairness_properties.py`, a
 Hypothesis test of invariants 1–3 on the real pass: generated batch sizes 1–3,
 2–5 jobs, each finishing at once, finishing after 1–4 slices, or never
 finishing (always further, new work but no further, no work); deadlines with
 room for one to four slices; gaps of 7 h that let deferrals run out. 60
 examples passed in 133 s here (`RETENTION_FAIRNESS_EXAMPLES` sets the count).
 
-On base `18aa2a695`, all 15 tests in the two files fail
-(`tests-on-base.txt`): ten on behaviour, five only because base lacks the
+On base `18aa2a695`, all 16 tests in the two files fail
+(`tests-on-base.txt`): ten on behaviour, six only because base lacks the
 names they read (`STALL_SLICES`, `RetentionState.holds`,
-`Retirement.last_reached` three times). The property test's shrunk counterexample:
+`Retirement.last_reached` four times). The venv test guards a regression of
+this change, not of base, which had no stall rule. The property test's shrunk counterexample:
 `batch=1`, a job that never finishes ahead of one that finishes at once. The
 second waits 5 passes against a bound of 4 and never starts.
 
@@ -258,7 +281,9 @@ follows.
   deferrals and sizes do. A restart loses them, which delays no job by more
   than the bound restarted. A recovered job gains a hold at its first slice
   after the restart.
-- A tree that gains entries every slice can look like progress for ever.
+- A writer that adds a repository to a new regenerable root every slice
+  would look like progress for ever, as would a tree that gains entries every
+  slice.
   While a job waits, the yield rule still frees its slot; when nothing waits,
   it keeps its slot and costs no one else.
 - `STALL_SLICES` counts slices, not passes. With 32 jobs in flight and about
