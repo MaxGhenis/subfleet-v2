@@ -13,7 +13,8 @@ and an event, and one thread, the hub, answers for all of them:
   hold an `out:` lease, in one statement each, whatever the number of waiters;
 - it sets the event of each waiter whose jobs may all be returned: ended, and
   for a job that succeeded, its export done; a job the store no longer has is
-  returned too, so its waiter says so as it always did.
+  returned too, so its waiter says so as it always did, or skips it as retired
+  when the waiter resolved its own jobs (`--mine`, `--last`; C-15.9).
 
 A waiter registers before its first read, so a commit it did not see always
 comes after a registration the hub sees: no wake-up is lost. It then reads its
