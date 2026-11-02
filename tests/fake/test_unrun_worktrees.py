@@ -1,8 +1,8 @@
 """C-6.20 (with C-6.12 and C-6.17): a tree admission cut for a job no attempt used is given back.
 
-Incident, 2026-11-02: with every Codex lane held for the Microcosm US release, 132
-folders under `worktrees/` belonged to jobs that never had an attempt, 8.26 GB in
-all: 117 of jobs cancelled while they waited, 15 of jobs still waiting. `_workspace`
+Incident, 2026-11-02: with every Codex lane held for the Microcosm US release, 164
+folders under `worktrees/` belonged to jobs that never had an attempt at 18:10:58Z,
+8.54 GB in all: 125 of jobs that had ended, 39 of jobs still waiting. `_workspace`
 cuts a job's tree on its first look, before routing; a job that then waits keeps it,
 and one cancelled keeps it until retention retires the job, which can be days later.
 Only refused jobs gave theirs back (`_discard_fresh_worktree`).
@@ -106,6 +106,26 @@ def test_a_job_cancelled_before_any_attempt_gives_back_its_tree(state_daemon, re
     (event,) = given_back(daemon, job_id)
     assert '"why": "ended unrun"' in event["data_json"]
     assert swept(daemon) == 0           # nothing left to give back
+
+
+def test_a_link_in_place_of_a_tree_leaves_the_tree_it_names_registered(state_daemon, repo, offers,  # noqa: F811
+                                                                        tmp_path):
+    """Invariant 1: a link where a job's tree should be is never followed. `_discard_worktree`
+    removes nothing through it, but `discard_registration` resolves `<tree>/.git`, so a sweep
+    that let the link through would drop the registration of the worktree it names, with the
+    HEAD and reflogs only that registration holds (mutant `rule-link-followed`)."""
+    daemon, harness = state_daemon
+    job_id = submit(daemon, harness, repo)
+    assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
+    other = tmp_path / "other"
+    git(repo, "worktree", "add", "-q", "-b", "other", str(other))
+    (daemon.root / "worktrees").mkdir(exist_ok=True)
+    link = daemon.root / "worktrees" / job_id
+    link.symlink_to(other, target_is_directory=True)
+    assert swept(daemon) == 0
+    assert link.is_symlink() and (other / "tracked.txt").read_text() == "baseline\n"
+    assert (repo / ".git" / "worktrees" / "other" / "gitdir").is_file()
+    assert not given_back(daemon, job_id)
 
 
 def test_the_disk_hold_takes_back_a_waiting_tree_and_placement_cuts_it_again(state_daemon, repo, offers,  # noqa: F811
@@ -274,14 +294,9 @@ def expected(f):
     return None
 
 
-@settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-@given(f=FIELDS)
-def test_property_a_tree_is_given_back_exactly_when_nothing_keeps_it(state_daemon, f, tmp_path_factory):  # noqa: F811
-    """Invariants 1, 2 and 6: only a tree no attempt used, recorded nowhere, of a job that ended
-    or that the last pass held at the disk hold or `unprepared`, and nothing another job,
-    retention, a lease or a link has a claim on; nothing outside `worktrees/<job id>` is
-    removed; its one event names why."""
-    daemon, harness = state_daemon
+def check_rule(daemon, harness, f, tmp_path_factory):
+    """A job and its tree shaped as `f` says: `_give_back_unrun` gives the tree back exactly
+    when `expected(f)` says, removes nothing else, and records one event naming why."""
     job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
     root = daemon.root / "worktrees"
     root.mkdir(exist_ok=True)
@@ -313,10 +328,48 @@ def test_property_a_tree_is_given_back_exactly_when_nothing_keeps_it(state_daemo
     daemon._holds_by_kind = {**daemon._holds_by_kind,
                              "detached": {job_id: dict(HOLDS[f["hold"]])} if f["hold"] else {}}
     why = expected(f)
-    assert daemon._give_back_unrun(job_id) is (why is not None)
-    assert os.path.lexists(tree) is (why is None)
-    assert (outside / "keep.txt").read_text() == "not the daemon's\n"
-    assert [json.loads(row["data_json"])["why"] for row in given_back(daemon, job_id)] == ([why] if why else [])
+    assert daemon._give_back_unrun(job_id) is (why is not None), f
+    assert os.path.lexists(tree) is (why is None), f
+    assert (outside / "keep.txt").read_text() == "not the daemon's\n", f
+    assert [json.loads(row["data_json"])["why"] for row in given_back(daemon, job_id)] == ([why] if why else []), f
+
+
+@settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(f=FIELDS)
+def test_property_a_tree_is_given_back_exactly_when_nothing_keeps_it(state_daemon, f, tmp_path_factory):  # noqa: F811
+    """Invariants 1, 2 and 6: only a tree no attempt used, recorded nowhere, of a job that ended
+    or that the last pass held at the disk hold or `unprepared`, and nothing another job,
+    retention, a lease or a link has a claim on; nothing outside `worktrees/<job id>` is
+    removed; its one event names why."""
+    check_rule(*state_daemon, f, tmp_path_factory)
+
+
+#: Each shape that gives its tree back, by the `why` its event names.
+GIVEN = {"ended unrun": {"state": "cancelled"}, "disk hold": {"state": "queued", "hold": "disk"},
+         "no lane": {"state": "waiting", "hold": "unprepared"}}
+BARE = {"state": "queued", "kind": "dispatch", "sandbox": "workspace-write", "in_place": False, "recorded": False,
+        "push": False, "attempt": False, "hold": None, "cancel_requested": False, "lease": None,
+        "retention_dir": False, "guest": False, "link": False}
+#: Any one of these keeps the tree of every shape in GIVEN.
+CLAIMS = [{"kind": "turn"}, {"sandbox": "read-only"}, {"in_place": True}, {"recorded": True}, {"push": True},
+          {"attempt": True}, {"link": True}, {"lease": "retire"}, {"lease": "own"}, {"retention_dir": True},
+          {"guest": True}, {"state": "running"}]
+#: These keep the tree of a job that has not ended, and leave an ended job's to go.
+LIVE_CLAIMS = [{"cancel_requested": True}, {"hold": None}, {"hold": "fleet-full"}, {"hold": "machine-busy"}]
+
+
+def test_each_claim_alone_keeps_a_tree_that_would_go_back(state_daemon, tmp_path_factory):  # noqa: F811
+    """Invariants 1 and 2, one claim at a time from each shape that gives its tree back: the
+    property above draws a tree that a single claim keeps too seldom to catch a rule that
+    forgets that claim (the `rule-*` mutants survived it)."""
+    daemon, harness = state_daemon
+    for why, shape in GIVEN.items():
+        assert expected({**BARE, **shape}) == why
+        check_rule(daemon, harness, {**BARE, **shape}, tmp_path_factory)
+        for claim in CLAIMS + LIVE_CLAIMS:
+            f = {**BARE, **shape, **claim}
+            assert (expected(f) is None) is (claim in CLAIMS or why != "ended unrun"), f
+            check_rule(daemon, harness, f, tmp_path_factory)
 
 
 # --- no lane now: no tree is cut, and one cut before goes back ---------------------------------

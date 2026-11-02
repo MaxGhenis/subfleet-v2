@@ -194,6 +194,11 @@ EQUIVALENTS = {
         "`jobs.worktree` is set only at reservation, which makes an attempt, so `not previous` "
         "already keeps every job with a recorded tree out."
     ),
+    "unprepared-turn-pass-included": (
+        "Only the dispatcher submits a turn (`submit` refuses `kind=\"turn\"` without its turn "
+        "block), and `ConversationService._submit_turn` always sets `in_place=True`, so "
+        "`not job[\"in_place\"]` already keeps every turn out."
+    ),
 }
 
 # Focus each mutation on its rule. A survivor still runs all of TESTS, so these
@@ -225,7 +230,7 @@ FOCUSED = {
     "rule-writer-folders-unchecked": (TESTS[0], "lease_holds"),
     "rule-removal-unverified": (TESTS[0], "did_not_go"),
     "rule-event-unrecorded": (TESTS[0], "cancelled_before_any_attempt"),
-    **{name: (TESTS[0], "property") for name, *_ in MUTANTS
+    **{name: (TESTS[0], "property or claim_alone or link_in_place") for name, *_ in MUTANTS
        if name.startswith("rule-") and name not in {
            "rule-dependents-unchecked", "rule-own-evidence-counted", "rule-turn-folders-unchecked",
            "rule-writer-folders-unchecked", "rule-removal-unverified", "rule-event-unrecorded"}},
