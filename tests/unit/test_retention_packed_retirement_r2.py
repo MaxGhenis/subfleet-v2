@@ -23,18 +23,70 @@ def world(tmp_path, monkeypatch):
     value.close()
 
 
+# `source_of_gone_tree` at 18aa2a695, the base these cases compare with, less its docstring. A copy,
+# since CI's checkout holds no history to read it from; the test below holds it to that commit.
+BASE_SOURCE_OF_GONE_TREE = '''
+def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[], list[Path]],
+                        salvage_refs: Callable[[Path], dict[str, str]], wanted: dict[str, str], *,
+                        cancel: threading.Event | None = None,
+                        workdir_common: Any = _UNRESOLVED_COMMON) -> tuple[rgit.Registration | None, Path | None, str | None]:
+    workdir = job.get("workdir")
+    if workdir and os.path.isdir(workdir):
+        common = (rgit.common_dir(Path(workdir), cancel=cancel)
+                  if workdir_common is _UNRESOLVED_COMMON else workdir_common)
+        if common is not None:
+            reg = rgit.registration_in(common, worktree)
+            if reg is not None:
+                return reg, common, None
+            away = rgit.moved_tree(common, worktree)
+            if away is not None:
+                return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
+            admin = rgit.named_admin(common, worktree)
+            if admin is not None:
+                return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
+            return None, common, None
+    candidates: list[Path] = []
+    near = rgit.repository_near(Path(workdir), cancel=cancel) if workdir else None
+    for common in ([near] if near is not None else []) + list(known()):
+        if common not in candidates:
+            candidates.append(common)
+    for common in candidates:
+        reg = rgit.registration_in(common, worktree, named=True)
+        if reg is not None:
+            return reg, common, None
+    for common in candidates:
+        away = rgit.moved_tree(common, worktree)
+        if away is not None:
+            return None, None, f"tree away: {worktree} is registered at {away}; kept until it is back or gone"
+        admin = rgit.named_admin(common, worktree)
+        if admin is not None:
+            return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
+    if wanted:
+        for common in candidates:
+            listing = salvage_refs(common)
+            if all(ref in listing and salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):
+                return None, common, None
+    return None, None, f"repository not found (workdir {workdir} is gone)"
+'''
+
+
 def _base_source_of_gone_tree():
-    repository = Path(__file__).resolve().parents[2]
-    source = subprocess.run(["git", "show", "18aa2a695:subfleet/retention_archive.py"],
-                            cwd=repository, env=rgit.environment(), check=True,
-                            capture_output=True, text=True).stdout
-    functions = [node for node in ast.parse(source).body
+    scope = dict(rarch.__dict__)
+    exec(compile(BASE_SOURCE_OF_GONE_TREE, "18aa2a695:retention_archive.py", "exec"), scope)
+    return scope["source_of_gone_tree"]
+
+
+def test_the_base_copy_is_that_commits_function():
+    shown = subprocess.run(["git", "show", "18aa2a695:subfleet/retention_archive.py"],
+                           cwd=Path(__file__).resolve().parents[2], env=rgit.environment(),
+                           capture_output=True, text=True)
+    if shown.returncode != 0:
+        pytest.skip("this checkout holds no history")
+    functions = [node for node in ast.parse(shown.stdout).body
                  if isinstance(node, ast.FunctionDef) and node.name == "source_of_gone_tree"]
     assert len(functions) == 1
-    scope = dict(rarch.__dict__)
-    exec(compile(ast.Module(body=functions, type_ignores=[]),
-                 "18aa2a695:retention_archive.py", "exec"), scope)
-    return scope["source_of_gone_tree"]
+    del functions[0].body[0]        # its docstring
+    assert ast.dump(ast.parse(BASE_SOURCE_OF_GONE_TREE).body[0]) == ast.dump(functions[0])
 
 
 @pytest.mark.parametrize("separator", [b"\t", b"\r"])
