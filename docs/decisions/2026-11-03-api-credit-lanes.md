@@ -64,11 +64,10 @@ It can't see local-only worktrees or the host's guard, so it doesn't fit build j
   reads it, never writes it, and treats a read or parse failure as "expiry unknown".
 - **Enrollment is explicit.** The operator enrolls one account at a time, and only an
   email the registry holds with a fingerprint and an organization. The registry records
-  no plan type, so the operator decides which plans to enroll: personal Max plans only.
-  Team credit (the PolicyEngine plan) stays out: using it for other work needs Max's
-  go, and Subfleet can't yet tell whose work a job is. If Max rules a Team credit
-  PolicyEngine-only, a lane-level allowlist of repository origins comes first (see
-  "Open for the build").
+  no plan type, so the operator decides which plans to enroll and sets each lane's
+  credit (see "Cycle spend cap"). On 2026-11-03 Max ruled to pool the PolicyEngine Team
+  plan's credit with the personal plans. Its key gets a lane like any other, with its
+  own organization and renewal day, once the cycle spend cap exists.
 - **Organization identity.** The registry records each key's organization (`org_id`,
   from the `anthropic-organization-id` response header). Enrollment stores it as the
   lane's identity (C-10.6).
@@ -109,6 +108,28 @@ New rule: for a `claude-api` model, `rank_key` is
 
 A differential test checks the order against a frozen copy of `claude_credits.order`,
 restricted to admissible lanes.
+
+## Cycle spend cap
+
+A credit lane can't read its balance. And the credit stops a request only in an
+organization with no purchased credit and no auto-reload: one that pays for usage keeps
+serving past the plan credit and bills for it. The Team plan's organization also
+serves a metered key, so Subfleet keeps its own ledger and never relies on the error
+alone.
+
+- **Budget.** Each lane carries `credit_usd`, set at enrollment: $200 by default (Max
+  20x), or the Team pool's amount.
+- **Cycle.** A cycle runs from the plan's last renewal to its next one, by the same
+  rule as `claude_credits.days_left`.
+- **Ledger.** The ledger sums the `usd` of every attempt on the lane that ended this
+  cycle, taken from its `end` event.
+- **Grant.** When an attempt launches, the adapter passes `--max-usd` as the smaller of
+  the policy's per-attempt cap and the lane's remaining budget:
+  95% of `credit_usd`, minus the ledger, minus the grants of attempts still in flight.
+- **Close.** A grant under $1 doesn't launch. Instead the lane closes for credit until
+  the next renewal.
+- **Scope.** The ledger counts only Subfleet's own spend. It bounds Subfleet, not other
+  users of the same key.
 
 ## Exhaustion and fallback
 
@@ -242,8 +263,8 @@ $0.50.
 
 ## Invariants
 
-The PR states these. Property tests (Hypothesis) cover 1 to 5 and 7; the containment
-test covers 6.
+The PR states these. Property tests (Hypothesis) cover 1 to 5, 7 and 8; the
+containment test covers 6.
 
 1. **Credit keys only.** For any roster and any daemon environment, including one that
    sets `ANTHROPIC_API_KEY`:
@@ -276,6 +297,11 @@ test covers 6.
    equals the lane's identity and isn't denied, and the first response from another
    organization holds the lane.
 
+8. **Spend stays under the cap.** For any sequence of attempt launches and endings on
+   a lane in one cycle, with any spends, the ledger plus the grants in flight never
+   exceeds 95% of `credit_usd`. The harness stops within one response of its grant, so
+   the 5% margin covers that overshoot.
+
 ## Contract
 
 The build adds section 31, "API credit lanes", to `docs/acceptance-contract.md`: the
@@ -290,14 +316,18 @@ exemption, the harness and its records. It merges contract conflicts with the hu
 2. **Review** on an independent Opus lane, then merge on the usual gates.
 3. **Install** in the next release slot, with a daemon restart through the install kit.
    The hub coordinates the slot with Fleet ops while the r2 release runs (to 11/07).
-4. **Enroll** the registry's personal plans that have keys.
+4. **Enroll** the registry's personal plans that have keys, each at $200. Enroll the
+   Team pool's key at its pool amount, once Max confirms its organization can't bill
+   past the credit or the key sits under a workspace spend limit no higher than the
+   pool.
 5. **Smoke test:**
    - a read-only Haiku job pinned to `haiku-api`, which should land on the
      soonest-expiring lane;
    - a writable Sonnet job in a scratch repository;
    - one forced exhaustion against a fake API in CI.
-6. **First work:** Axiom encoding (with the Axiom engineering hub) and Thesis forecasts
-   pin `-m opus-api` or `-m sonnet-api`.
+6. **First work:** jobs that pin `-m opus-api` or `-m sonnet-api`, such as Thesis
+   forecasts. Axiom sends net-new encoding to Codex on purpose, so any Axiom work waits
+   for Max and the Axiom engineering hub.
 7. **Policy:** `cos add-decision` for Max to put the credit aliases first in the
    chains.
 
@@ -315,6 +345,4 @@ $2,400 more expires by 11/20, so a lane working by about 11/09 catches most of i
 - A per-lane slot cap for `claude-api`, since unmeasured lanes fall under
   `max_in_flight_unmeasured`.
 - How `subfleet lanes` and `subfleet status` show credit expiry and closures.
-- If Max rules a Team credit PolicyEngine-only: an `allowed_origins` list on the lane
-  (repository origin patterns) that admission checks against the job's workdir. It
-  has to exist before the hub enrolls that key.
+
