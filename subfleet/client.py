@@ -885,9 +885,10 @@ class Client:
         Three edges of the re-send:
 
         * The daemon is gone (`DaemonUnavailable`). The first request may have
-          committed, so a `submit` is `OutcomeUnknown`. Anything else (`kill`)
-          re-raises, and the CLI falls back to offline mode (C-17.5), which is
-          what the operator asked for.
+          committed, so a `submit` or a `retire` (C-8.6, which has no offline
+          mode) is `OutcomeUnknown`. Anything else (`kill`) re-raises, and the
+          CLI falls back to offline mode (C-17.5), which is what the operator
+          asked for.
         * The daemon answers the re-send "busy" (C-16.7). It read nothing, so
           that says nothing about the first request: `call` sends it again,
           with `busy_pause` between tries, until the re-send's deadline, and a
@@ -918,7 +919,7 @@ class Client:
         except (ResponseLost, RequestTimeout) as exc:
             raise OutcomeUnknown(op, request_id, (str(first), str(exc))) from exc
         except DaemonUnavailable as exc:
-            if op != "submit":
+            if op not in ("submit", "retire"):
                 raise
             raise OutcomeUnknown(op, request_id, (
                 str(first), f"the daemon went away before the re-sent request: {exc}")) from exc

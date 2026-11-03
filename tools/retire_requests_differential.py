@@ -13,7 +13,10 @@ retention at `--base` must give the same result in two cases:
 The worlds are random: up to nine jobs in both pools, any state, some pinned by
 the conversation service, some deferred, with random budgets and batch. Their
 jobs have job folders and no worktree, so no git runs. Results compare whole,
-with each world's root spelled `<root>`, except the `requested` key C-8.6 adds.
+with each world's root spelled `<root>`, except the `requested` key C-8.6 adds and
+`added_bytes` (the result's and each pool's): the archive's own files differ by a
+few bytes from run to run of one tree, so two passes of one world need not agree
+there (PR #290 review: 2,481 to 2,486 bytes over six runs of a world).
 Run it under the suite hold, with a private temporary directory::
 
     lockf -k <suite-lock> python tools/retire_requests_differential.py --base 18aa2a695 --tmp <dir>
@@ -82,6 +85,10 @@ def one_pass(module: types.ModuleType, folder: Path, jobs: list[dict], requests:
                                     pins=lambda: pinned, state=state, clock=clock, batch=batch,
                                     holders=lambda watches, **_: {})
         result.pop("requested", None)
+        # Not a retention decision: what the archive's bundle, manifest and rows add.
+        result.pop("added_bytes", None)
+        for pool in (result.get("pools") or {}).values():
+            pool.pop("added_bytes", None)
         result["left"] = sorted(row["job_id"] for row in store.query("SELECT job_id FROM jobs"))
         return json.dumps(result, sort_keys=True, default=str).replace(str(root), "<root>")
     finally:

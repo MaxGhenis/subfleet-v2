@@ -173,6 +173,25 @@ def test_the_answer_names_a_pin_a_deferral_and_a_retirement_in_flight(state_daem
     assert withdrawn[flying]["outcome"] == "withdrawn" and withdrawn[flying]["retiring"] is True
 
 
+def test_only_retentions_own_retire_lease_says_retiring(state_daemon):  # noqa: F811
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    daemon.store.conn.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES (?,?,?)",
+                              (f"retire:{job_id}", "other", daemon_module.utcnow()))
+    (row,) = retire(daemon, job_id)["jobs"]
+    assert row["outcome"] == "requested" and "retiring" not in row, row
+
+
+def test_a_withdrawal_of_an_unfinished_job_records_nothing(state_daemon):  # noqa: F811
+    daemon, harness = state_daemon
+    running = finished(daemon, harness, state="running")
+    daemon._last_maintenance = before = time.monotonic()
+    answer = retire(daemon, running, withdraw=True)
+    assert [(row["outcome"], row["state"]) for row in answer["jobs"]] == [("not-requested", "running")]
+    assert answer["recorded"] == 0 and recorded(daemon, running) == []
+    assert daemon._last_maintenance == before
+
+
 def spy_pin_reads(monkeypatch, fail_for: str | None = None) -> list:
     """Each `only` the answer's pin reads name, in order; the read for `fail_for` fails."""
     reads, real = [], daemon_module._pin_reasons
@@ -238,10 +257,19 @@ def test_a_request_makes_retention_due_now_and_nothing_else_does(state_daemon): 
     assert due_in(daemon) > 3000 and daemon._retire_asked == 1
 
 
-@pytest.mark.parametrize("outcome", [{"pruned": []},
-                                     {"pruned": [], "interrupted": "deadline", "progressed": False}])
+#: Every way a pass ends that would rearm the hour, and the error its status mark names
+#: (`None`: none). A request recorded during any of them brings the next pass in 5 s.
+REARMING = pytest.mark.parametrize("outcome, error", [
+    ({"pruned": []}, None),
+    ({"pruned": [], "interrupted": "deadline", "progressed": False}, "TimeoutError"),
+    ({"pruned": [], "holder_scan_failed": True}, "ScanFailed"),
+    ({"pruned": [], "interrupted": "cancelled"}, "CancelledError"),
+], ids=["completed", "deadline", "holder-scan-failed", "cancelled"])
+
+
+@REARMING
 def test_a_request_during_a_pass_brings_the_next_pass_to_catch_up(state_daemon, monkeypatch, caplog,  # noqa: F811
-                                                                  outcome):
+                                                                  outcome, error):
     """A pass that read the requests before one arrived would otherwise rearm the hour."""
     daemon, harness = state_daemon
     job_id = finished(daemon, harness)
@@ -249,26 +277,38 @@ def test_a_request_during_a_pass_brings_the_next_pass_to_catch_up(state_daemon, 
     monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: retire(daemon, job_id) and dict(outcome))
     with caplog.at_level("WARNING"):
         daemon._retention()
-    assert 0 < due_in(daemon) <= daemon_module.RETENTION_CATCH_UP_S
-    if outcome.get("interrupted"):
+    assert daemon._retire_asked == 1
+    assert 0 < due_in(daemon) <= daemon_module.RETENTION_CATCH_UP_S, due_in(daemon)
+    assert daemon.timers.status()["retention"].get("last_error_type") == error
+    if error in ("TimeoutError", "ScanFailed"):
         assert "for a retire request" in caplog.text
-        assert daemon.timers.status()["retention"]["last_error_type"] == "TimeoutError"
 
 
-@pytest.mark.parametrize("outcome", [{"pruned": []},
-                                     {"pruned": [], "interrupted": "deadline", "progressed": False}])
-def test_a_pass_with_no_request_after_it_began_waits_the_hour(state_daemon, monkeypatch, outcome):  # noqa: F811
+@REARMING
+def test_a_pass_with_no_request_after_it_began_waits_the_hour(state_daemon, monkeypatch, outcome,  # noqa: F811
+                                                              error):
     daemon, harness = state_daemon
     retire(daemon, finished(daemon, harness))           # before the pass: the pass reads it
     monkeypatch.delenv(daemon_module.RETENTION_DORMANT_ENV, raising=False)
     monkeypatch.setattr(daemon_module, "maintenance", lambda *a, **k: dict(outcome))
     daemon._retention()
     assert due_in(daemon) > daemon_module.RETENTION_INTERVAL_S - 60
+    assert daemon.timers.status()["retention"].get("last_error_type") == error
 
 
-@pytest.mark.parametrize("outcome", [{"pruned": []},
-                                     {"pruned": [], "interrupted": "deadline", "progressed": False}])
-def test_a_pass_whose_mark_fails_stays_due(state_daemon, monkeypatch, outcome):  # noqa: F811
+def test_a_dormant_pass_waits_the_hour_whatever_arrives(state_daemon, monkeypatch):  # noqa: F811
+    """A dormant pass retires nothing, so a request during it has nothing to catch up on."""
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    monkeypatch.setenv(daemon_module.RETENTION_DORMANT_ENV, "1")
+    monkeypatch.setattr(daemon, "_prune_service_notices", lambda: retire(daemon, job_id))
+    daemon._retention()
+    assert daemon._retire_asked == 1
+    assert due_in(daemon) > daemon_module.RETENTION_INTERVAL_S - 60
+
+
+@REARMING
+def test_a_pass_whose_mark_fails_stays_due(state_daemon, monkeypatch, outcome, error):  # noqa: F811
     """C-8.4: `_last_maintenance` is set last, so a failed status mark leaves retention due."""
     daemon, _ = state_daemon
     monkeypatch.delenv(daemon_module.RETENTION_DORMANT_ENV, raising=False)
@@ -303,6 +343,22 @@ def test_a_request_while_a_pass_marks_its_end_is_not_lost(state_daemon, monkeypa
     thread.join(10)
     assert not thread.is_alive() and daemon._retire_asked == 1
     assert due_in(daemon) <= 0
+
+
+def test_a_request_whose_answer_fails_to_read_still_makes_retention_due(state_daemon, monkeypatch):  # noqa: F811
+    """The answer's reads run after the commit: one that fails loses the reply, never the wake."""
+    daemon, harness = state_daemon
+    job_id = finished(daemon, harness)
+    daemon._last_maintenance = time.monotonic()
+
+    def one(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+    with monkeypatch.context() as patched:
+        patched.setattr(daemon.store, "one", one)
+        with pytest.raises(sqlite3.OperationalError):
+            retire(daemon, job_id)
+    assert [kind for kind, _ in recorded(daemon, job_id)] == [retention.RETIRE_REQUESTED]
+    assert daemon._retire_asked == 1 and due_in(daemon) <= 0, due_in(daemon)
 
 
 def test_the_next_pass_retires_a_requested_job_and_keeps_the_rest(state_daemon, monkeypatch, caplog):  # noqa: F811
@@ -392,6 +448,27 @@ def test_the_cli_says_an_unanswered_request_is_safe_to_send_again(sent, capsys):
     shown = capsys.readouterr()
     assert json.loads(shown.out)["outcome"] == "unknown"
     assert "timed out; then connection reset" in shown.err and "records nothing twice" in shown.err
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_the_cli_after_a_lost_answer_and_a_gone_daemon_says_the_outcome_is_unknown(monkeypatch, tmp_path,
+                                                                                    capsys, as_json):
+    """The first request may have been recorded, so this is not 69, which says nothing was."""
+    monkeypatch.setenv("SUBFLEET_HOME", str(tmp_path / "state"))
+    tries: list[str] = []
+
+    def call(self, op, args=None, **_):
+        tries.append(op)
+        if len(tries) == 1:
+            raise client_module.ResponseLost("connection reset after the request was sent")
+        raise DaemonUnavailable("no daemon is listening")
+    monkeypatch.setattr(client_module.Client, "call", call)
+    code = cli.main(["retention", "retire", "a", *(["--json"] if as_json else [])])
+    shown = capsys.readouterr()
+    assert tries == ["retire", "retire"] and code == Exit.OPERATIONAL, shown.err
+    assert "the daemon went away before the re-sent request" in shown.err and "records nothing twice" in shown.err
+    if as_json:
+        assert json.loads(shown.out)["outcome"] == "unknown"
 
 
 def test_the_cli_records_nothing_without_a_daemon(sent, capsys):

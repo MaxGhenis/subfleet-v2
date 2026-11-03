@@ -5864,11 +5864,12 @@ class Daemon:
                         row["requested_at"] = at
                 rows.append(row)
             self.store.audit_as(None)           # each job's event is the record
-        self._retire_annotate(rows)
+        # Before the answer's reads, so one that fails cannot leave a recorded request the hour.
         if recorded and not a.withdraw:
             with self._retire_lock:
                 self._retire_asked += 1
                 self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S
+        self._retire_annotate(rows)
         return {"jobs": rows, "withdraw": a.withdraw, "dry_run": a.dry_run, "recorded": recorded,
                 "retention": {"dormant": os.environ.get(RETENTION_DORMANT_ENV) == "1"}}
 
@@ -5991,17 +5992,18 @@ class Daemon:
         pruned = len(result.get("pruned") or ())
         progressed = bool(pruned or result.get("progressed"))
         interrupted = result.get("interrupted")
+        # C-8.6: these rearm the hour too, unless a request arrived during the pass.
         if interrupted == "cancelled":
-            self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
-            self._last_maintenance = time.monotonic()
+            self._rearm_retention(asked, error="CancelledError")
             return
         if result.get("holder_scan_failed"):
             # Quarantining and rolling back is action, but another batch cannot
-            # retire jobs while the shared process listing is unavailable.
-            self.timers.mark("retention", error="ScanFailed", next_due=after(RETENTION_INTERVAL_S))
-            self.log.warning("retention: holder scan failed; %d jobs in the store; next pass in an hour",
-                             result.get("jobs_after", 0))
-            self._last_maintenance = time.monotonic()
+            # retire jobs while the shared process listing is unavailable. A request
+            # brings one more try in 5 s; that pass's own rearm goes back to the hour.
+            delay = self._rearm_retention(asked, error="ScanFailed")
+            self.log.warning("retention: holder scan failed; %d jobs in the store; next pass in %s",
+                             result.get("jobs_after", 0),
+                             "an hour" if delay >= RETENTION_INTERVAL_S else f"{delay:g} seconds, for a retire request")
             return
         if interrupted:
             if not progressed:

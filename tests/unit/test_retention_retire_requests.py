@@ -176,6 +176,23 @@ def test_requests_fill_the_batch_and_the_pass_says_more_is_waiting(root):
     assert run(root, max_jobs=10, batch=2)["pruned"] == ["c"]
 
 
+def test_the_deadline_binds_requested_jobs(root, monkeypatch):
+    """Invariant 1: once the deadline passes, a pass starts no more jobs, requested or not."""
+    for job_id in ("a", "b"):
+        root.job(job_id)
+        root.request(job_id)
+    clock, real = Clock(), retention._Pass._start
+
+    def start(self, job, protected):
+        started = real(self, job, protected)
+        clock.advance(60)               # the first start takes the pass past its deadline
+        return started
+    monkeypatch.setattr(retention._Pass, "_start", start)
+    result = run(root, max_jobs=10, clock=clock, deadline=clock() + 30)
+    assert result["pruned"] == ["a"] and result["more"] is True, result
+    assert root.ids() == {"b"}
+
+
 def test_a_request_in_one_pool_takes_nothing_from_the_other(root):
     root.job("turn-1", kind="turn")
     root.job("detached-1")
@@ -323,3 +340,15 @@ def test_the_survey_counts_a_request_as_a_pass_does(root):
     assert report["would_retire"]["jobs"] == 1 and report["would_retire"]["requested"] == 1
     assert [row["job_id"] for row in report["candidates"]] == ["c"]
     assert run(root)["pruned"] == ["c"]         # the pass agrees (default budget: 500 jobs)
+
+
+def test_the_survey_takes_a_request_before_the_oldest(root):
+    """A pool one over its budget, its newest job requested: that job's retirement brings
+    the pool within budget, so the survey, like a pass, retires it alone."""
+    for job_id in ("a", "b", "c"):
+        root.job(job_id)
+    root.request("c")
+    report = survey(root.root, holders=False, sample_throughput=False,
+                    budgets={"detached": (2, HUGE), "turn": (500, HUGE)})
+    assert [row["job_id"] for row in report["candidates"]] == ["c"], report["candidates"]
+    assert run(root, max_jobs=2, max_bytes=HUGE)["pruned"] == ["c"]
