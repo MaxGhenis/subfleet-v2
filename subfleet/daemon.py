@@ -77,9 +77,9 @@ from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as
                      disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, startup_notes,
                      resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
-from .retention_git import discard_registration
+from .retention_git import discard_registration, gitfile_admin, registration_of
 from .salvage import (
-    SalvageError, _failure, _git_env, _transient_git, git_head, git_toplevel, git_tree, os_error_text, path_text, pin_baseline,
+    SalvageError, _failure, _git_env, _transient_git, git_common_dir, git_head, git_toplevel, git_tree, os_error_text, path_text, pin_baseline,
     salvage, transient_os_error, utf8_text, validate_writable_workdir, working_tree,
 )
 from .sessions import registry
@@ -202,6 +202,16 @@ CWD_WORKTREE_HOLDS = (
     "AND jobs.state IN ('succeeded','failed','cancelled','lost') "
     "AND NOT EXISTS (SELECT 1 FROM leases o WHERE o.holder=jobs.job_id "
     "OR o.holder IN (SELECT a.attempt_id FROM attempts a WHERE a.job_id=jobs.job_id)) ")
+#: C-6.20: jobs whose `worktrees/<job id>` admission may have cut with no attempt
+#: to use it: writable, not in place, not a push, no worktree recorded, never
+#: attempted. Which of them give their tree back is `_give_back_unrun`'s call.
+UNRUN_TREES = (
+    "SELECT job_id,state FROM jobs WHERE sandbox='workspace-write' AND NOT in_place AND worktree IS NULL "
+    "AND push_branch IS NULL AND kind<>'turn' "
+    "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id) ORDER BY created_at,job_id")
+#: C-6.20: seconds the unrun-worktree sweep waits for a detached pass to end
+#: before it leaves the rest of its trees to its next run.
+UNRUN_PASS_WAIT_S = 30
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
 #: naming it (`hit`, one step of `events_probe_holder`), and every probe.state
 #: payload SQLite does not read as JSON (`events_not_json`, normally none),
@@ -615,6 +625,19 @@ def utcnow_ms() -> str:
 def after(seconds: float) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(
         timespec="seconds").replace("+00:00", "Z")
+
+
+def _gives_back(hold: dict) -> bool:
+    """C-6.20: whether a detached pass's hold lets a job that never ran give back its tree:
+    the door's disk hold (C-6.17), or no lane taking it now (`unprepared`)."""
+    return hold.get("reason") == "disk" or bool(hold.get("unprepared"))
+
+
+def _unrun_scope(job: dict) -> bool:
+    """C-6.20: whether a job's own columns put it in `UNRUN_TREES`: a writable job that runs in
+    a tree admission cuts for it, which no recorded worktree, push or turn (in place) does."""
+    return (job["sandbox"] == "workspace-write" and not job["in_place"] and job["worktree"] is None
+            and job["push_branch"] is None and job["kind"] != "turn")
 
 
 def _later(stamp: str, seconds: float) -> str:
@@ -1190,6 +1213,13 @@ class Daemon:
         # what both write: the holds, `_admission` and the route counts.
         self._pass_locks = {"turn": threading.Lock(), "detached": threading.Lock()}
         self._admission_lock = threading.Lock()
+        # C-6.20: a tree admission cut for a job that never ran is given back by one
+        # sweep at a time (`_sweep_unrun_worktrees`), never while retention runs,
+        # which may be retiring the same job (`_retention` holds this lock).
+        # `_unrun_dirty`: something since the last sweep's read may have left one.
+        self._unrun_lock = threading.Lock()
+        self._unrun_dirty = False
+        self._unrun_offered: frozenset[str] = frozenset()
         self._machine_guard = scheduler.MachineGuard()
         self._machine_sampler: machine.Sampler | None = None
         self._last_machine_sample_wall = 0.0
@@ -3299,6 +3329,8 @@ class Daemon:
                 cap = self.policy["caps"]["workspace_git_timeout_s"]
                 try:
                     top = str(push_top) if push_top else git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                    # C-6.20: the job can wait with no tree while this checkout goes (`_tree_git`).
+                    common = None if args.push_branch is not None else git_common_dir(str(workdir), timeout_s=cap)
                 except SalvageError as exc:
                     # C-6.8: exit 1 with nothing stored, as the checks above; only
                     # the prompt has been written, under a job id nobody was given.
@@ -3320,7 +3352,8 @@ class Daemon:
                     if held is False:
                         # Review B-4: the worktree will not hold it; start at the top.
                         prefix = "."
-                manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
+                manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix,
+                                         **({"common_dir": common} if common else {})}
                 note = (WORKSPACE_NOTE_UNCOMMITTED.format(worktree=worktree, top=top, head=head[:12], place=place,
                                                           files=copied["files"])
                         if copied else WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12],
@@ -5078,7 +5111,7 @@ class Daemon:
         wall_family = family and data.get("by") == "daemon" and data.get("reason") == "max_wall_s"
         if exited is None:
             exited = self._wall_exited_descendants(job_id) if wall_family else set()
-        changed = False
+        changed = unrun = False
         family_sql = ("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
                       "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
                       if family else "WITH family(job_id) AS (SELECT ?) ")
@@ -5153,11 +5186,16 @@ class Daemon:
                         earlier = self._earlier_attempt(inner, row)
                         summary = "cancelled while waiting to retry" + earlier if earlier else "cancelled before launch"
                         self._notice(inner, row, summary + retained + ("\n" + requester if requester else ""))
+                        unrun = unrun or _unrun_scope(row)
                     elif requester and row["caller_session"]:
                         inner.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
                                       "VALUES(?,?,'pending',?)", (row["caller_session"], f"{row['job_id']}: {requester}", now))
         if changed:
             self._notify()
+        if unrun:
+            # C-6.20: a job cancelled before any attempt gives back the tree admission cut;
+            # a cancel outside the sweep's scope, a turn's above all, offers nothing.
+            self._offer_unrun_sweep()
         return changed
 
     def kill(self, args: protocol.KillArgs, *, pid: int | None = None) -> dict:
@@ -5807,6 +5845,8 @@ class Daemon:
         # off in catch-up passes seconds apart instead of timing out hourly.
         # Once per retention call (one bounded batch), including interruptions.
         self._sweep_attempt_tmpdirs()
+        # C-6.20: trees no attempt used go before retention looks, and never beside it.
+        self._sweep_unrun_worktrees()
         try:
             self._prune_service_notices()
         except Exception as exc:
@@ -5825,13 +5865,17 @@ class Daemon:
             self._last_maintenance = time.monotonic()
             return
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
-        result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
-                             turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
-                             turn_keep_s=float(budget["turn_keep_days"]) * 86400,
-                             pins=self._retention_pins,
-                             cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
-                             state=self._retention_state,
-                             remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+        with self._unrun_lock:
+            result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
+                                 turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
+                                 turn_keep_s=float(budget["turn_keep_days"]) * 86400,
+                                 pins=self._retention_pins,
+                                 cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
+                                 state=self._retention_state,
+                                 remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+        if self._unrun_dirty:
+            # C-6.20: a sweep offered while this pass ran found the lock taken.
+            self._sweep_unrun_worktrees()
         for left in result.get("tmpdir_left") or ():
             # C-12.10 (P3-2): the folder is no longer any record's; only the log names it.
             self.log.warning("retention: retired %s with its TMPDIR cleared but not removed: %s",
@@ -5917,6 +5961,8 @@ class Daemon:
         # C-12.10: the startup sweep runs once the daemon is serving, on its own
         # worker, never in the constructor or ahead of admission.
         self._schedule("tmpdir-sweep", self._sweep_attempt_tmpdirs)
+        # C-6.20: trees cut for jobs that ended unrun before this start.
+        self._offer_unrun_sweep()
 
     def _canonicalize_pins(self) -> None:
         """C-11.2: an unfinished job's pin is the lane id its name resolved to.
@@ -6294,22 +6340,30 @@ class Daemon:
                 # a worktree without the caller's changes, which would be
                 # reviewed as complete (#221 review r2, P3-1): its copy has no
                 # marker. Nothing has run here (the job has no attempt), so it is
-                # rebuilt rather than handed to a provider.
-                self._discard_worktree(job["workdir"], workdir, cap)
+                # rebuilt rather than handed to a provider. A lock on it, whoever took it, stops that (C-6.20):
+                # git would refuse to add it again, so the job fails with the files still there.
+                if self._tree_locked(job, workdir, cap):
+                    raise AdapterError("the job's worktree needs cutting again and a lock stands on its registration",
+                                       fix="run git worktree unlock on it, then submit again", reason="worktree-locked")
+                self._discard_worktree(job["workdir"], workdir, cap, self._recorded_common(job))
             if not Path(workdir).exists():
+                common = self._recorded_common(job)
+                # A removal stopped before its registration went, or a tree someone deleted, leaves
+                # a registration with no tree, and git refuses to add one. A lock still stops the add.
+                discard_registration(job["workdir"], workdir, timeout=cap, common=common)
                 try:
                     # `backslashreplace`: git's messages can quote a file name that is
                     # not UTF-8, which a strict read raised as `UnicodeDecodeError`
                     # out of the admission pass on every try (review of cda4c161, N1).
-                    result = subprocess.run(["git", "-C", job["workdir"], "worktree", "add", "--detach", workdir, job["workdir_head"]],
+                    result = subprocess.run([*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]],
                                             capture_output=True, text=True, errors="backslashreplace",
                                             env=_git_env(None),
                                             timeout=self.policy["caps"]["worktree_add_timeout_s"])
                 except (OSError, subprocess.SubprocessError):
-                    self._discard_worktree(job["workdir"], workdir, cap)
+                    self._discard_worktree(job["workdir"], workdir, cap, common)
                     raise
                 if result.returncode:
-                    self._discard_worktree(job["workdir"], workdir, cap)
+                    self._discard_worktree(job["workdir"], workdir, cap, common)
                     # A git killed by a signal did not finish, as a timed-out one did not.
                     killed = _failure("worktree", result) if result.returncode < 0 else None
                     if killed:
@@ -6331,12 +6385,12 @@ class Daemon:
                     try:
                         uncommitted.apply(jobdir, workdir, timeout_s=cap)
                     except (uncommitted.CopyRefused, OSError) as exc:
-                        self._discard_worktree(job["workdir"], workdir, cap)
+                        self._discard_worktree(job["workdir"], workdir, cap, common)
                         raise AdapterError(f"the caller's uncommitted changes could not be copied into the worktree: {exc}",
                                            fix="submit again, or pass -s read-only to review the checkout in place",
                                            reason="uncommitted-apply") from None
                     except SalvageError:
-                        self._discard_worktree(job["workdir"], workdir, cap)
+                        self._discard_worktree(job["workdir"], workdir, cap, common)
                         raise
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
@@ -6429,15 +6483,87 @@ class Daemon:
         target = Path(root) / prefix
         return str(target) if target.is_dir() else root
 
+    def _recorded_common(self, job: dict) -> str | None:
+        """C-6.20: the common directory of the repository submit read, while it exists. Submit
+        records it (`manifest.json`); for a job older than that record, its last give-back does."""
+        common = ((self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("workspace")
+                  or {}).get("common_dir")
+        if common is None:
+            given = self.store.one("SELECT data_json FROM events WHERE job_id=? AND +kind='job.worktree_given_back' "
+                                   "ORDER BY event_id DESC LIMIT 1", (job["job_id"],))
+            common = json.loads(given["data_json"]).get("common_dir") if given else None
+        return common if common is not None and os.path.isdir(common) else None
+
+    def _tree_git(self, job: dict, common: str | None, cap: float) -> list[str]:
+        """C-6.20: the git that cuts a job's tree: in the caller's checkout while it belongs to
+        the repository submit read, since `worktree add` passes that checkout's per-worktree
+        settings (sparse patterns) on; else in that repository's common directory, `common`.
+
+        A job can wait for hours with no tree, and a session's isolated checkout can go
+        meanwhile. A job with no record still needs its checkout. A checkout that does not
+        answer in time is taken as it stands: `worktree add` then reports what is wrong (C-6.8).
+
+        The common directory is named, never discovered. Git discovers no bare repository under
+        `safe.bareRepository=explicit`, and `--git-dir` alone still enters a submodule's
+        `core.worktree`, which went with its checkout; `--work-tree` stops that. The linked tree
+        this cuts reads neither setting."""
+        checkout = ["git", "-C", job["workdir"]]
+        if common is None:
+            return checkout
+        try:
+            if os.path.isdir(job["workdir"]) and git_common_dir(job["workdir"], timeout_s=cap) == common:
+                return checkout
+        except SalvageError:
+            return checkout
+        return ["git", "-C", common, f"--git-dir={common}", f"--work-tree={common}"]
+
+    def _tree_registration(self, job: dict, tree: str, cap: float) -> tuple[str | None, Path | None]:
+        """C-6.20: the common directory of the repository that holds a job's tree, and the tree's
+        registration there. (None, None) when nothing can say which repository; (common, None)
+        when that repository registers no such tree. A `worktrees` folder that cannot be read
+        raises OSError.
+
+        The record comes first, because what the tree holds can be missing or name somewhere
+        else. For a job older than the record: the tree's gitfile, believed only if the
+        repository it names registers this tree; then the caller's checkout."""
+        common = self._recorded_common(job)
+        if common is None:
+            admin = gitfile_admin(Path(tree))[0]
+            if admin is not None:
+                found = registration_of(admin.parent.parent, tree)
+                if found is not None:
+                    return str(admin.parent.parent), found
+            try:
+                common = git_common_dir(job["workdir"], timeout_s=cap) if os.path.isdir(job["workdir"]) else None
+            except SalvageError:
+                return None, None
+        return (common, registration_of(common, tree)) if common else (None, None)
+
+    def _tree_locked(self, job: dict, tree: str, cap: float) -> bool:
+        """C-6.20: whether a lock stands on the tree's registration, as far as can be read. A lock
+        is someone's claim, as git, retention and `discard_registration` read it."""
+        try:
+            admin = self._tree_registration(job, tree, cap)[1]
+        except OSError:
+            return False
+        return admin is not None and os.path.lexists(admin / "locked")
+
     @staticmethod
-    def _discard_worktree(repository: str, workdir: str, cap: float) -> None:
+    def _discard_worktree(repository: str, workdir: str, cap: float, common: str | None = None) -> None:
         """Best effort: a failure here is reported by the add that follows it.
 
-        Only this path's registration is removed. A repository-wide `git
-        worktree prune` would also drop every other registration whose tree is
-        missing at that moment (d635: never run a repository-wide prune)."""
+        `.git` goes first, so a removal cut short (a reboot, a kill) leaves no tree a later
+        look reuses: its check reads `.git`, never the files (`_workspace`). Never through a
+        link, which would take the `.git` of the tree it names. Only this path's
+        registration is removed, from the common directory `common` when it is known, else
+        from the repository `repository` is in. A repository-wide `git worktree prune` would
+        also drop every other registration whose tree is missing at that moment (d635: never
+        run a repository-wide prune)."""
+        if not os.path.islink(workdir):
+            with contextlib.suppress(OSError):
+                os.unlink(os.path.join(workdir, ".git"))
         shutil.rmtree(workdir, ignore_errors=True)
-        discard_registration(repository, workdir, timeout=cap)
+        discard_registration(repository, workdir, timeout=cap, common=common)
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
@@ -7186,6 +7312,14 @@ class Daemon:
         finally:
             self._pass_holds[kind] = None
             lock.release()
+        if kind == "detached":
+            # C-6.20, C-6.17: a job the door's disk hold took this pass, or one no lane would
+            # take now, gives back the tree an earlier look cut for it; offered once per job
+            # and stretch of such holds.
+            held = frozenset(job_id for job_id, hold in holds.items() if _gives_back(hold))
+            fresh, self._unrun_offered = held - self._unrun_offered, held
+            if fresh:
+                self._offer_unrun_sweep()
         if kind == "turn":
             # C-24.4 (I3): every message a turn pass left waiting says why, and one it
             # placed says it is starting. Its failure is logged, never the pass's.
@@ -7788,20 +7922,22 @@ class Daemon:
                              and scheduler.competes(compared_models(waiter), waiter[1], lanes, waiter[2])
                              and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
 
-            def unadmittable_now():
+            def unadmittable_now(far_s=None):
                 """C-11.8, C-6.12: the standing refusals that keep every lane from this job now (or
                 None), and whether its route can be evaluated. The lanes its attempts excluded are
                 merged in (C-4.5) as its route merges them: a lane re-enrolled since a `limited`
                 attempt is excluded under its successor's id, which only `_retry_pin` knows (review
                 of #201 r1). A merge that cannot be made (a stored exclusion that is not a name) is
                 its route's problem, a `route` wait once it is looked at, which holds nobody: so such
-                a job holds nobody meanwhile either (review of #201 r2)."""
+                a job holds nobody meanwhile either (review of #201 r2). With `far_s` 0, every
+                closure in force counts, however soon it ends (C-6.20)."""
                 try:
                     effective = ({**job, "exclusions": self._merged_exclusions(job, extra_exclusions)}
                                  if extra_exclusions else job)
                 except Unroutable:
                     return None, False
-                return scheduler.unadmittable(self.policy, pin_view(), effective, memo=for_good_memo), True
+                return scheduler.unadmittable(self.policy, pin_view(), effective, memo=for_good_memo,
+                                              far_s=far_s), True
             behind = None if defer_fifo else ahead(models, lanes)
             for_good = None
             if (behind and not saturated.get(pool) and job["wait_reason"] == "capacity"
@@ -7901,6 +8037,36 @@ class Daemon:
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
                 continue
+            if (kind == "detached" and not previous and job["sandbox"] == "workspace-write"
+                    and not job["in_place"] and not job.get("worktree") and job.get("push_branch") is None):
+                # C-6.20: a job no attempt has used, which every lane refuses now for a reason no
+                # slot ends (a hold, a provider limit, a lost login: any closure in force counts,
+                # however soon it ends), could only wait in the tree a look would cut for it. So no
+                # tree is cut and no git runs, and one an earlier look cut goes back
+                # (`_sweep_unrun_worktrees`, `unprepared`). It waits on its capacity clock (C-6.10)
+                # with no decision, as a job held before its look does, holds back whom it held
+                # back before (C-6.9), and its due look asks again.
+                refused = unadmittable_now(far_s=0)[0]          # None too for a route not evaluated
+                if refused:
+                    for_good = unadmittable_now()[0]
+                    hold = {"reason": scheduler.refusal_label(refused), "refused_now": refused, "unprepared": True,
+                            **({"for_good": for_good} if for_good else {})}
+                    # No lane would take it: C-23.16's demand, as the look it skipped would have found.
+                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + "|".join(refused), hold,
+                                                   lane_wait=True)
+                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    with self.store.transaction("job.unprepared_wait", job_id=job["job_id"]) as tx:
+                        taken = self._task_held_at_write(tx, job, holds)            # C-11.10 (R3-1)
+                        if taken is None:
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                                       "WHERE job_id=? AND state IN ('queued','waiting') "
+                                       "AND cancel_requested_at IS NULL", (next_check, job["job_id"]))
+                    if taken is not None:
+                        continue
+                    if not for_good:
+                        wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                    holds[job["job_id"]] = {**hold, "next_check_at": next_check}
+                    continue
             needs = self._needs(job)
             run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
             detached_answers = {}                  # filesystem answers for this admission look only
@@ -8950,13 +9116,150 @@ class Daemon:
 
         `_workspace` allocates `worktrees/<job id>/` before the route is
         evaluated; `jobs.worktree` is set only when an attempt is reserved, so
-        retention would never collect one that no attempt used.
+        retention collects one that no attempt used only when it retires the
+        job (`rarch.owned_worktree`), which can be days later. Removed here at
+        once; `_sweep_unrun_worktrees` gives back the others.
         """
         job = self.store.get_job(job_id)
         path = self.root / "worktrees" / job_id
         if (job and job["state"] in TERMINAL and job["sandbox"] == "workspace-write" and not job["in_place"]
                 and not job["worktree"] and path.exists() and not self.store.list_attempts(job_id)):
-            self._discard_worktree(job["workdir"], str(path), self.policy["caps"]["workspace_git_timeout_s"])
+            cap = self.policy["caps"]["workspace_git_timeout_s"]
+            if not self._tree_locked(job, str(path), cap):      # C-6.20: someone's claim
+                self._discard_worktree(job["workdir"], str(path), cap, self._recorded_common(job))
+
+    def _offer_unrun_sweep(self) -> None:
+        """C-6.20: ask for `_sweep_unrun_worktrees` on a worker; a run already going reads again."""
+        self._unrun_dirty = True
+        self._schedule("unrun-worktrees", self._sweep_unrun_worktrees)
+
+    def _sweep_unrun_worktrees(self) -> int:
+        """C-6.20, C-6.17: give back the worktrees admission cut for jobs no attempt used.
+
+        `_workspace` cuts `worktrees/<job id>/` on a job's first look, before the
+        job's route is evaluated, and a job that then waits keeps it. Three kinds of
+        such tree are given back here, by `_discard_worktree`, as a refused job's is:
+        - a job that ended with no attempt (cancelled while it waited, refused or
+          failed at admission): retention would free its tree only when it retires
+          the job (`rarch.owned_worktree`), which can be days later;
+        - a queued or waiting job that the last detached pass held at the door on
+          the disk hold (C-6.17): the door takes it before any git, so the look
+          that lets it through cuts its tree again from the HEAD submit recorded,
+          and it is then where a job held at the door from its submission is;
+        - one that pass held `unprepared`, since no lane would take it now: its
+          looks cut nothing until one would (`_admit_pass`).
+        Never a turn's, an in-place job's, a push's, a tree recorded in
+        `jobs.worktree`, or a tree another live job's folder, row or lease is in.
+        Offered at start, on a cancel in its scope (`_unrun_scope`), when a pass
+        first holds a job so, and before each retention pass. Never beside
+        retention (`_unrun_lock`) and never while a detached pass may be cutting
+        a tree (`_pass_locks["detached"]`, taken for each tree, so placement
+        waits for one tree at a time). Never raises; returns how many trees it
+        gave back.
+        """
+        if not self._unrun_lock.acquire(blocking=False):
+            self._unrun_dirty = True    # retention is running; it sweeps once its pass ends
+            return 0
+        given: list[str] = []
+        try:
+            for _ in range(3):          # read again when an offer came while it ran
+                self._unrun_dirty = False
+                if not self._unrun_pass(given):
+                    self._unrun_dirty = True
+                    break
+                if not self._unrun_dirty:
+                    break
+        except Exception as exc:  # noqa: BLE001
+            self._unrun_dirty = True
+            self.log.warning("unrun worktrees: sweep failed: %s", refusals.scrubbed_line(refusals.scrubbed_words(exc), 300))
+        finally:
+            self._unrun_lock.release()
+        if given:
+            self.log.info("unrun worktrees: gave back %d: %s", len(given), ", ".join(given[:10])
+                          + (f" and {len(given) - 10} more" if len(given) > 10 else ""))
+        return len(given)
+
+    def _unrun_pass(self, given: list[str]) -> bool:
+        """One read of `UNRUN_TREES`, each tree checked and given back under the detached
+        pass lock, its job id added to `given`. Whether it got through them all."""
+        held = {job_id for job_id, hold in self._holds_by_kind["detached"].items() if _gives_back(hold)}
+        rows = [row for row in self.store.query(UNRUN_TREES)
+                if (row["state"] in TERMINAL or row["job_id"] in held)
+                and os.path.lexists(self.root / "worktrees" / row["job_id"])]
+        if not rows:
+            return True
+        # Filesystem work, read once a pass outside the lock, as retention reads it: no job it
+        # finds is newer than the pass (`dependencies.legacy`).
+        legacy = dependencies.legacy(self.store.query)
+        lock = self._pass_locks["detached"]
+        for row in rows:
+            if self.stopping.is_set() or not lock.acquire(timeout=UNRUN_PASS_WAIT_S):
+                return False
+            try:
+                if self._give_back_unrun(row["job_id"], legacy):
+                    given.append(row["job_id"])
+            finally:
+                lock.release()
+        return True
+
+    def _give_back_unrun(self, job_id: str, legacy: dependencies.Places | None = None) -> bool:
+        """C-6.20: one tree, read again under the detached pass lock; see `_sweep_unrun_worktrees`.
+
+        `legacy` is `dependencies.legacy`, read once a sweep pass. What live jobs need, and the
+        folders turns and leases hold, are read here for each tree: a detached pass that ran
+        between two trees may have placed a job in this one."""
+        job = self.store.get_job(job_id)
+        path = self.root / "worktrees" / job_id
+        if (not job or job["kind"] == "turn" or job["sandbox"] != "workspace-write" or job["in_place"]
+                or job["worktree"] or job.get("push_branch") is not None
+                or not os.path.lexists(path) or os.path.islink(path) or self.store.list_attempts(job_id)):
+            return False
+        if job["state"] in TERMINAL:
+            why = "ended unrun"
+        else:
+            hold = self._holds_by_kind["detached"].get(job_id) or {}
+            if job["state"] not in ("queued", "waiting") or job["cancel_requested_at"] or not _gives_back(hold):
+                return False
+            why = "disk hold" if hold.get("reason") == "disk" else "no lane"
+        # Retention's own: a fence on the job, or a retirement it has begun.
+        if os.path.lexists(self.root / "retention" / job_id) or self.store.one(
+                "SELECT 1 FROM leases WHERE lease_key=? OR holder=? LIMIT 1", (f"retire:{job_id}", job_id)):
+            return False
+        tree = str(path)
+        # As retention's: another job that needs a place in the tree, or whose evidence is
+        # incomplete, keeps it (`dependents`), and so does a turn's or a lease's folder in it.
+        if (dependencies.dependents(self.store.query, tree, exclude=job_id, legacy_places=legacy)
+                or any(folders.within(folder, tree) for folder in (
+                    *folders.turn_folders(self.store.query),
+                    *(folder for folder, _ in folders.exclusive_folders(self.store.query))))):
+            return False
+        # The repository names the registration, wherever the caller's checkout is now and whatever
+        # the tree holds (`_tree_registration`). A lock there is someone's claim, as git, retention
+        # and `discard_registration` read it. A tree whose repository nothing names might be locked.
+        cap = self.policy["caps"]["workspace_git_timeout_s"]
+        try:
+            common, admin = self._tree_registration(job, tree, cap)
+        except OSError:
+            return False
+        if common is None or (admin is not None and os.path.lexists(admin / "locked")):
+            return False
+        # The registration goes first. No lock can come after it, one that came just before stops
+        # it with nothing lost, and a stop here leaves a gitfile that names nothing, which a look
+        # cuts again (`_workspace`).
+        if admin is not None and discard_registration(job["workdir"], tree, timeout=cap, common=common) is None:
+            return False
+        self._discard_worktree(job["workdir"], tree, cap, common)
+        if os.path.lexists(path):
+            return False
+        left = admin
+        with contextlib.suppress(OSError):
+            left = registration_of(common, tree)        # its removal failed part way
+        with self.store.transaction("job.worktree_given_back.recorded", job_id=job_id) as tx:
+            tx.execute("INSERT INTO events(ts,kind,job_id,data_json) VALUES (?,?,?,?)",
+                       (utcnow(), "job.worktree_given_back", job_id,
+                        json.dumps({"worktree": tree, "state": job["state"], "why": why, "common_dir": common,
+                                    **({"registration_left": str(left)} if left else {})})))
+        return True
 
     def _load_pin_episodes(self, job_id: str | None = None, *, read: Callable | None = None) -> dict[str, dict]:
         """C-11.8: each unfinished job's pin episode as its events left it (one job's, with `job_id`).
