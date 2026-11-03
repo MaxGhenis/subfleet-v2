@@ -899,6 +899,9 @@ manifest's `salvage` names each salvage ref's commit. `subfleet retention
 archives [--json]` lists archives; `subfleet retention survey [--json]` is a
 read-only dry run of a pass over the live state, and `survey --sample N`
 estimates from N sampled jobs what retiring frees versus archives.
+`subfleet retention retire <job>...` asks the daemon to retire named
+finished jobs ahead of their pool's budget (C-8.6); a pass takes them
+first, through these same steps, and every pin and deferral still binds.
 
 ## 14. Invariants
 

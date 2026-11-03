@@ -45,7 +45,7 @@ JOBS_KIND_CAPABILITY = "jobs.kind.v1"
 PUSH_CAPABILITY = "push.v1"
 
 OPS = (
-    "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
+    "submit", "list", "show", "wait", "kill", "retire", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
     "sessions", "pick", "operations", "tasks",
@@ -272,6 +272,22 @@ class KillArgs:
     operator_note: str | None = None
     session_id: str | None = None
     reason: str | None = None
+
+
+#: C-8.6: the most jobs one `retire` request names, and the longest reason it records.
+RETIRE_MAX_JOBS = 500
+RETIRE_REASON_MAX = 500
+
+
+@dataclass
+class RetireArgs:
+    """C-8.6: ask retention to retire finished jobs ahead of their pool's budget (`withdraw`:
+    take the request back; `dry_run`: answer what a request would, recording nothing)."""
+    job_ids: list[str] = field(default_factory=list)
+    withdraw: bool = False
+    dry_run: bool = False
+    reason: str | None = None
+    session_id: str | None = None
 
 
 @dataclass
