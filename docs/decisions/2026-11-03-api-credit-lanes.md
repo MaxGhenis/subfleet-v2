@@ -1,6 +1,7 @@
 # API credit lanes
 
-2026-11-03, Subfleet hub. Status: design, build pending.
+2026-11-03, Subfleet hub. Status: design, build pending. The hub revised it the same day for one credit lane (see
+"One plan").
 
 ## The ask
 
@@ -10,10 +11,25 @@ expires at the end of the billing cycle and never rolls over. The `claude-credit
 spends the soonest-expiring credit first. Max approved asking the hub for a Subfleet
 lane kind that:
 
-- runs agent work on those keys, so the credit takes work that would otherwise draw on
-  subscription lanes;
-- spends the soonest-expiring credit first;
-- falls back to the existing lanes once every key's credit is spent.
+- runs agent work on a plan's credit key, so the credit takes work that would otherwise
+  draw on subscription lanes;
+- falls back to the existing lanes once the credit runs out.
+
+## One plan
+
+Max ruled on 2026-11-03 that Subfleet spends one plan's credit, on its holder's own work,
+rather than pooling many plans. So Subfleet runs at most one credit lane:
+
+- Enrollment refuses a second `claude-api` account with `api-lane-limit`. It accepts the
+  same account again; to replace the account, the operator removes the old lane first.
+- Admission refuses every `claude-api` lane while the roster holds more than one enabled
+  `claude-api` lane, so a lane that reaches the roster some other way can't spend a
+  second organization's credit.
+- The plan and its organization stay out of this public repository. The operator
+  enrolls the one Max named.
+
+An earlier draft of this design pooled every plan's credit and ranked lanes by expiry.
+This revision drops both.
 
 ## What the credit pays for
 
@@ -45,7 +61,7 @@ It can't see local-only worktrees or the host's guard, so it doesn't fit build j
 
 ## Lanes and credentials
 
-- **New provider `claude-api`.** Each enrolled credit account gets one lane, with
+- **New provider `claude-api`.** The enrolled credit account gets one lane, with
   `account_key` `claude-api:<email>` and a `Credential` of provider `claude-api`, kind
   `keychain-token`, ref `claude-api-<email>`. That ref names the agent-keychain item
   where `claude-credits` stores the key.
@@ -61,14 +77,11 @@ It can't see local-only worktrees or the host's guard, so it doesn't fit build j
   - a value whose fingerprint (sha256 prefix, `claude_credits.fingerprint`) differs from
     the fingerprint the `claude-credits` registry holds for that email.
 - **The registry.** `~/.config/claude-credits/registry.json` holds no secrets. Subfleet
-  reads it, never writes it, and treats a read or parse failure as "expiry unknown".
-- **Enrollment is explicit.** The operator enrolls one account at a time, and only an
-  email the registry holds with a fingerprint and an organization. The registry records
-  no plan type, so the operator decides which plans to enroll and sets each lane's
-  credit (see "Cycle spend cap"). On 2026-11-03 Max first ruled to pool the PolicyEngine
-  Team plan's credit with the personal plans, then kept its key out: its organization
-  can bill past the credit, and the cycle spend cap can't prevent that (see "Cycle spend
-  cap", Scope).
+  reads it, never writes it, and treats a read or parse failure as "renewal unknown".
+- **Enrollment is explicit.** The operator enrolls one account: an email the registry
+  holds with a fingerprint and an organization. The registry records no plan type, so
+  the operator sets the lane's credit (see "Cycle spend cap"). Enrollment refuses a
+  second account (see "One plan").
 - **Organization identity.** The registry records each key's organization (`org_id`,
   from the `anthropic-organization-id` response header). Enrollment stores it as the
   lane's identity (C-10.6).
@@ -84,36 +97,14 @@ It can't see local-only worktrees or the host's guard, so it doesn't fit build j
 - **Other providers.** Codex and Claude launches never carry `ANTHROPIC_API_KEY`. The
   D-ENV3 environment allowlist (#270) should already ensure that; a test pins it.
 
-## Spending order
+## Ranking
 
-`scheduler.rank_key` orders candidates by band, then measured status, then the
-reserves, then the binding seven-day reset, then headroom, in-flight count and lane
-id. Credit lanes have no usage windows, because a standard key can't read its balance.
-`ranking_usage` skips readings whose utilization is None ("Do not assume zero
-utilization"), so every credit lane would rank as unmeasured with reset "9999", and
-the lane id would decide. That's the wrong order.
-
-New rule: for a `claude-api` model, `rank_key` is
-
-`(desktop, credit_expires_at, status_rank, band, in_flight, lane_id)`
-
-- `credit_expires_at` is the next renewal from the registry's `renews_day`, by the same
-  rule as `claude_credits.days_left`: a renewal on today's date means the credit is new,
-  so its expiry is the following renewal. An unknown renewal sorts last.
-  - Anthropic's grant emails put the real expiry 3–4 days after the cycle ends (the
-    claude-credits session read them on 2026-11-03). Ordering by renewal therefore
-    spends a little early, the safe direction. With lags that differ by at most a day,
-    it never puts a later expiry ahead of an earlier one, except between plans that
-    renew on the same day.
-- `status_rank` puts a lane whose last attempt succeeded before one that hasn't run.
-- Expiry comes before band on purpose. Spreading work across lanes spends later credit
-  while the soonest credit expires unspent. Taking the soonest first is never worse.
-- The lane's slot cap bounds concurrency on one key. Rate limits aren't the
-  constraint: the Thesis organization reported 1,000 requests a minute and 400,000
-  output tokens a minute.
-
-A differential test checks the order against a frozen copy of `claude_credits.order`,
-restricted to admissible lanes.
+With one credit lane, the `-api` aliases have one candidate, so `scheduler.rank_key`
+needs no credit rule. A standard key can't read its balance, so the lane has no usage
+windows and ranks as unmeasured. The core build adds a slot cap for it,
+`caps.max_in_flight_per_api_lane` (default 2), in place of the unmeasured cap. Rate
+limits aren't the constraint: the organization `claude-credits` measured allowed 1,000
+requests a minute and 400,000 output tokens a minute.
 
 ## Cycle spend cap
 
@@ -122,10 +113,11 @@ organization with no purchased credit and no auto-reload: one that pays for usag
 serving past the plan credit and bills for it. So Subfleet keeps its own ledger and
 never relies on the error alone.
 
-- **Budget.** Each lane carries `credit_usd`, set at enrollment: $200 by default for a
-  Max 20x plan, or $100 for a Max 5x plan.
+- **Budget.** The lane carries `credit_usd`, which the operator sets at enrollment: $200
+  for a Max 20x plan, or $100 for a Max 5x plan.
 - **Cycle.** A cycle runs from the plan's last renewal to its next one, by the same
-  rule as `claude_credits.days_left`.
+  rule as `claude_credits.days_left`. With no renewal day known, the ledger counts the
+  trailing 31 days instead. No cycle is longer, so that can only shrink a grant.
 - **Ledger.** The ledger sums the `usd` of every attempt on the lane that ended this
   cycle, taken from its `end` event.
 - **Grant.** When an attempt launches, the adapter passes `--max-usd` as the smaller of
@@ -138,10 +130,10 @@ never relies on the error alone.
   - In an organization that can't bill, the credit can run out before the ledger says
     so. The lane then gets the credit error and closes (see "Exhaustion and fallback").
   - In an organization that can bill, the cap can't keep the total inside the credit.
-    The Team plan's organization also serves a metered key. Once that key and the lane
-    together spend the pool, the lane's next requests bill. A workspace spend limit
-    doesn't fix this: it bounds one workspace, and the balance spans them all. So the
-    operator enrolls a lane only in an organization that can't bill past the credit.
+    Once other keys and the lane together spend the balance, the lane's next requests
+    bill. A workspace spend limit doesn't fix this: it bounds one workspace, and the
+    balance spans them all. So the operator enrolls a lane only in an organization that
+    can't bill past the credit.
 
 ## Exhaustion and fallback
 
@@ -166,7 +158,7 @@ never relies on the error alone.
 - **Fallback runs through the policy chain.** New aliases `opus-api`, `sonnet-api` and
   `haiku-api` name provider `claude-api` with the same model ids. A chain lists one
   first in a preference list, such as `build.standard = [["opus-api", "opus"]]`. With
-  every credit lane closed, the scheduler takes the next model in the list. Changing
+  the credit lane closed, the scheduler takes the next model in the list. Changing
   the live policy is Max's call: the hub files it with `cos add-decision` once the lane
   works. Until then a job opts in with `-m opus-api`.
 
@@ -286,12 +278,12 @@ containment test covers 6.
 2. **No identity prompt.** For any job prompt and any effort, no request's `system`
    field contains either identity line, "Claude Code" or "Agent SDK" after case
    folding and whitespace normalization.
-3. **Soonest expiry first.** For any set of credit lanes (renewal days, statuses,
-   in-flight counts, closures), the chosen lane has the earliest expiry among
-   admissible lanes, with unknown renewals last. It agrees with `claude_credits.order`.
+3. **One credit lane.** For any roster and any sequence of enrollments, enrollment
+   never adds a second `claude-api` account, and while the roster holds two or more
+   enabled `claude-api` lanes, no `claude-api` lane launches.
 4. **Fallback only when the credit is gone.** For a chain `[X-api, X]`, the scheduler
-   picks `X` only when no credit lane is admissible, and always picks `X` when a credit
-   closure holds every credit lane and `X` has an admissible lane.
+   picks `X` only when the credit lane isn't admissible, and always picks `X` when a
+   credit closure holds the credit lane and `X` has an admissible lane.
 5. **Closure length.** A credit closure ends at the next renewal strictly after the
    day the harness saw the exhaustion, or one day later when the renewal is unknown or
    falls that day.
@@ -317,7 +309,7 @@ containment test covers 6.
 ## Contract
 
 The build adds section 31, "API credit lanes", to `docs/acceptance-contract.md`: the
-provider, credential resolution, spending order, exhaustion closure, the C-11.4
+provider, credential resolution, the one-lane limit, exhaustion closure, the C-11.4
 exemption, the harness and its records. It merges contract conflicts with the hub's
 `merge_contract.py`.
 
@@ -327,14 +319,13 @@ exemption, the harness and its records. It merges contract conflicts with the hu
    isolation, on `feat/credit-lane-217`, as a draft PR against `release/217`.
 2. **Review** on an independent Opus lane, then merge on the usual gates.
 3. **Install** in the next release slot, with a daemon restart through the install kit.
-   The hub coordinates the slot with Fleet ops while the r2 release runs (to 11/07).
-4. **Enroll** the registry's personal plans that have keys, each at $200, once each
-   account's organization can't bill past the credit (see "Cycle spend cap", Scope). A
-   plan on an account Max hasn't cleared for Subfleet work waits until he clears it.
-   Max kept the Team pool's key out.
+   The hub coordinates the slot with Fleet ops.
+4. **Enroll** the one plan Max named, with `credit_usd` at its plan's monthly credit,
+   once its organization can't bill past the credit (see "Cycle spend cap", Scope). Max
+   confirmed on 2026-11-03 that the organization has no card on file and no auto-reload.
 5. **Smoke test:**
-   - a read-only Haiku job pinned to `haiku-api`, which should land on the
-     soonest-expiring lane;
+   - a read-only Haiku job pinned to `haiku-api`, which should land on the credit lane;
+   - a second enrollment, which should refuse with `api-lane-limit`;
    - a writable Sonnet job in a scratch repository;
    - one forced exhaustion against a fake API in CI.
 6. **First work:** jobs that pin `-m opus-api` or `-m sonnet-api`, such as Thesis
@@ -345,16 +336,15 @@ exemption, the harness and its records. It merges contract conflicts with the hu
 
 ## Timing
 
-About $400 expires on 11/05–11/06, before this can ship. Work that already calls the
-plain Messages API can spend it today by running under `claude-credits exec`. About
-$2,400 more expires by 11/20, so a lane working by about 11/09 catches most of it.
+The lane spends one plan's credit: $200 a cycle on Max 20x. A standard key can't read how
+much of the current cycle's credit remains. Until the lane ships, work that already calls
+the plain Messages API can spend it by running under `claude-credits exec`.
 
 ## Open for the build
 
 - Which sandbox to use, from the test matrix above.
-- Whether a conversation's history replays on another organization's key. If it
-  doesn't, a resume on another lane restarts from the worktree state.
-- A per-lane slot cap for `claude-api`, since unmeasured lanes fall under
-  `max_in_flight_unmeasured`.
-- How `subfleet lanes` and `subfleet status` show credit expiry and closures.
+- How a job continues after the credit lane closes mid-attempt: `messages.jsonl` is the
+  harness's own format, so a subscription lane likely restarts from the worktree state.
+- How `subfleet lanes` and `subfleet status` show the credit lane's cycle, ledger and
+  closures.
 
