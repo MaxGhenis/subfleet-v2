@@ -76,17 +76,30 @@ def _base_source_of_gone_tree():
     return scope["source_of_gone_tree"]
 
 
+BASE_COMMIT = "18aa2a69562fc454241a0bfde5a0d32536c63680"
+
+
 def test_the_base_copy_is_that_commits_function():
-    shown = subprocess.run(["git", "show", "18aa2a695:subfleet/retention_archive.py"],
-                           cwd=Path(__file__).resolve().parents[2], env=rgit.environment(),
-                           capture_output=True, text=True)
-    if shown.returncode != 0:
+    root = Path(__file__).resolve().parents[2]
+    if not (root / ".git").exists():
+        pytest.skip("this tree is no Git checkout")
+    # Only missing history skips: `--verify --quiet` exits 1 for a commit this checkout lacks. Any other
+    # failure (a configuration Git refuses, a checkout it distrusts) fails here with Git's own words.
+    held = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{BASE_COMMIT}^{{commit}}"],
+                          cwd=root, env=rgit.environment(), capture_output=True, text=True)
+    if held.returncode == 1:
         pytest.skip("this checkout holds no history")
+    assert held.returncode == 0, held.stderr
+    shown = subprocess.run(["git", "show", f"{BASE_COMMIT}:subfleet/retention_archive.py"],
+                           cwd=root, env=rgit.environment(), capture_output=True, text=True)
+    assert shown.returncode == 0, shown.stderr
     functions = [node for node in ast.parse(shown.stdout).body
                  if isinstance(node, ast.FunctionDef) and node.name == "source_of_gone_tree"]
     assert len(functions) == 1
     del functions[0].body[0]        # its docstring
-    assert ast.dump(ast.parse(BASE_SOURCE_OF_GONE_TREE).body[0]) == ast.dump(functions[0])
+    copy = ast.parse(BASE_SOURCE_OF_GONE_TREE).body
+    assert len(copy) == 1           # the function alone: a statement after it could rebind or shadow a name
+    assert ast.dump(copy[0]) == ast.dump(functions[0])
 
 
 @pytest.mark.parametrize("separator", [b"\t", b"\r"])
