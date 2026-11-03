@@ -65,10 +65,10 @@ It can't see local-only worktrees or the host's guard, so it doesn't fit build j
 - **Enrollment is explicit.** The operator enrolls one account at a time, and only an
   email the registry holds with a fingerprint and an organization. The registry records
   no plan type, so the operator decides which plans to enroll and sets each lane's
-  credit (see "Cycle spend cap"). On 2026-11-03 Max ruled to pool the PolicyEngine Team
-  plan's credit with the personal plans. Its key gets a lane like any other, with its
-  own organization and renewal day, once Max confirms that organization can't bill past
-  the credit (see "Rollout"). The cycle spend cap alone can't settle that.
+  credit (see "Cycle spend cap"). On 2026-11-03 Max first ruled to pool the PolicyEngine
+  Team plan's credit with the personal plans, then kept its key out: its organization
+  can bill past the credit, and the cycle spend cap can't prevent that (see "Cycle spend
+  cap", Scope).
 - **Organization identity.** The registry records each key's organization (`org_id`,
   from the `anthropic-organization-id` response header). Enrollment stores it as the
   lane's identity (C-10.6).
@@ -100,6 +100,11 @@ New rule: for a `claude-api` model, `rank_key` is
 - `credit_expires_at` is the next renewal from the registry's `renews_day`, by the same
   rule as `claude_credits.days_left`: a renewal on today's date means the credit is new,
   so its expiry is the following renewal. An unknown renewal sorts last.
+  - Anthropic's grant emails put the real expiry 3–4 days after the cycle ends (the
+    claude-credits session read them on 2026-11-03). Ordering by renewal therefore
+    spends a little early, the safe direction. With lags that differ by at most a day,
+    it never puts a later expiry ahead of an earlier one, except between plans that
+    renew on the same day.
 - `status_rank` puts a lane whose last attempt succeeded before one that hasn't run.
 - Expiry comes before band on purpose. Spreading work across lanes spends later credit
   while the soonest credit expires unspent. Taking the soonest first is never worse.
@@ -117,8 +122,8 @@ organization with no purchased credit and no auto-reload: one that pays for usag
 serving past the plan credit and bills for it. So Subfleet keeps its own ledger and
 never relies on the error alone.
 
-- **Budget.** Each lane carries `credit_usd`, set at enrollment: $200 by default (Max
-  20x), or the Team pool's amount.
+- **Budget.** Each lane carries `credit_usd`, set at enrollment: $200 by default for a
+  Max 20x plan, or $100 for a Max 5x plan.
 - **Cycle.** A cycle runs from the plan's last renewal to its next one, by the same
   rule as `claude_credits.days_left`.
 - **Ledger.** The ledger sums the `usd` of every attempt on the lane that ended this
@@ -323,11 +328,10 @@ exemption, the harness and its records. It merges contract conflicts with the hu
 2. **Review** on an independent Opus lane, then merge on the usual gates.
 3. **Install** in the next release slot, with a daemon restart through the install kit.
    The hub coordinates the slot with Fleet ops while the r2 release runs (to 11/07).
-4. **Enroll** the registry's personal plans that have keys, each at $200. Two kinds of
-   plan wait for Max:
-   - the Team pool's key, at its pool amount, until Max confirms its organization can't
-     bill past the credit (see "Cycle spend cap", Scope);
-   - a plan on an account Max hasn't cleared for Subfleet work, until he clears it.
+4. **Enroll** the registry's personal plans that have keys, each at $200, once each
+   account's organization can't bill past the credit (see "Cycle spend cap", Scope). A
+   plan on an account Max hasn't cleared for Subfleet work waits until he clears it.
+   Max kept the Team pool's key out.
 5. **Smoke test:**
    - a read-only Haiku job pinned to `haiku-api`, which should land on the
      soonest-expiring lane;
