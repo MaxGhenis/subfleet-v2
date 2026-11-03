@@ -67,7 +67,8 @@ It can't see local-only worktrees or the host's guard, so it doesn't fit build j
   no plan type, so the operator decides which plans to enroll and sets each lane's
   credit (see "Cycle spend cap"). On 2026-11-03 Max ruled to pool the PolicyEngine Team
   plan's credit with the personal plans. Its key gets a lane like any other, with its
-  own organization and renewal day, once the cycle spend cap exists.
+  own organization and renewal day, once Max confirms that organization can't bill past
+  the credit (see "Rollout"). The cycle spend cap alone can't settle that.
 - **Organization identity.** The registry records each key's organization (`org_id`,
   from the `anthropic-organization-id` response header). Enrollment stores it as the
   lane's identity (C-10.6).
@@ -113,9 +114,8 @@ restricted to admissible lanes.
 
 A credit lane can't read its balance. And the credit stops a request only in an
 organization with no purchased credit and no auto-reload: one that pays for usage keeps
-serving past the plan credit and bills for it. The Team plan's organization also
-serves a metered key, so Subfleet keeps its own ledger and never relies on the error
-alone.
+serving past the plan credit and bills for it. So Subfleet keeps its own ledger and
+never relies on the error alone.
 
 - **Budget.** Each lane carries `credit_usd`, set at enrollment: $200 by default (Max
   20x), or the Team pool's amount.
@@ -128,8 +128,15 @@ alone.
   95% of `credit_usd`, minus the ledger, minus the grants of attempts still in flight.
 - **Close.** A grant under $1 doesn't launch. Instead the lane closes for credit until
   the next renewal.
-- **Scope.** The ledger counts only Subfleet's own spend. It bounds Subfleet, not other
-  users of the same key.
+- **Scope.** The ledger counts only Subfleet's own spend. Every key in an organization
+  draws on the same balance, so the ledger can't see what other keys and users spend.
+  - In an organization that can't bill, the credit can run out before the ledger says
+    so. The lane then gets the credit error and closes (see "Exhaustion and fallback").
+  - In an organization that can bill, the cap can't keep the total inside the credit.
+    The Team plan's organization also serves a metered key. Once that key and the lane
+    together spend the pool, the lane's next requests bill. A workspace spend limit
+    doesn't fix this: it bounds one workspace, and the balance spans them all. So the
+    operator enrolls a lane only in an organization that can't bill past the credit.
 
 ## Exhaustion and fallback
 
@@ -316,10 +323,11 @@ exemption, the harness and its records. It merges contract conflicts with the hu
 2. **Review** on an independent Opus lane, then merge on the usual gates.
 3. **Install** in the next release slot, with a daemon restart through the install kit.
    The hub coordinates the slot with Fleet ops while the r2 release runs (to 11/07).
-4. **Enroll** the registry's personal plans that have keys, each at $200. Enroll the
-   Team pool's key at its pool amount, once Max confirms its organization can't bill
-   past the credit or the key sits under a workspace spend limit no higher than the
-   pool.
+4. **Enroll** the registry's personal plans that have keys, each at $200. Two kinds of
+   plan wait for Max:
+   - the Team pool's key, at its pool amount, until Max confirms its organization can't
+     bill past the credit (see "Cycle spend cap", Scope);
+   - a plan on an account Max hasn't cleared for Subfleet work, until he clears it.
 5. **Smoke test:**
    - a read-only Haiku job pinned to `haiku-api`, which should land on the
      soonest-expiring lane;
