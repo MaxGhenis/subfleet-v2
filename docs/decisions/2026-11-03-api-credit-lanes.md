@@ -63,10 +63,24 @@ It can't see local-only worktrees or the host's guard, so it doesn't fit build j
 - **The registry.** `~/.config/claude-credits/registry.json` holds no secrets. Subfleet
   reads it, never writes it, and treats a read or parse failure as "expiry unknown".
 - **Enrollment is explicit.** The operator enrolls one account at a time, and only an
-  email the registry holds with a fingerprint. The registry records no plan type, so
-  nothing marks a Team plan automatically. The hub enrolls personal Max plans only.
+  email the registry holds with a fingerprint and an organization. The registry records
+  no plan type, so the operator decides which plans to enroll: personal Max plans only.
   Team credit (the PolicyEngine plan) stays out: using it for other work needs Max's
-  go, and Subfleet can't tell whose work a job is.
+  go, and Subfleet can't yet tell whose work a job is. If Max rules a Team credit
+  PolicyEngine-only, a lane-level allowlist of repository origins comes first (see
+  "Open for the build").
+- **Organization identity.** The registry records each key's organization (`org_id`,
+  from the `anthropic-organization-id` response header). Enrollment stores it as the
+  lane's identity (C-10.6).
+  - Resolution refuses with `credential-refused` when the registry's organization for
+    the email differs from the lane's identity, or appears on the live policy's
+    `claude_api.denied_org_ids`. That list lives only in the local policy, never in this
+    public repository.
+  - The harness records the header on every response. A response from another
+    organization fails attestation and marks the lane `identity-mismatch`, which holds
+    it until an operator enrolls it again.
+  - Why: on 2026-11-03 one plan's registry row briefly held a Team organization's key.
+    The fingerprint matched the registry, so only the organization check catches that.
 - **Other providers.** Codex and Claude launches never carry `ANTHROPIC_API_KEY`. The
   D-ENV3 environment allowlist (#270) should already ensure that; a test pins it.
 
@@ -203,7 +217,8 @@ meet only here, so two builds can proceed in parallel.
 - `stream.jsonl`: one JSON object per line. Each has `"v": 1`, `"type"` and `"ts"` (UTC,
   ISO 8601):
   - `start`: `model`, `lane`, `effort`, `sandbox`;
-  - `response`: `request_id`, `model` (the served model), `stop_reason`, `usage`
+  - `response`: `request_id`, `model` (the served model), `org_id` (the
+    `anthropic-organization-id` response header), `stop_reason`, `usage`
     (`input_tokens`, `output_tokens`, `cache_read_input_tokens`,
     `cache_creation_input_tokens`) and `usd`;
   - `tool`: `name`, `rc` (an integer or null), `denied` (a boolean) and `reason`;
@@ -227,8 +242,8 @@ $0.50.
 
 ## Invariants
 
-The PR states these. Property tests (Hypothesis) cover the first five; the containment
-test covers the last.
+The PR states these. Property tests (Hypothesis) cover 1 to 5 and 7; the containment
+test covers 6.
 
 1. **Credit keys only.** For any roster and any daemon environment, including one that
    sets `ANTHROPIC_API_KEY`:
@@ -255,6 +270,11 @@ test covers the last.
    - attempt notes or the store.
 
    Like `claude-credits`' own test, it checks the raw key and every 12-character run.
+
+7. **One organization per lane.** For any registry contents and any sequence of
+   responses, a lane launches only while the registry's organization for its email
+   equals the lane's identity and isn't denied, and the first response from another
+   organization holds the lane.
 
 ## Contract
 
@@ -295,3 +315,6 @@ $2,400 more expires by 11/20, so a lane working by about 11/09 catches most of i
 - A per-lane slot cap for `claude-api`, since unmeasured lanes fall under
   `max_in_flight_unmeasured`.
 - How `subfleet lanes` and `subfleet status` show credit expiry and closures.
+- If Max rules a Team credit PolicyEngine-only: an `allowed_origins` list on the lane
+  (repository origin patterns) that admission checks against the job's workdir. It
+  has to exist before the hub enrolls that key.
