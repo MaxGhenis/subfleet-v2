@@ -118,6 +118,18 @@ def test_a_request_never_lifts_a_pin(root):
     assert root.ids() == {"running"}
 
 
+def test_a_pinned_request_takes_no_place_in_the_batch(root):
+    """Invariant 1 again, where the start's own pin read would hide a lifted pin: a pinned
+    job selected would fill a batch of one, and the job behind it would wait a pass."""
+    root.job("pinned")
+    root.job("free")
+    root.request("pinned")
+    root.request("free")
+    result = run(root, max_jobs=10, batch=1, pins=lambda: {"pinned"})
+    assert result["pruned"] == ["free"], result
+    assert root.ids() == {"pinned"}
+
+
 def test_a_deferred_request_waits_out_its_deferral(root):
     root.job("busy")
     root.request("busy")

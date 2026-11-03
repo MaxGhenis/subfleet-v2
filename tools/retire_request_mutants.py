@@ -33,6 +33,12 @@ TESTS = ("tests/unit/test_retention_retire_requests.py", "tests/fake/test_retire
 _REARM = ('            self.timers.mark("retention", error=error, next_due=after(delay))\n'
           '            self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S + delay\n')
 
+# The block `_retire` makes retention due with, after its transaction.
+_DUE = ("        if recorded and not a.withdraw:\n"
+        "            with self._retire_lock:\n"
+        "                self._retire_asked += 1\n"
+        "                self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S\n")
+
 #: name -> (module, function, text it holds once, the mutant's text, what that breaks)
 MUTANTS: dict[str, tuple[str, str, str, str, str]] = {
     "no-lift": ("subfleet.retention", "_Pass.run",
@@ -123,6 +129,50 @@ MUTANTS: dict[str, tuple[str, str, str, str, str]] = {
     "cli-retired-refused": ("subfleet.retention_cli", "_retire",
                             'row.get("outcome") in SETTLED for', 'row.get("outcome") in SETTLED - {"retired"} for',
                             "the CLI exits refused for a retired job"),
+    # From the PR #290 review: rules no mutant above covered.
+    "lifts-deadline": ("subfleet.retention", "_Pass.run",
+                       "if self.deadline is not None and self.clock() >= self.deadline and retirements:",
+                       "if self.deadline is not None and self.clock() >= self.deadline and retirements"
+                       " and job_id not in self.requested:",
+                       "invariant 1: a request lifts the deadline"),
+    "retiring-any-holder": ("subfleet.daemon", "Daemon._retire_annotate",
+                            "if held is not None and held[\"holder\"] == f\"retention:{row['job_id']}\":",
+                            "if held is not None:",
+                            "the answer says retiring for another holder's retire lease"),
+    "survey-unordered": ("subfleet.retention_survey", "survey",
+                         'for job in sorted(jobs, key=lambda job: job["job_id"] not in requested):',
+                         "for job in jobs:", "the survey takes requested jobs by age, not first"),
+    "unfinished-withdraw-says-withdrawn": ("subfleet.daemon", "Daemon._retire",
+                                           'row["outcome"] = "not-requested" if a.withdraw else "not-finished"',
+                                           'row["outcome"] = "withdrawn" if a.withdraw else "not-finished"',
+                                           "a withdrawal of an unfinished job records"),
+    "already-records": ("subfleet.daemon", "Daemon._retire",
+                        'if row["outcome"] in ("requested", "withdrawn") and not a.dry_run:',
+                        'if row["outcome"] in ("requested", "withdrawn", "already-requested") and not a.dry_run:',
+                        "invariant 6: a repeated request records again"),
+    "deadline-asked-at-end": ("subfleet.daemon", "Daemon._retention",
+                              'self._rearm_retention(asked, error="TimeoutError")',
+                              'self._rearm_retention(self._retire_asked, error="TimeoutError")',
+                              "a pass ending at the deadline forgets a request recorded during it"),
+    "result-requested-all": ("subfleet.retention", "_Pass.run",
+                             '"requested": sorted(self.requested & set(self.progress["pruned"]))',
+                             '"requested": sorted(self.requested)',
+                             "the result counts requested jobs it did not retire"),
+    # The rules this commit adds.
+    "scan-failed-hour": ("subfleet.daemon", "Daemon._retention",
+                         'self._rearm_retention(asked, error="ScanFailed")',
+                         'self._rearm_retention(self._retire_asked, error="ScanFailed")',
+                         "a pass whose holder scan fails leaves a request recorded during it the hour"),
+    "cancelled-hour": ("subfleet.daemon", "Daemon._retention",
+                       'self._rearm_retention(asked, error="CancelledError")',
+                       'self._rearm_retention(self._retire_asked, error="CancelledError")',
+                       "a cancelled pass leaves a request recorded during it the hour"),
+    "due-after-answer": ("subfleet.daemon", "Daemon._retire", _DUE + "        self._retire_annotate(rows)\n",
+                         "        self._retire_annotate(rows)\n" + _DUE,
+                         "a failed read of the answer leaves a recorded request the hour"),
+    "lost-then-gone-69": ("subfleet.client", "Client.call_settled",
+                          'if op not in ("submit", "retire"):', 'if op != "submit":',
+                          "a lost answer, then no daemon, exits 69 though the request may be recorded"),
 }
 
 
