@@ -22,6 +22,11 @@ subfleet-guardian = "subfleet.guardian:main"
 # run directly by a launchd job or a hook without going through the verb table.
 subfleet-sessions = "subfleet.sessions.cli:main"
 
+[project.optional-dependencies]
+api = [
+    "anthropic==2.4.0",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

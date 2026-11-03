@@ -48,7 +48,10 @@ jobs:
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.12.17"
-      - run: uv sync --locked --group dev --python '${{ matrix.python }}'
+      # `--extra api` installs the pinned `anthropic` SDK that only the API credit
+      # lanes' harness imports (subfleet/api_agent, C-31.7); its tests run against a
+      # local fake API and fail, not skip, without it.
+      - run: uv sync --locked --group dev --extra api --python '${{ matrix.python }}'
       - name: Install OCR for the rendered-view regressions
         # tests/frontend/test_visual_round_{three,four}.py read rendered approval
         # cards and sidebars with tesseract and fail, not skip, without it.
