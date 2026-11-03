@@ -1,0 +1,3 @@
+{"stage": "fixture", "jobs": 18000, "unique_workdirs": 5140, "existing_workdirs": 2300, "existing_owned_trees": 3, "repositories": 3, "load_avg": [57.06640625, 51.82177734375, 52.32275390625]}
+{"stage": "old-first-loop", "seconds": 5.82570354201016, "registration_calls": 3, "git_processes": 0, "repositories": 3}
+{"stage": "old", "seconds": 114.00029054100742, "git_processes": 2300, "repositories": 3, "jobs": 18000, "distinct_workdirs": 5140, "existing_workdirs": 2300, "existing_owned_trees": 3}

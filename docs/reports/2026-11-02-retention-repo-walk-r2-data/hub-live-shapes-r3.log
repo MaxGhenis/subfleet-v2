@@ -1,0 +1,4 @@
+{"answered": 1438, "certain_no_repository": 520, "fallback": 81, "repositories": 946}
+fallback causes: [('config: header:merge', 72), ('config: core.worktree', 3), ('walk FileNotFoundError', 2), ('no .git, HEAD in the walk', 2), ('config passes, refused earlier', 1), ('config.worktree: core.longpaths', 1)]
+{"repositories_and_sample": 1013, "agree": 1013, "differ": 0}
+{"negatives_sampled": 150, "git_agrees": 150, "differ": 0}

@@ -34,10 +34,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import stat
 import threading
 import time
+import unicodedata
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -235,6 +237,9 @@ class Context:
     #: job id -> the places a job queued before submit recorded them needs
     #: (`dependencies.legacy`), read once a pass before any transaction.
     legacy: dict[str, list[str]] = field(default_factory=dict)
+    #: Repository discovery must yield to the pass deadline. Archive slices
+    #: still use their own bounds, and verified archives may finish the pass.
+    deadline: float | None = None
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
@@ -242,15 +247,24 @@ class Context:
 
     def known_repositories(self) -> list[Path]:
         if self.repositories is None:
-            self.repositories = known_repositories(self.store.list_jobs(), self.root, cancel=self.cancel)
+            _repository_checkpoint(self.cancel, self.deadline, self.clock)
+            self.repositories = known_repositories(self.store.list_jobs(), self.root, cancel=self.cancel,
+                                                   deadline=self.deadline, clock=self.clock)
         return self.repositories
 
     def salvage_refs(self, common: Path) -> dict[str, str]:
         key = str(common)
         if key not in self.salvage_listings:
+            # The listing search over the census answers to the census's bound.
+            _repository_checkpoint(self.cancel, self.deadline, self.clock)
+            timeout = 120 if self.deadline is None else min(120, self.deadline - self.clock())
+            if timeout <= 0:
+                raise Defer("repository discovery deadline", DEFER_CHANGED_S)
             try:
-                self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/", cancel=self.cancel)
+                self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/",
+                                                           timeout=timeout, cancel=self.cancel)
             except (rgit.GitError, OSError):
+                _repository_checkpoint(self.cancel, self.deadline, self.clock)
                 self.salvage_listings[key] = {}
         return self.salvage_listings[key]
 
@@ -1312,34 +1326,117 @@ def accounting(totals: dict[str, Any], added: int = 0) -> dict[str, int]:
             "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0), "added_bytes": int(added)}
 
 
+def _repository_checkpoint(cancel: threading.Event | None, deadline: float | None,
+                           clock: Callable[[], float]) -> None:
+    if cancel is not None and cancel.is_set():
+        raise Interrupted("cancelled")
+    if deadline is not None and clock() >= deadline:
+        raise Defer("repository discovery deadline", DEFER_CHANGED_S)
+
+
 def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
-                       cancel: threading.Event | None = None) -> list[Path]:
+                       cancel: threading.Event | None = None, deadline: float | None = None,
+                       clock: Callable[[], float] = time.monotonic) -> list[Path]:
     """The common directories of the repositories the jobs' trees and workdirs
     that are still there are in: where a job whose tree and workdir are both
     gone (a lane checkout removed, a folder deleted) may still have its
     registration and its salvage refs (#81's note on #76: 62 of 371 terminal
-    owned jobs on 2026-09-29)."""
+    owned jobs on 2026-09-29). Never return a partial census: at the pass
+    deadline the caller must roll back and defer the job that needed it."""
+    def check() -> None:
+        _repository_checkpoint(cancel, deadline, clock)
+
+    check()
+    ambient_timeout = 60 if deadline is None else min(60, deadline - clock())
+    if ambient_timeout <= 0:
+        raise Defer("repository discovery deadline", DEFER_CHANGED_S)
+    ambient_plain = rgit.ambient_plain(timeout=ambient_timeout, cancel=cancel)
+    check()
+    if not ambient_plain:
+        logging.getLogger(__name__).info("Repository census uses Git for every workdir: ambient config is not plain")
     found: dict[str, Path] = {}
-    jobs = list(jobs)
-    for job in jobs:
+    workdirs: set[str] = set()
+    allocated_root = root / "worktrees"
+    allocated_names = None
+    allocated_sig = None
+    skipped: list[dict[str, Any]] = []
+
+    def allocation_sig() -> tuple[int, int, int, int]:
+        st = os.lstat(allocated_root)
+        if not stat.S_ISDIR(st.st_mode):
+            raise OSError("allocated worktree root is not a directory")
+        return st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns
+
+    try:
+        allocated_sig = allocation_sig()
+        # A spelling absent from listdir can still resolve on a filesystem
+        # that ignores case or normalization. Such aliases need the complete
+        # per-path check; only a missing folded name proves a negative here.
+        allocated_names = {unicodedata.normalize("NFC", name).casefold() for name in os.listdir(allocated_root)}
+    except OSError:
+        pass                      # unreadable containers retain per-path checks
+
+    def add_tree(job: dict[str, Any]) -> None:
+        check()
         try:
             tree = owned_worktree(job, root)
         except ValueError:
-            continue
+            return
         if tree is not None and os.path.lexists(tree):
             try:
                 reg, _ = rgit.registration(tree)
             except OSError:
-                continue           # another job's unreadable registration answers nothing here
+                return           # another job's unreadable registration answers nothing here
             if reg is not None:
                 found.setdefault(str(reg.common), reg.common)
-    for workdir in sorted({job["workdir"] for job in jobs if job.get("workdir")}):
-        if cancel is not None and cancel.is_set():
-            raise Interrupted("cancelled")
+
+    for job in jobs:
+        check()
+        if job.get("workdir"):
+            workdirs.add(job["workdir"])
+        if job.get("in_place") or job.get("sandbox") != "workspace-write":
+            continue
+        candidate = os.fspath(job.get("worktree") or os.path.join(allocated_root, job["job_id"]))
+        # An absent direct allocation cannot contribute a registration. Avoid
+        # resolving every ancestor of it twice for every historical job row;
+        # existing and unusually spelled paths still get the full ownership
+        # check below. This shortcut never supplies a repository or ownership.
+        if os.path.dirname(candidate) == str(allocated_root) and os.path.basename(candidate) not in (".", ".."):
+            if allocated_names is not None:
+                if unicodedata.normalize("NFC", os.path.basename(candidate)).casefold() not in allocated_names:
+                    skipped.append(job)
+                    continue
+            elif not os.path.lexists(candidate):
+                continue
+        add_tree(job)
+    check()
+    if skipped:
+        try:
+            unchanged = allocation_sig() == allocated_sig
+        except OSError:
+            unchanged = False
+        if not unchanged:
+            # Allocation can run concurrently with this census. A changed
+            # container invalidates every negative from its directory listing;
+            # replay those rows with the original per-path ownership checks.
+            for job in skipped:
+                add_tree(job)
+    for workdir in sorted(workdirs):
+        check()
         if os.path.isdir(workdir):
-            common = rgit.common_dir(Path(workdir), cancel=cancel)
+            check()
+            timeout = 60 if deadline is None else min(60, deadline - clock())
+            if timeout <= 0:
+                raise Defer("repository discovery deadline", DEFER_CHANGED_S)
+            if ambient_plain:
+                common = rgit.fast_common_dir(Path(workdir), timeout=timeout, cancel=cancel,
+                                              checkpoint=check, deadline=deadline, clock=clock)
+            else:
+                common = rgit.common_dir(Path(workdir), timeout=timeout, cancel=cancel)
+            check()
             if common is not None:
                 found.setdefault(str(common), common)
+    check()
     return list(found.values())
 
 
@@ -1408,6 +1505,11 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
             return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
     if wanted:
         for common in candidates:
+            # A repository proved not to hold one of the refs cannot be the job's,
+            # so only the few that might cost a `for-each-ref`: the census holds
+            # about a thousand, and 542 of them held salvage refs on 2026-11-01.
+            if any(rgit.no_refs_under(common, ref) for ref in wanted):
+                continue
             listing = salvage_refs(common)
             if all(ref in listing and salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):
                 return None, common, None

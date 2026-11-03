@@ -1511,6 +1511,16 @@ def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world, monkeypatch):
     # pre-move hold is covered by test_retention_worktree_cwd.py.
     monkeypatch.setattr(procs, "worktree_cwd_pids", lambda *a: frozenset())
     holder = subprocess.Popen(["/bin/sleep", "600"], cwd=wt, start_new_session=True)
+    # Only inspect this test's child, never unrelated processes on the host.
+    from subfleet import retention_holders as rholders
+    original_argv = rholders.rqos.argv
+
+    def child_only(command):
+        if command[0] == rholders.LSOF:
+            command = [*command, "-p", str(holder.pid)]
+        return original_argv(command)
+
+    monkeypatch.setattr(rholders.rqos, "argv", child_only)
     try:
         result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0)
         assert result["pruned"] == [] and "busy" in result["deferred"]["job-cwd"], result

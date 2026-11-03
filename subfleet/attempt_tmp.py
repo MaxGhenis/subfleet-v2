@@ -614,10 +614,14 @@ def probe_tmpdir_rows(store, *, job_id: str | None = None, pinning: bool = False
 
     `pinning`: only those still held, which keep their job (an allocation
     whose census was verified empty, `cleared_at`, holds nothing)."""
+    # For one job the `+` steers the planner to `events_job`. Retention asks this
+    # under the store lock, and `events_kind` walks every probe.state row (3.6 s
+    # against 2 ms on the live store, 2026-11-01).
     return store.query(
         "SELECT job_id,json_extract(data_json,'$.holder') AS holder,json_extract(data_json,'$.tmpdir') AS tmpdir "
         "FROM events WHERE event_id IN ("
-        "SELECT MAX(event_id) FROM events WHERE kind='probe.state' AND json_valid(data_json) "
+        f"SELECT MAX(event_id) FROM events WHERE {'kind' if job_id is None else '+kind'}='probe.state' "
+        "AND json_valid(data_json) "
         + ("AND job_id=? " if job_id is not None else "")
         + "GROUP BY json_extract(data_json,'$.holder')) "
         "AND json_type(data_json,'$.tmpdir')='object' "
