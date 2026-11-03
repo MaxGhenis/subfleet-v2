@@ -172,6 +172,59 @@ owns it like any other provider. Adapters build its `Launch` and never spawn it.
 - **Retries.** The SDK retries 408, 409, 429 and 5xx. A credit 400 ends the attempt as
   described under exhaustion; the daemon routes the job's next attempt.
 
+## Interface between the adapter and the harness
+
+The adapter (`subfleet/adapters/claude_api.py`) and the harness (`subfleet/api_agent/`)
+meet only here, so two builds can proceed in parallel.
+
+**Launch.**
+
+- `argv`: `sys.executable, "-I", "-m", "subfleet.api_agent", "--attempt-dir", <attempt
+  dir>, "--workdir", <job workdir>, "--prompt", <prompt file>, "--model", <model id>,
+  "--effort", <effort>, "--sandbox", <read-only | workspace-write>, "--max-usd", <float>,
+  "--max-turns", <int>`. Then, when they apply:
+  - `"--network"` when the job allows network;
+  - `"--guard-hook", <path>`: the trusted never-rules hook from the guard preflight. The
+    adapter refuses a writable job without it, as the Codex adapter does
+    (`codex-guard-required`);
+  - `"--publish-hook", <path>` when C-12.3's publish rule applies;
+  - `"--resume"` on a resume launch.
+- `env_add`: `ANTHROPIC_API_KEY` (from credential resolution) and `SUBFLEET_API_LANE`
+  (the lane id).
+- `env_remove`: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`,
+  `CODEX_API_KEY`, `OPENAI_API_KEY`.
+- No stdin. `raw_stream_path` is `<attempt dir>/stream.jsonl`.
+- The harness sends every request to `https://api.anthropic.com`, whatever the
+  environment says. Tests reach a local fake API through a test-only override that the
+  harness honors only under pytest, like the repo's other test-only paths.
+
+**Files the harness writes in the attempt folder.**
+
+- `stream.jsonl`: one JSON object per line. Each has `"v": 1`, `"type"` and `"ts"` (UTC,
+  ISO 8601):
+  - `start`: `model`, `lane`, `effort`, `sandbox`;
+  - `response`: `request_id`, `model` (the served model), `stop_reason`, `usage`
+    (`input_tokens`, `output_tokens`, `cache_read_input_tokens`,
+    `cache_creation_input_tokens`) and `usd`;
+  - `tool`: `name`, `rc` (an integer or null), `denied` (a boolean) and `reason`;
+  - `error`: `status` (an integer or null), `error_type` and `message`, with no secret
+    in any of them;
+  - `credit`: `verdict` (`exhausted`, `refused-by-kind` or `workspace-limit`) and
+    `check_status`, the HTTP status of the neutral check request;
+  - `end`: `outcome` (`done`, `credit`, `workspace-limit`, `refused-by-kind`, `budget`,
+    `turns` or `error`), `turns` and `usd`.
+- `last.md`: the final assistant text, or an empty file.
+- `messages.jsonl`: the conversation, append-only, for a resume.
+
+**Exit codes.** 0 done, 3 credit exhausted, 4 refused by kind, 5 workspace limit, 6
+budget or turn cap, 1 anything else. `classify` reads the `end` event, and the exit code
+only when the stream has no `end`.
+
+**Starting limits.** `--max-usd 25` and `--max-turns 400` per attempt, from policy keys
+the core build adds. Prices come from the claude-api skill's pricing table: Opus 5.5
+$4 input and $20 output per million tokens, Sonnet 5.5 $2 and $10, Haiku 5.5 $0.10 and
+$0.50.
+
 ## Invariants
 
 The PR states these. Property tests (Hypothesis) cover the first five; the containment
