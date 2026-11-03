@@ -1258,6 +1258,9 @@ def test_a_tree_gone_with_its_registration_locked_fails_its_job(state_daemon, re
     daemon._admit()
     assert daemon.store.get_job(job_id)["state"] == "failed" and not daemon.store.list_attempts(job_id)
     assert (repo / ".git" / "worktrees" / job_id / "locked").is_file()
+    assert [notice["text"].splitlines()[1:] for notice in daemon.store.list_notices() if notice["job_id"] == job_id] == [[
+        "could not allocate the worktree; daemon.log has git's output; "
+        "fix: check repository and state-root permissions"]]       # the tree has gone: git's refusal, as before
 
 
 def test_a_broken_tree_someone_locked_fails_its_job_and_keeps_its_files(state_daemon, repo, offers):  # noqa: F811
@@ -1316,6 +1319,47 @@ def test_registration_of_answers_by_the_backlink_alone(repo, tmp_path):
     (plain / "worktrees").write_text("not a folder\n")
     with pytest.raises(OSError):
         registration_of(plain, tmp_path / "first")
+
+
+def test_a_backlink_or_gitfile_that_holds_a_nul_names_no_tree(repo, tmp_path):
+    """Corrupt metadata, not git's writing: `realpath` raises ValueError on a NUL (review of
+    2aeabdef8, P3-3)."""
+    from subfleet.retention_git import gitfile_admin, registration_of
+    common = repo / ".git"
+    git(repo, "worktree", "add", "-q", "--detach", str(tmp_path / "tree"))
+    corrupt = common / "worktrees" / "0-corrupt"            # read before the tree's own
+    corrupt.mkdir()
+    (corrupt / "gitdir").write_bytes(b"\x00\x00\x00\x00\n")
+    assert registration_of(common, tmp_path / "tree") == Path(os.path.realpath(common / "worktrees" / "tree"))
+    assert registration_of(common, tmp_path / "other") is None
+    (tmp_path / "tree" / ".git").write_bytes(f"gitdir: {common}/worktrees/tree\x00\n".encode())
+    assert gitfile_admin(tmp_path / "tree") == (None, b"", "gitfile-malformed")
+
+
+def test_a_nul_in_another_registrations_backlink_holds_up_no_look(state_daemon, repo, offers):  # noqa: F811
+    """A first look drops the job's own registration before its add (`discard_registration`), which
+    reads every backlink in the repository. A NUL in one raised ValueError, which nothing caught, so
+    every admission pass stopped at that look."""
+    daemon, harness = state_daemon
+    corrupt = repo / ".git" / "worktrees" / "zz-corrupt"
+    corrupt.mkdir(parents=True)
+    (corrupt / "gitdir").write_bytes(b"\x00\x00\x00\x00\n")
+    job_id = submit(daemon, harness, repo)
+    measure(daemon, "codex-1")
+    daemon._admit()
+    (attempt,) = daemon.store.list_attempts(job_id)
+    assert daemon.store.get_job(job_id)["worktree"] == str(daemon.root / "worktrees" / job_id)
+    assert (corrupt / "gitdir").read_bytes() == b"\x00\x00\x00\x00\n"      # not the job's: left as it was
+
+
+def test_a_nul_in_an_old_jobs_gitfile_reads_as_no_gitfile(state_daemon, repo, linked, offers):  # noqa: F811
+    """With no record, the tree's gitfile comes before the caller's checkout (`_tree_registration`)."""
+    daemon, harness = state_daemon
+    job_id, tree = cancelled_tree(daemon, harness, linked)
+    forget_the_record(daemon, job_id)
+    (Path(tree) / ".git").write_bytes(b"gitdir: \x00\n")
+    assert swept(daemon) == 1                               # the caller's checkout names the repository
+    assert not os.path.lexists(tree) and job_id not in registered(repo)
 
 
 def test_a_recorded_repository_moved_away_reads_as_no_record(state_daemon, repo, linked, tmp_path, offers):  # noqa: F811

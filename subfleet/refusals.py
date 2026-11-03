@@ -108,7 +108,7 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                             "worktree (without --in-place)"),
     "workspace-prepare": ("could not allocate the worktree; daemon.log has git's output",
                           "check repository and state-root permissions"),
-    # C-6.20: a tree that needs cutting again while someone's lock stands on its registration.
+    # C-6.20: a tree that needs cutting again while a lock, whoever took it, stands on its registration.
     "worktree-locked": ("the job's worktree needs cutting again and a lock stands on its registration",
                         "run git worktree unlock on it, then submit again"),
     # D-SH1 round 6 (C-6.6): a policy review's copy of its caller's uncommitted work.

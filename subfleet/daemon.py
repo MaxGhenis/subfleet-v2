@@ -6340,7 +6340,7 @@ class Daemon:
                 # a worktree without the caller's changes, which would be
                 # reviewed as complete (#221 review r2, P3-1): its copy has no
                 # marker. Nothing has run here (the job has no attempt), so it is
-                # rebuilt rather than handed to a provider. Someone's lock on it stops that (C-6.20):
+                # rebuilt rather than handed to a provider. A lock on it, whoever took it, stops that (C-6.20):
                 # git would refuse to add it again, so the job fails with the files still there.
                 if self._tree_locked(job, workdir, cap):
                     raise AdapterError("the job's worktree needs cutting again and a lock stands on its registration",

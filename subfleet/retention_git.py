@@ -138,7 +138,7 @@ def gitfile_admin(tree: Path) -> tuple[Path | None, bytes, str | None]:
     except (IsADirectoryError, OSError) as exc:
         return None, b"", f"gitfile-unreadable: {exc}"
     text = gitfile.decode("utf-8", "surrogateescape").strip()
-    if not text.startswith("gitdir:"):
+    if not text.startswith("gitdir:") or "\0" in text:      # no path holds a NUL: realpath raises on one
         return None, b"", "gitfile-malformed"
     return _resolve(tree, text[len("gitdir:"):].strip()), gitfile, None
 
@@ -329,7 +329,8 @@ def registration_of(common: str | os.PathLike, tree: str | os.PathLike) -> Path 
     """`tree`'s registration in the repository whose common directory is `common`: the admin
     directory directly under ``<common>/worktrees`` whose ``gitdir`` backlink names ``tree/.git``,
     or None. The repository answers, not the tree: a gitfile can be missing or name somewhere
-    else (C-6.20). A ``worktrees`` folder that cannot be read raises OSError, not None."""
+    else (C-6.20). A backlink that cannot be read, or holds a NUL, names no tree. A ``worktrees``
+    folder that cannot be read raises OSError, not None."""
     wanted = os.path.realpath(Path(tree) / ".git")
     try:
         admins = sorted((Path(common) / "worktrees").iterdir())
@@ -342,6 +343,8 @@ def registration_of(common: str | os.PathLike, tree: str | os.PathLike) -> Path 
             backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
         except OSError:
             continue
+        if "\0" in backlink:
+            continue       # corrupt: no path holds a NUL, and realpath raises ValueError on one
         if os.path.realpath(_resolve(admin, backlink)) == wanted:
             return admin
     return None

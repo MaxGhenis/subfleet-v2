@@ -175,6 +175,8 @@ MUTANTS = [
     ("registration-unreadable-is-none", RGIT,
      '        admins = sorted((Path(common) / "worktrees").iterdir())\n    except FileNotFoundError:',
      '        admins = sorted((Path(common) / "worktrees").iterdir())\n    except OSError:'),
+    ("registration-reads-a-nul", RGIT, '        if "\\0" in backlink:\n            continue', '        if False:\n            continue'),
+    ("gitfile-reads-a-nul", RGIT, 'if not text.startswith("gitdir:") or "\\0" in text:', 'if not text.startswith("gitdir:"):'),
     # The registration first, so a lock that comes meanwhile loses nothing.
     ("lock-that-came-ignored", DAEMON, FIRST_RULE,
      '        if admin is not None:\n            discard_registration(job["workdir"], tree, timeout=cap, common=common)\n'),
@@ -367,6 +369,8 @@ FOCUSED = {
     "registration-any-backlink": (TESTS[0], "registration_of"),
     "registration-through-a-link": (TESTS[0], "registration_of"),
     "registration-unreadable-is-none": (TESTS[0], "registration_of"),
+    "registration-reads-a-nul": (TESTS[0], "nul"),
+    "gitfile-reads-a-nul": (TESTS[0], "nul"),
     "lock-that-came-ignored": (TESTS[0], "lock_that_comes"),
     "registration-not-first": (TESTS[0], "lock_that_comes or stopped_after"),
     "discard-ignores-the-lock": (TESTS[0], "lock_that_comes"),
