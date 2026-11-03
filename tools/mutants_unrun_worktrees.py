@@ -144,6 +144,7 @@ MUTANTS = [
      '        if os.path.lexists(path):\n            return False\n        left = admin\n',
      '        left = admin\n'),
     ("rule-lock-ignored", DAEMON, LOCK_RULE, 'if common is None:'),
+    ("give-back-lock-ignored", RGIT, 'if admin is None or os.path.lexists(admin / "locked"):', 'if admin is None:'),
     ("rule-left-unsaid", DAEMON, '**({"registration_left": str(left)} if left else {})', ""),
     ("rule-event-no-repository", DAEMON, '"why": why, "common_dir": common,', '"why": why,'),
     ("rule-discards-from-checkout", DAEMON,
@@ -280,6 +281,11 @@ MUTANTS = [
 TESTS = ["tests/fake/test_unrun_worktrees.py", "tests/unit/test_unadmittable_now.py"]
 
 EQUIVALENTS = {
+    "rule-lock-ignored": (
+        "The registration goes first: `discard_registration` reads the same first match again and "
+        "refuses the lock, and `_give_back_unrun` returns False before any file goes "
+        "(`give-back-lock-ignored` mutates that read)."
+    ),
     "busy-not-dirty": (
         "Every caller that can find the lock taken sets the flag first (`_offer_unrun_sweep`, "
         "retention's check of it) or is retention's own first sweep, which the running sweep "
