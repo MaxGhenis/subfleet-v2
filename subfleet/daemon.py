@@ -6344,7 +6344,7 @@ class Daemon:
                 # git would refuse to add it again, so the job fails with the files still there.
                 if self._tree_locked(job, workdir, cap):
                     raise AdapterError("the job's worktree needs cutting again and a lock stands on its registration",
-                                       fix="run git worktree unlock on it, then submit again", reason="workspace-prepare")
+                                       fix="run git worktree unlock on it, then submit again", reason="worktree-locked")
                 self._discard_worktree(job["workdir"], workdir, cap, self._recorded_common(job))
             if not Path(workdir).exists():
                 common = self._recorded_common(job)

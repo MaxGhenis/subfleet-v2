@@ -1262,7 +1262,8 @@ def test_a_tree_gone_with_its_registration_locked_fails_its_job(state_daemon, re
 
 def test_a_broken_tree_someone_locked_fails_its_job_and_keeps_its_files(state_daemon, repo, offers):  # noqa: F811
     """The look can neither use it nor cut it again (git refuses a missing but locked worktree), so
-    the job fails and the claim keeps what it claimed."""
+    the job fails and the claim keeps what it claimed. Its notice names the lock: the wire shows
+    the reason's template, never the exception's own words (C-25.7)."""
     daemon, harness = state_daemon
     job_id = submit(daemon, harness, repo)
     tree = cut(daemon, job_id)
@@ -1272,6 +1273,9 @@ def test_a_broken_tree_someone_locked_fails_its_job_and_keeps_its_files(state_da
     reopen(daemon, job_id)
     daemon._admit()
     assert daemon.store.get_job(job_id)["state"] == "failed" and not daemon.store.list_attempts(job_id)
+    assert [notice["text"].splitlines()[1:] for notice in daemon.store.list_notices() if notice["job_id"] == job_id] == [[
+        "the job's worktree needs cutting again and a lock stands on its registration; "
+        "fix: run git worktree unlock on it, then submit again"]]
     assert (Path(tree) / "tracked.txt").is_file() and job_id in registered(repo)
 
 
