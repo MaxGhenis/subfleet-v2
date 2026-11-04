@@ -787,8 +787,7 @@ def _lock_wait() -> None:
 
 
 def _terminated(signum, frame):
-    """A stop unwinds, so `atomic_publish` removes its temporary file on the way out
-    rather than leaving it in the state root."""
+    """Stop by unwinding; `_atomic` defers this until its temp cleanup has finished."""
     raise SystemExit(128 + signum)
 
 

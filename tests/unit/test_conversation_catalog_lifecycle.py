@@ -27,6 +27,7 @@ import select
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -615,7 +616,75 @@ if phase:
 
 def _catalog_temps(root: Path) -> list[Path]:
     return sorted(path for path in root.iterdir()
-                  if re.fullmatch(r"\.(?:catalog\.json|catalog-cache\.json)-[a-z0-9_]{8}", path.name))
+                  if re.fullmatch(r"\.(?:catalog\.json|catalog-cache\.json)-[a-z0-9_]{8}", path.name)
+                  and stat.S_ISREG(path.lstat().st_mode))
+
+
+def _entry_snapshot(path: Path):
+    """Capture bytes and directory/link structure without following links."""
+    mode = path.lstat().st_mode
+    if stat.S_ISLNK(mode):
+        return "link", os.readlink(path)
+    if stat.S_ISDIR(mode):
+        return "directory", sorted((child.name, _entry_snapshot(child)) for child in path.iterdir())
+    assert stat.S_ISREG(mode)
+    return "file", path.read_bytes()
+
+
+def _seed_catalog_folder(runs, entries):
+    """Seed generated root entries and preserve every object except dead regular temps."""
+    targets = runs.base / "link-targets"
+    targets.mkdir()
+    preserved = []
+    for index, (name, kind, data) in enumerate(entries):
+        path = runs.root / name
+        if kind == "file":
+            path.write_bytes(data)
+        elif kind == "directory":
+            path.mkdir()
+            (path / ".catalog.json-nested01").write_bytes(data)
+        elif kind == "file_link":
+            target = targets / f"file-{index}"
+            target.write_bytes(data)
+            path.symlink_to(target)
+        elif kind == "directory_link":
+            target = targets / f"directory-{index}"
+            target.mkdir()
+            (target / ".catalog-cache.json-nested01").write_bytes(data)
+            path.symlink_to(target, target_is_directory=True)
+        else:
+            assert kind == "dangling_link"
+            path.symlink_to(targets / f"absent-{index}")
+        if path not in _catalog_temps(runs.root):
+            preserved.append((path, _entry_snapshot(path)))
+    preserved.append((targets, _entry_snapshot(targets)))
+    return preserved
+
+
+_CATALOG_FOLDER_NAMES = st.one_of(
+    st.builds(lambda publish, suffix: f".{publish}-{suffix}", st.sampled_from(PUBLISHES),
+              st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789_", min_size=7, max_size=9)),
+    st.sampled_from((".catalog.json.tmp", ".CATALOG.JSON-abcdefgh", ".catalog.json-ABCDEF12",
+                     ".catalog-cache.json-abc_def!", "catalog.lock.backup", "keep.json")),
+    st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789_-", min_size=1, max_size=12)
+      .map(lambda name: f"other-{name}"),
+)
+_CATALOG_FOLDER_ENTRIES = st.lists(
+    st.tuples(_CATALOG_FOLDER_NAMES,
+              st.sampled_from(("file", "directory", "file_link", "directory_link", "dangling_link")),
+              st.binary(max_size=48)),
+    max_size=12, unique_by=lambda entry: entry[0].casefold(),
+)
+_MIXED_CATALOG_FOLDER = [
+    (".catalog.json-previous", "file", b"dead run"),
+    (".catalog-cache.json-folder_1", "directory", b"nested bytes"),
+    (".catalog.json-linkfile", "file_link", b"linked file bytes"),
+    (".catalog-cache.json-link_dir", "directory_link", b"linked directory bytes"),
+    (".catalog.json-dangling", "dangling_link", b""),
+    (".catalog.json-1234567", "file", b"seven characters"),
+    (".catalog.json-123456789", "file", b"nine characters"),
+    (".catalog.json-ABCDEF12", "file", b"uppercase suffix"),
+]
 
 
 class PublishingRuns:
@@ -670,6 +739,8 @@ class PublishingRuns:
                 if phase == "partial_write":
                     with pytest.raises(json.JSONDecodeError):
                         json.loads(temps[0].read_text())
+                elif phase == "file_synced":
+                    assert isinstance(json.loads(temps[0].read_text()), dict)
             yield process, release_write
         finally:
             if process is not None:
@@ -710,15 +781,18 @@ def test_sigterm_at_each_atomic_publish_phase_leaves_no_temp(tmp_path, target, p
 
 @settings(max_examples=12, deadline=None,
           suppress_health_check=[HealthCheck.function_scoped_fixture])
-@example(interruptions=[("catalog.json", phase) for phase in reversed(PUBLISH_PHASES)])
-@example(interruptions=[("catalog-cache.json", phase) for phase in reversed(PUBLISH_PHASES)])
+@example(interruptions=[("catalog.json", phase) for phase in reversed(PUBLISH_PHASES)],
+         entries=_MIXED_CATALOG_FOLDER)
+@example(interruptions=[("catalog-cache.json", phase) for phase in reversed(PUBLISH_PHASES)], entries=[])
 @given(interruptions=st.lists(st.tuples(st.sampled_from(PUBLISHES), st.sampled_from(PUBLISH_PHASES)),
-                              min_size=1, max_size=5))
-def test_completed_run_sweeps_any_sequence_of_sigkill_interruptions(tmp_path, interruptions):
+                              min_size=1, max_size=5), entries=_CATALOG_FOLDER_ENTRIES)
+def test_completed_run_sweeps_any_sequence_of_sigkill_interruptions(tmp_path, interruptions, entries):
     """Invariant 2: random killed runs leave empty, partial, or whole writes;
-    a completing real catalog run removes all of them from its locked root."""
+    a completing real catalog run removes all of them from its locked root.
+    Generated folders also retain all other bytes, directories, links and targets."""
     with tempfile.TemporaryDirectory(prefix="killed-catalog-", dir=tmp_path) as directory:
         runs = PublishingRuns(Path(directory))
+        preserved = _seed_catalog_folder(runs, entries)
         for target, phase in interruptions:
             with runs.paused(target, phase) as (process, _):
                 process.kill()
@@ -726,4 +800,8 @@ def test_completed_run_sweeps_any_sequence_of_sigkill_interruptions(tmp_path, in
                 assert process.returncode == -signal.SIGKILL, stderr.decode()
                 if phase not in ("renamed", "directory_synced"):
                     assert len(_catalog_temps(runs.root)) == 1
+            for path, snapshot in preserved:
+                assert _entry_snapshot(path) == snapshot
         runs.complete()
+        for path, snapshot in preserved:
+            assert _entry_snapshot(path) == snapshot
