@@ -1325,7 +1325,7 @@ class Daemon:
             raise protocol.ProtocolError(
                 f"lanes enroll: Subfleet runs one API credit lane, and {other['lane_id']} spends another "
                 f"account's credit", Exit.REFUSED,
-                f"{other['lane_id']} must be disabled before another account enrolls",
+                f"enroll another account only after {other['lane_id']} leaves the enabled roster",
                 reason="api-lane-limit", details={"lane_id": other["lane_id"]})
 
     def _enroll_lane_locked(self, a: protocol.LanesArgs) -> dict:

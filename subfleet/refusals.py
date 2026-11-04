@@ -262,12 +262,12 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                           "claude-quota-<email> or claude-api-<email> item", None),
     # API credit lanes (C-31.1-C-31.5). Every credential check reads one form; the
     # check that failed is in daemon.log, from the exception (`credit_lane.refused`).
-    "credential-refused": ("the API credit lane's credential was refused",
+    "credential-refused": ("API credit lane credential refused",
                            "check the plan's claude-credits registry entry and keychain item"),
     "enroll-credit-usd": ("lanes enroll: --credit-usd must be a positive number of US dollars", None),
     "enroll-credit-provider": ("lanes enroll: --credit-usd applies only to an API credit lane", None),
     "api-lane-limit": ("lanes enroll: Subfleet runs one API credit lane, and {lane_id} spends another "
-                       "account's credit", "{lane_id} must be disabled before another account enrolls"),
+                       "account's credit", "enroll another account only after {lane_id} leaves the enabled roster"),
     "api-credit-ledger": ("the credit lane has no cycle ledger or credit for this launch",
                           "re-enroll the credit lane with --credit-usd"),
     "api-credit-spent": ("the credit lane's cycle budget is spent", "the lane reopens at the plan's next renewal"),
@@ -437,7 +437,7 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
     "adapter-missing": (("provider adapter has no constructor", None),),
     "enroll-bound": (("lanes enroll: the credential is already bound to a lane", "subfleet lanes list"),),
     "api-lane-limit": (("lanes enroll: Subfleet runs one API credit lane, and another account's lane is enabled",
-                        "that lane must be disabled before another account enrolls"),),
+                        "enroll another account only after that lane leaves the enabled roster"),),
     "transfer-api-lane": (("lanes transfer: the lane is an API credit lane, which only v2 runs", "keep it on v2"),),
     "hold-note": ((f"lanes hold: {HOLD_NOTE_RULE}", None),),
     "unknown-lane": (("lanes {action}: unknown lane", "subfleet lanes list"),
