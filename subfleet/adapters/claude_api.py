@@ -157,18 +157,17 @@ class ClaudeApiAdapter(Adapter):
         first request is the lane's check (C-31.5)."""
         email = credit_lane.reference_email(credential.ref)
         if credential.provider != API_PROVIDER or credential.kind != "keychain-token" or email is None:
-            raise AdapterError("an API credit lane is enrolled from claude-api-<email>", code=2,
-                               fix="enroll with the plan's email: subfleet lanes enroll --api <email>",
-                               reason=credit_lane.REFUSED)
+            raise credit_lane.refused("an API credit lane is enrolled from claude-api-<email>",
+                                      "enroll with the plan's email: subfleet lanes enroll --api <email>", code=2)
         entry = credit_lane.registry_entry(email, self.registry_reader())
         org = credit_lane.entry_org(entry)
         if credit_lane.entry_fingerprint(entry) is None or org is None:
-            raise AdapterError("the claude-credits registry holds no key fingerprint and organization for that email",
-                               code=5, fix="store the plan's Console API key with `claude-credits add` first",
-                               reason=credit_lane.REFUSED)
+            raise credit_lane.refused("the claude-credits registry holds no key fingerprint and organization for "
+                                      "that email", "store the plan's Console API key with `claude-credits add` first",
+                                      code=5)
         if org in credit_lane.denied_org_ids({"claude_api": self.credit_policy}):
-            raise AdapterError("that email's organization is denied by policy (claude_api.denied_org_ids)", code=7,
-                               fix="enroll a plan whose organization is not denied", reason=credit_lane.REFUSED)
+            raise credit_lane.refused("that email's organization is denied by policy (claude_api.denied_org_ids)",
+                                      "enroll a plan whose organization is not denied")
         return LaneInfo(account_key=credit_lane.account_key(email), plan=credit_lane.PLAN, home=None, readings=(),
                         identity=org, identity_status=IdentityStatus.VERIFIED.value, label=email)
 
@@ -225,9 +224,8 @@ class ClaudeApiAdapter(Adapter):
         key = credential_env.get("ANTHROPIC_API_KEY")
         if not key:
             # Invariant 1: a credit launch carries its lane's resolved credit key or none starts.
-            raise AdapterError("an API credit lane launches only with its resolved credit key", code=7,
-                               fix="resolve the lane's credential with credentials.resolve_credential",
-                               reason=credit_lane.REFUSED)
+            raise credit_lane.refused("an API credit lane launches only with its resolved credit key",
+                                      "resolve the lane's credential with credentials.resolve_credential")
         hooks = parse_guard(guard_override)
         if sandbox == Sandbox.WORKSPACE_WRITE and not hooks.get("guard_hook"):
             raise AdapterError("Writable credit-lane jobs require the never-rules guard", code=7,
@@ -287,7 +285,7 @@ class ClaudeApiAdapter(Adapter):
         if not isinstance(native_session_id, str) or not _ATTEMPT_ID.fullmatch(native_session_id) \
                 or ".." in native_session_id:
             raise AdapterError("a credit-lane resume names the attempt it continues", code=7,
-                               fix="resume from the original job's attempt id", reason="api-resume-history")
+                               fix="resume from the original job's attempt id", reason="api-resume-session")
         jobs = attempt_dir.parent.parent
         source = jobs.joinpath(*native_session_id.split("/")) / HISTORY
         try:

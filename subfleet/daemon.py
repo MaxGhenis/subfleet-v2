@@ -1293,10 +1293,11 @@ class Daemon:
             return self._enroll_lane_locked(a)
 
     @staticmethod
-    def _enroll_credit_usd(value: Any) -> float:
-        """C-31.4: an API credit lane's credit per cycle, $200 (Max 20x) unless given."""
+    def _enroll_credit_usd(value: Any) -> float | None:
+        """C-31.4: an API credit lane's credit per cycle as `--credit-usd` gave it, or
+        None. A new lane takes $200 (Max 20x); a re-enrolled one keeps its own."""
         if value is None:
-            return credit_lane.DEFAULT_CREDIT_USD
+            return None
         try:
             amount = float(value)
         except (TypeError, ValueError):
@@ -1312,15 +1313,19 @@ class Daemon:
         account, the operator removes the old lane from the roster first."""
         email = credit_lane.reference_email(credential.ref)
         if email is None:
-            raise protocol.ProtocolError("lanes enroll: an API credit lane's reference is claude-api-<email>",
-                                         Exit.INVALID_INPUT, reason=credit_lane.REFUSED)
+            raise protocol.ProtocolError("lanes enroll: the credential is neither a home directory nor a "
+                                         "claude-quota-<email> or claude-api-<email> item",
+                                         Exit.INVALID_INPUT, reason="enroll-credential")
         other = self.store.one("SELECT lane_id FROM lanes WHERE provider=? AND enabled=1 AND account_key!=? "
                                "ORDER BY lane_id LIMIT 1", (API_PROVIDER, credit_lane.account_key(email)))
         if other is not None:
+            # No lanes verb disables a lane: seeding never removes a stored one, and
+            # only an auth-dead or identity verdict sets `enabled` to 0 (see the
+            # credit-lane report's open questions).
             raise protocol.ProtocolError(
                 f"lanes enroll: Subfleet runs one API credit lane, and {other['lane_id']} spends another "
                 f"account's credit", Exit.REFUSED,
-                f"remove {other['lane_id']} from lanes.json first to replace its account",
+                f"{other['lane_id']} must be disabled before another account enrolls",
                 reason="api-lane-limit", details={"lane_id": other["lane_id"]})
 
     def _enroll_lane_locked(self, a: protocol.LanesArgs) -> dict:
@@ -1356,7 +1361,7 @@ class Daemon:
             self._refuse_second_api_account(credential)        # C-31.3
         elif a.credit_usd is not None:
             raise protocol.ProtocolError("lanes enroll: --credit-usd applies only to an API credit lane",
-                                         Exit.INVALID_INPUT, reason="enroll-credit-usd")
+                                         Exit.INVALID_INPUT, reason="enroll-credit-provider")
         try:
             owner = LaneOwner(a.owner or "v2")
         except ValueError:

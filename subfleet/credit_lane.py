@@ -65,6 +65,17 @@ _NOT_A_CONSOLE_KEY = (("oat", "a subscription OAuth token"), ("ort", "an OAuth r
                       ("admin", "an Admin API key"))
 
 
+def refused(message: str, fix: str | None = None, *, code: int = 7):
+    """C-31.2: a credit lane's credential refusal, reason `credential-refused`.
+
+    A client reads the reason's closed template (`refusals.HANDLER_MESSAGES`);
+    `message` and `fix` stay with the exception for its direct callers and
+    daemon.log, scrubbed whole. Neither ever carries a key: callers name the
+    check that failed, never the value it read."""
+    from .adapters.base import AdapterError
+    return AdapterError(message, code=code, fix=fix, reason="credential-refused")
+
+
 def reference_email(reference: Any) -> str | None:
     """C-31.2: the email of a `claude-api-<email>` reference, or None for anything else."""
     found = REFERENCE.fullmatch(reference) if isinstance(reference, str) else None

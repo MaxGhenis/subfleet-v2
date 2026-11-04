@@ -39,8 +39,9 @@ def policy_with(chain, **changes):
 
 
 def credit_lane_row(identity="claude-api-1", **changes):
-    return lane(identity, account_key="claude-api:plan@example.org", credential_ref="claude-api-plan@example.org",
-                credential_kind="keychain-token", home=None, **changes)
+    fields = {"account_key": "claude-api:plan@example.org", "credential_ref": "claude-api-plan@example.org",
+              "credential_kind": "keychain-token", "home": None, **changes}
+    return lane(identity, **fields)
 
 
 # --- C-31.6: aliases --------------------------------------------------------------------------
@@ -192,15 +193,24 @@ def test_the_chain_falls_back_only_when_the_credit_lane_is_not_admissible(state,
     snapshot = view(lanes, readings, closures)
     snapshot["in_flight"] = {"claude-api-1": state["credit_in_flight"]}
     decision = scheduler.evaluate(policy, snapshot, job(task="review"))
-    credit_admissible = (state["credit_enabled"] and not state["credit_closed"] and not state["second_credit_lane"]
-                         and state["credit_in_flight"] < 2)
+    # The oracle, from the lane states alone: C-31.3 holds every credit lane while
+    # two are enabled; otherwise a credit lane is admissible when it is enabled,
+    # open and below its two slots (C-31.5).
+    enabled_api = int(state["credit_enabled"]) + int(state["second_credit_lane"])
+    open_lanes = [identity for identity, ok in (
+        ("claude-api-1", state["credit_enabled"] and not state["credit_closed"] and state["credit_in_flight"] < 2),
+        ("claude-api-2", state["second_credit_lane"])) if ok] if enabled_api == 1 else []
+    credit_admissible = bool(open_lanes)
     twin_admissible = state["claude_lanes"] > 0 and not state["claude_closed"]
     if decision.chosen_model == twin:
         assert not credit_admissible
     if credit_admissible:
-        assert decision.chosen_model == api and decision.chosen_lane == "claude-api-1"
-    if state["credit_closed"] and twin_admissible:
+        assert decision.chosen_model == api and decision.chosen_lane in open_lanes
+    elif twin_admissible:
         assert decision.chosen_model == twin
+    if state["credit_closed"] and not state["second_credit_lane"] and twin_admissible:
+        # The clause as the record words it: a credit closure holds the credit lane.
+        assert decision.chosen_model == twin and not decision.chosen_lane.startswith("claude-api-")
 
 
 # --- invariant 1: credit keys only -----------------------------------------------------------------

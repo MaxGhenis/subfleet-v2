@@ -214,13 +214,15 @@ def test_resume_copies_the_source_history_and_adds_resume(tmp_path):
     assert (adir / "messages.jsonl").read_text() == '{"role":"user"}\n'
 
 
-@pytest.mark.parametrize("session", ["job0/a9", "../job0/a2", "job0", "-x", "job0/a2/../../x"])
-def test_resume_refuses_without_the_source_history(tmp_path, session):
+@pytest.mark.parametrize("session,reason", [
+    ("job0/a9", "api-resume-history"), ("../job0/a2", "api-resume-session"), ("job0", "api-resume-session"),
+    ("-x", "api-resume-session"), ("job0/a2/../../x", "api-resume-session")])
+def test_resume_refuses_without_the_source_history(tmp_path, session, reason):
     spec = job(tmp_path, kind="resume")
     with pytest.raises(AdapterError) as caught:
         adapter().resume_launch(spec, "job1/a1", tmp_path / "jobs" / "job1" / "a1", lane(),
                                 {"ANTHROPIC_API_KEY": KEY}, session, Path(spec.prompt_path), None, MODEL)
-    assert caught.value.reason == "api-resume-history"
+    assert caught.value.reason == reason
 
 
 # --- classification --------------------------------------------------------------------------

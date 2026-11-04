@@ -662,7 +662,7 @@ def keychain_command(reference: str, security_bin: str = "security", *,
 
 def _credit_refused(message: str, fix: str) -> AdapterError:
     """C-31.2: every refusal of a credit lane's credential. No message names its value."""
-    return AdapterError(message, code=7, fix=fix, reason=credit_lane.REFUSED)
+    return credit_lane.refused(message, fix)
 
 
 def resolve_credit_key(credential: Credential, *, identity: str | None,
