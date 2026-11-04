@@ -1,0 +1,349 @@
+"""Unit and property tests for the API credit lanes' harness (C-31.7 to C-31.16).
+
+Invariants stated for the harness (docs/reports/credit-lane-harness-report.md):
+- I2 (no identity prompt): every system prompt the harness can send holds no identity
+  line, "Claude Code" or "Agent SDK" after case folding and whitespace normalization.
+- Pricing: `usd` is 0 for no tokens, never negative, monotone in every count, linear
+  over a response's compaction iterations, and agrees with a reference formula.
+- Redaction: for any secret and any text, the redacted text holds neither the secret
+  nor any 12-character run of it, and text without a run passes unchanged.
+- Hooks fail closed: any output that is not an allow decision denies.
+"""
+from __future__ import annotations
+
+import ast
+import json
+import os
+import stat
+from pathlib import Path
+
+import pytest
+from hypothesis import HealthCheck, given, settings, strategies as st
+
+from subfleet.api_agent import cli, hooks, pricing, prompt, sandbox
+from subfleet.api_agent.loop import UNKNOWN_TEXT, resume_history
+from subfleet.api_agent.records import RUN, HistoryError, Records, Redactor, load_history
+
+REPO = Path(__file__).resolve().parents[2]
+COUNTS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+tokens = st.integers(min_value=0, max_value=5_000_000)
+usages = st.fixed_dictionaries({name: tokens for name in COUNTS})
+#: The repo's usual property settings: no deadline, no too-slow check (shared, loaded hosts).
+PROPERTY = settings(deadline=None, suppress_health_check=[HealthCheck.too_slow], max_examples=50)
+
+
+# -- the SDK stays inside the harness ------------------------------------------------------------------
+def test_nothing_outside_the_harness_imports_anthropic():
+    """C-31.7: only subfleet/api_agent/ imports `anthropic`, and inside it only client.py."""
+    offenders = []
+    for root in ("subfleet", "tools", "tests", "app"):
+        for path in (REPO / root).rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            for node in ast.walk(tree):
+                names = []
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                    names = [node.module]
+                if any(name == "anthropic" or name.startswith("anthropic.") for name in names):
+                    relative = path.relative_to(REPO).as_posix()
+                    if relative != "subfleet/api_agent/client.py":
+                        offenders.append(relative)
+    assert offenders == []
+
+
+# -- invariant 2 over every system prompt ------------------------------------------------------------
+@pytest.mark.parametrize("sandbox_mode", cli.SANDBOXES)
+@pytest.mark.parametrize("network", [False, True])
+def test_every_system_prompt_is_identity_free(sandbox_mode, network):
+    blocks = prompt.system_blocks(sandbox_mode, network)
+    assert prompt.identity_free(blocks)
+    assert blocks[0]["cache_control"] == {"type": "ephemeral"}
+    assert "claude" not in prompt.normalize(blocks[0]["text"])
+
+
+@PROPERTY
+@given(st.text(), st.sampled_from(prompt.FORBIDDEN), st.text())
+def test_identity_check_catches_every_spelling(before, phrase, after):
+    """The check itself: any case and whitespace spelling of a phrase is caught."""
+    spelled = "".join(char.upper() if index % 2 else char for index, char in enumerate(phrase))
+    spelled = spelled.replace(" ", " \n\t ")
+    assert not prompt.identity_free([{"type": "text", "text": before + spelled + after}])
+    assert not prompt.identity_free(before + spelled + after)
+
+
+def test_tools_are_the_two_client_tools_with_a_cache_breakpoint():
+    tools = prompt.tools()
+    assert [(tool["type"], tool["name"]) for tool in tools] == [
+        ("bash_20250124", "bash"), ("text_editor_20250728", "str_replace_based_edit_tool")]
+    assert tools[-1]["cache_control"] == {"type": "ephemeral"}
+    assert all("input_schema" not in tool and "eager_input_streaming" not in tool for tool in tools)
+
+
+# -- pricing ----------------------------------------------------------------------------------------
+def reference(model: str, usage: dict) -> float:
+    rates = {"claude-opus-5-5": (4.0, 20.0, 0.20), "claude-sonnet-5-5": (2.0, 10.0, 0.20),
+             "claude-haiku-5-5": (0.10, 0.50, 0.01)}[model]
+    prompt_tokens = usage["input_tokens"] + usage["cache_read_input_tokens"] + usage["cache_creation_input_tokens"]
+    if model == "claude-haiku-5-5" and prompt_tokens > 100_000:
+        rates = (0.50, 2.50, 0.05)
+    return (usage["input_tokens"] * rates[0] + usage["output_tokens"] * rates[1]
+            + usage["cache_read_input_tokens"] * rates[2]
+            + usage["cache_creation_input_tokens"] * rates[0] * 1.25) / 1_000_000
+
+
+@pytest.mark.parametrize("model", sorted(pricing.PRICES))
+def test_interface_prices(model):
+    one_million_each = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+    expected = {"claude-opus-5-5": 24.0, "claude-sonnet-5-5": 12.0, "claude-haiku-5-5": 3.0}[model]
+    assert pricing.usd(model, one_million_each) == pytest.approx(expected)
+    small = {"input_tokens": 1_000, "output_tokens": 1_000}
+    assert pricing.usd(model, small) == pytest.approx(
+        {"claude-opus-5-5": 0.024, "claude-sonnet-5-5": 0.012, "claude-haiku-5-5": 0.0006}[model])
+
+
+@PROPERTY
+@given(st.sampled_from(sorted(pricing.PRICES)), usages)
+def test_usd_agrees_with_the_reference_and_is_not_negative(model, usage):
+    value = pricing.usd(model, usage)
+    assert value >= 0
+    assert value == pytest.approx(reference(model, usage), rel=1e-9, abs=1e-12)
+
+
+@PROPERTY
+@given(st.sampled_from(sorted(pricing.PRICES)), usages, st.sampled_from(COUNTS), st.integers(1, 1_000_000))
+def test_usd_is_monotone_in_each_count(model, usage, name, more):
+    bigger = dict(usage, **{name: usage[name] + more})
+    # Haiku's long-prompt tier is a step up, so more tokens never cost less either way.
+    assert pricing.usd(model, bigger) >= pricing.usd(model, usage)
+
+
+@PROPERTY
+@given(st.sampled_from(sorted(pricing.PRICES)), usages, st.lists(usages, max_size=4))
+def test_compaction_iterations_add(model, usage, iterations):
+    with_iterations = dict(usage, iterations=[dict(item, type="compaction") for item in iterations]
+                           + [dict(usage, type="message")])
+    expected = pricing.usd(model, usage) + sum(pricing.usd(model, item) for item in iterations)
+    assert pricing.usd(model, with_iterations) == pytest.approx(expected, rel=1e-9, abs=1e-12)
+
+
+def test_zero_and_missing_counts_cost_nothing():
+    for model in pricing.PRICES:
+        assert pricing.usd(model, {}) == 0
+        assert pricing.usd(model, {"input_tokens": None, "output_tokens": -5}) == 0
+    assert pricing.four({"input_tokens": 3, "cache_read_input_tokens": None}) == {
+        "input_tokens": 3, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+
+
+def test_one_hour_cache_writes_cost_twice_input():
+    usage = {"cache_creation_input_tokens": 1_000_000,
+             "cache_creation": {"ephemeral_1h_input_tokens": 1_000_000, "ephemeral_5m_input_tokens": 0}}
+    assert pricing.usd("claude-opus-5-5", usage) == pytest.approx(8.0)
+
+
+# -- redaction --------------------------------------------------------------------------------------
+secrets_ = st.text(alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_", min_size=1,
+                   max_size=120)
+
+
+@PROPERTY
+@given(secrets_, st.text(max_size=200), st.text(max_size=200), st.integers(0, 200), st.integers(0, 200))
+def test_redaction_leaves_no_run(secret, before, after, start, length):
+    piece = secret[start:start + max(length, RUN)]
+    redacted = Redactor(secret)(before + piece + after + secret)
+    assert secret not in redacted
+    if len(secret) >= RUN:
+        assert not any(secret[index:index + RUN] in redacted for index in range(len(secret) - RUN + 1))
+
+
+@PROPERTY
+@given(secrets_, st.text(alphabet="!@#$%^&*() \n.,", max_size=200))
+def test_redaction_keeps_text_without_runs(secret, other):
+    assert Redactor(secret)(other) == other
+
+
+def test_redactor_never_shows_its_secret():
+    secret = "sk-ant-api03-" + "Q" * 60
+    redactor = Redactor(secret)
+    assert secret[:RUN] not in repr(redactor) and secret[:RUN] not in str(redactor)
+    with pytest.raises(TypeError):
+        import pickle
+        pickle.dumps(redactor)
+
+
+# -- records ----------------------------------------------------------------------------------------
+def test_records_lines_are_versioned_utc_and_redacted(tmp_path):
+    secret = "sk-ant-api03-" + "Z" * 40
+    records = Records(tmp_path, Redactor(secret))
+    try:
+        records.event("error", status=None, error_type="x", message=f"oops {secret[5:30]}")
+    finally:
+        records.close()
+    line = json.loads((tmp_path / "stream.jsonl").read_text())
+    assert line["v"] == 1 and line["type"] == "error" and line["ts"].endswith("Z")
+    assert "[redacted]" in line["message"]
+    assert (tmp_path / "last.md").read_text() == ""
+
+
+def test_load_history_cuts_a_torn_last_line_and_refuses_other_damage(tmp_path):
+    path = tmp_path / "messages.jsonl"
+    whole = json.dumps({"role": "user", "content": "hi"}) + "\n"
+    path.write_text(whole + '{"role": "assis')
+    assert load_history(path) == [{"role": "user", "content": "hi"}]
+    assert path.read_text() == whole
+    path.write_text(whole + "not json\n")
+    with pytest.raises(HistoryError):
+        load_history(path)
+    path.write_text(json.dumps({"role": "system", "content": "x"}) + "\n")
+    with pytest.raises(HistoryError):
+        load_history(path)
+    assert load_history(tmp_path / "missing.jsonl") == []
+
+
+def test_resume_answers_unfinished_tool_calls():
+    history = [{"role": "user", "content": [{"type": "text", "text": "job"}]},
+               {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "bash",
+                                                  "input": {"command": "ls"}},
+                                                 {"type": "tool_use", "id": "t2", "name": "bash",
+                                                  "input": {"command": "pwd"}}]}]
+    tail = resume_history(history)
+    assert [block["tool_use_id"] for block in tail[0]["content"]] == ["t1", "t2"]
+    assert all(block["is_error"] and block["content"] == UNKNOWN_TEXT for block in tail[0]["content"])
+    assert resume_history(history[:1]) == []
+    text_only = history[:1] + [{"role": "assistant", "content": [{"type": "text", "text": "done?"}]}]
+    assert resume_history(text_only)[0]["role"] == "user"
+
+
+# -- argv -------------------------------------------------------------------------------------------
+BASE_ARGV = ["--attempt-dir", "/a", "--workdir", "/w", "--prompt", "/p", "--model", "claude-opus-5-5",
+             "--effort", "high", "--sandbox", "workspace-write", "--max-usd", "25", "--max-turns", "400"]
+
+
+def test_argv_parses_the_interface():
+    options = cli.parse([*BASE_ARGV, "--network", "--guard-hook", "/g", "--publish-hook", "/h", "--resume"])
+    assert options.max_usd == 25.0 and options.max_turns == 400 and options.network and options.resume
+    assert options.guard_hook == Path("/g") and options.publish_hook == Path("/h")
+    plain = cli.parse(BASE_ARGV)
+    assert not plain.network and plain.guard_hook is None and not plain.resume
+
+
+@pytest.mark.parametrize("change", [
+    ["--effort", "extreme"], ["--sandbox", "danger-full-access"], ["--max-usd", "nan"], ["--max-usd", "-1"],
+    ["--max-turns", "-1"], ["--workdir", "relative"], ["--unknown"], ["--max-u", "3"]])
+def test_argv_refuses_what_the_interface_does_not_allow(change):
+    with pytest.raises(cli.UsageError):
+        cli.parse([*BASE_ARGV, *change])
+
+
+# -- the endpoint -----------------------------------------------------------------------------------
+def test_endpoint_is_api_anthropic_com_whatever_the_environment_says(monkeypatch):
+    from subfleet.api_agent import client
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9/elsewhere")
+    assert client.endpoint(None) == "https://api.anthropic.com"
+    assert client.endpoint("") == "https://api.anthropic.com"
+    # Outside a test session (no session markers), the override is ignored.
+    assert client.endpoint("http://127.0.0.1:8123", environ={}) == "https://api.anthropic.com"
+    # Inside one, only a loopback address is honored.
+    assert client.endpoint("http://127.0.0.1:8123") == "http://127.0.0.1:8123"
+    for remote in ("http://example.com:8123", "http://user:pw@127.0.0.1:1", "ftp://127.0.0.1:1",
+                   "http://127.0.0.1:notaport"):
+        assert client.endpoint(remote) == "https://api.anthropic.com"
+
+
+def test_client_ignores_anthropic_base_url(monkeypatch):
+    from subfleet.api_agent import client
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
+    api = client.Api("sk-ant-api03-test-only", client.endpoint(None))
+    try:
+        assert str(api._client.base_url).rstrip("/") == "https://api.anthropic.com"
+    finally:
+        api.close()
+
+
+# -- hooks ------------------------------------------------------------------------------------------
+def _hook(tmp_path: Path, body: str) -> hooks.Hook:
+    path = tmp_path / "hook.sh"
+    path.write_text("#!/bin/bash\n" + body + "\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+    return hooks.Hook(path, "guard", {"PATH": "/usr/bin:/bin"})
+
+
+@pytest.mark.parametrize("body,allowed", [
+    ("cat >/dev/null; exit 0", True),
+    ("cat >/dev/null; echo '{\"hookSpecificOutput\":{\"permissionDecision\":\"allow\"}}'", True),
+    ("cat >/dev/null; echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":"
+     "\"deny\",\"permissionDecisionReason\":\"[rule] no\"}}'", False),
+    ("cat >/dev/null; echo nope >&2; exit 2", False),
+    ("cat >/dev/null; exit 1", False),
+    ("cat >/dev/null; echo 'not json'", False),
+    ("cat >/dev/null; echo '{\"hookSpecificOutput\":{\"permissionDecision\":\"ask\"}}'", False),
+    ("cat >/dev/null; echo '{\"decision\":\"block\",\"reason\":\"old style\"}'", False),
+])
+def test_hooks_decide_and_fail_closed(tmp_path, body, allowed):
+    verdict = _hook(tmp_path, body).check(hooks.payload("Bash", "ls", str(tmp_path), "t1", "m"), str(tmp_path))
+    assert verdict.allowed is allowed
+    if not allowed:
+        assert verdict.reason
+
+
+def test_hook_gets_codex_input_shape(tmp_path):
+    seen = tmp_path / "seen.json"
+    hook = _hook(tmp_path, f"cat > {seen}")
+    hook.check(hooks.payload("Bash", "git status", "/somewhere", "toolu_1", "claude-opus-5-5"), str(tmp_path))
+    call = json.loads(seen.read_text())
+    assert call["tool_name"] == "Bash" and call["tool_input"] == {"command": "git status"}
+    assert call["cwd"] == "/somewhere" and call["hook_event_name"] == "PreToolUse"
+
+
+def test_hook_that_cannot_run_denies(tmp_path):
+    hook = hooks.Hook(tmp_path / "missing", "guard", {})
+    assert not hook.check(hooks.payload("Bash", "ls", "/", "t", "m"), "/").allowed
+    assert hooks.validate(tmp_path / "missing")
+
+
+def test_patch_text_is_apply_patch_shaped():
+    created = hooks.patch_text("/w/a.py", "x = 1\ny = 2\n")
+    assert created.splitlines() == ["*** Begin Patch", "*** Add File: /w/a.py", "+x = 1", "+y = 2",
+                                    "*** End Patch"]
+    updated = hooks.patch_text("/w/a.py", "new\n", "old\n")
+    assert "*** Update File: /w/a.py" in updated and "-old" in updated and "+new" in updated
+
+
+# -- the tool environment ---------------------------------------------------------------------------
+@PROPERTY
+@given(st.dictionaries(st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,20}", fullmatch=True), st.text(max_size=8),
+                       max_size=12))
+def test_tool_environment_has_no_credential_name(environment):
+    launch = dict(environment, ANTHROPIC_API_KEY="k", MY_TOKEN="t", db_password="p", BASH_ENV="/x",
+                  PATH="/usr/bin")
+    env = sandbox.tool_environment(launch, Path("/tmp/x"))
+    for name in env:
+        upper = name.upper()
+        assert not any(word in upper for word in ("KEY", "TOKEN", "SECRET", "PASSWORD")), name
+    assert "BASH_ENV" not in env and env["TMPDIR"] == "/tmp/x" and env["PATH"] == "/usr/bin"
+
+
+def test_layout_writes(tmp_path):
+    work, attempt = tmp_path / "w", tmp_path / "a"
+    (work / ".git").mkdir(parents=True)
+    attempt.mkdir()
+    (attempt / "stdout").write_text("")
+    (attempt / "old-notes").mkdir()
+    layout = sandbox.layout(workdir=work, attempt=attempt, sandbox=cli.WORKSPACE_WRITE, network=False,
+                            environ={"HOME": str(tmp_path)})
+    real = Path(os.path.realpath(tmp_path))
+    assert layout.writable(real / "w" / "src" / "x.py")
+    assert not layout.writable(real / "w" / ".git" / "config")
+    assert not layout.writable(real / "a" / "stream.jsonl")
+    assert not layout.writable(real / "a" / "stdout")
+    assert not layout.writable(real / "a" / "old-notes" / "x")
+    assert not layout.writable(real / "a" / "harness" / "command-00001.sh")
+    assert layout.writable(real / "a" / "tmp" / "scratch")
+    assert layout.writable(real / "a" / "new-file")
+    assert not layout.writable(real / "elsewhere")
+    text = sandbox.profile(layout)
+    assert "com.apple.SecurityServer" not in text and "network-outbound (remote ip" not in text
+    readonly = sandbox.layout(workdir=work, attempt=attempt, sandbox=cli.READ_ONLY, network=True,
+                              environ={"HOME": str(tmp_path)})
+    assert not readonly.writable(real / "w" / "x") and readonly.writable(real / "a" / "tmp" / "x")
+    assert "network-outbound (remote ip" in sandbox.profile(readonly)
