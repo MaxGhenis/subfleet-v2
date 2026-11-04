@@ -78,9 +78,12 @@ class Run:
         return [event["type"] for event in self.events]
 
     def end(self) -> dict:
-        ends = [event for event in self.events if event["type"] == "end"]
-        assert len(ends) == 1, self.events
-        return ends[0]
+        """The last launch's `end`: each launch in this attempt folder (a resume reuses
+        it here) appends one `start` and exactly one `end`, in that order."""
+        kinds = self.kinds()
+        assert kinds.count("end") == kinds.count("start") >= 1, kinds
+        assert kinds[-1] == "end", kinds
+        return self.events[-1]
 
     @property
     def messages(self) -> list[dict]:

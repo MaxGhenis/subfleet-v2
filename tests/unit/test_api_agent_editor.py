@@ -47,9 +47,10 @@ def test_view_numbers_lines_and_takes_a_range(roots):
 def test_view_lists_a_folder_without_hidden_entries(roots):
     editor, _ = make(roots)
     (roots[0] / "pkg" / "sub" / "deep").mkdir(parents=True)
-    listing = editor.run({"command": "view", "path": "."}).text
-    assert "a.txt" in listing and "pkg/" in listing and "pkg/sub/" in listing
-    assert ".git" not in listing and "deep" not in listing
+    header, *entries = editor.run({"command": "view", "path": "."}).text.splitlines()
+    work = os.path.realpath(roots[0])
+    assert "hidden items excluded" in header
+    assert entries == [f"{work}/a.txt", f"{work}/pkg/", f"{work}/pkg/sub/"]  # two levels: no .git, no deep/
 
 
 @pytest.mark.parametrize("command", [
