@@ -1458,8 +1458,11 @@ class Daemon:
                                 lane_id, closure['scope'], closure['until_at'],
                                 ClosureReason(closure['reason']), ClockSource(closure['clock_source']),
                                 closure['source_event']))
-            self._append_lanes_json(lane, credit_usd=self.store.one(
-                "SELECT credit_usd FROM lanes WHERE lane_id=?", (lane_id,))["credit_usd"])
+            if credential.provider == API_PROVIDER:
+                self._append_lanes_json(lane, credit_usd=self.store.one(
+                    "SELECT credit_usd FROM lanes WHERE lane_id=?", (lane_id,))["credit_usd"])
+            else:
+                self._append_lanes_json(lane)
             self._notify()
             return {"enrolled": self.store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)),
                     "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
