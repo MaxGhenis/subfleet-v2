@@ -4,6 +4,11 @@ Each test launches `python -I -m subfleet.api_agent` with the interface's argv a
 recognizable fake key, and reads what the fake received and what the harness wrote.
 No request leaves 127.0.0.1.
 
+Invariant 2 (no identity prompt), end to end: for any job prompt and any effort,
+sandbox and network setting, every request's `system` is the constant prompt for
+that setting and holds no identity line, "Claude Code" or "Agent SDK" after case
+folding and whitespace normalization (Hypothesis, a few launches per run).
+
 Invariant 6 (the key stays in the harness): the key, and every 12-character run of
 it, appear in none of the tool subprocess environments, the hook's environment,
 `stream.jsonl`, `last.md`, stdout, stderr, `messages.jsonl`, any other file in the
@@ -24,9 +29,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, Phase, given, settings, strategies as st
 
 from subfleet import home_paths
-from subfleet.api_agent import prompt
+from subfleet.api_agent import cli, prompt
 from subfleet.api_agent.loop import UNKNOWN_TEXT
 from tests.fake.anthropic_api import (CREDIT_MESSAGE, DEFAULT_ORG, WORKSPACE_MESSAGE, Error, FakeAnthropic,
                                       Reply, StreamError, bash, text, thinking, tool_use)
@@ -229,6 +235,36 @@ def test_a_tool_round_trip_records_everything_and_keeps_the_key_in(tmp_path):
         if path.is_file():
             assert_no_key(str(path.relative_to(run.root)), path.read_bytes())
     assert not (run.attempt / "tmp").exists()  # the private TMPDIR goes at exit
+
+
+#: The two identity lines and the two phrases, spelled as a job prompt might spell them.
+IDENTITY_TEXT = ("You are Claude Code, Anthropic's official CLI for Claude.",
+                 "You are a Claude agent, built on Anthropic's Claude Agent SDK.", "claude \n  CODE", "AGENT\tsdk")
+
+
+# Each example is a launch of several seconds, so a failure reports its first
+# falsifying example instead of shrinking it (a shrink ran five minutes).
+@settings(max_examples=6, deadline=None, database=None, phases=(Phase.explicit, Phase.generate),
+          suppress_health_check=[HealthCheck.too_slow])
+@given(before=st.text(max_size=80), identity=st.sampled_from(IDENTITY_TEXT), after=st.text(max_size=80),
+       effort=st.sampled_from(cli.EFFORTS), sandbox=st.sampled_from(cli.SANDBOXES), network=st.booleans())
+def test_no_request_carries_an_identity_prompt_for_any_job_prompt(tmp_path_factory, before, identity, after,
+                                                                  effort, sandbox, network):
+    """Invariant 2 for any job prompt (each holding an identity line or phrase) and any
+    effort, sandbox and network setting: the request's `system` is that setting's
+    constant prompt and identity-free, and the job prompt arrives whole as the first
+    user turn."""
+    job = before + identity + after
+    root = tmp_path_factory.mktemp("identity")
+    with FakeAnthropic([Reply([text("done")])]) as fake:
+        run = launch(root, fake, job=job, effort=effort, sandbox=sandbox, network=network,
+                     guard=sandbox == cli.WORKSPACE_WRITE)
+    assert run.proc.returncode == 0, run.proc.stderr.decode()[-2000:]
+    [request] = fake.messages()
+    assert request.body["system"] == prompt.system_blocks(sandbox, network)
+    assert prompt.identity_free(request.body["system"])
+    assert request.body["output_config"] == {"effort": effort}
+    assert first_user_text(request.body) == job
 
 
 def test_max_turns_ends_the_attempt(tmp_path):
