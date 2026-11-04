@@ -308,3 +308,40 @@ def test_the_daemon_resolves_a_credit_key_for_the_lanes_own_organization_only(mo
     assert calls == [("claude-api", {"identity": ORG,
                                      "denied_org_ids": frozenset({"00000000-0000-4000-8000-00000000000b"})}),
                      ("claude", {})]
+
+
+# --- C-31.17: no process but the harness gets the key ------------------------------------------
+
+def _credit() -> Lane:
+    return Lane("claude-api-1", "claude-api", "claude-api:plan@example.org",
+                Credential("claude-api", "claude-api-plan@example.org", "keychain-token"), None, LaneOwner.V2,
+                False, identity=ORG)
+
+
+def test_a_credit_lane_reaching_the_probe_resolves_no_key_and_starts_nothing(monkeypatch):
+    """C-31.5, C-31.17: the scheduler and the timers never probe a credit lane; a probe
+    that reaches `_execute_probe` anyway refuses before it resolves the key, makes a
+    probe record or starts a guardian."""
+    from subfleet import daemon as daemon_module
+    from subfleet.contracts import OutcomeClass
+    touched = []
+    monkeypatch.setattr(daemon_module, "resolve_credential", lambda *a, **k: touched.append("resolve") or {})
+    for name in ("_probe_record", "_credential_environment", "_spawn_guardian", "_adapter"):
+        monkeypatch.setattr(Daemon, name, lambda self, *a, _name=name, **k: touched.append(_name))
+    daemon = Daemon.__new__(Daemon)
+    outcome = daemon._execute_probe({"job_id": "j1"}, _credit(), {"id": "claude-opus-5-5"}, "probe:holder")
+    assert outcome.cls == OutcomeClass.UNKNOWN and "never probed" in outcome.detail
+    assert touched == []
+
+
+def test_a_credit_lane_is_never_resolved_to_rebuild_a_launch(monkeypatch):
+    """C-31.2, C-31.17: after a restart the daemon rebuilds a launch from launch.json;
+    for a credit lane it resolves no key (the identity check reads the stream's
+    organization header), so no environment it assembles can hold one."""
+    from subfleet import daemon as daemon_module
+    touched = []
+    monkeypatch.setattr(daemon_module, "resolve_credential", lambda *a, **k: touched.append("resolve") or {})
+    daemon = Daemon.__new__(Daemon)
+    daemon.store = type("Store", (), {"get_lane": staticmethod(lambda lane_id: _credit())})()
+    assert daemon._relaunch_env("claude-api-1") == {"SUBFLEET_LANE": "claude-api-1"}
+    assert touched == []
