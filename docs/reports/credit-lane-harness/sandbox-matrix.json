@@ -45,7 +45,7 @@
     "check": "env shows no credential variable",
     "passed": true,
     "required": true,
-    "detail": "credential-shaped names: none (planted: ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'])"
+    "detail": "credential-shaped names: none of the planted ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'], and 0 of the launching session's own (names withheld)"
   },
   {
     "candidate": "subfleet",
@@ -125,7 +125,7 @@
     "check": "env shows no credential variable",
     "passed": true,
     "required": true,
-    "detail": "credential-shaped names: none (planted: ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'])"
+    "detail": "credential-shaped names: none of the planted ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'], and 0 of the launching session's own (names withheld)"
   },
   {
     "candidate": "subfleet",
@@ -205,7 +205,7 @@
     "check": "env shows no credential variable",
     "passed": false,
     "required": true,
-    "detail": "credential-shaped names: the 2 planted (MATRIX_ACCESS_TOKEN, SUBFLEET_MATRIX_API_KEY) and 4 of the launching session's own (names withheld)"
+    "detail": "credential-shaped names: ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'] of the planted ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'], and 4 of the launching session's own (names withheld)"
   },
   {
     "candidate": "codex",
@@ -277,7 +277,7 @@
     "check": "env shows no credential variable",
     "passed": false,
     "required": true,
-    "detail": "credential-shaped names: the 2 planted (MATRIX_ACCESS_TOKEN, SUBFLEET_MATRIX_API_KEY) and 4 of the launching session's own (names withheld)"
+    "detail": "credential-shaped names: ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'] of the planted ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'], and 4 of the launching session's own (names withheld)"
   },
   {
     "candidate": "codex",

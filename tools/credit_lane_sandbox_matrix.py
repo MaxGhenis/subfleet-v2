@@ -24,7 +24,7 @@ Required checks (from the build brief):
 Informational checks: a unix socket outside the writable roots (the daemon's socket is
 one), the worktree's `.git`, an attempt record, and `/private/tmp`.
 
-Everything the checks write lives under a fresh folder beside the repository, removed
+Everything the checks write lives under a fresh `.sandbox-matrix-*` folder in the checkout, removed
 at the end; `$HOME/credit-lane-check` and the `/private/tmp` probe are removed only if
 this run created them.
 """
@@ -160,8 +160,12 @@ def checks(candidate: Candidate, home: Path, socket_path: str) -> list[dict]:
     result = candidate.bash("env")
     names = [line.split("=", 1)[0] for line in result["out"].splitlines() if "=" in line]
     leaked = sorted(name for name in names if any(word in name.upper() for word in CREDENTIAL_WORDS))
+    planted = [name for name in leaked if name in PLANTED]
+    # The launching session's own credential-shaped names stay out of the record: count them only.
+    others = len(leaked) - len(planted)
     row("env shows no credential variable", result["rc"] == 0 and not leaked,
-        f"credential-shaped names: {leaked or 'none'} (planted: {sorted(PLANTED)})")
+        f"credential-shaped names: {planted or 'none'} of the planted {sorted(PLANTED)}, "
+        f"and {others} of the launching session's own (names withheld)")
 
     result = candidate.python(CONNECT, socket_path)
     row("unix socket outside the writable roots", result["out"].startswith("refused"), result["out"] or result["err"],
@@ -193,7 +197,7 @@ def main() -> int:
     parser.add_argument("--json")
     args = parser.parse_args()
     home = Path(os.path.realpath(os.path.expanduser("~")))
-    base = Path(tempfile.mkdtemp(prefix=".sandbox-matrix-", dir=REPO.parent))
+    base = Path(tempfile.mkdtemp(prefix=".sandbox-matrix-", dir=REPO))
     socket_dir = Path(tempfile.mkdtemp(prefix="sfm", dir="/private/tmp"))
     server = socket.socket(socket.AF_UNIX)
     server.bind(str(socket_dir / "s"))
