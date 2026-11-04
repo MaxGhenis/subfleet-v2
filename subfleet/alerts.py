@@ -21,6 +21,11 @@ from .status_json import CREDENTIAL_VERDICTS, dispatchable, instant, lane_verdic
 
 def _login(lane: Mapping[str, Any]) -> str:
     reference = shlex.quote(str(lane.get("credential_ref") or _home(lane)))
+    if lane["provider"] == "claude-api":
+        # C-31.2: a credit lane's key lives in claude-credits' keychain item; a
+        # revoked key is replaced there, and the lane re-enrolled from its email.
+        email = shlex.quote(str(lane.get("credential_ref") or "").removeprefix("claude-api-"))
+        return f"claude-credits add {email}; subfleet lanes enroll --api {email}"
     if lane["provider"] == "codex":
         return f"CODEX_HOME={shlex.quote(_home(lane))} codex login; subfleet lanes enroll {reference}"
     return f"claude setup-token; subfleet lanes enroll {reference}"

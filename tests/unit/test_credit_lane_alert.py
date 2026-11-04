@@ -82,3 +82,10 @@ def test_the_view_names_the_latest_refused_attempt_of_the_last_day(tmp_path):
         assert Timers.refused_by_kind(timers) == {"claude-api-1": "2026-11-10T12:00:00Z"}
         later = SimpleNamespace(store=store, now=lambda: NOW + timedelta(days=1))
         assert Timers.refused_by_kind(later) == {}
+
+
+def test_a_dead_credit_key_alert_names_the_credit_tools_not_claude_login():
+    lane = credit_lane_row(verdict="auth-dead", enabled=False)
+    alert = {c["key"]: c for c in evaluate_conditions({"lanes": [lane]}, now=NOW)}["claude-lane-auth:plan@example.org"]
+    assert "claude-credits add plan@example.org; subfleet lanes enroll --api plan@example.org" in alert["body"]
+    assert "setup-token" not in alert["body"]
