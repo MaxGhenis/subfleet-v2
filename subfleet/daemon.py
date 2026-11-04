@@ -65,6 +65,7 @@ from .contracts import (
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
 from .status_json import closure_row, closure_rows, decision_rows, timestamp
+from . import credit_lane
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -4072,7 +4073,10 @@ class Daemon:
         return environment.withheld() if environment is not None else frozenset()
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
-        return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
+        # C-31.2: a credit lane's key resolves only for its own enrolled organization,
+        # and never for one the live policy denies.
+        return self._provider_environment.additions(lane.provider, resolve_credential(
+            lane.credential, identity=lane.identity, denied_org_ids=credit_lane.denied_org_ids(self.policy)))
 
     def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
         """Every provider launch's environment: no other vendor's credential (D-ENV3).
@@ -11339,7 +11343,9 @@ class Daemon:
         """
         env = {"SUBFLEET_LANE": lane_id}
         lane = self.store.get_lane(lane_id)
-        if lane is None:
+        if lane is None or lane.provider == API_PROVIDER:
+            # C-31.2: a credit lane's identity check reads its stream's organization
+            # header; its key stays out of the daemon's memory.
             return env
         try:
             env.update(resolve_credential(lane.credential))

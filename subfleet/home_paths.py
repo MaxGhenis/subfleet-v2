@@ -49,6 +49,8 @@ SAFE_HOME_PATHS = {
     "SUBFLEET_V1_LAUNCH_AGENTS": "legacy/agents",
     "SUBFLEET_LAUNCHD_PLIST": "agents/com.subfleet.daemon.plist",
     "SUBFLEET_AGENT_SECRET": "bin/agent-secret",
+    # C-31.2: the claude-credits registry an API credit lane is checked against.
+    "SUBFLEET_API_PLAN_REGISTRY": "claude-credits/registry.json",
     "SUBFLEET_HOST_HOME": "host-home",
     "SUBFLEET_HOST_CONFIG": "host-config",
     "SUBFLEET_RESET_INHIBIT": "legacy/no-reset.json",
