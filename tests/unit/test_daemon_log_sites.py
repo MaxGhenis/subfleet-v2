@@ -907,9 +907,12 @@ TRACEBACK_PRINTERS = frozenset({"traceback.print_exc", "traceback.print_exceptio
                                 "traceback.print_tb", "traceback.print_stack"})
 #: Front ends whose stdout and stderr are a person's terminal or a hook's caller, never
 #: daemon.log: the CLIs, the v1 shim and the hook entry point, each run in its own
-#: process. A daemon loads none of them at start, and each writes its streams.
+#: process. A daemon loads none of them at start, and each writes its streams. The API
+#: credit lanes' harness (C-31.7) is a provider process the guardian starts; its
+#: stderr is the attempt's `stderr` file, and what it prints there is redacted (C-31.12).
 TERMINAL_MODULES = frozenset({"subfleet/cli.py", "subfleet/compat.py", "subfleet/hooks.py", "subfleet/importer.py",
-                              "subfleet/prune_decisions.py", "subfleet/gate/cli.py", "subfleet/sessions/cli.py"})
+                              "subfleet/prune_decisions.py", "subfleet/gate/cli.py", "subfleet/sessions/cli.py",
+                              "subfleet/api_agent/harness.py"})
 #: The writer: what it writes to stderr itself is the formatter's output or fixed words.
 WRITER = "subfleet/daemon_log.py"
 #: Entry points that run only in a process of their own (#221 review r6, P2-1): the
