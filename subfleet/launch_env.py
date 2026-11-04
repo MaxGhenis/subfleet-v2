@@ -105,9 +105,12 @@ LAUNCH_NAMES = frozenset({
     # PreToolUse` reads; `review_publish.pinned_environment` adds it with the
     # git denial, so a parent's value never reaches any launch.
     "SUBFLEET_PUBLISH_DENIED",
-    # C-31.1: the credit launch's lane id, which the adapter hands its harness
-    # (`subfleet/adapters/claude_api.py`, the interface's `env_add`).
-    "SUBFLEET_API_LANE",
+    # C-31.1, C-31.9, C-31.11: an API credit lane's launch names its lane, which
+    # the adapter hands its harness (`subfleet/adapters/claude_api.py`, the
+    # interface's `env_add`; the harness records it in `start`), and the
+    # harness's test-only endpoint, which it honors only in a live test session.
+    # Neither is inherited, so only a launch that adds one carries it.
+    "SUBFLEET_API_LANE", "SUBFLEET_API_AGENT_TEST_URL",
 })
 # D-ENV3: each provider's vendor, by the words its credential names carry. A
 # Codex lane's commands run under OpenAI's model and a Claude lane's under
