@@ -5,7 +5,9 @@ The build tested two candidates against one matrix (`tools/credit_lane_sandbox_m
 for `/usr/bin/sandbox-exec` over `codex sandbox`. Its base sections follow Codex's
 (Chrome-derived) profile in codex-cli 0.159.0, without `com.apple.SecurityServer`.
 
-- Reads: everywhere, except the account's keychains and credential files (`DENY_READ`).
+- Reads: everywhere, except the account's keychains and the credential stores in
+  `DENY_READ` and `DENY_READ_PREFIXES`, which a job has no use for and could
+  otherwise copy into the worktree or, with network, send away.
 - Writes, under `workspace-write`: the worktree except its top-level `.git`, and the
   attempt folder except Subfleet's own files (`PROTECTED_NAMES`, `PROTECTED_DIRS`,
   and whatever the folder held at start). Under `read-only`: the private TMPDIR only,
@@ -43,8 +45,16 @@ CREDENTIAL_WORDS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 #: Variables a non-interactive bash runs or obeys at start.
 SHELL_STARTUP = frozenset({"BASH_ENV", "ENV", "PROMPT_COMMAND", "SHELLOPTS", "BASHOPTS", "CDPATH",
                            "GLOBIGNORE", "PS4"})
-#: Relative to each spelling of the account's home: read refused too.
-DENY_READ = ("Library/Keychains", ".config/claude-credits", ".codex/auth.json", ".claude/.credentials.json")
+#: Relative to each spelling of the account's home: read refused too. The keychains,
+#: then credential stores: claude-credits' registry, Claude's login files, and the
+#: usual places tools keep keys and tokens.
+DENY_READ = ("Library/Keychains", ".config/claude-credits", ".claude/.credentials.json", ".claude.json",
+             ".ssh", ".gnupg", ".netrc", ".git-credentials", ".config/gh", ".aws", ".config/gcloud", ".kube",
+             ".docker/config.json", ".npmrc", ".pypirc")
+#: Entries directly in each home whose name starts with one of these are refused whole,
+#: as found at launch: Codex's own home and Subfleet's Codex lane homes, `~/.codex-1`
+#: to `~/.codex-9` (`lanes_transfer.CODEX_HOME_RANGE`), each with an `auth.json`.
+DENY_READ_PREFIXES = (".codex",)
 
 
 def credential_name(name: str) -> bool:
@@ -85,6 +95,8 @@ class Layout:
     protected: tuple[Path, ...]
     protected_dirs: tuple[Path, ...]
     homes: tuple[Path, ...]
+    #: Every path the profile refuses to read (`denied_reads`).
+    deny_read: tuple[Path, ...] = ()
 
     @property
     def git(self) -> Path:
@@ -124,6 +136,21 @@ def homes(environ: Mapping[str, str]) -> tuple[Path, ...]:
     return tuple(found)
 
 
+def denied_reads(home_paths: Iterable[Path]) -> tuple[Path, ...]:
+    """`DENY_READ` under each home, and each entry of the home named with a
+    `DENY_READ_PREFIXES` prefix. A home that cannot be listed adds only `DENY_READ`."""
+    found: list[Path] = []
+    for home in home_paths:
+        found += [home / relative for relative in DENY_READ]
+        try:
+            with os.scandir(home) as entries:
+                found += sorted(home / entry.name for entry in entries
+                                if entry.name.startswith(DENY_READ_PREFIXES))
+        except OSError:
+            continue
+    return tuple(dict.fromkeys(found))
+
+
 def layout(*, workdir: Path, attempt: Path, sandbox: str, network: bool, extra_protected: Iterable[Path] = (),
            environ: Mapping[str, str]) -> Layout:
     """Resolve the roots, create the control and tmp folders, and freeze what exists."""
@@ -152,9 +179,11 @@ def layout(*, workdir: Path, attempt: Path, sandbox: str, network: bool, extra_p
         real = Path(os.path.realpath(path))
         if within(real, real_attempt):
             protected.add(real)
+    account_homes = homes(environ)
     return Layout(workdir=real_workdir, attempt=real_attempt, tmp=tmp, control=control, sandbox=sandbox,
                   network=bool(network), protected=tuple(sorted(protected)),
-                  protected_dirs=tuple(sorted(folders)), homes=homes(environ))
+                  protected_dirs=tuple(sorted(folders)), homes=account_homes,
+                  deny_read=denied_reads(account_homes))
 
 
 def _quote(path: Path | str) -> str:
@@ -241,9 +270,9 @@ def _write_rules(layout: Layout) -> list[str]:
 def profile(layout: Layout) -> str:
     """The seatbelt profile text for this attempt's shell."""
     lines = [_BASE]
-    denied = [layout_home / relative for layout_home in layout.homes for relative in DENY_READ]
-    if denied:
-        lines.append("(deny file-read* " + " ".join(f"(subpath {_quote(path)})" for path in denied) + ")")
+    if layout.deny_read:
+        lines.append("(deny file-read* " + " ".join(f"(subpath {_quote(path)})" for path in layout.deny_read)
+                     + ")")
     rules = _write_rules(layout)
     lines.append("(allow file-write* " + " ".join(rules) + ")")
     # Unix sockets only inside the writable roots: never the daemon's socket.

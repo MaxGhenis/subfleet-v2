@@ -478,3 +478,31 @@ def test_no_process_reads_the_key_from_the_harness_exec_environment(tmp_path):
     assert b"ANTHROPIC_API_KEY=" + b"*" * (len(KEY)) in strings
     assert b"SUBFLEET_API_LANE=lane-credit-fixture" in strings
     assert "ANTHROPIC_API_KEY=" + "*" * len(KEY) in listed
+
+
+CREDENTIAL_FILES = (".ssh/id_ed25519", ".codex/auth.json", ".codex-3/auth.json", ".codex-api/auth.json",
+                    ".config/gh/hosts.yml", ".netrc", ".git-credentials", ".claude.json",
+                    ".claude/.credentials.json", ".config/claude-credits/registry.json", ".aws/credentials",
+                    ".docker/config.json", ".npmrc", ".pypirc", "Library/Keychains/login.keychain-db")
+
+
+def test_the_shell_cannot_read_credential_stores(tmp_path):
+    """C-31.13: the shell reads anywhere but the account's keychains and credential
+    stores, in each spelling of the home (here a fixture HOME): Codex's home and the
+    lane homes beside it, SSH and GPG keys, and the usual token files. A plain file
+    beside them stays readable."""
+    home = tmp_path / "home"
+    for relative in CREDENTIAL_FILES:
+        (home / relative).parent.mkdir(parents=True, exist_ok=True)
+        (home / relative).write_text("fixture-credential\n")
+    (home / "notes.txt").write_text("plain notes\n")
+    checks = "; ".join(f'cat "$HOME/{relative}" >/dev/null 2>&1 && echo "READ {relative}" || echo "refused {relative}"'
+                       for relative in CREDENTIAL_FILES)
+    turns = [Reply([bash("t1", checks + '; cat "$HOME/notes.txt"')], "tool_use"), Reply([text("done")])]
+    with FakeAnthropic(turns) as fake:
+        run = launch(tmp_path, fake, env={"HOME": str(home)})
+    assert run.proc.returncode == 0, run.proc.stderr.decode()[-2000:]
+    output = fake.messages()[1].body["messages"][2]["content"][0]["content"]
+    assert "READ " not in output, output
+    assert all(f"refused {relative}" in output for relative in CREDENTIAL_FILES), output
+    assert "plain notes" in output

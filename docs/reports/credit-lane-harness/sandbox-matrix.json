@@ -74,6 +74,14 @@
   {
     "candidate": "subfleet",
     "network": false,
+    "check": "read an outside process's exec block (KERN_PROCARGS2)",
+    "passed": false,
+    "required": false,
+    "detail": "read"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
     "check": "write in /private/tmp",
     "passed": true,
     "required": false,
@@ -154,6 +162,14 @@
   {
     "candidate": "subfleet",
     "network": true,
+    "check": "read an outside process's exec block (KERN_PROCARGS2)",
+    "passed": false,
+    "required": false,
+    "detail": "read"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
     "check": "write in /private/tmp",
     "passed": true,
     "required": false,
@@ -226,6 +242,14 @@
   {
     "candidate": "codex",
     "network": false,
+    "check": "read an outside process's exec block (KERN_PROCARGS2)",
+    "passed": false,
+    "required": false,
+    "detail": "read"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
     "check": "write in /private/tmp",
     "passed": false,
     "required": false,
@@ -294,6 +318,14 @@
     "passed": true,
     "required": false,
     "detail": "rc=1"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "read an outside process's exec block (KERN_PROCARGS2)",
+    "passed": false,
+    "required": false,
+    "detail": "read"
   },
   {
     "candidate": "codex",

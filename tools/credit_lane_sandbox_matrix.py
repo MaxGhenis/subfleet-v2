@@ -22,7 +22,10 @@ Required checks (from the build brief):
 - `env` shows no credential variable (two are planted for the check).
 
 Informational checks: a unix socket outside the writable roots (the daemon's socket is
-one), the worktree's `.git`, an attempt record, and `/private/tmp`.
+one), the worktree's `.git`, an attempt record, `/private/tmp`, and the environment
+block of a process outside the sandbox (this script's), read with
+`sysctl(KERN_PROCARGS2)` as `ps -E` reads it. Seatbelt does not mediate that sysctl,
+which is why the harness overwrites the key's bytes there (`subfleet/api_agent/exec_env.py`).
 
 Everything the checks write lives under a fresh `.sandbox-matrix-*` folder in the checkout, removed
 at the end; `$HOME/credit-lane-check` and the `/private/tmp` probe are removed only if
@@ -60,6 +63,17 @@ port = ctypes.c_uint.in_dll(libc, "bootstrap_port")
 for name in sys.argv[1:]:
     found = ctypes.c_uint()
     print(name, libc.bootstrap_look_up(port, name.encode(), ctypes.byref(found)))
+"""
+PROCARGS = r"""
+import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+size = ctypes.c_size_t(os.sysconf("SC_ARG_MAX"))
+buffer = ctypes.create_string_buffer(size.value)
+name = (ctypes.c_int * 3)(1, 49, int(sys.argv[1]))  # CTL_KERN, KERN_PROCARGS2
+if libc.sysctl(name, 3, buffer, ctypes.byref(size), None, 0) != 0:
+    print("refused", ctypes.get_errno())
+else:
+    print("read" if sys.argv[2].encode() in buffer.raw[:size.value] else "absent")
 """
 CONNECT = r"""
 import socket, sys
@@ -181,6 +195,10 @@ def checks(candidate: Candidate, home: Path, socket_path: str) -> list[dict]:
         result = candidate.bash(f"printf x >> '{record}'")
         row("append to an attempt record", result["rc"] != 0 and record.read_text() == "", f"rc={result['rc']}",
             required=False)
+
+    result = candidate.python(PROCARGS, str(os.getpid()), Path(__file__).name)
+    row("read an outside process's exec block (KERN_PROCARGS2)", result["out"] != "read",
+        result["out"] or result["err"][-120:], required=False)
 
     tmp_probe = Path(f"/private/tmp/sf-matrix-{os.getpid()}-{candidate.name}-{int(candidate.network)}")
     result = candidate.bash(f"set -o noclobber; printf x > '{tmp_probe}'")
