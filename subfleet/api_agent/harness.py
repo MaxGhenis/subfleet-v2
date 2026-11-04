@@ -9,10 +9,12 @@ from __future__ import annotations
 import os
 import shutil
 import signal
+import stat
 import sys
 import traceback
 from pathlib import Path
 
+from subfleet import key_frame
 from subfleet.api_agent import cli, hooks, pricing, prompt, sandbox
 from subfleet.api_agent.editor import Editor
 from subfleet.api_agent.loop import EXIT, Session, ToolOutcome, resume_history
@@ -52,6 +54,31 @@ def _scrub_process_environment() -> tuple[dict[str, str], str | None]:
         if name.startswith("ANTHROPIC_") or name.upper() in PROXY_NAMES:
             del os.environ[name]
     return launch, test_url
+
+
+def read_key(fd: int | None) -> tuple[str | None, str | None]:
+    """C-31.17: the key, read once from the `--key-fd` pipe, whose descriptor is then
+    closed; or None and why not. The key is kept in memory only, and the reason never
+    holds a byte of it. Never raises."""
+    if fd is None:
+        return None, "no key arrived: the launch named no --key-fd"
+    payload = None
+    try:
+        if not stat.S_ISFIFO(os.fstat(fd).st_mode):
+            return None, "no key arrived: --key-fd is not a pipe"
+        payload = key_frame.read_frame(fd)
+        return key_frame.decode(payload), None
+    except OSError as exc:
+        return None, f"no key arrived: --key-fd could not be read ({exc.strerror or type(exc).__name__})"
+    except key_frame.FrameError as exc:
+        return None, f"no key arrived: {exc}"
+    finally:
+        if payload is not None:
+            key_frame.wipe(payload)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 def _read_prompt(path: Path) -> str:
@@ -130,14 +157,17 @@ class Tools:
         return ToolOutcome(text, False, result.rc, False, None)
 
 
-def main(argv: list[str], key: str | None) -> int:
+def main(argv: list[str], key: str | None = None) -> int:
     launch, test_url = _scrub_process_environment()
-    redact = Redactor(key)
     try:
         options = cli.parse(argv)
     except cli.UsageError as exc:
-        print(f"subfleet.api_agent: {redact(str(exc))}", file=sys.stderr)
+        print(f"subfleet.api_agent: {exc}", file=sys.stderr)
         return EXIT["error"]
+    key_problem = None
+    if options.key_fd is not None or key is None:
+        key, key_problem = read_key(options.key_fd)
+    redact = Redactor(key)
     attempt = options.attempt_dir
     if not attempt.is_dir() or attempt.is_symlink():
         print("subfleet.api_agent: --attempt-dir is not a folder", file=sys.stderr)
@@ -149,7 +179,7 @@ def main(argv: list[str], key: str | None) -> int:
         records.event("start", model=options.model, lane=launch.get(LANE_ENV), effort=options.effort,
                       sandbox=options.sandbox)
         try:
-            return _run_held(options, key, test_url, launch, records, redact)
+            return _run_held(options, key, key_problem, test_url, launch, records, redact)
         except _Setup as setup:
             records.event("error", status=None, error_type=setup.error_type, message=redact(setup.message))
             records.event("end", outcome="error", turns=0, usd=0.0)
@@ -171,11 +201,11 @@ def main(argv: list[str], key: str | None) -> int:
             records.close()
 
 
-def _run_held(options: cli.Options, key: str | None, test_url: str | None, launch: dict[str, str],
-              records: Records, redact: Redactor) -> int:
+def _run_held(options: cli.Options, key: str | None, key_problem: str | None, test_url: str | None,
+              launch: dict[str, str], records: Records, redact: Redactor) -> int:
     holder: dict[str, object] = {}
     try:
-        return _run(options, key, test_url, launch, records, redact, holder)
+        return _run(options, key, key_problem, test_url, launch, records, redact, holder)
     finally:
         shell = holder.get("shell")
         if shell is not None:
@@ -188,10 +218,10 @@ def _run_held(options: cli.Options, key: str | None, test_url: str | None, launc
             shutil.rmtree(layout.tmp, ignore_errors=True)
 
 
-def _run(options: cli.Options, key: str | None, test_url: str | None, launch: dict[str, str],
-         records: Records, redact: Redactor, holder: dict) -> int:
+def _run(options: cli.Options, key: str | None, key_problem: str | None, test_url: str | None,
+         launch: dict[str, str], records: Records, redact: Redactor, holder: dict) -> int:
     if not key:
-        raise _Setup("no-key", "ANTHROPIC_API_KEY was not in the launch environment")
+        raise _Setup("no-key", key_problem or "no key arrived")
     if not pricing.known(options.model):
         raise _Setup("model", f"no price for model {options.model}, so --max-usd cannot hold")
     if not options.workdir.is_dir():

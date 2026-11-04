@@ -39,6 +39,8 @@ class Options:
     guard_hook: Path | None = None
     publish_hook: Path | None = None
     resume: bool = False
+    #: C-31.17: the descriptor the key arrives on, one frame, from the guardian.
+    key_fd: int | None = None
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -55,6 +57,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--guard-hook")
     parser.add_argument("--publish-hook")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--key-fd", type=int)
     return parser
 
 
@@ -74,10 +77,12 @@ def parse(argv: list[str]) -> Options:
         raise UsageError("--max-usd must be a finite amount of at least 0")
     if args.max_turns < 0:
         raise UsageError("--max-turns must be at least 0")
+    if args.key_fd is not None and args.key_fd < 3:
+        raise UsageError("--key-fd must name a descriptor above the standard streams")
     return Options(
         attempt_dir=Path(args.attempt_dir), workdir=Path(args.workdir), prompt=Path(args.prompt),
         model=args.model, effort=args.effort, sandbox=args.sandbox, max_usd=args.max_usd,
         max_turns=args.max_turns, network=args.network,
         guard_hook=Path(args.guard_hook) if args.guard_hook else None,
         publish_hook=Path(args.publish_hook) if args.publish_hook else None,
-        resume=args.resume)
+        resume=args.resume, key_fd=args.key_fd)

@@ -66,7 +66,7 @@ from .contracts import (
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
 from .status_json import closure_row, closure_rows, decision_rows, timestamp
-from . import credit_lane
+from . import credit_lane, key_frame
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -4222,18 +4222,40 @@ class Daemon:
     def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
         """Every provider launch's environment: no other vendor's credential (D-ENV3).
 
-        C-31.2: `ANTHROPIC_API_KEY` is removed from every launch, then an API credit
-        lane's launch gets back exactly its resolved credit key (`env_add`, from
-        `credentials.resolve_credential`). The daemon's own value, a parent's, a
-        policy's `env.pass` and any other lane's never reach a launch."""
-        environment = self._provider_environment.assemble(
+        C-31.2, C-31.17: `ANTHROPIC_API_KEY` is removed from every launch, an API
+        credit lane's included. The daemon's own value, a parent's, a policy's
+        `env.pass` and any lane's never reach a launch: a credit key travels to
+        its guardian as the launch gate's frame (`_open_gate`) and from there to
+        the harness through a pipe, never in an environment."""
+        return self._provider_environment.assemble(
             launch.env_add,
             (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
             provider=lane.provider)
-        key = launch.env_add.get("ANTHROPIC_API_KEY") if lane.provider == API_PROVIDER else None
-        if key:
-            environment["ANTHROPIC_API_KEY"] = key
-        return environment
+
+    @staticmethod
+    def _credit_key(lane: Lane, credential_env: dict[str, str], *, turn: bool = False) -> str | None:
+        """C-31.17: the key a credit launch's harness gets through the launch gate, or
+        None for every other launch, which sends no frame."""
+        if lane.provider != API_PROVIDER or turn:
+            return None
+        return credential_env.get(key_frame.CREDENTIAL_NAME) or None
+
+    @staticmethod
+    def _open_gate(write_fd: int, key: str | None) -> None:
+        """C-4.2, C-31.17: release a guardian's launch gate. A credit launch's key
+        follows the release byte as one frame (`key_frame`), in the same write; the
+        copy made here is overwritten once it is written."""
+        if key is None:
+            os.write(write_fd, b"1")
+            return
+        message = bytearray(b"1")
+        framed = key_frame.encode(key)
+        message += framed
+        key_frame.wipe(framed)
+        try:
+            key_frame.write_all(write_fd, message)
+        finally:
+            key_frame.wipe(message)
 
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
@@ -7060,6 +7082,11 @@ class Daemon:
         This is the process seam for tests. A normal return guarantees containment
         unless the durable probe record is quarantined; no secret enters a receipt.
         """
+        if lane.provider == API_PROVIDER:
+            # C-31.5, C-31.17: a credit lane is never probed (`scheduler.probe_required`,
+            # the timers' cycle), so no path here resolves its key or starts a guardian
+            # for it; this refuses one that reaches it anyway, before either.
+            return Outcome(OutcomeClass.UNKNOWN, "an API credit lane is never probed")
         record = self._probe_record(holder)
         directory = Path(record["directory"])
         if not self._reusable_tmpdir(record.get("tmpdir")):
@@ -9895,14 +9922,18 @@ class Daemon:
             credential_env = {**credential_env, "TMPDIR": tmpdir}
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             from .review_publish import publish_hook, publishing_denied
-            guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
-                adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
-                env=self._provider_environment.assemble(credential_env, provider=lane.provider), env_pass=credential_env,
-                # C-12.3: a review's Codex launch judges every command with the publish rule.
-                publish_command=(publish_hook(self.root) if publishing_denied(spec)
-                                 and lane.provider == "codex" else None))
-            if lane.provider == API_PROVIDER and not spec.isolated_review and job["kind"] != "turn":
-                guard_override = self._api_guard(spec)   # C-31.1
+            if lane.provider == API_PROVIDER:
+                # C-31.1: a credit launch's hooks, as JSON. The Codex guard preflight never
+                # runs for it, and no environment is assembled from its credential (C-31.17).
+                guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._api_guard(spec)
+            else:
+                guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
+                    adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
+                    env=self._provider_environment.assemble(credential_env, provider=lane.provider),
+                    env_pass=credential_env,
+                    # C-12.3: a review's Codex launch judges every command with the publish rule.
+                    publish_command=(publish_hook(self.root) if publishing_denied(spec)
+                                     and lane.provider == "codex" else None))
             resume = None
             if turn_block is not None:
                 guard = None
@@ -9996,10 +10027,15 @@ class Daemon:
         qos, qos_reason = self._launch_qos(job)
         if scheduler.requested_qos(job) == "default":
             self.log.info("attempt %s: %s", a["attempt_id"], qos_reason)
+        # C-31.17: a credit launch's key goes to its guardian as the gate's frame, never
+        # in the environment or argv above; every other launch sends no frame.
+        key = self._credit_key(lane, credential_env, turn=turn_block is not None)
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(adir),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
                    "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]
+        if key is not None:
+            command.append("--key-frame")
         if launch.stdin_path:
             command += ["--stdin-path", launch.stdin_path]
         if turn_block is not None:
@@ -10041,7 +10077,7 @@ class Daemon:
                         evidence["responsible_root"] = root
                         tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                                    (json.dumps(evidence), a["attempt_id"]))
-            os.write(write_fd, b"1")
+            self._open_gate(write_fd, key)
         except (OSError, procs.InspectionError) as exc:
             # Closing the gate guarantees an unrecorded guardian cannot launch.
             os.close(write_fd)

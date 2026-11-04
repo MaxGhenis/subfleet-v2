@@ -763,7 +763,8 @@ CALL_SITES = {
     ("subfleet/guard/preflight.py", "preflight"):
         "daemon: parent is ProviderEnvironment.assemble's, " + SCOPE.format("Daemon._run_worker, Timers._run_worker")
         + "; " + CLI.format("doctor --live"),
-    ("subfleet/guardian.py", "run_guardian"): "the guardian process: its parent is the daemon's withheld launch env",
+    # C-31.17: run_guardian's released half, split out so the gate's key is wiped in one place.
+    ("subfleet/guardian.py", "_run_released"): "the guardian process: its parent is the daemon's withheld launch env",
     ("subfleet/provider_env.py", "ProviderEnvironment.assemble"):
         "explicit withheld=; " + SCOPE.format("many") + "; " + CLI.format("doctor"),
     ("subfleet/retention_git.py", "environment"):

@@ -229,9 +229,11 @@ def _launch(provider: str, tmp_path: Path, key_in_env_add: str | None) -> tuple[
        daemon_has_key=st.booleans(), passed=st.booleans(), leaked=st.booleans())
 def test_only_a_credit_launch_carries_anthropic_api_key_and_only_its_own(provider, daemon_has_key, passed, leaked,
                                                                          tmp_path):
-    """Invariant 1: for any daemon environment, including one that sets
+    """Invariant 1, C-31.17: for any daemon environment, including one that sets
     `ANTHROPIC_API_KEY`, and a policy that passes it, a credit launch carries
-    exactly its resolved key, and no other launch carries the variable."""
+    exactly its resolved key, as its launch gate's frame, and no other launch
+    carries one. No launch's environment carries the variable, a credit launch's
+    included, whatever its additions name (a leaked env_add)."""
     parent = {"PATH": "/usr/bin:/bin", **({"ANTHROPIC_API_KEY": DAEMON_KEY} if daemon_has_key else {})}
     policy = {"providers": {"codex": {"ca_bundle": None}},
               **({"env": {"pass": ["ANTHROPIC_API_KEY"]}} if passed else {})}
@@ -239,14 +241,30 @@ def test_only_a_credit_launch_carries_anthropic_api_key_and_only_its_own(provide
         patch.setattr(os, "environ", parent)
         daemon = Daemon.__new__(Daemon)
         daemon._provider_environment = ProviderEnvironment(policy)
-        # A non-credit launch whose additions name the variable (a leaked env_add) loses it too.
         key = KEY if provider == "claude-api" else (DAEMON_KEY if leaked else None)
         lane_row, launch = _launch(provider, tmp_path, key)
         environment = daemon._launch_environment(lane_row, launch)
+        # What resolution hands the daemon: the credit key for a credit lane, and for
+        # the others whatever a leaked credential map would hold.
+        credential_env = {"ANTHROPIC_API_KEY": key} if key else {}
+        framed = Daemon._credit_key(lane_row, credential_env)
+    assert "ANTHROPIC_API_KEY" not in environment
+    assert DAEMON_KEY not in environment.values() and KEY not in environment.values()
+    read, write = os.pipe()
+    try:
+        Daemon._open_gate(write, framed)
+        os.close(write)
+        write = -1
+        gate = b"".join(iter(lambda: os.read(read, 65536), b""))
+    finally:
+        os.close(read)
+        if write >= 0:
+            os.close(write)
     if provider == "claude-api":
-        assert environment.get("ANTHROPIC_API_KEY") == KEY
+        assert framed == KEY
+        assert gate == b"1" + len(KEY).to_bytes(4, "big") + KEY.encode()
     else:
-        assert "ANTHROPIC_API_KEY" not in environment
+        assert framed is None and gate == b"1"
 
 
 def test_a_credit_launch_never_runs_the_claude_binary(tmp_path):

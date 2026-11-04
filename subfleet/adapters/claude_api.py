@@ -12,6 +12,11 @@ a process, never reads the store and never runs the `claude` binary
 (invariant 1). The daemon hands it what only the store knows, as attributes:
 `credit_policy` (the policy's `claude_api` section) and `credit_budget` (the
 lane's credit, ledger and grants in flight, C-31.4).
+
+C-31.17: the launch carries no key. The adapter checks that the lane's resolved
+key is there and fits the launch gate's frame; the daemon sends it to the
+guardian behind the gate's release byte, and the guardian hands it to the
+harness through a pipe it names with `--key-fd <n>`, appended to this argv.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterator
 
-from .. import credit_lane
+from .. import credit_lane, key_frame
 from ..contracts import (
     API_PROVIDER, GUESSED_CLOSURE_S, IDENTITY_EVIDENCE, Attestation, AttestationResult, ClockSource, Closure,
     ClosureReason, Credential, ExitInfo, IdentityStatus, JobSpec, Lane, LaneInfo, Launch, Outcome, OutcomeClass,
@@ -38,8 +43,8 @@ from .base import Adapter, AdapterError, open_stream
 #: C-31.7's harness module, run with `-I` so no PYTHON* variable or user site reaches it.
 HARNESS_MODULE = "subfleet.api_agent"
 #: C-31.1: the variables the interface removes from every credit launch. The
-#: daemon's `_launch_environment` removes `ANTHROPIC_API_KEY` too, then puts back
-#: only this launch's resolved credit key.
+#: daemon's `_launch_environment` removes `ANTHROPIC_API_KEY` too, from every
+#: launch: a credit key reaches its harness only through pipes (C-31.17).
 ENV_REMOVE = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CODEX_API_KEY",
               "OPENAI_API_KEY")
 #: C-31.4: the policy defaults, when a policy predates the `claude_api` section.
@@ -221,11 +226,19 @@ class ClaudeApiAdapter(Adapter):
         if job.kind == "turn":
             raise AdapterError("an API credit lane cannot run a conversation turn", code=7,
                                fix="continue the conversation on its own provider", reason="api-turn")
-        key = credential_env.get("ANTHROPIC_API_KEY")
+        key = credential_env.get(key_frame.CREDENTIAL_NAME)
         if not key:
             # Invariant 1: a credit launch carries its lane's resolved credit key or none starts.
             raise credit_lane.refused("an API credit lane launches only with its resolved credit key",
                                       "resolve the lane's credential with credentials.resolve_credential")
+        try:
+            # C-31.17: the daemon hands the key over as the launch gate's frame; one that
+            # cannot be framed refuses here, before any process starts.
+            key_frame.wipe(key_frame.encode(key))
+        except key_frame.FrameError:
+            raise credit_lane.refused("an API credit lane's key must be printable ASCII of at most "
+                                      f"{key_frame.MAX_KEY_BYTES} bytes",
+                                      "store the plan's Console API key with `claude-credits add`") from None
         hooks = parse_guard(guard_override)
         if sandbox == Sandbox.WORKSPACE_WRITE and not hooks.get("guard_hook"):
             raise AdapterError("Writable credit-lane jobs require the never-rules guard", code=7,
@@ -253,9 +266,11 @@ class ClaudeApiAdapter(Adapter):
             argv += ["--publish-hook", hooks["publish_hook"]]
         if resume:
             argv.append("--resume")
-        # The daemon sets TMPDIR itself; names the policy's `env.pass` selected ride along, as on Codex.
-        env = {**{name: value for name, value in credential_env.items() if name != "TMPDIR"},
-               "ANTHROPIC_API_KEY": key, "SUBFLEET_API_LANE": lane.lane_id}
+        # The daemon sets TMPDIR itself; names the policy's `env.pass` selected ride along, as on
+        # Codex. C-31.17: the key does not: the daemon frames it from `credential_env`.
+        env = {**{name: value for name, value in credential_env.items()
+                  if name not in ("TMPDIR", key_frame.CREDENTIAL_NAME)},
+               "SUBFLEET_API_LANE": lane.lane_id}
         notes = {"capability": launch_capability(API_PROVIDER, sandbox).value, "sandbox": sandbox.value,
                  "attempt_id": attempt_id, "lane_id": lane.lane_id, "identity": lane.identity, "label": lane.label,
                  "model_requested": model_id, "renews_day": renews_day, "max_turns": turns, **record}
@@ -266,7 +281,8 @@ class ClaudeApiAdapter(Adapter):
     def build_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                      credential_env: dict[str, str], model_id: str, effort: str | None,
                      prompt_path: Path, guard_override: str | None) -> Launch:
-        """C-31.1: exactly the interface's argv, `env_add` and `env_remove`."""
+        """C-31.1, C-31.17: exactly the interface's argv (the guardian appends `--key-fd
+        <n>`), `env_add` (the lane id, never the key) and `env_remove`."""
         return self._launch(job, attempt_id, attempt_dir, lane, credential_env, model_id, effort, prompt_path,
                             guard_override, resume=False)
 

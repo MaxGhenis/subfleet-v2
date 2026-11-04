@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import hashlib
 import json
@@ -15,7 +16,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import procs
+from . import key_frame, procs
 from .procs import boot_id, proc_start
 from .contracts import EXIT_SETTLE_S
 from .launch_env import build_environment, valid_name
@@ -62,6 +63,49 @@ ABANDON_NAME = "abandon.json"
 # could not be spawned leaves (a reader that predates `abandoned` sees exactly that:
 # nothing ran), with `abandoned` saying why and at which check ("gate" or "spawn").
 ABANDONED_RC = 127
+# C-31.17: the gate refused, so nothing ran: no release, or a key frame that did not
+# arrive whole. The guardian ends at once, before it writes a file.
+GATE_REFUSED_RC = 127
+# C-31.17: the provider argument that names the descriptor of a credit lane's key, which
+# the guardian appends to the provider's argv when the daemon sent a key frame.
+KEY_FD_ARG = "--key-fd"
+
+
+def read_gate(launch_fd: int, *, key_expected: bool) -> tuple[bool, bytearray | None]:
+    """C-4.2, C-31.17: the launch gate's release byte and, when `key_expected`, the key
+    frame after it. Returns (released, key). The gate is refused (released False, no key)
+    on any byte but b"1", and on a frame that `key_frame.read_frame` refuses: missing,
+    cut short, empty or over its bound. The descriptor is closed either way."""
+    key = None
+    try:
+        released = os.read(launch_fd, 1) == b"1"
+        if released and key_expected:
+            try:
+                key = key_frame.read_frame(launch_fd)
+            except key_frame.FrameError:
+                released = False
+    finally:
+        os.close(launch_fd)
+    return released, key
+
+
+def key_pipe(key: bytearray) -> int:
+    """C-31.17: a new pipe holding the key's frame, its write end already closed; returns
+    the read end, which the provider inherits. The frame is at most 4 KiB plus its length,
+    well inside a pipe's buffer, so the write never waits for a reader."""
+    frame = key_frame.frame(key)
+    try:
+        read_end, write_end = procs.pipe_above_stdio()
+        try:
+            key_frame.write_all(write_end, frame)
+        except BaseException:
+            os.close(read_end)
+            raise
+        finally:
+            os.close(write_end)
+    finally:
+        key_frame.wipe(frame)
+    return read_end
 
 
 def provider_qos(requested: str = PROVIDER_QOS) -> str | None:
@@ -231,30 +275,71 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                  stdin_path: str | None, stdout_path: str, stderr_path: str,
                  start_delay_s: float = 0, launch_fd: int | None = None,
                  control_socket: str | None = None, relay_peer_lock: str | None = None,
-                 env_pass: tuple[str, ...] = (), qos_request: str = PROVIDER_QOS) -> int:
+                 env_pass: tuple[str, ...] = (), qos_request: str = PROVIDER_QOS,
+                 key_expected: bool = False) -> int:
     """Run argv in a new session, writing start before spawn and exit after wait.
 
     With `control_socket`, the child's stdin is a pipe fed only through the relay
     (C-26.4): the socket is bound before `start.json` names it, and frames are
     applied once each, in order, logged to `stdin.jsonl`. `qos_request` is the
     daemon's `--provider-qos` (C-5.1, D-QOS-BOOKED1); `start.json` records the QoS
-    the provider was given as `provider_qos`, `utility` or `inherit`."""
+    the provider was given as `provider_qos`, `utility` or `inherit`.
+
+    `key_expected` (`--key-frame`, C-31.17): an API credit lane's key follows the
+    release byte on the launch pipe as one frame. It is held in memory only, handed
+    to the provider through a pipe of its own named by `--key-fd <n>`, and
+    overwritten once the provider is spawned (or nothing is)."""
     os.umask(0o077)
     os.setsid()
     # Keep the leader alive while a child ignores TERM, so the daemon can
     # recheck the recorded leader before escalating to SIGKILL (C-5.4/5.6).
     signal.signal(signal.SIGTERM, lambda *_: None)
     signal.signal(signal.SIGINT, lambda *_: None)
+    key = None
     if launch_fd is not None:
         # The daemon releases this gate only after committing the guardian
         # identity and starting state. EOF after a daemon crash cannot spawn
-        # an unrecorded provider from a reserved attempt (C-4.2).
-        try:
-            released = os.read(launch_fd, 1) == b"1"
-        finally:
-            os.close(launch_fd)
+        # an unrecorded provider from a reserved attempt (C-4.2). C-31.17: nor
+        # can a key frame that did not arrive whole, on the same path.
+        released, key = read_gate(launch_fd, key_expected=key_expected)
         if not released:
-            return 127
+            return GATE_REFUSED_RC
+    elif key_expected:
+        return GATE_REFUSED_RC              # a key arrives only behind the launch gate
+    try:
+        return _run_released(argv, attempt_dir=attempt_dir, cwd=cwd, stdin_path=stdin_path,
+                             stdout_path=stdout_path, stderr_path=stderr_path, start_delay_s=start_delay_s,
+                             control_socket=control_socket, relay_peer_lock=relay_peer_lock,
+                             env_pass=env_pass, qos_request=qos_request, key=key)
+    finally:
+        if key is not None:
+            key_frame.wipe(key)
+
+
+@contextlib.contextmanager
+def key_handoff(argv: list[str], key: bytearray | None):
+    """The provider's argv and the descriptors it inherits, for the one spawn inside this
+    block. With a credit lane's key (C-31.17), a new pipe holds the key's frame, its read
+    end is inherited and named in the argv (`--key-fd <n>`), and on leaving the block,
+    as soon as the spawn returns or fails, that end is closed and the key overwritten: the
+    guardian holds neither past the spawn. Without a key, argv as given and none."""
+    if key is None:
+        yield list(argv), ()
+        return
+    key_fd = None
+    try:
+        key_fd = key_pipe(key)
+        yield [*argv, KEY_FD_ARG, str(key_fd)], (key_fd,)
+    finally:
+        if key_fd is not None:
+            os.close(key_fd)
+        key_frame.wipe(key)
+
+
+def _run_released(argv: list[str], *, attempt_dir: Path, cwd: str, stdin_path: str | None, stdout_path: str,
+                  stderr_path: str, start_delay_s: float, control_socket: str | None,
+                  relay_peer_lock: str | None, env_pass: tuple[str, ...], qos_request: str,
+                  key: bytearray | None) -> int:
     attempt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     began = time.monotonic()
     marker = abandoned(attempt_dir)
@@ -293,14 +378,15 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
             if relay is not None:
                 relay.stop()
             return _abandon(attempt_dir, marker, started, "spawn")
-        command = provider_argv(argv, qos)
         child_env = build_environment(removals=(LINGER_SETTLE_ENV,), pass_names=env_pass)
         try:
             with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
                 if relay is not None:
                     read_end, write_end = os.pipe()
                     try:
-                        child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr, env=child_env)
+                        with key_handoff(argv, key) as (provider_args, passed):
+                            child = subprocess.Popen(provider_argv(provider_args, qos), cwd=cwd, stdin=read_end,
+                                                     stdout=stdout, stderr=stderr, env=child_env, pass_fds=passed)
                     except OSError:
                         os.close(write_end)
                         raise
@@ -318,7 +404,9 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                         # credential lookup and worker queueing (C-23.19).
                         if os.environ.get("SUBFLEET_PROBE"):
                             _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
-                        child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr, env=child_env)
+                        with key_handoff(argv, key) as (provider_args, passed):
+                            child = subprocess.Popen(provider_argv(provider_args, qos), cwd=cwd, stdin=stdin,
+                                                     stdout=stdout, stderr=stderr, env=child_env, pass_fds=passed)
                         rc = child.wait()
                         finished_at, ended = _utc(), time.monotonic()
         except OSError as exc:
@@ -360,6 +448,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stderr-path", "--stderr", required=True)
     parser.add_argument("--start-delay-s", type=float, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--launch-fd", type=int, help=argparse.SUPPRESS)
+    # C-31.17: an API credit lane's key follows the release byte on --launch-fd as one frame.
+    parser.add_argument("--key-frame", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--control-socket")
     parser.add_argument("--relay-peer-lock", help="accept relay connections only from the daemon this lock names")
     parser.add_argument("--env-pass", action="append", default=[], metavar="NAME",
@@ -378,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
                       stderr_path=args.stderr_path, start_delay_s=args.start_delay_s,
                       launch_fd=args.launch_fd, control_socket=args.control_socket,
                       relay_peer_lock=args.relay_peer_lock, env_pass=tuple(args.env_pass),
-                      qos_request=args.provider_qos)
+                      qos_request=args.provider_qos, key_expected=args.key_frame)
     if rc < 0:
         # Preserve subprocess's signal returncode as well as the raw receipt.
         if -rc not in {signal.SIGKILL, signal.SIGSTOP}:
