@@ -4207,6 +4207,8 @@ class Daemon:
         return environment.withheld() if environment is not None else frozenset()
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
+        if lane.provider != API_PROVIDER:
+            return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
         # C-31.2: a credit lane's key resolves only for its own enrolled organization,
         # and never for one the live policy denies. A Daemon assembled without
         # `__init__` (unit tests build one by hand) has no policy, so denies none.

@@ -264,3 +264,29 @@ def test_a_credit_launch_never_runs_the_claude_binary(tmp_path):
                                   "claude-opus-5-5", None, prompt, None)
     assert launch.argv[1:4] == ("-I", "-m", "subfleet.api_agent")
     assert all(os.path.basename(arg) != "claude" for arg in launch.argv)
+
+
+def test_the_daemon_resolves_a_credit_key_for_the_lanes_own_organization_only(monkeypatch):
+    """C-31.2: the daemon hands resolution the lane's identity and the live policy's
+    denied organizations; a subscription lane's call is unchanged."""
+    from subfleet import daemon as daemon_module
+    calls = []
+
+    def resolve(credential, **keywords):
+        calls.append((credential.provider, keywords))
+        return {"ANTHROPIC_API_KEY": KEY} if credential.provider == "claude-api" else {}
+
+    monkeypatch.setattr(daemon_module, "resolve_credential", resolve)
+    daemon = Daemon.__new__(Daemon)
+    daemon._provider_environment = ProviderEnvironment({"providers": {"codex": {"ca_bundle": None}}})
+    daemon.policy = {"claude_api": {"denied_org_ids": ["00000000-0000-4000-8000-00000000000b"]}}
+    credit = Lane("claude-api-1", "claude-api", "claude-api:plan@example.org",
+                  Credential("claude-api", "claude-api-plan@example.org", "keychain-token"), None, LaneOwner.V2,
+                  False, identity=ORG)
+    claude = Lane("claude-1", "claude", "claude:x", Credential("claude", "claude-quota-x@example.org",
+                                                               "keychain-token"), None, LaneOwner.V2, False)
+    assert daemon._credential_environment(credit) == {"ANTHROPIC_API_KEY": KEY}
+    daemon._credential_environment(claude)
+    assert calls == [("claude-api", {"identity": ORG,
+                                     "denied_org_ids": frozenset({"00000000-0000-4000-8000-00000000000b"})}),
+                     ("claude", {})]
