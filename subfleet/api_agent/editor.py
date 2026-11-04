@@ -19,7 +19,7 @@ from pathlib import Path
 
 from subfleet.api_agent import hooks
 from subfleet.api_agent.prompt import VIEW_MAX_CHARS
-from subfleet.api_agent.sandbox import Layout
+from subfleet.api_agent.sandbox import Layout, within
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 LIST_DEPTH = 2
@@ -40,6 +40,19 @@ class _Refused(Exception):
         super().__init__(text)
         self.text = text
         self.denied = denied
+
+
+def _is_link(exc: OSError, name: str, dir_fd: int | None = None) -> bool:
+    """Whether opening `name` with O_NOFOLLOW failed because it is a symlink: ELOOP,
+    or ENOTDIR with O_DIRECTORY, as macOS answers for a link to a folder."""
+    if exc.errno == errno.ELOOP:
+        return True
+    if exc.errno != errno.ENOTDIR:
+        return False
+    try:
+        return stat.S_ISLNK(os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode)
+    except OSError:
+        return False
 
 
 def _real_of_fd(fd: int) -> Path:
@@ -112,17 +125,49 @@ class Editor:
         except UnicodeDecodeError:
             raise _Refused(f"{real} is not UTF-8 text") from None
 
-    def _write_text(self, real: Path, text: str, *, create: bool) -> None:
+    def _open_folder(self, real: Path, *, create: bool) -> int:
+        """A descriptor for the folder `real` goes in. The walk starts at the writable
+        root that holds it and opens one component at a time without following a
+        link, making missing folders on the way when `create`, so a folder swapped
+        for a link after the path check stops the walk instead of leading it out."""
         parent = real.parent
-        if create:
-            try:
-                parent.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
-                raise _Refused(f"cannot create {parent}: {exc.strerror}") from None
+        roots = [root for root in (self._layout.tmp, self._layout.workdir, self._layout.attempt)
+                 if within(parent, root)]
+        if not roots:
+            raise _Refused(f"{real} is not in a writable folder", denied=True)
+        root = max(roots, key=lambda path: len(path.parts))
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
         try:
-            dfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            fd = os.open(root, flags)
         except OSError as exc:
-            raise _Refused(f"cannot open {parent}: {exc.strerror}") from None
+            if _is_link(exc, str(root)):
+                raise _Refused(f"{root} changed into a link", denied=True) from None
+            raise _Refused(f"cannot open {root}: {exc.strerror}") from None
+        try:
+            for part in parent.relative_to(root).parts:
+                if create:
+                    try:
+                        os.mkdir(part, 0o777, dir_fd=fd)
+                    except FileExistsError:
+                        pass
+                    except OSError as exc:
+                        raise _Refused(f"cannot create {parent}: {exc.strerror}") from None
+                try:
+                    child = os.open(part, flags, dir_fd=fd)
+                except OSError as exc:
+                    if _is_link(exc, part, fd):
+                        raise _Refused(f"{parent} changed into a link while it was being opened",
+                                       denied=True) from None
+                    raise _Refused(f"cannot open {parent}: {exc.strerror}") from None
+                os.close(fd)
+                fd = child
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+
+    def _write_text(self, real: Path, text: str, *, create: bool) -> None:
+        dfd = self._open_folder(real, create=create)
         try:
             target = _real_of_fd(dfd) / real.name
             if not self._layout.writable(target):

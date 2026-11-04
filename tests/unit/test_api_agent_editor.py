@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from subfleet.api_agent import cli, hooks, sandbox
-from subfleet.api_agent.editor import Editor
+from subfleet.api_agent.editor import Editor, _Refused
 
 
 @pytest.fixture
@@ -85,6 +85,20 @@ def test_a_symlink_that_leaves_the_worktree_is_refused(roots):
     assert not (outside / "new.txt").exists()
 
 
+def test_a_folder_swapped_for_a_link_after_the_check_leads_nowhere(roots):
+    """A background job in the shell could swap a folder for a symlink between the
+    path check and the write. The editor walks down to the target's folder without
+    following a link, so it neither writes outside nor makes folders there."""
+    editor, _ = make(roots)
+    work, _, outside = roots
+    real = Path(os.path.realpath(work)) / "a" / "b" / "new.txt"  # what the check resolved
+    (work / "a").symlink_to(outside)  # the swap
+    with pytest.raises(_Refused) as refused:
+        editor._write_text(real, "pwned\n", create=True)
+    assert refused.value.denied
+    assert sorted(path.name for path in outside.iterdir()) == ["secret.txt"]
+
+
 def test_a_symlink_inside_the_worktree_works(roots):
     editor, _ = make(roots)
     work = roots[0]
@@ -117,6 +131,10 @@ def test_create_overwrites_with_a_backup_and_makes_folders(roots):
     assert (work / "a.txt").read_text() == "replaced\n"
     backups = list((layout.control / "backups").iterdir())
     assert [path.read_text() for path in backups] == ["one\ntwo\nthree\n"]
+    for folder in (layout.tmp, layout.attempt):  # the other writable roots, nested
+        made = editor.run({"command": "create", "path": str(folder / "x" / "y" / "n.txt"), "file_text": "n\n"})
+        assert not made.is_error, made.text
+        assert (folder / "x" / "y" / "n.txt").read_text() == "n\n"
 
 
 def test_str_replace_needs_exactly_one_match(roots):
