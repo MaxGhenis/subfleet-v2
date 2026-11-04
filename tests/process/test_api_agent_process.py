@@ -15,9 +15,11 @@ import json
 import os
 import secrets
 import shlex
+import signal
 import stat
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -100,11 +102,13 @@ def script(path: Path, body: str) -> Path:
     return path
 
 
-def launch(root: Path, fake: FakeAnthropic, *, job: str = "Do the job.", sandbox: str = "workspace-write",
-           guard: bool = True, publish: bool = False, network: bool = False, max_usd: float = 25,
-           max_turns: int = 400, model: str = "claude-opus-5-5", effort: str = "high", resume: bool = False,
-           env: dict | None = None, attempt_name: str = "a1", guard_body: str | None = None,
-           wrapper: list[str] | None = None, drop_env: tuple[str, ...] = ()) -> Run:
+def prepare(root: Path, fake: FakeAnthropic, *, job: str = "Do the job.", sandbox: str = "workspace-write",
+            guard: bool = True, publish: bool = False, network: bool = False, max_usd: float = 25,
+            max_turns: int = 400, model: str = "claude-opus-5-5", effort: str = "high", resume: bool = False,
+            env: dict | None = None, attempt_name: str = "a1", guard_body: str | None = None,
+            wrapper: list[str] | None = None,
+            drop_env: tuple[str, ...] = ()) -> tuple[list[str], dict[str, str], Path, Path]:
+    """The harness's argv and environment for one launch, and its worktree and attempt folder."""
     work = root / "work"
     attempt = root / "job" / attempt_name
     work.mkdir(parents=True, exist_ok=True)
@@ -129,8 +133,13 @@ def launch(root: Path, fake: FakeAnthropic, *, job: str = "Do the job.", sandbox
     environment.update(env or {})
     for name in drop_env:
         environment.pop(name, None)
-    proc = subprocess.run([*(wrapper or []), *argv], env=environment, capture_output=True, timeout=TIMEOUT_S,
-                          cwd=root, stdin=subprocess.DEVNULL)
+    return [*(wrapper or []), *argv], environment, work, attempt
+
+
+def launch(root: Path, fake: FakeAnthropic, **options) -> Run:
+    argv, environment, work, attempt = prepare(root, fake, **options)
+    proc = subprocess.run(argv, env=environment, capture_output=True, timeout=TIMEOUT_S, cwd=root,
+                          stdin=subprocess.DEVNULL)
     return Run(proc, attempt, work, root)
 
 
@@ -506,3 +515,42 @@ def test_the_shell_cannot_read_credential_stores(tmp_path):
     assert "READ " not in output, output
     assert all(f"refused {relative}" in output for relative in CREDENTIAL_FILES), output
     assert "plain notes" in output
+
+
+def test_sigterm_kills_the_shell_and_writes_no_end(tmp_path):
+    """C-31.16: SIGTERM, the guardian's stop, ends the harness with exit 1 and no `end`
+    event, after it kills the shell's process group (a background job included) and
+    removes the private TMPDIR."""
+    command = "sleep 300 & echo $! > sleep.pid; wait"
+    with FakeAnthropic([Reply([bash("t1", command)], "tool_use")]) as fake:
+        argv, environment, work, attempt = prepare(tmp_path, fake)
+        proc = subprocess.Popen(argv, env=environment, cwd=tmp_path, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            pid_file = work / "sleep.pid"
+            deadline = time.monotonic() + TIMEOUT_S
+            while proc.poll() is None and not (pid_file.exists() and pid_file.read_text().strip()):
+                assert time.monotonic() < deadline, "the tool call never started"
+                time.sleep(0.2)
+            assert proc.poll() is None, proc.communicate()[1].decode()[-2000:]
+            sleeper = int(pid_file.read_text())
+            assert (attempt / "tmp").is_dir()
+            proc.send_signal(signal.SIGTERM)
+            _, err = proc.communicate(timeout=120)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.communicate()
+    assert proc.returncode == 1, err.decode()[-2000:]
+    kinds = [json.loads(line)["type"] for line in (attempt / "stream.jsonl").read_text().splitlines()]
+    assert kinds == ["start", "response"], kinds
+    assert not (attempt / "tmp").exists()
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            os.kill(sleeper, 0)
+        except ProcessLookupError:
+            break
+        assert time.monotonic() < deadline, "the shell's background job outlived the harness"
+        time.sleep(0.2)
+    assert_no_key("stderr", err)
