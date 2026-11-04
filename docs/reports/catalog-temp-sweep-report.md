@@ -108,96 +108,19 @@ All 12 completed shards are recorded below. The full suite is **not green**.
 
 Aggregate shard wall time: 7316.00 s. Affected modules in this full-suite run: 166 passed.
 
-Failure/error cases by module (counts include propagated fixture errors):
+Failure/error cases by area (including propagated fixture errors):
 
-- `tests.fake.test_probe_cancel.TestProbeCancelMachine`: 1.
-- `tests.frontend.test_app_cutover_start`: 13.
-- `tests.frontend.test_conversation_view`: 6.
-- `tests.frontend.test_core_app_cutover_reading`: 15.
-- `tests.frontend.test_core_approval_notification`: 10.
-- `tests.frontend.test_core_approval_reach`: 41.
-- `tests.frontend.test_core_client`: 18.
-- `tests.frontend.test_core_diff`: 7.
-- `tests.frontend.test_core_draft`: 7.
-- `tests.frontend.test_core_idle`: 1.
-- `tests.frontend.test_core_live`: 1.
-- `tests.frontend.test_core_live_failure`: 1.
-- `tests.frontend.test_core_live_steer`: 16.
-- `tests.frontend.test_core_markdown`: 42.
-- `tests.frontend.test_core_outbox`: 13.
-- `tests.frontend.test_core_protocol`: 10.
-- `tests.frontend.test_core_question_card`: 10.
-- `tests.frontend.test_core_queue_engine`: 75.
-- `tests.frontend.test_core_queue_tray`: 69.
-- `tests.frontend.test_core_search`: 20.
-- `tests.frontend.test_core_steer`: 43.
-- `tests.frontend.test_core_steer_properties`: 2.
-- `tests.frontend.test_core_store`: 10.
-- `tests.frontend.test_core_suggestions`: 7.
-- `tests.frontend.test_core_suggestions_r1b`: 4.
-- `tests.frontend.test_core_text_scale`: 7.
-- `tests.frontend.test_core_timeline`: 23.
-- `tests.frontend.test_core_titles`: 1.
-- `tests.frontend.test_disk_ruling`: 8.
-- `tests.frontend.test_menu_view`: 8.
-- `tests.frontend.test_pr124_fixes_ui`: 17.
-- `tests.frontend.test_pr124_recovery_properties`: 1.
-- `tests.frontend.test_pr124_review_r2_fixes_ui`: 19.
-- `tests.frontend.test_queue_tray_fix4_mutations`: 4.
-- `tests.frontend.test_queue_tray_notice`: 2.
-- `tests.frontend.test_queue_tray_view`: 18.
-- `tests.frontend.test_reading_view`: 5.
-- `tests.frontend.test_review_pr127_timeline`: 4.
-- `tests.frontend.test_review_pr284_pin`: 16.
-- `tests.frontend.test_review_pr284_r2`: 6.
-- `tests.frontend.test_review_pr284_resizes`: 3.
-- `tests.frontend.test_review_r219_fix10_view`: 40.
-- `tests.frontend.test_review_r219_fix11_view`: 6.
-- `tests.frontend.test_review_r219_fix12_view`: 9.
-- `tests.frontend.test_review_r219_fix13_view`: 8.
-- `tests.frontend.test_review_r219_fix14_setup`: 4.
-- `tests.frontend.test_review_r219_fix4`: 39.
-- `tests.frontend.test_review_r219_fix6`: 7.
-- `tests.frontend.test_review_r219_fix8_engine`: 8.
-- `tests.frontend.test_review_r219_fix8_mutations`: 22.
-- `tests.frontend.test_review_r219_fix8_view`: 6.
-- `tests.frontend.test_review_r219_fix9_view`: 3.
-- `tests.frontend.test_review_r219_probes`: 23.
-- `tests.frontend.test_status_model`: 26.
-- `tests.frontend.test_visual_progress`: 5.
-- `tests.frontend.test_visual_review_fixes`: 43.
-- `tests.frontend.test_visual_round_five`: 9.
-- `tests.frontend.test_visual_round_four`: 20.
-- `tests.frontend.test_visual_round_three`: 24.
-- `tests.frontend.test_visual_round_two`: 83.
-- `tests.frontend.test_visual_snapshots`: 3.
-- `tests.frontend.test_visual_suggestions`: 1.
-- `tests.process.test_census_parent_chain_process`: 3.
-- `tests.process.test_provider_shell_environment`: 2.
-- `tests.unit.test_cpu_scaling`: 1.
-- `tests.unit.test_guard_subfleet_root`: 7.
-- `tests.unit.test_guard_trust`: 1.
-- `tests.unit.test_person_boundary`: 1.
-- `tests.unit.test_person_boundary_identity`: 9.
-- `tests.unit.test_publish_rule_round7`: 6.
-- `tests.unit.test_quar_start1_census`: 3.
-- `tests.unit.test_retention_alternates`: 1.
-- `tests.unit.test_retention_deadline_r2`: 2.
-- `tests.unit.test_retention_dependency_properties`: 4.
-- `tests.unit.test_retention_dependency_units`: 4.
-- `tests.unit.test_retention_git_common_dir`: 4.
-- `tests.unit.test_retention_location_inputs`: 1.
-- `tests.unit.test_retention_location_readable`: 2.
-- `tests.unit.test_retention_location_review_r13`: 4.
-- `tests.unit.test_retention_location_spelling`: 1.
-- `tests.unit.test_retention_pointer_inputs`: 2.
-- `tests.unit.test_retention_pointer_whitespace`: 1.
-- `tests.unit.test_retention_repository_walk`: 25.
-- `tests.unit.test_salvage_unindexable`: 4.
+| Area | Cases |
+| --- | ---: |
+| Frontend compiler/UI checks | 972 |
+| Provider-shell/publication-policy checks | 8 |
+| Retention checks | 51 |
+| Other process, identity, resource, salvage, and fake-probe checks | 22 |
+| Guard-hook checks | 8 |
 
 The first three shards record 968 Swift failure/error cases caused by `xcrun` being denied cache creation directly under the mandated Darwin temp root. Shard 4 has 25 failures in untouched retention repository-walk tests and 2 guard-hook failures plus 5 guard fixture errors. The retention failures are consistent with an allocation error being swallowed before any ambient Git probe; this is an inference from the code and empty probe traces, not a recorded exception or a baseline comparison. The guard failures wrap the 540-second timeout. Later shards include provider-shell/publish-policy failures and explicit temp-path permission denials. No unrelated implementation was changed to conceal these failures, and their unrestricted baseline status was not established.
 
-Final combined focused check: 166 passed. It used the same uv/xdist command with the three affected test modules, `-n 4`, `--timeout=120`, and a fresh `--basetemp "$TASK_TMP/catalog-final-focused"`; results: `$TASK_TMP/catalog-final-focused.xml`, output: `$TASK_TMP/catalog-final-focused.log`.
+Final combined focused check: **166 passed in 90.72 s**. It used the same uv/xdist command with the three affected test modules, `-n 4`, `--timeout=120`, and a fresh `--basetemp "$TASK_TMP/catalog-final-focused"`; results: `$TASK_TMP/catalog-final-focused.xml`, output: `$TASK_TMP/catalog-final-focused.log`.
 
 Full shard logs, JUnit files, and `results.json` are in `$TASK_TMP/catalog-full-suite/`.
 
@@ -217,4 +140,4 @@ No live state or native store was read or changed; no forbidden command, push, d
 
 Why so many catalog runs outlive 60 seconds on a loaded host remains unanswered: this job deliberately does not inspect live processes or stores. Cache loading/decoding, directory walks, provider reads, `ps`, JSON serialization, and a large atomic publish are possible locations; the patch leaves the wall cap, interval, and indexed content unchanged. Host-side timing work can identify the dominant cost separately. Unremovable temps are intentionally retained; their count/size return values describe only successful removals, and a later run retries them.
 
-Report finalized 2026-11-04T23:45:28+00:00. Delivery uses `.git-local` branch `fix/catalog-temp-sweep-217`; the bundle prerequisite is `a8624a4899a2ce40c849cc5c6f7d74a7010f11b5`.
+Report finalized 2026-11-04T23:50:26+00:00. Delivery uses `.git-local` branch `fix/catalog-temp-sweep-217`; the bundle prerequisite is `a8624a4899a2ce40c849cc5c6f7d74a7010f11b5`.
