@@ -56,7 +56,7 @@ HISTORY_MAX_BYTES = 256 << 20
 #: A native session id is the attempt id, `<job>/a<seq>` (C-1.2).
 _ATTEMPT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/a[1-9][0-9]*", re.ASCII)
 #: The `alert` key a refused-by-kind attempt puts in its evidence.
-REFUSED_BY_KIND_ALERT = "credit-refused-by-kind"
+REFUSED_BY_KIND_ALERT = credit_lane.REFUSED_BY_KIND_ALERT
 
 
 def _now() -> dt.datetime:

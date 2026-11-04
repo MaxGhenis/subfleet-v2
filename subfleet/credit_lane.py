@@ -52,6 +52,8 @@ REGISTRY_VARIABLE = "SUBFLEET_API_PLAN_REGISTRY"
 REGISTRY_MAX_BYTES = 1 << 20
 #: C-31.2: every refusal of a credit credential uses this reason.
 REFUSED = "credential-refused"
+#: C-31.4: the alert key of an attempt the harness ended `refused-by-kind`.
+REFUSED_BY_KIND_ALERT = "credit-refused-by-kind"
 
 _LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 #: C-31.2: `claude-api-<email>`, with a plain ASCII address.

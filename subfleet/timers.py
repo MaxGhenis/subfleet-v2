@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from .provider_env import ProviderEnvironment
 from .launch_env import helper_policy
-from . import capacity, claude_cards
+from . import capacity, claude_cards, credit_lane
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import API_PROVIDER, ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
@@ -955,7 +955,20 @@ class Timers:
         overrides = self.actions.override_context()      # read once for every lane (C-3.7)
         overrides['lanes'].update({row['lane_id']: Store.lane_from_row(row) for row in lanes})
         return {'enabled': self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'),
-                'overrides': overrides}
+                'overrides': overrides, 'refused_by_kind': self.refused_by_kind()}
+
+    def refused_by_kind(self):
+        """C-31.4: each API credit lane's latest attempt in the last day that its
+        harness ended `refused-by-kind` (the adapter's `credit-refused-by-kind`
+        alert in the attempt's evidence), by lane id. The lane stays open; the
+        alerts read this (`alerts.evaluate_conditions`)."""
+        since = (self.now() - timedelta(days=1)).isoformat(timespec='seconds').replace('+00:00', 'Z')
+        rows = self.store.query(
+            "SELECT a.lane_id, MAX(a.finished_at) AS at FROM attempts a JOIN lanes l ON l.lane_id=a.lane_id "
+            "WHERE l.provider=? AND a.finished_at>=? "
+            "AND json_extract(a.evidence_json, '$.classification.alert.key')=? GROUP BY a.lane_id",
+            (API_PROVIDER, since, credit_lane.REFUSED_BY_KIND_ALERT))
+        return {row['lane_id']: row['at'] for row in rows}
 
     def merge_lane(self, row):
         """What the last probe found of a lane (`metadata`), laid over its row, as a view has it.
@@ -974,9 +987,12 @@ class Timers:
         for lane in rows['enabled']:
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
         overrides = rows['overrides']
+        refused = rows.get('refused_by_kind') or {}
         full = self.fleet_full(view)
         for row in view['lanes']:
             self.merge_lane(row)
+            if row['lane_id'] in refused:
+                row['credit_refused_by_kind_at'] = refused[row['lane_id']]     # C-31.4
             bound = bindings.get((row['provider'], row['home'] or row['credential_ref']))
             if not row['enabled'] and bound and bound != row['lane_id']:
                 row['superseded_by'] = bound
