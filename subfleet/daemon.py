@@ -4208,9 +4208,11 @@ class Daemon:
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         # C-31.2: a credit lane's key resolves only for its own enrolled organization,
-        # and never for one the live policy denies.
+        # and never for one the live policy denies. A Daemon assembled without
+        # `__init__` (unit tests build one by hand) has no policy, so denies none.
+        denied = credit_lane.denied_org_ids(getattr(self, "policy", None) or {})
         return self._provider_environment.additions(lane.provider, resolve_credential(
-            lane.credential, identity=lane.identity, denied_org_ids=credit_lane.denied_org_ids(self.policy)))
+            lane.credential, identity=lane.identity, denied_org_ids=denied))
 
     def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
         """Every provider launch's environment: no other vendor's credential (D-ENV3).
