@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shlex
 import stat
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from pathlib import Path
 
 import pytest
 
+from subfleet import home_paths
 from subfleet.api_agent import prompt
 from subfleet.api_agent.loop import UNKNOWN_TEXT
 from tests.fake.anthropic_api import (CREDIT_MESSAGE, DEFAULT_ORG, WORKSPACE_MESSAGE, Error, FakeAnthropic,
@@ -39,10 +41,12 @@ def runs(secret: str) -> list[str]:
 
 
 def assert_no_key(label: str, data: str | bytes) -> None:
+    """A failure names the record and counts the runs; it never prints them."""
     text_ = data.decode("utf-8", "replace") if isinstance(data, bytes) else data
-    assert KEY not in text_, f"the key is in {label}"
-    leaked = [run for run in runs(KEY) if run in text_]
-    assert not leaked, f"{len(leaked)} runs of the key are in {label}"
+    whole = KEY in text_
+    assert not whole, f"the key is in {label}"
+    leaked = sum(run in text_ for run in runs(KEY))
+    assert not leaked, f"{leaked} runs of the key are in {label}"
 
 
 GUARD = """#!/bin/bash
@@ -99,7 +103,8 @@ def script(path: Path, body: str) -> Path:
 def launch(root: Path, fake: FakeAnthropic, *, job: str = "Do the job.", sandbox: str = "workspace-write",
            guard: bool = True, publish: bool = False, network: bool = False, max_usd: float = 25,
            max_turns: int = 400, model: str = "claude-opus-5-5", effort: str = "high", resume: bool = False,
-           env: dict | None = None, attempt_name: str = "a1") -> Run:
+           env: dict | None = None, attempt_name: str = "a1", guard_body: str | None = None,
+           wrapper: list[str] | None = None, drop_env: tuple[str, ...] = ()) -> Run:
     work = root / "work"
     attempt = root / "job" / attempt_name
     work.mkdir(parents=True, exist_ok=True)
@@ -112,9 +117,8 @@ def launch(root: Path, fake: FakeAnthropic, *, job: str = "Do the job.", sandbox
     if network:
         argv.append("--network")
     if guard:
-        hook = script(root / "guard.sh", GUARD.format(calls=root / "guard-calls.jsonl",
-                                                      env_dump=root / "guard-env.txt"))
-        argv += ["--guard-hook", str(hook)]
+        body = guard_body or GUARD.format(calls=root / "guard-calls.jsonl", env_dump=root / "guard-env.txt")
+        argv += ["--guard-hook", str(script(root / "guard.sh", body))]
     if publish:
         argv += ["--publish-hook", str(script(root / "publish.sh", PUBLISH))]
     if resume:
@@ -123,8 +127,10 @@ def launch(root: Path, fake: FakeAnthropic, *, job: str = "Do the job.", sandbox
     environment.update({"ANTHROPIC_API_KEY": KEY, "SUBFLEET_API_AGENT_TEST_URL": fake.url,
                         "SUBFLEET_API_LANE": "lane-credit-fixture"})
     environment.update(env or {})
-    proc = subprocess.run(argv, env=environment, capture_output=True, timeout=TIMEOUT_S, cwd=root,
-                          stdin=subprocess.DEVNULL)
+    for name in drop_env:
+        environment.pop(name, None)
+    proc = subprocess.run([*(wrapper or []), *argv], env=environment, capture_output=True, timeout=TIMEOUT_S,
+                          cwd=root, stdin=subprocess.DEVNULL)
     return Run(proc, attempt, work, root)
 
 
@@ -387,3 +393,88 @@ def test_read_only_jobs_write_nothing_in_the_worktree(tmp_path):
     assert results[1]["is_error"]
     assert not (run.work / "made.txt").exists() and not (run.work / "made2.txt").exists()
     assert fake.messages()[0].body["system"] == prompt.system_blocks("read-only", False)
+
+
+# Every session marker `under_pytest` reads (subfleet/home_paths.py).
+SESSION_MARKERS = (home_paths.PYTEST_MARKER, home_paths.PYTEST_SESSION, home_paths.PYTEST_SESSION_ID,
+                   "PYTEST_CURRENT_TEST")
+#: Loopback only: no name resolution (mDNSResponder is a unix socket) and no remote IP.
+LOOPBACK_ONLY = """(version 1)
+(allow default)
+(deny network-outbound)
+(allow network-outbound (remote ip "localhost:*"))
+"""
+RESOLVE = "import socket\ntry:\n    socket.getaddrinfo('api.anthropic.com', 443)\n    print('resolved')\n" \
+          "except OSError:\n    print('refused')\n"
+
+
+def test_outside_a_test_session_neither_the_override_nor_anthropic_base_url_is_used(tmp_path):
+    """C-31.11: without a pytest session's markers, the harness honors neither the test
+    override nor ANTHROPIC_BASE_URL, and sends to https://api.anthropic.com. The
+    harness runs under a loopback-only seatbelt profile, checked first, so those
+    requests fail on this host and none leaves it; both local fakes see nothing."""
+    profile = tmp_path / "loopback-only.sb"
+    profile.write_text(LOOPBACK_ONLY)
+    wrapper = ["/usr/bin/sandbox-exec", "-f", str(profile)]
+    probe = subprocess.run([*wrapper, sys.executable, "-I", "-c", RESOLVE], capture_output=True, text=True,
+                           timeout=120)
+    assert probe.stdout.strip() == "refused", (probe.stdout, probe.stderr)
+    with FakeAnthropic([Reply([text("the override")])]) as fake, \
+            FakeAnthropic([Reply([text("ANTHROPIC_BASE_URL")])]) as decoy:
+        child = {**os.environ, "SUBFLEET_API_AGENT_TEST_URL": fake.url, "ANTHROPIC_BASE_URL": decoy.url}
+        for name in SESSION_MARKERS:
+            child.pop(name, None)
+        assert not home_paths.under_pytest(child)
+        run = launch(tmp_path, fake, env={"ANTHROPIC_BASE_URL": decoy.url}, wrapper=wrapper,
+                     drop_env=SESSION_MARKERS)
+    assert fake.requests == [] and decoy.requests == []
+    assert run.proc.returncode == 1, run.proc.stderr.decode()[-2000:]
+    errors = [event for event in run.events if event["type"] == "error"]
+    assert errors and all(event["error_type"] in ("connection", "timeout") for event in errors), errors
+    assert run.end()["outcome"] == "error" and run.end()["turns"] == 0
+    assert_no_key("stderr", run.proc.stderr)
+
+
+PROCARGS_DUMP = """import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+size = ctypes.c_size_t(os.sysconf("SC_ARG_MAX"))
+buffer = ctypes.create_string_buffer(size.value)
+name = (ctypes.c_int * 3)(1, 49, int(sys.argv[1]))  # CTL_KERN, KERN_PROCARGS2, pid
+if libc.sysctl(name, 3, buffer, ctypes.byref(size), None, 0) != 0:
+    sys.exit(f"sysctl failed: errno {ctypes.get_errno()}")
+open(sys.argv[2], "wb").write(buffer.raw[:size.value])
+print("dumped", size.value)
+"""
+PS_GUARD = """#!/bin/bash
+cat >/dev/null
+/bin/ps -Eww -p "$PPID" >> "{dump}"
+exit 0
+"""
+
+
+def test_no_process_reads_the_key_from_the_harness_exec_environment(tmp_path):
+    """Invariant 6, C-31.12: popping the key from os.environ leaves it in the block
+    the kernel copied at exec, which any process of the same user reads with
+    `sysctl(KERN_PROCARGS2)` (seatbelt does not stop it) or `ps -E`. The harness
+    overwrites it there: a tool inside the sandbox and the guard hook outside it
+    each read the harness's block and find the variable, but neither the key nor
+    any 12-character run of it."""
+    reader = tmp_path / "procargs_dump.py"
+    reader.write_text(PROCARGS_DUMP)
+    command = f"{shlex.quote(sys.executable)} -I {shlex.quote(str(reader))} $PPID harness-procargs.bin"
+    turns = [Reply([bash("t1", command)], "tool_use"), Reply([text("done")])]
+    with FakeAnthropic(turns) as fake:
+        run = launch(tmp_path, fake, guard_body=PS_GUARD.format(dump=tmp_path / "harness-ps.txt"))
+    assert run.proc.returncode == 0, run.proc.stderr.decode()[-2000:]
+    result = fake.messages()[1].body["messages"][2]["content"][0]
+    assert "dumped" in result["content"], result
+    block = (run.work / "harness-procargs.bin").read_bytes()
+    listed = (tmp_path / "harness-ps.txt").read_text()
+    for label, data in (("the sandboxed tool's KERN_PROCARGS2 read", block), ("ps -E from the guard hook", listed)):
+        assert_no_key(label, data)
+    # They read the right process: the variable is there, its value overwritten in place,
+    # and the strings after it are whole.
+    strings = block.split(b"\0")
+    assert b"ANTHROPIC_API_KEY=" + b"*" * (len(KEY)) in strings
+    assert b"SUBFLEET_API_LANE=lane-credit-fixture" in strings
+    assert "ANTHROPIC_API_KEY=" + "*" * len(KEY) in listed

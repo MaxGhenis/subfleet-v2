@@ -15,6 +15,8 @@ import ast
 import json
 import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -347,3 +349,49 @@ def test_layout_writes(tmp_path):
                               environ={"HOME": str(tmp_path)})
     assert not readonly.writable(real / "w" / "x") and readonly.writable(real / "a" / "tmp" / "x")
     assert "network-outbound (remote ip" in sandbox.profile(readonly)
+
+
+# -- the exec-time environment block ------------------------------------------------------------
+EXEC_BLOCK_CHILD = r"""
+import ctypes, json, os, sys
+from subfleet.api_agent import exec_env
+
+def block():
+    libc = ctypes.CDLL(None, use_errno=True)
+    size = ctypes.c_size_t(os.sysconf("SC_ARG_MAX"))
+    buffer = ctypes.create_string_buffer(size.value)
+    name = (ctypes.c_int * 3)(1, 49, os.getpid())  # CTL_KERN, KERN_PROCARGS2
+    assert libc.sysctl(name, 3, buffer, ctypes.byref(size), None, 0) == 0, ctypes.get_errno()
+    return buffer.raw[:size.value].split(b"\0")
+
+before = block()
+count = exec_env.overwrite(lambda name: name.endswith("_SECRET_KEY"))
+after = block()
+print(json.dumps({"count": count, "before": [s.decode("utf-8", "replace") for s in before],
+                  "after": [s.decode("utf-8", "replace") for s in after],
+                  "python": os.environ["SF_ONE_SECRET_KEY"]}))
+"""
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="reads the block with sysctl KERN_PROCARGS2")
+def test_overwrite_hides_secret_values_from_the_exec_block_and_keeps_it_whole():
+    """C-31.12: every named value becomes `*`s of the same length in the block the
+    kernel copied at exec; every other string, and Python's own copy, is unchanged."""
+    secrets_ = {"SF_ONE_SECRET_KEY": "sk-ant-api03-one-" + "A" * 40, "SF_TWO_SECRET_KEY": "two=has=equals",
+                "SF_EMPTY_SECRET_KEY": ""}
+    plain = {"SUBFLEET_ATTEMPT": "job-1/a1", "SF_SECRET_KEY_PREFIXED_NOT": "kept", "SF_UNICODE": "café"}
+    env = {"PATH": "/usr/bin:/bin", **secrets_, **plain}
+    proc = subprocess.run([sys.executable, "-I", "-c", EXEC_BLOCK_CHILD], env=env, capture_output=True,
+                          text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    found = json.loads(proc.stdout)
+    assert found["count"] == 2  # the empty value has nothing to overwrite
+    assert found["python"] == secrets_["SF_ONE_SECRET_KEY"]
+    for name, value in secrets_.items():
+        assert f"{name}={value}" in found["before"]
+        assert f"{name}={'*' * len(value)}" in found["after"]
+        if value:
+            assert f"{name}={value}" not in found["after"] and value not in "\n".join(found["after"])
+    for name, value in plain.items():
+        assert f"{name}={value}" in found["after"]
+    assert len(found["after"]) == len(found["before"])

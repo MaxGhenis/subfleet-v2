@@ -54,11 +54,17 @@ def credential_name(name: str) -> bool:
     return any(word in upper for word in CREDENTIAL_WORDS) or bool(CREDENTIAL_ENV_PATTERN.search(name))
 
 
+def secret_name(name: str) -> bool:
+    """A variable whose value never reaches a tool: the key and every other
+    `ANTHROPIC_*` variable, and every `credential_name`. `__main__` also overwrites
+    these values in the environment block copied at exec (`exec_env`)."""
+    return name.startswith("ANTHROPIC_") or credential_name(name)
+
+
 def tool_environment(launch: Mapping[str, str], tmpdir: Path) -> dict[str, str]:
     """The shell's and the hooks' environment."""
     env = {name: value for name, value in launch.items()
-           if name != "ANTHROPIC_API_KEY" and not credential_name(name) and name not in SHELL_STARTUP
-           and not name.startswith("BASH_FUNC_") and not name.startswith("ANTHROPIC_")}
+           if not secret_name(name) and name not in SHELL_STARTUP and not name.startswith("BASH_FUNC_")}
     env["TMPDIR"] = str(tmpdir)
     return env
 
