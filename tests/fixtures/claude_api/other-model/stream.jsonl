@@ -1,0 +1,3 @@
+{"v": 1, "type": "start", "ts": "2026-11-10T15:00:00Z", "model": "claude-sonnet-5-5", "lane": "claude-api-1", "effort": "high", "sandbox": "read-only"}
+{"v": 1, "type": "response", "ts": "2026-11-10T15:00:04Z", "request_id": "req_fake_01", "model": "claude-haiku-5-5", "org_id": "00000000-0000-4000-8000-00000000000a", "stop_reason": "end_turn", "usage": {"input_tokens": 1200, "output_tokens": 300, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 900}, "usd": 0.012}
+{"v": 1, "type": "end", "ts": "2026-11-10T15:00:05Z", "outcome": "done", "turns": 1, "usd": 0.012}

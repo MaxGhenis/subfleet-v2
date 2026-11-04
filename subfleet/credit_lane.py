@@ -217,17 +217,22 @@ def _usd(value: Any) -> float | None:
     return value if math.isfinite(value) and value >= 0 else None
 
 
-def attempt_charge(evidence: Mapping[str, Any]) -> float:
+def attempt_charge(evidence: Mapping[str, Any], *, started: bool = True) -> float:
     """C-31.4: what an attempt that ended counts for in the ledger.
 
     The `usd` its `end` event reported (`classification.usd`). With no `end`
     event, the larger of the dollars its responses reported and its grant: the
-    harness may have spent up to the grant without saying so."""
+    harness may have spent up to the grant without saying so. An attempt whose
+    harness never started (no guardian, or a spawn error with no response)
+    spent nothing."""
     classification = evidence.get("classification") if isinstance(evidence.get("classification"), Mapping) else {}
     spent = _usd(classification.get("usd"))
     if spent is not None:
         return spent
-    return max(_usd(classification.get("responses_usd")) or 0.0, _usd(evidence.get("credit_grant_usd")) or 0.0)
+    responses = _usd(classification.get("responses_usd")) or 0.0
+    if not started or (classification.get("spawn_error") and not classification.get("responses")):
+        return responses
+    return max(responses, _usd(evidence.get("credit_grant_usd")) or 0.0)
 
 
 def attempt_grant(evidence: Mapping[str, Any]) -> float:
@@ -239,9 +244,9 @@ def spend(attempts: Iterable[Mapping[str, Any]], since: dt.datetime) -> tuple[fl
     """C-31.4: `(ledger, in flight)` in US dollars for the lane's attempts.
 
     Each attempt is `{"finished_at": <ISO instant or None>, "live": bool,
-    "evidence": {...}}`. The ledger sums the charge of every attempt that ended
-    at or after `since`; an attempt that is live or has no end time counts its
-    grant as in flight."""
+    "started": bool, "evidence": {...}}`. The ledger sums the charge of every
+    attempt that ended at or after `since`; an attempt that is live or has no
+    end time counts its grant as in flight."""
     ledger = in_flight = 0.0
     for attempt in attempts:
         evidence = attempt.get("evidence") or {}
@@ -252,12 +257,13 @@ def spend(attempts: Iterable[Mapping[str, Any]], since: dt.datetime) -> tuple[fl
         try:
             ended = dt.datetime.fromisoformat(str(finished).replace("Z", "+00:00"))
         except ValueError:
-            ledger += attempt_charge(evidence)  # an unreadable end time counts: it can only shrink grants
+            # An unreadable end time counts: it can only shrink grants.
+            ledger += attempt_charge(evidence, started=attempt.get("started", True))
             continue
         if ended.tzinfo is None:
             ended = ended.replace(tzinfo=dt.timezone.utc)
         if ended >= since:
-            ledger += attempt_charge(evidence)
+            ledger += attempt_charge(evidence, started=attempt.get("started", True))
     return ledger, in_flight
 
 

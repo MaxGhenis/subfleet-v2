@@ -1,0 +1,4 @@
+{"v": 1, "type": "start", "ts": "2026-11-10T15:00:00Z", "model": "claude-sonnet-5-5", "lane": "claude-api-1", "effort": "high", "sandbox": "read-only"}
+{"v": 1, "type": "error", "ts": "2026-11-10T15:00:02Z", "status": 400, "error_type": "invalid_request_error", "message": "You have reached your specified workspace API usage limits."}
+{"v": 1, "type": "credit", "ts": "2026-11-10T15:00:03Z", "verdict": "workspace-limit", "check_status": 400}
+{"v": 1, "type": "end", "ts": "2026-11-10T15:00:03Z", "outcome": "workspace-limit", "turns": 0, "usd": 0.0}

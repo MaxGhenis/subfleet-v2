@@ -543,6 +543,8 @@ def imported_external(attempt: dict) -> bool:
     except (TypeError, ValueError):
         return False
 LIVE = ("reserved", "starting", "running", "finalizing")
+#: C-31.4: one credit grant at a time is decided and recorded (`Daemon._built`).
+_CREDIT_GRANT_LOCK = threading.Lock()
 WRITE_PREAMBLE = (
     "<!-- subfleet:write -->\n"
     "Work only in the assigned workspace. Preserve existing changes. "
@@ -4052,7 +4054,78 @@ class Daemon:
         environment = getattr(self, "_provider_environment", None)
         if environment is not None:
             adapter.provider_environment = environment
+        if provider == API_PROVIDER:
+            # C-31.4: the adapter never reads policy or store; it is handed its section.
+            adapter.credit_policy = dict((getattr(self, "policy", None) or {}).get("claude_api") or {})
         return adapter
+
+    def _api_guard(self, spec: JobSpec) -> str | None:
+        """C-31.1, C-14.2: the hooks a credit launch hands its harness, as JSON:
+        the trusted never-rules hook from the guard preflight's files, and the
+        review publish hook when C-12.3's rule applies. Either may be missing;
+        the adapter refuses a writable launch that needs one."""
+        hooks: dict[str, str] = {}
+        try:
+            from .guard.preflight import load_guard
+            hooks["guard_hook"] = str(load_guard(self.root)[0])
+        except (ImportError, ValueError, OSError):
+            pass
+        from .review_publish import HOOK_DIRECTORY, install_hook, publishing_denied
+        if publishing_denied(spec):
+            try:
+                hooks["publish_hook"] = str(install_hook(self.root / HOOK_DIRECTORY))
+            except OSError:
+                pass
+        return json.dumps(hooks, sort_keys=True) if hooks else None
+
+    def _credit_budget(self, lane: Lane) -> dict[str, Any]:
+        """C-31.4: the lane's credit, ledger and grants in flight this cycle.
+
+        The ledger spans every lane of the lane's account (`claude-api:<email>`),
+        so a re-enrolled lane keeps its predecessor's spend. The cycle comes from
+        the registry's renewal day, or the trailing 31 days when that is unknown."""
+        row = self.store.one("SELECT account_key,credit_usd FROM lanes WHERE lane_id=?", (lane.lane_id,))
+        email = credit_lane.reference_email(lane.credential.ref)
+        day = credit_lane.renews_day(credit_lane.registry_entry(email, credit_lane.read_registry())) if email else None
+        since = credit_lane.cycle_start(day, datetime.now(timezone.utc))
+        rows = self.store.query(
+            "SELECT a.state,a.guardian_pid,a.finished_at,a.evidence_json FROM attempts a JOIN lanes l "
+            "ON a.lane_id=l.lane_id WHERE l.provider=? AND l.account_key=?",
+            (API_PROVIDER, row["account_key"] if row else credit_lane.account_key(email or "")))
+        ledger, in_flight = credit_lane.spend(
+            ({"live": r["state"] in LIVE, "started": bool(r["guardian_pid"]), "finished_at": r["finished_at"],
+              "evidence": json.loads(r["evidence_json"] or "{}")} for r in rows), since)
+        return {"credit_usd": row["credit_usd"] if row else None, "ledger_usd": ledger, "in_flight_usd": in_flight,
+                "cycle_start": since.isoformat(), "renews_day": day}
+
+    def _built(self, a: dict, lane: Lane, adapter, build: Callable[[], Launch | None]) -> Launch | None:
+        """C-31.4, invariant 8: a credit launch's grant is decided and recorded under one
+        lock, so two launches on the lane never both spend the same remaining budget."""
+        if lane.provider != API_PROVIDER:
+            return build()
+        with _CREDIT_GRANT_LOCK:
+            adapter.credit_budget = self._credit_budget(lane)
+            launch = build()
+            if launch is not None:
+                grant = launch.notes.get("credit_grant_usd")
+                with self.store.transaction("attempt.credit_grant", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                            lane_id=lane.lane_id, data={"credit_grant_usd": grant}) as tx:
+                    found = tx.execute("SELECT evidence_json FROM attempts WHERE attempt_id=?",
+                                       (a["attempt_id"],)).fetchone()
+                    evidence = json.loads((found[0] if found else None) or "{}")
+                    evidence["credit_grant_usd"] = grant
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                               (json.dumps(evidence), a["attempt_id"]))
+            return launch
+
+    def _close_spent_credit(self, lane: Lane, exc: AdapterError) -> str:
+        """C-31.4: a grant under $1 closes the lane for credit until the next renewal."""
+        details = exc.details or {}
+        until = details.get("until_at") or after(86400)
+        self.store.add_closure(Closure(lane.lane_id, "account", until, ClosureReason.CREDITS,
+                                       ClockSource(details.get("clock_source") or ClockSource.GUESSED.value),
+                                       "api-credit:spent"))
+        return until
 
     def _lane_credential_references(self) -> frozenset[str]:
         """D-ENV1: the daemon variables env-kind lanes name; no launch inherits one."""
@@ -6485,7 +6558,9 @@ class Daemon:
         root = job.get("worktree") or job["workdir"]
         workspace = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("workspace") or {}
         prefix = workspace.get("prefix")
-        if provider == "codex" or not prefix or prefix == "." or _outside(prefix):
+        # C-31.1: a credit lane's harness, like Codex, writes only under its working
+        # directory, so it starts at the worktree's top too.
+        if provider in ("codex", API_PROVIDER) or not prefix or prefix == "." or _outside(prefix):
             return root
         # The source's worktree is recorded as the state root was given; the resume's own
         # workdir as submit spells it (`folders.canonical`). `realpath` keeps case, Unicode
@@ -9758,6 +9833,8 @@ class Daemon:
                 # C-12.3: a review's Codex launch judges every command with the publish rule.
                 publish_command=(publish_hook(self.root) if publishing_denied(spec)
                                  and lane.provider == "codex" else None))
+            if lane.provider == API_PROVIDER and not spec.isolated_review and job["kind"] != "turn":
+                guard_override = self._api_guard(spec)   # C-31.1
             resume = None
             if turn_block is not None:
                 guard = None
@@ -9781,18 +9858,26 @@ class Daemon:
                 # being revived. `build_launch` would start a NEW conversation
                 # under a fresh `--session-id`, which looks like a revive and is
                 # not one.
-                launch = adapter.resume_launch(spec, a["attempt_id"], adir, lane,
-                                               credential_env, resume["native_session_id"] if resume else job["caller_session"],
-                                               prompt_path, guard_override, model["id"])
+                launch = self._built(a, lane, adapter, lambda: adapter.resume_launch(
+                    spec, a["attempt_id"], adir, lane, credential_env,
+                    resume["native_session_id"] if resume else job["caller_session"],
+                    prompt_path, guard_override, model["id"]))
                 if launch is None:
                     raise AdapterError(
                         f"{lane.provider} cannot resume a session in place", code=7,
                         fix="use `subfleet sessions handoff` to continue this session", reason="resume-provider",
                         details={"provider": lane.provider})
             else:
-                launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
-                                              model["id"], model.get("effort"), prompt_path, guard_override)
+                launch = self._built(a, lane, adapter, lambda: adapter.build_launch(
+                    spec, a["attempt_id"], adir, lane, credential_env,
+                    model["id"], model.get("effort"), prompt_path, guard_override))
         except AdapterError as exc:
+            if exc.reason == "api-credit-spent" and lane.provider == API_PROVIDER:
+                # C-31.4: no launch; the lane closes for credit and the job is queued
+                # again while it has attempts left, for the chain's next model.
+                until = self._close_spent_credit(lane, exc)
+                self._unlaunched(a, f"the credit lane's cycle budget is spent; it reopens {until}")
+                return
             self._launch_failure(a, self._refused_job(a["job_id"], exc), rc=exc.code)
             return
         except SalvageError as exc:
