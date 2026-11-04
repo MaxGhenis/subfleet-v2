@@ -257,8 +257,8 @@ def test_with_the_timer_off_the_catalog_runs_only_on_request(svc, runs):
 
 
 def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs):
-    """C-30.1: a run alive past three times its own cap is killed by process group, once;
-    a later tick reaps it and the timer carries on."""
+    """C-30.1: a run alive past three times its cap gets SIGTERM, then SIGKILL after
+    its grace; a later tick reaps it and the timer carries on."""
     svc._catalog_tick()
     runs[0].stubborn = True                 # it takes a while to die
     svc.clock.now += service_module.CATALOG_KILL_AFTER_S - 1
@@ -267,7 +267,11 @@ def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs):
     svc.clock.now += 2
     svc._catalog_tick()
     svc._catalog_tick()
-    assert runs[0].signals == [service_module.signal.SIGKILL]
+    assert runs[0].signals == [service_module.signal.SIGTERM]
+    svc.clock.now += service_module.CATALOG_TERM_GRACE_S
+    svc._catalog_tick()
+    svc._catalog_tick()
+    assert runs[0].signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
     runs[0].end(-9)
     svc._catalog_tick()
     assert svc._catalog_proc is not None and len(runs) == 2         # reaped, and the next one due
@@ -319,6 +323,7 @@ def test_close_stops_the_catalog_run_and_starts_none_after(svc, runs, caplog):
     assert runs[0].signals == [service_module.signal.SIGTERM] and runs[0].returncode == -15
     assert svc._catalog_proc is None and svc._catalog_fence is None
     svc.clock.now += 1000
+    caplog.clear()
     with caplog.at_level(logging.WARNING):
         svc._catalog_tick()
         svc.tick()
@@ -340,6 +345,7 @@ def test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm(svc, runs, caplo
 def test_close_kills_a_real_run_that_ignores_sigterm(svc, monkeypatch, tmp_path):
     """C-30.1: the same with a real process: close() returns with it killed and reaped."""
     monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.5)
+    monkeypatch.setattr(service_module, "CATALOG_TERM_GRACE_S", 0.5)
     ready = tmp_path / "ready"
     script = ("import pathlib, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
               "pathlib.Path(sys.argv[1]).touch(); time.sleep(60)")
@@ -462,7 +468,10 @@ def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, mo
                 for run, before in zip(runs, signals):
                     added = run.signals[len(before):]
                     if run in found:
-                        assert added == ([TERM, KILL] if run.stubborn else [TERM]), where
+                        expected = ([TERM] if TERM not in before else [])
+                        if run.stubborn and KILL not in before:
+                            expected.append(KILL)
+                        assert added == expected, where
                     else:
                         assert added == [], where
         finally:

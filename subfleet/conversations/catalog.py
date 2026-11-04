@@ -164,10 +164,38 @@ def _codex_record(path: Path, opener=transcripts.open_regular) -> dict:
             "excluded": bool(excluded), "originator": meta.get("originator")}
 
 
+def sweep_temps(root: Path) -> tuple[int, int]:
+    """Remove dead catalog runs' regular temps in this root, returning count and bytes.
+
+    The caller holds catalog.lock exclusively and has checked its Owner. Only
+    catalog runs use these exact tempfile names. Links and directories stay put;
+    one unreadable or vanished entry must not prevent the rest from being swept.
+    """
+    removed, size = 0, 0
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                if re.fullmatch(r"\.(?:catalog\.json|catalog-cache\.json)-[a-z0-9_]{8}", entry.name) is None:
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    if not stat.S_ISREG(info.st_mode):
+                        continue
+                    os.unlink(entry.path)
+                except OSError:
+                    continue
+                removed += 1
+                size += info.st_size
+    except OSError:
+        pass
+    return removed, size
+
+
 def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None, codex_app_home: Path | None = None,
           wall_s: float = WALL_S, clock=time.monotonic, may_write: Callable[[], bool] | None = None) -> dict:
     """One capped indexing run; returns the catalog it built. `may_write` is asked
-    before each file is published, and once it says no nothing more is (`Owner`)."""
+    before sweeping dead runs' temps and each publish. Once it says no nothing
+    more is removed or published (`Owner`)."""
     root = Path(root)
     cache_path = root / "catalog-cache.json"
     try:
@@ -260,6 +288,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     # resumed in a terminal is no catalog item but is still held (C-26.3).
     catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live),
                "native_records": native_records}
+    if may_write is not None and not may_write():
+        return catalog
+    sweep_temps(root)
     for path, value in ((root / "catalog.json", catalog), (cache_path, fresh if complete else {**cache, **fresh})):
         if may_write is not None and not may_write():
             break
@@ -397,9 +428,15 @@ def _utc() -> str:
 def _atomic(path: Path, value: Any) -> None:
     """Publish into the state root as it stands. Never create it: a run that outlived
     its owner recreated a root the owner had just removed (2026-09-25); now the
-    temporary file cannot be made and the run fails instead."""
+    temporary file cannot be made and the run fails instead. Defer SIGTERM until
+    the publisher has cleaned up: mkstemp returns before its try/finally begins,
+    so a handler raising SystemExit in that gap would otherwise leave a temp."""
     from ..guardian import atomic_publish
-    atomic_publish(path, (json.dumps(value, separators=(",", ":")) + "\n").encode())
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    try:
+        atomic_publish(path, (json.dumps(value, separators=(",", ":")) + "\n").encode())
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 class Owner:

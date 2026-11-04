@@ -18,10 +18,14 @@ FIFO, and the test lets go only after the run has read from it.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import os
+import re
 import select
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -32,6 +36,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import daemon as daemon_module
 from subfleet.conversations import catalog as catalog_module
@@ -317,6 +322,127 @@ def test_the_fence_stays_above_the_standard_streams_whatever_the_service_has_clo
 
 
 @pytest.fixture
+def tracked_catalog(monkeypatch):
+    """A still-unreaped child and a clock the test advances; waiting is always a bug."""
+    clock = SimpleNamespace(now=1000.0)
+    process = SimpleNamespace(pid=4_000_001, returncode=None)
+    process.poll = lambda: process.returncode
+
+    def no_wait(*args, **kwargs):
+        raise AssertionError("the catalog reaper must never wait")
+
+    process.wait = no_wait
+    service = object.__new__(service_module.ConversationService)
+    service._catalog_lock = threading.RLock()
+    service._catalog_proc = process
+    service._catalog_started = clock.now
+    service._catalog_terminated_at = None
+    service._catalog_killed = False
+    service._catalog_fence = None
+    service._closed = False
+    service.clock = lambda: clock.now
+    service.log = logging.getLogger("test-catalog-reaper")
+    signals = []
+    monkeypatch.setattr(service_module.os, "killpg", lambda pid, sig: signals.append((pid, sig, clock.now)))
+    return service, process, clock, signals
+
+
+def test_a_wedged_run_gets_sigterm_then_a_full_grace_before_sigkill(tracked_catalog, caplog):
+    """C-30.1: even a late tick starts a full grace at SIGTERM; no tick ever waits,
+    repeats a signal, or sends one after it has reaped the run's group leader."""
+    service, process, clock, signals = tracked_catalog
+    start = clock.now
+    with caplog.at_level(logging.WARNING, logger="test-catalog-reaper"):
+        clock.now = start + service_module.CATALOG_KILL_AFTER_S - .001
+        service._reap_catalog()
+        assert signals == []
+        clock.now += 100                 # the first late tick can be arbitrarily late
+        terminated_at = clock.now
+        service._reap_catalog()
+        assert signals == [(process.pid, signal.SIGTERM, terminated_at)]
+        service._reap_catalog()          # later invocation, same clock: no immediate kill
+        clock.now += service_module.CATALOG_TERM_GRACE_S - .001
+        service._reap_catalog()
+        assert signals == [(process.pid, signal.SIGTERM, terminated_at)]
+        clock.now = terminated_at + service_module.CATALOG_TERM_GRACE_S
+        service._reap_catalog()
+        assert signals == [(process.pid, signal.SIGTERM, terminated_at),
+                           (process.pid, signal.SIGKILL, clock.now)]
+        clock.now += 1000
+        service._reap_catalog()
+        assert len(signals) == 2
+        process.returncode = -signal.SIGKILL
+        service._reap_catalog()
+        service._reap_catalog()
+        assert service._catalog_proc is None and len(signals) == 2
+    assert len(caplog.records) == 2
+    assert "sending SIGTERM" in caplog.records[0].getMessage()
+    assert "sending SIGKILL" in caplog.records[1].getMessage()
+
+
+def test_a_run_that_unwinds_on_sigterm_is_reaped_without_sigkill(tracked_catalog, caplog):
+    service, process, clock, signals = tracked_catalog
+    clock.now += service_module.CATALOG_KILL_AFTER_S
+    with caplog.at_level(logging.WARNING, logger="test-catalog-reaper"):
+        service._reap_catalog()
+        process.returncode = 128 + signal.SIGTERM
+        clock.now += 1000
+        service._reap_catalog()
+        service._reap_catalog()
+    assert signals == [(process.pid, signal.SIGTERM, 1060.0)]
+    assert service._catalog_proc is None
+    assert len(caplog.records) == 1 and "sending SIGTERM" in caplog.records[0].getMessage()
+
+
+@pytest.mark.parametrize("term_age", [None, 0.0, 4.0, 10.0, 20.0])
+def test_close_honors_the_remaining_sigterm_grace_without_repeating_signals(tracked_catalog, term_age):
+    """Closing during a timed stop preserves the original grace; a new stop gets a
+    full grace. The fake wait advances time without sleeping or signalling a real pid."""
+    service, process, clock, signals = tracked_catalog
+    if term_age is not None:
+        service._catalog_terminated_at = clock.now - term_age
+        signals.append((process.pid, signal.SIGTERM, service._catalog_terminated_at))
+    waits = []
+
+    def wait(timeout):
+        waits.append(timeout)
+        if len(waits) == 1:
+            clock.now += timeout
+            raise subprocess.TimeoutExpired("catalog", timeout)
+        process.returncode = -signal.SIGKILL
+        return process.returncode
+
+    process.wait = wait
+    service._stop_catalog()
+    expected_wait = max(0.0, service_module.CATALOG_TERM_GRACE_S - (term_age or 0.0))
+    assert waits == [expected_wait, service_module.CATALOG_STOP_WAIT_S]
+    assert [sig for _, sig, _ in signals] == [signal.SIGTERM, signal.SIGKILL]
+    assert signals[1][2] - signals[0][2] >= service_module.CATALOG_TERM_GRACE_S
+    assert service._closed and service._catalog_proc is None
+    service._stop_catalog()
+    assert len(signals) == 2 and len(waits) == 2
+
+
+def test_close_after_the_reaper_sent_sigkill_never_repeats_it(tracked_catalog):
+    service, process, clock, signals = tracked_catalog
+    clock.now += service_module.CATALOG_KILL_AFTER_S
+    service._reap_catalog()
+    clock.now += service_module.CATALOG_TERM_GRACE_S
+    service._reap_catalog()
+    waits = []
+
+    def wait(timeout):
+        waits.append(timeout)
+        process.returncode = -signal.SIGKILL
+        return process.returncode
+
+    process.wait = wait
+    service._stop_catalog()
+    assert waits == [service_module.CATALOG_STOP_WAIT_S]
+    assert [sig for _, sig, _ in signals] == [signal.SIGTERM, signal.SIGKILL]
+
+
+@pytest.fixture
 def identity(monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "catalog-close-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "catalog-close-start")
@@ -392,6 +518,7 @@ def test_a_run_that_survives_close_still_writes_nothing(runs, identity, tmp_path
     """C-30.1: close() closes the run's fence before it signals, so a run the signals
     never reach (here `killpg` does nothing) publishes nothing once it goes on."""
     monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.2)
+    monkeypatch.setattr(service_module, "CATALOG_TERM_GRACE_S", 0.2)
     root = tmp_path / "state"
     daemon = Daemon(root, tick_s=.05)
     try:
@@ -406,3 +533,197 @@ def test_a_run_that_survives_close_still_writes_nothing(runs, identity, tmp_path
         assert not (root / "catalog.json").exists() and not (root / "catalog-cache.json").exists()
     finally:
         daemon.close()
+
+
+# --- signals during real atomic publishes -------------------------------------------
+
+
+PUBLISHES = ("catalog.json", "catalog-cache.json")
+PUBLISH_PHASES = ("created", "before_write", "partial_write", "full_write", "file_synced",
+                  "renamed", "directory_synced")
+
+# sitecustomize runs before the real catalog module. Its pipe descriptors are
+# inherited explicitly; there are no polling races, files watched in a loop, or
+# sleeps whose duration decides whether a signal interrupts a particular phase.
+ATOMIC_PAUSE = r'''
+import inspect
+import os
+import sys
+from pathlib import Path
+
+from subfleet import guardian
+
+phase = os.environ.get("SF_CATALOG_PAUSE_PHASE")
+if phase:
+    target = os.environ["SF_CATALOG_PAUSE_TARGET"]
+    ready = int(os.environ["SF_CATALOG_PAUSE_READY"])
+    release = int(os.environ["SF_CATALOG_PAUSE_RELEASE"])
+    paused = False
+
+    def pause():
+        global paused
+        if not paused:
+            paused = True
+            os.write(ready, b"ready")
+            os.read(release, 1)
+
+    mkstemp = guardian.tempfile.mkstemp
+
+    def make_temp(*args, **kwargs):
+        result = mkstemp(*args, **kwargs)
+        if phase == "created" and kwargs.get("prefix") == f".{target}-":
+            pause()                       # before guardian's cleanup try starts
+        return result
+
+    guardian.tempfile.mkstemp = make_temp
+
+    def publish(path, data):
+        def write(stream):
+            if phase == "partial_write" and Path(path).name == target:
+                middle = max(1, len(data) // 2)
+                stream.write(data[:middle])
+                stream.flush()
+                pause()
+                return middle + stream.write(data[middle:])
+            return stream.write(data)
+        guardian._atomic_write(path, write)
+
+    guardian.atomic_publish = publish
+    lines, first = inspect.getsourcelines(guardian._atomic_write)
+    source_lines = {
+        "before_write": "result = write(stream)",
+        "full_write": "stream.flush()",
+        "file_synced": "os.rename(temporary, path)",
+        "renamed": "dir_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)",
+        "directory_synced": "return result",
+    }
+    selected = source_lines.get(phase)
+    stop_line = next((first + n for n, line in enumerate(lines) if line.strip() == selected), None)
+    code = guardian._atomic_write.__code__
+
+    def trace(frame, event, arg):
+        if frame.f_code is code:
+            if (event == "line" and frame.f_lineno == stop_line
+                    and Path(frame.f_locals["path"]).name == target):
+                pause()
+            return trace
+        return None
+
+    sys.settrace(trace)
+'''
+
+
+def _catalog_temps(root: Path) -> list[Path]:
+    return sorted(path for path in root.iterdir()
+                  if re.fullmatch(r"\.(?:catalog\.json|catalog-cache\.json)-[a-z0-9_]{8}", path.name))
+
+
+class PublishingRuns:
+    """Isolated homes, a child-only pause seam, and reaping for every child."""
+
+    def __init__(self, base: Path):
+        self.base = base
+        self.root = base / "state"
+        self.root.mkdir()
+        home = base / "home"
+        (home / ".claude" / "projects").mkdir(parents=True)
+        (home / ".codex").mkdir()
+        seam = base / "seam"
+        seam.mkdir()
+        (seam / "sitecustomize.py").write_text(ATOMIC_PAUSE)
+        self.env = {**os.environ, "HOME": str(home), "SUBFLEET_HOME": str(self.root),
+                    "SUBFLEET_CLAUDE_DIR": str(home / ".claude"),
+                    "SUBFLEET_CODEX_APP_HOME": str(home / ".codex"),
+                    "PYTHONPATH": os.pathsep.join((str(seam), str(REPO)))}
+
+    def command(self) -> list[str]:
+        return [sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(self.root)]
+
+    @contextlib.contextmanager
+    def paused(self, target: str, phase: str):
+        ready_read, ready_write = os.pipe()
+        release_read, release_write = os.pipe()
+        env = {**self.env, "SF_CATALOG_PAUSE_PHASE": phase, "SF_CATALOG_PAUSE_TARGET": target,
+               "SF_CATALOG_PAUSE_READY": str(ready_write), "SF_CATALOG_PAUSE_RELEASE": str(release_read)}
+        process = None
+        try:
+            process = subprocess.Popen(self.command(), cwd=REPO, env=env,
+                                       pass_fds=(ready_write, release_read), start_new_session=True,
+                                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            os.close(ready_write)
+            ready_write = None
+            os.close(release_read)
+            release_read = None
+            readable, _, _ = select.select([ready_read], [], [], 30)
+            assert readable, f"catalog never reached {target}: {phase}"
+            assert os.read(ready_read, 5) == b"ready", process.communicate(timeout=30)[1].decode()
+            temps = _catalog_temps(self.root)
+            if phase in ("renamed", "directory_synced"):
+                assert temps == []
+                assert (self.root / target).is_file()
+            else:
+                assert len(temps) == 1 and temps[0].name.startswith(f".{target}-")
+                if phase in ("created", "before_write"):
+                    assert temps[0].stat().st_size == 0
+                elif phase in ("partial_write", "file_synced"):
+                    assert temps[0].stat().st_size > 0
+                if phase == "partial_write":
+                    with pytest.raises(json.JSONDecodeError):
+                        json.loads(temps[0].read_text())
+            yield process, release_write
+        finally:
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate(timeout=30)
+            for fd in (ready_read, ready_write, release_read, release_write):
+                if fd is not None:
+                    os.close(fd)
+
+    def complete(self) -> None:
+        done = subprocess.run(self.command(), cwd=REPO, env=self.env,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.PIPE, timeout=30)
+        assert done.returncode == 0, done.stderr.decode()
+        assert _catalog_temps(self.root) == []
+        assert json.loads((self.root / "catalog.json").read_text())["complete"] is True
+        assert isinstance(json.loads((self.root / "catalog-cache.json").read_text()), dict)
+
+
+@pytest.mark.parametrize("target", PUBLISHES)
+@pytest.mark.parametrize("phase", PUBLISH_PHASES)
+def test_sigterm_at_each_atomic_publish_phase_leaves_no_temp(tmp_path, target, phase):
+    """Invariant 1 includes the tiny creation-before-finally window, both publishes,
+    partial/full bytes, each fsync, and rename. Pending TERM may need the pause
+    released before it can unwind, because catalog protects the creation window."""
+    runs = PublishingRuns(tmp_path)
+    with runs.paused(target, phase) as (process, release):
+        process.send_signal(signal.SIGTERM)
+        try:
+            os.write(release, b"go")
+        except BrokenPipeError:
+            pass                          # an unmasked TERM already unwound
+        _, stderr = process.communicate(timeout=30)
+        assert process.returncode == 128 + signal.SIGTERM, stderr.decode()
+        assert _catalog_temps(runs.root) == []
+
+
+@settings(max_examples=12, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@example(interruptions=[("catalog.json", phase) for phase in reversed(PUBLISH_PHASES)])
+@example(interruptions=[("catalog-cache.json", phase) for phase in reversed(PUBLISH_PHASES)])
+@given(interruptions=st.lists(st.tuples(st.sampled_from(PUBLISHES), st.sampled_from(PUBLISH_PHASES)),
+                              min_size=1, max_size=5))
+def test_completed_run_sweeps_any_sequence_of_sigkill_interruptions(tmp_path, interruptions):
+    """Invariant 2: random killed runs leave empty, partial, or whole writes;
+    a completing real catalog run removes all of them from its locked root."""
+    with tempfile.TemporaryDirectory(prefix="killed-catalog-", dir=tmp_path) as directory:
+        runs = PublishingRuns(Path(directory))
+        for target, phase in interruptions:
+            with runs.paused(target, phase) as (process, _):
+                process.kill()
+                _, stderr = process.communicate(timeout=30)
+                assert process.returncode == -signal.SIGKILL, stderr.decode()
+                if phase not in ("renamed", "directory_synced"):
+                    assert len(_catalog_temps(runs.root)) == 1
+        runs.complete()

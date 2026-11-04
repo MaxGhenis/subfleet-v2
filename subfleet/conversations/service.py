@@ -143,7 +143,9 @@ HANDOVER_STRIPES = 64
 # A catalog run caps its own reading at 20 s (C-30.1); one still alive at three
 # times that is wedged outside the cap (a directory walk, `ps`) and is stopped.
 CATALOG_KILL_AFTER_S = 60.0
-# How long close() waits for a catalog run to end after SIGTERM, and again after SIGKILL.
+# A timed-out run gets time to unwind an atomic publish before a later tick kills it.
+CATALOG_TERM_GRACE_S = 10.0
+# How long close() waits for a catalog run to end after SIGKILL.
 CATALOG_STOP_WAIT_S = 2.0
 # How long close() waits, in all, for the turn runners to finish the iteration they are
 # in. The conversation store refuses what a runner still going after it writes (C-25.3).
@@ -211,6 +213,7 @@ class ConversationService:
         self._catalog_lock = threading.RLock()
         self._catalog_proc: subprocess.Popen | None = None
         self._catalog_started = 0.0            # monotonic time of the run this service last started
+        self._catalog_terminated_at: float | None = None  # when this run first got SIGTERM
         self._catalog_killed = False
         self._catalog_last: float | None = None   # the last start or request; None: the first tick starts one
         self._catalog_fence: tuple[int, int] | None = None   # (read, write): catalog.Owner
@@ -2308,6 +2311,7 @@ class ConversationService:
             if process is None:                 # another run holds the lock
                 return {"requested": False, "running": bool(refresh_running(self.root))}
             self._catalog_proc, self._catalog_started, self._catalog_killed = process, self.clock(), False
+            self._catalog_terminated_at = None
             return {"requested": True, "running": True}
 
     def _reap_catalog(self) -> None:
@@ -2318,7 +2322,7 @@ class ConversationService:
                 return
             if process.poll() is not None:
                 self._catalog_proc = None
-                if process.returncode and not self._catalog_killed:
+                if process.returncode and self._catalog_terminated_at is None:
                     # A run this service still tracks declined while the service is open.
                     why = DECLINED.get(process.returncode)
                     if why:
@@ -2327,17 +2331,32 @@ class ConversationService:
                     else:
                         self.log.warning("catalog run exited %s", process.returncode)
                 return
-            if self._catalog_killed or self.clock() - self._catalog_started < CATALOG_KILL_AFTER_S:
+            if self._catalog_killed:
                 return
+            now = self.clock()
+            if self._catalog_terminated_at is None:
+                if now - self._catalog_started < CATALOG_KILL_AFTER_S:
+                    return
+                self._catalog_terminated_at = now
+                sig = signal.SIGTERM
+                self.log.warning("catalog run %s outlived %g s; sending SIGTERM", process.pid,
+                                 CATALOG_KILL_AFTER_S)
+            elif now - self._catalog_terminated_at < CATALOG_TERM_GRACE_S:
+                return
+            else:
+                self._catalog_killed = True
+                sig = signal.SIGKILL
+                self.log.warning("catalog run %s outlived %g s after SIGTERM; sending SIGKILL", process.pid,
+                                 CATALOG_TERM_GRACE_S)
             # Still unreaped, so its pid (and the group it leads, start_new_session)
             # cannot have been reused: the signal reaches only this run. A later
             # tick reaps it; nothing here waits for it.
-            self.log.warning("catalog run %s outlived %g s; stopping it", process.pid, CATALOG_KILL_AFTER_S)
-            self._catalog_killed = True
             try:
-                os.killpg(process.pid, signal.SIGKILL)
+                os.killpg(process.pid, sig)
             except (ProcessLookupError, PermissionError):
                 pass
+            if sig == signal.SIGTERM:
+                self._catalog_terminated_at = self.clock()
 
     def _stop_catalog(self) -> None:
         """close(): end this service's catalog run before returning, and start none
@@ -2354,17 +2373,34 @@ class ConversationService:
         try:
             if process is None or process.poll() is not None:
                 return
-            for sig in (signal.SIGTERM, signal.SIGKILL):
-                # Unreaped until a wait returns, so the group it leads is still its own.
+            if not self._catalog_killed:
+                if self._catalog_terminated_at is None:
+                    self._catalog_terminated_at = self.clock()
+                    self.log.warning("catalog run %s stopping with its service; sending SIGTERM", process.pid)
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError):
+                        pass
+                    self._catalog_terminated_at = self.clock()
+                remaining = max(0.0, CATALOG_TERM_GRACE_S - (self.clock() - self._catalog_terminated_at))
                 try:
-                    os.killpg(process.pid, sig)
-                except (ProcessLookupError, PermissionError):
-                    pass
-                try:
-                    process.wait(timeout=CATALOG_STOP_WAIT_S)
+                    process.wait(timeout=remaining)
                     return
                 except subprocess.TimeoutExpired:
-                    continue
+                    pass
+                self._catalog_killed = True
+                self.log.warning("catalog run %s outlived %g s after SIGTERM; sending SIGKILL", process.pid,
+                                 CATALOG_TERM_GRACE_S)
+                # Unreaped until a wait returns, so the group it leads is still its own.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            try:
+                process.wait(timeout=CATALOG_STOP_WAIT_S)
+                return
+            except subprocess.TimeoutExpired:
+                pass
             self.log.warning("catalog run %s did not end within %g s of SIGKILL", process.pid, CATALOG_STOP_WAIT_S)
         finally:
             if fence is not None:
