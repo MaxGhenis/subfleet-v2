@@ -379,11 +379,11 @@ every test once.
     with `api-credit-spent`. The daemon then closes the lane (reason `credits`, source
     `api-credit:spent`) and returns the job to the queue through `_unlaunched`, which
     spends one of the job's attempts.
-21. **Invariant 8, as the tests state it.** The record states it "with any spends". The core can
-    guarantee it only while each attempt spends at most its grant. With an overspend, the
-    core still guarantees that each grant fits what remained; the 5% margin covers the
-    harness's overshoot of one response, and that part is the harness's to keep (C-31.7
-    onward).
+21. **Invariant 8, as the tests state it.** The record states it "with any spends". The
+    core can guarantee it only while each attempt spends at most its grant. With an
+    overspend, the core still guarantees that each grant fits what remained. The 5% margin
+    covers the harness's overshoot of one response, and keeping to that is the harness's
+    job (C-31.7 onward). C-31.4 now states the condition.
 22. **The one-lane limit counts enabled lanes.** The admission refusal is standing and is
     also a capacity block, so C-6.3's check inside the reservation sees a lane enabled
     after the decision's snapshot.
@@ -394,13 +394,14 @@ every test once.
 
     The `api-lane-limit` fix therefore reads "enroll another account only after
     claude-api-1 leaves the enabled roster", and no message says that editing
-    `lanes.json` frees the limit. A
-    revoked key does disable the lane, at its next attempt's 401 (deviation 10).
+    `lanes.json` frees the limit. A revoked key does disable the lane, at its next
+    attempt's 401 (deviation 10). `lanes` has the verbs list, probe, enroll, hold, release
+    and transfer, and none of them disables a lane.
 24. **The API slot cap is the one count cap with a default (2).**
     `max_in_flight_per_lane` caps it lower when the policy sets that.
 25. **`lanes.json` carries `credit_usd`** for a credit lane, so a store rebuilt from it
-    keeps the credit. Re-enrollment keeps the lane's credit unless `--credit-usd` is
-    given.
+    keeps the credit. Re-enrollment keeps the lane's credit unless the operator passes
+    `--credit-usd`.
 26. **`lanes transfer` refuses a credit lane** (`transfer-api-lane`): v1 has no credit
     lanes.
 27. **Every credential check reads one public form.** Each refusal reason has one closed
@@ -415,7 +416,7 @@ every test once.
     `claude-api-refused-by-kind:<email>` alert from it.
 29. **A dead credit key's alert gives the credit tools' repair:**
     `claude-credits add <email>; subfleet lanes enroll --api <email>`.
-30. **Two refusal reasons were split** so each reads one template:
+30. **This build split two refusal reasons** so each reads one template:
     - `api-resume-session` is a bad session id, and `api-resume-history` is no history;
     - `enroll-credit-provider` is `--credit-usd` on a subscription credential, and
       `enroll-credit-usd` is a bad value.
