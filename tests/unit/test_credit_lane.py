@@ -299,3 +299,35 @@ def test_registry_path_never_falls_back_under_pytest(monkeypatch):
     monkeypatch.delenv(credit_lane.REGISTRY_VARIABLE, raising=False)
     with pytest.raises(PersonalPathRefused):
         credit_lane.registry_path()
+
+
+ORGS = st.sampled_from([ORG, OTHER_ORG, None, "", "   ", 7])
+
+
+@settings(max_examples=150, deadline=None)
+@given(registered=ORGS, identity=st.sampled_from([ORG, OTHER_ORG, None]),
+       denied=st.frozensets(st.sampled_from([ORG, OTHER_ORG])))
+def test_a_key_resolves_only_for_the_lanes_own_undenied_organization(registered, identity, denied,
+                                                                     tmp_path_factory):
+    """Invariant 7, first half, for any registry contents: a credit lane's key
+    resolves (so the lane can launch) only while the registry's organization for
+    its email is a nonblank id equal to the lane's identity and not denied; every
+    other case refuses before the keychain is read."""
+    path = tmp_path_factory.mktemp("orgs") / "registry.json"
+    entry = {"service": REFERENCE, "fingerprint": credit_lane.fingerprint(KEY)}
+    if registered is not None:
+        entry["org_id"] = registered
+    path.write_text(json.dumps({"version": 1, "accounts": {EMAIL: entry}}), encoding="utf-8")
+    runner = Runner()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(credit_lane.REGISTRY_VARIABLE, str(path))
+        patch.setenv("CLAUDE_LANE_AGENT_SECRET", HELPER)
+        allowed = isinstance(registered, str) and registered.strip() == registered != "" \
+            and registered == identity and registered not in denied
+        try:
+            found = resolve_credential(credential(), runner=runner, identity=identity, denied_org_ids=denied)
+        except AdapterError as error:
+            assert not allowed and error.reason == "credential-refused"
+            assert runner.calls == []
+        else:
+            assert allowed and found == {"ANTHROPIC_API_KEY": KEY}
