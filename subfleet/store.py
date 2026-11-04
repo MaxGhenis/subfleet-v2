@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import sqlite3
 import threading
 import time
@@ -43,7 +44,11 @@ from .lockwatch import WatchedLock, thread_name
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
 PROVIDER_QOS_MIGRATION = 10
-SCHEMA_VERSION = PROVIDER_QOS_MIGRATION
+#: C-31.1, C-31.4: `lanes.provider` admits `claude-api`, and a lane keeps its
+#: `credit_usd`. SQLite cannot widen a CHECK in place, so this step rebuilds
+#: `lanes` from the schema file's own definition (`_widen_lane_providers`).
+API_LANE_MIGRATION = 11
+SCHEMA_VERSION = API_LANE_MIGRATION
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -129,7 +134,16 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
     ),
+    # C-31.1, C-31.4: the API credit lane's budget, after `_widen_lane_providers`
+    # has rebuilt the table with a provider CHECK that admits `claude-api`.
+    API_LANE_MIGRATION: (
+        "ALTER TABLE lanes ADD COLUMN credit_usd REAL CHECK (credit_usd IS NULL OR credit_usd > 0)",
+    ),
 }
+#: The provider CHECK every lanes table before `API_LANE_MIGRATION` carries, and
+#: the one `store_schema.sql` gives it since.
+_NARROW_PROVIDERS = "CHECK (provider IN ('codex','claude'))"
+_WIDE_PROVIDERS = "CHECK (provider IN ('codex','claude','claude-api'))"
 
 
 def shell_flags(row: Mapping[str, Any]) -> Row:
@@ -346,9 +360,22 @@ class Store:
                 # over an older table until that table has caught up (C-3.1).
                 migrated_from = None
                 if version and version < SCHEMA_VERSION:
+                    # C-31.1: rebuilding `lanes` drops a table other tables refer to,
+                    # which SQLite allows only with foreign keys off. The pragma is a
+                    # no-op inside a transaction, so it is set before one, and the
+                    # references are checked before the step commits.
+                    rebuild = version < API_LANE_MIGRATION
+                    if rebuild:
+                        self.connection.execute("PRAGMA foreign_keys=OFF")
                     self.connection.execute("BEGIN IMMEDIATE")
                     self._migrate(version)          # records one schema_version row per step
+                    if rebuild and self.connection.execute("PRAGMA foreign_key_check").fetchone():
+                        self.connection.rollback()
+                        raise SchemaVersionError("store migration to schema "
+                                                 f"{API_LANE_MIGRATION} left a dangling lane reference")
                     self.connection.commit()
+                    if rebuild:
+                        self.connection.execute("PRAGMA foreign_keys=ON")
                     migrated_from, version = version, SCHEMA_VERSION
                 schema = Path(__file__).with_name("store_schema.sql").read_text()
                 self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
@@ -384,6 +411,8 @@ class Store:
         when the column is already there, so an interrupted upgrade re-runs safely.
         """
         for step in range(version + 1, SCHEMA_VERSION + 1):
+            if step == API_LANE_MIGRATION:
+                self._widen_lane_providers()
             for statement in MIGRATIONS.get(step, ()):
                 if statement.startswith("ALTER TABLE "):
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
@@ -402,6 +431,35 @@ class Store:
             self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
             self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                                     (utc_now(), "schema.migrated", _json({"version": step})))
+
+    def _widen_lane_providers(self) -> None:
+        """C-31.1, `API_LANE_MIGRATION`: rebuild `lanes` so its provider CHECK admits
+        `claude-api` and it has `credit_usd`, keeping every row and column.
+
+        SQLite's documented table rebuild: a new table from the stored definition
+        with only that CHECK widened, so every column keeps its place (C-3.1's
+        additive rule), every row copied, the old table dropped and the new
+        renamed. `credit_usd` then arrives as the step's `ADD COLUMN`, last. It
+        runs inside `_migrate`'s transaction with foreign keys off (the caller
+        sets that, and checks the references before committing); the schema file
+        that runs next recreates the table's indexes. A table that already admits
+        the provider, or no table at all, is left as it is.
+        """
+        found = self.connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='lanes'").fetchone()
+        if found is None or _NARROW_PROVIDERS not in found[0]:
+            return
+        definition, renamed = re.subn(r'^CREATE TABLE (?:IF NOT EXISTS )?(["`\[]?)lanes(["`\]]?)\s*\(',
+                                      "CREATE TABLE lanes_rebuilt (", found[0], count=1)
+        if not renamed or definition.count(_NARROW_PROVIDERS) != 1:
+            raise SchemaVersionError("store lanes table has a definition this migration cannot widen")
+        columns = [row[1] for row in self.connection.execute('PRAGMA table_info("lanes")')]
+        listed = ",".join(f'"{column}"' for column in columns)
+        self.connection.execute("DROP TABLE IF EXISTS lanes_rebuilt")
+        self.connection.execute(definition.replace(_NARROW_PROVIDERS, _WIDE_PROVIDERS, 1))
+        self.connection.execute(f"INSERT INTO lanes_rebuilt ({listed}) SELECT {listed} FROM lanes")
+        self.connection.execute("DROP TABLE lanes")
+        self.connection.execute("ALTER TABLE lanes_rebuilt RENAME TO lanes")
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -738,7 +796,7 @@ class Store:
                     row.get("identity"), row.get("label"))
 
     def put_lane(self, lane: Lane, *, plan: str | None = None,
-                 identity_status: str | None = None) -> None:
+                 identity_status: str | None = None, credit_usd: float | None = None) -> None:
         if identity_status is not None:
             # C-10.6: four statuses and no fifth. Named here as well as in the
             # schema so a hand-edited roster fails with words, not a constraint.
@@ -755,6 +813,9 @@ class Store:
                   "identity": lane.identity, "label": lane.label,
                   "identity_status": str(identity_status) if identity_status else None,
                   "created_at": utc_now(), "updated_at": utc_now()}
+        if credit_usd is not None:
+            # C-31.4: an API credit lane's budget for one cycle, set at enrolment.
+            values["credit_usd"] = float(credit_usd)
         with self.transaction("lane.enrolled", lane_id=lane.lane_id):
             existing = self.one("SELECT * FROM lanes WHERE lane_id=?", (lane.lane_id,))
             if existing:

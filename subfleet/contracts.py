@@ -15,7 +15,12 @@ from typing import Any
 
 # --- Identifiers (C-1) -------------------------------------------------------
 
-PROVIDERS = ("codex", "claude")
+PROVIDERS = ("codex", "claude", "claude-api")
+#: C-31.1: the API credit lane's provider. Its launches run Subfleet's own Messages API
+#: tool loop (`python -I -m subfleet.api_agent`) on a plan's credit key, never the
+#: `claude` CLI, which the credit refuses. Claude-only behaviour (transcripts, OAuth,
+#: MCP, the desktop login) stays with `claude`.
+API_PROVIDER = "claude-api"
 JOB_ID_SLUG_MAX = 40
 REQUEST_ID_MAX = 128
 HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
@@ -150,10 +155,13 @@ class Capability(str, enum.Enum):
 
 
 def launch_capability(provider: str, sandbox: str | Sandbox) -> Capability:
-    """C-12.3–4: writes include temporary files; commands alone cannot run pytest."""
+    """C-12.3–4: writes include temporary files; commands alone cannot run pytest.
+
+    C-31.1: a read-only credit-lane attempt keeps its `bash` tool under a read-only
+    sandbox, as a read-only Codex attempt keeps its shell, so it has commands."""
     if sandbox == Sandbox.WORKSPACE_WRITE:
         return Capability.WRITABLE
-    return Capability.COMMANDS if provider == "codex" else Capability.NONE
+    return Capability.COMMANDS if provider in ("codex", API_PROVIDER) else Capability.NONE
 
 
 def launch_has_shell(provider: str, sandbox: str | Sandbox) -> bool:

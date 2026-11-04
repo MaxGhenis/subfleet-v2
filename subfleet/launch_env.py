@@ -116,6 +116,11 @@ LAUNCH_NAMES = frozenset({
 # `CODEX_HOME`) carry no credential word; a test session's children inherit
 # them by design (D-ST1).
 VENDOR_WORDS = {"codex": ("OPENAI", "CODEX"), "claude": ("ANTHROPIC", "CLAUDE")}
+#: D-ENV3, C-31.1: the vendor of each provider's model. The API credit lane
+#: (`claude-api`) runs Anthropic's models, so an Anthropic credential is its own
+#: vendor's; it carries `ANTHROPIC_API_KEY`, its resolved credit key, and only
+#: that (the daemon's `_launch_environment`). A provider missing here has no vendor.
+PROVIDER_VENDORS = {"codex": "codex", "claude": "claude", "claude-api": "claude"}
 # D-ENV3: Codex's shell snapshot (a stable feature, on by default in codex-cli
 # 0.159.0) runs the person's ~/.zshrc and replays everything it exports before
 # each command, after this module's selection and Codex's own
@@ -179,9 +184,10 @@ def foreign_credentials(provider: str | None, names: Iterable[str],
     kept only as one of the caller's own `additions`, never from the parent.
     """
     kept = frozenset(additions) if provider is None else frozenset()
+    own = {PROVIDER_VENDORS.get(provider, provider)} if provider is not None else set()
     return tuple(name for name in names
                  if (vendors := credential_vendors(name))
-                 and (vendors - {provider} if provider is not None else name not in kept))
+                 and (vendors - own if provider is not None else name not in kept))
 
 
 def session_name(name: str) -> bool:

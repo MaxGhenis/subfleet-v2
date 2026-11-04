@@ -1,4 +1,4 @@
--- subfleet v2 store schema, version 10 (a job's requested provider QoS).
+-- subfleet v2 store schema, version 11 (API credit lanes: provider claude-api, credit_usd).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 -- C-10.1
 CREATE TABLE IF NOT EXISTS lanes (
   lane_id TEXT PRIMARY KEY,
-  provider TEXT NOT NULL CHECK (provider IN ('codex','claude')),
+  provider TEXT NOT NULL CHECK (provider IN ('codex','claude','claude-api')),
   account_key TEXT NOT NULL,
   credential_ref TEXT NOT NULL,
   credential_kind TEXT NOT NULL CHECK (credential_kind IN ('keychain-token','home','env')),
@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS lanes (
   label TEXT,
   identity_status TEXT CHECK (identity_status IS NULL OR identity_status IN ('verified','enrolled','mismatch','unverified')),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  -- C-31.4 (schema version 11): an API credit lane's credit for one billing cycle,
+  -- in US dollars, as the operator set it at enrolment; null on every other lane.
+  credit_usd REAL CHECK (credit_usd IS NULL OR credit_usd > 0)
 );
 CREATE INDEX IF NOT EXISTS lanes_account ON lanes(account_key);
 CREATE INDEX IF NOT EXISTS lanes_identity ON lanes(identity) WHERE identity IS NOT NULL;

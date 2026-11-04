@@ -19,7 +19,7 @@ from .launch_env import helper_policy
 from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
-from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
+from .contracts import API_PROVIDER, ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential, withheld_references
 from .sessions.transcripts import read_regular
 from .store import Store
@@ -1029,8 +1029,11 @@ class Timers:
             self.cancel.wait(wait)
         if self.cancel.is_set():
             return
+        # C-31.5: an API credit lane has no usage sensor (a standard key cannot read
+        # its balance), and the daemon makes no request to Anthropic for one: all
+        # its traffic is its harness's. So no cycle reads it.
         futures = [self._lanes.submit(self._run_worker, self._probe_lane, lane) for lane in self.store.list_lanes()
-                   if lane.enabled and lane.owner == 'v2']
+                   if lane.enabled and lane.owner == 'v2' and lane.provider != API_PROVIDER]
         # Every holder this cycle took is released, whatever raised: one lane's
         # failure must not leave another lane's `slot:0` held until a restart
         # (review of PR #72). All homes heal before any cycle reading or verdict

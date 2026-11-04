@@ -58,7 +58,7 @@ from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
-    CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
+    API_PROVIDER, CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_MAX_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -4075,11 +4075,20 @@ class Daemon:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
 
     def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
-        """Every provider launch's environment: no other vendor's credential (D-ENV3)."""
-        return self._provider_environment.assemble(
+        """Every provider launch's environment: no other vendor's credential (D-ENV3).
+
+        C-31.2: `ANTHROPIC_API_KEY` is removed from every launch, then an API credit
+        lane's launch gets back exactly its resolved credit key (`env_add`, from
+        `credentials.resolve_credential`). The daemon's own value, a parent's, a
+        policy's `env.pass` and any other lane's never reach a launch."""
+        environment = self._provider_environment.assemble(
             launch.env_add,
             (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
             provider=lane.provider)
+        key = launch.env_add.get("ANTHROPIC_API_KEY") if lane.provider == API_PROVIDER else None
+        if key:
+            environment["ANTHROPIC_API_KEY"] = key
+        return environment
 
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
