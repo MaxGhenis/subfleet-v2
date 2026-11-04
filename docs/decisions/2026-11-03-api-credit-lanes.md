@@ -1,7 +1,8 @@
 # API credit lanes
 
 2026-11-03, Subfleet hub. Status: design, build pending. The hub revised it the same day for one credit lane (see
-"One plan").
+"One plan"). On 2026-11-04 the hub ruled that the key travels only over pipes, and the integration build changed
+"The harness" and the interface below to match (see "How the key arrives").
 
 ## The ask
 
@@ -67,8 +68,9 @@ It can't see local-only worktrees or the host's guard, so it doesn't fit build j
   where `claude-credits` stores the key.
 - **Resolution.** `credentials.resolve_credential` gains a `claude-api` branch. It reads
   the ref through the agent-secret helper, the way `keychain_command` already reads
-  `claude-quota-` refs, and returns `{"ANTHROPIC_API_KEY": value}`. It refuses with
-  `credential-refused`:
+  `claude-quota-` refs, and returns `{"ANTHROPIC_API_KEY": value}`. That name labels
+  the key inside the daemon only; no launch's environment carries it (see "How the key
+  arrives"). It refuses with `credential-refused`:
   - any kind other than `keychain-token`. An `env` credential would read the daemon's
     own `ANTHROPIC_API_KEY`, which is a metered key and never a credit key;
   - a ref that doesn't match `claude-api-<email>`;
@@ -192,8 +194,8 @@ owns it like any other provider. Adapters build its `Launch` and never spawn it.
   - The editor resolves every path with realpath and refuses anything outside the
     worktree or the attempt folder.
   - Commands get the allowlisted launch environment with no credential variables. The
-    harness reads the key once at start, removes it from `os.environ` before any tool
-    runs, and never writes it anywhere.
+    harness reads the key once at start from the `--key-fd` pipe, closes the
+    descriptor, keeps the key in memory only, and never writes it anywhere.
 - **History.** Append-only: Opus 5.5 keeps thinking blocks valid only in an unedited
   conversation. Long attempts use server-side compaction (beta `compact-2026-01-12`)
   and append each full `response.content`. The history persists as `messages.jsonl` in
@@ -228,14 +230,36 @@ meet only here, so two builds can proceed in parallel.
     (`codex-guard-required`);
   - `"--publish-hook", <path>` when C-12.3's publish rule applies;
   - `"--resume"` on a resume launch.
-- `env_add`: `ANTHROPIC_API_KEY` (from credential resolution) and `SUBFLEET_API_LANE`
-  (the lane id).
+
+  The guardian, not the adapter, appends `"--key-fd", <n>` last (see "How the key
+  arrives").
+- `env_add`: `SUBFLEET_API_LANE` (the lane id). It never holds the key.
 - `env_remove`: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`,
-  `CODEX_API_KEY`, `OPENAI_API_KEY`.
+  `CODEX_API_KEY`, `OPENAI_API_KEY`. The daemon also removes `ANTHROPIC_API_KEY` from
+  every launch's environment, this one's included.
 - No stdin. `raw_stream_path` is `<attempt dir>/stream.jsonl`.
 - The harness sends every request to `https://api.anthropic.com`, whatever the
   environment says. Tests reach a local fake API through a test-only override that the
   harness honors only under pytest, like the repo's other test-only paths.
+
+**How the key arrives.** No exec environment block, argv or file of any process ever
+holds a credit key (hub decision, 2026-11-04). The key travels only over pipes, and only
+the harness keeps it, in memory.
+
+- A frame is a 4-byte big-endian length, then that many bytes of key: printable ASCII,
+  1 to 4096 bytes (`subfleet/key_frame.py`).
+- The daemon resolves the key, then opens the guardian's launch gate (`--launch-fd`)
+  with the release byte followed by one frame, and passes `--key-frame` so the
+  guardian expects it. A launch with no credit key sends no frame and no flag.
+- The guardian reads the frame right after the release byte. On end-of-file, a short
+  read, a zero length or a length over 4096, it refuses before it spawns anything or
+  writes any file, the way a missing release does (exit 127). Otherwise it writes the
+  frame into a new pipe, closes the write end, appends `"--key-fd", <read end>` to the
+  harness's argv, passes that descriptor alone, and closes its read end and wipes its
+  copy as soon as the spawn returns.
+- The harness reads one frame from `--key-fd`, refuses anything but a pipe, closes the
+  descriptor and keeps the key in memory. It reads no environment variable for it: a
+  launch with no descriptor, or a bad frame, ends as a `no-key` error with no request.
 
 **Files the harness writes in the attempt folder.**
 
@@ -272,8 +296,10 @@ containment test covers 6.
 
 1. **Credit keys only.** For any roster and any daemon environment, including one that
    sets `ANTHROPIC_API_KEY`:
-   - every `claude-api` launch carries exactly the key registered for its lane's email;
-   - no other launch carries `ANTHROPIC_API_KEY`;
+   - every `claude-api` launch's gate frame carries exactly the key registered for its
+     lane's email;
+   - no other launch sends a frame, and no launch's environment carries
+     `ANTHROPIC_API_KEY`;
    - no `claude-api` launch runs the `claude` binary.
 2. **No identity prompt.** For any job prompt and any effort, no request's `system`
    field contains either identity line, "Claude Code" or "Agent SDK" after case
@@ -290,6 +316,9 @@ containment test covers 6.
    It agrees with `claude_credits.exhausted_until`.
 6. **The key stays in the harness.** A run against a fake API asserts the key appears
    in none of the following:
+   - the exec environment or argv of the guardian, the harness, its shell or any process
+     the attempt starts, read while the attempt runs;
+   - the publish hook self-test's environment and argv;
    - tool subprocess environments;
    - `stream.jsonl`, `last.md`, stdout, stderr or `messages.jsonl`;
    - attempt notes or the store.

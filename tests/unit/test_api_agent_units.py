@@ -395,3 +395,90 @@ def test_overwrite_hides_secret_values_from_the_exec_block_and_keeps_it_whole():
     for name, value in plain.items():
         assert f"{name}={value}" in found["after"]
     assert len(found["after"]) == len(found["before"])
+
+
+# -- the key's one way in: the --key-fd pipe (C-31.17) ---------------------------------------------------
+def _pipe_holding(data: bytes) -> int:
+    read_end, write_end = os.pipe()
+    try:
+        os.write(write_end, data)
+    finally:
+        os.close(write_end)
+    return read_end
+
+
+def _closed(fd: int) -> bool:
+    try:
+        os.fstat(fd)
+    except OSError:
+        return True
+    return False
+
+
+@PROPERTY
+@given(st.text(alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x7E), min_size=1, max_size=4096))
+def test_read_key_returns_the_framed_key_and_closes_the_descriptor(key):
+    """C-31.17: any printable-ASCII key of 1 to 4096 bytes comes back unchanged, and
+    the descriptor is closed after the one read."""
+    from subfleet.api_agent.harness import read_key
+    fd = _pipe_holding(len(key).to_bytes(4, "big") + key.encode("ascii"))
+    try:
+        assert read_key(fd) == (key, None)
+        assert _closed(fd)
+    finally:
+        if not _closed(fd):
+            os.close(fd)
+
+
+@pytest.mark.parametrize("data", [b"", b"\x00", bytes(4), (4097).to_bytes(4, "big") + b"k" * 80,
+                                  (30).to_bytes(4, "big") + b"sk-ant-api03-cut",
+                                  (4).to_bytes(4, "big") + b"\xff\xfe\xfd\xfc",
+                                  (4).to_bytes(4, "big") + b"a\tbc"])
+def test_read_key_refuses_a_bad_frame_closes_and_never_raises(data):
+    """C-31.17: end-of-file, a short read, a zero or oversized length, or bytes that are
+    not printable ASCII give no key and a reason holding none of the frame's bytes;
+    the descriptor is closed either way."""
+    from subfleet.api_agent.harness import read_key
+    fd = _pipe_holding(data)
+    key, problem = read_key(fd)
+    assert key is None and problem.startswith("no key arrived: ")
+    assert _closed(fd)
+    if len(data) > 4:
+        assert data[4:].decode("latin-1") not in problem
+
+
+def test_read_key_without_a_descriptor_or_with_a_closed_one(tmp_path):
+    from subfleet.api_agent.harness import read_key
+    assert read_key(None) == (None, "no key arrived: the launch named no --key-fd")
+    fd = _pipe_holding(b"")
+    os.close(fd)
+    key, problem = read_key(fd)
+    assert key is None and problem.startswith("no key arrived: --key-fd could not be read")
+    held = tmp_path / "file"
+    held.write_bytes((3).to_bytes(4, "big") + b"abc")
+    fd = os.open(held, os.O_RDONLY)
+    assert read_key(fd) == (None, "no key arrived: --key-fd is not a pipe")
+    assert _closed(fd)
+
+
+@pytest.mark.parametrize("fd", ["0", "1", "2", "-1"])
+def test_key_fd_must_be_above_the_standard_streams(fd):
+    with pytest.raises(cli.UsageError):
+        cli.parse(["--attempt-dir", "/a", "--workdir", "/w", "--prompt", "/p", "--model", "m", "--effort", "high",
+                   "--sandbox", "read-only", "--max-usd", "1", "--max-turns", "1", "--key-fd", fd])
+
+
+def test_the_harness_reads_no_key_from_its_environment():
+    """C-31.17, mutant (c): no module of the harness names ANTHROPIC_API_KEY as a value
+    to read (`os.environ[...]`, `.get(...)`, `.pop(...)`, `getenv(...)`); the process
+    tests check the same at run time (`test_the_key_comes_only_from_the_key_fd`)."""
+    offenders = []
+    for path in sorted((REPO / "subfleet" / "api_agent").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Call, ast.Subscript)):
+                continue
+            args = node.args if isinstance(node, ast.Call) else [node.slice]
+            if any(isinstance(arg, ast.Constant) and arg.value == "ANTHROPIC_API_KEY" for arg in args):
+                offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == []

@@ -116,7 +116,8 @@ def test_build_launch_is_exactly_the_interface(tmp_path):
         "/opt/python/bin/python3", "-I", "-m", "subfleet.api_agent", "--attempt-dir", str(adir),
         "--workdir", str(tmp_path / "work"), "--prompt", str(adir / "prompt.sent.md"), "--model", MODEL,
         "--effort", "high", "--sandbox", "read-only", "--max-usd", "25.00", "--max-turns", "400")
-    assert launch.env_add == {"ANTHROPIC_API_KEY": KEY, "SUBFLEET_API_LANE": "claude-api-1"}
+    # C-31.17: the key is in no environment; the daemon frames it from credential_env.
+    assert launch.env_add == {"SUBFLEET_API_LANE": "claude-api-1"}
     assert launch.env_remove == ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
                                  "CODEX_API_KEY", "OPENAI_API_KEY") == ENV_REMOVE
     assert launch.stdin_path is None
@@ -124,9 +125,9 @@ def test_build_launch_is_exactly_the_interface(tmp_path):
     assert (adir / "prompt.sent.md").read_text() == "Do the thing.\n"
     assert launch.notes["credit_grant_usd"] == 25.0 and launch.notes["renews_day"] == 15
     assert launch.notes["identity"] == ORG and launch.notes["capability"] == "commands"
-    # Invariant 1: the key only in env_add, never in argv or the notes.
+    # Invariant 1, C-31.17: the key in no part of the Launch: not argv, env_add or the notes.
     assert all(KEY not in arg for arg in launch.argv)
-    assert KEY not in json.dumps(launch.notes)
+    assert KEY not in json.dumps(dataclasses.asdict(launch))
     # Invariant 1: never the claude binary.
     assert not any(Path(arg).name == "claude" for arg in launch.argv)
 
@@ -172,6 +173,20 @@ def test_a_launch_without_the_resolved_key_is_refused(tmp_path):
         adapter().build_launch(spec, "job1/a1", tmp_path / "a1", lane(), {}, MODEL, "high",
                                Path(spec.prompt_path), None)
     assert caught.value.reason == "credential-refused"
+
+
+@pytest.mark.parametrize("key", ["sk-ant-api03-" + "x" * 4084, "sk-ant-api03-caf\u00e9" + "A" * 40,
+                                 "sk-ant-api03-\n" + "A" * 40, "sk-ant-api03-\x00" + "A" * 40])
+def test_a_key_that_cannot_be_framed_is_refused_before_any_process(tmp_path, key):
+    """C-31.17: the launch gate carries printable ASCII of 1 to 4096 bytes; any other
+    key refuses here, with a message that holds none of it."""
+    spec = job(tmp_path)
+    with pytest.raises(AdapterError) as caught:
+        adapter().build_launch(spec, "job1/a1", tmp_path / "a1", lane(), {"ANTHROPIC_API_KEY": key}, MODEL,
+                               "high", Path(spec.prompt_path), None)
+    assert caught.value.reason == "credential-refused"
+    assert key[13:] not in str(caught.value) and key[13:] not in (caught.value.fix or "")
+    assert not (tmp_path / "a1").exists()
 
 
 def test_the_grant_is_the_remaining_budget_when_that_is_smaller(tmp_path):

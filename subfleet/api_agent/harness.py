@@ -1,8 +1,10 @@
-"""The harness's process: setup, the tools, and the exit code (C-31.7 to C-31.16).
+"""The harness's process: setup, the tools, and the exit code (C-31.7 to C-31.17).
 
-`__main__` has already taken `ANTHROPIC_API_KEY` out of `os.environ`; `main` takes
-out every other `ANTHROPIC_*` variable and the proxy variables before the SDK is
-imported, starts nothing before then, and gives the key to the client only.
+`main` reads the key once from the `--key-fd` pipe and closes the descriptor (C-31.17);
+no environment variable is read for it. Before the SDK is imported, `main` takes every
+`ANTHROPIC_*` variable and the proxy variables out of `os.environ` (`__main__` has
+already overwritten their values in the exec block), starts nothing before then, and
+gives the key to the client only.
 """
 from __future__ import annotations
 
@@ -157,16 +159,15 @@ class Tools:
         return ToolOutcome(text, False, result.rc, False, None)
 
 
-def main(argv: list[str], key: str | None = None) -> int:
+def main(argv: list[str]) -> int:
     launch, test_url = _scrub_process_environment()
     try:
         options = cli.parse(argv)
     except cli.UsageError as exc:
         print(f"subfleet.api_agent: {exc}", file=sys.stderr)
         return EXIT["error"]
-    key_problem = None
-    if options.key_fd is not None or key is None:
-        key, key_problem = read_key(options.key_fd)
+    # C-31.17: the one path a key takes in; a launch with none ends as a `no-key` error.
+    key, key_problem = read_key(options.key_fd)
     redact = Redactor(key)
     attempt = options.attempt_dir
     if not attempt.is_dir() or attempt.is_symlink():

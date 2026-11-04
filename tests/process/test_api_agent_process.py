@@ -13,6 +13,9 @@ Invariant 6 (the key stays in the harness): the key, and every 12-character run 
 it, appear in none of the tool subprocess environments, the hook's environment,
 `stream.jsonl`, `last.md`, stdout, stderr, `messages.jsonl`, any other file in the
 attempt folder, or any request body; it reaches the fake only as the auth header.
+
+C-31.17: each launch hands the harness its key as the guardian does, one frame on a
+pipe named by `--key-fd`, and never in the environment (`spawn`).
 """
 from __future__ import annotations
 
@@ -114,7 +117,8 @@ def prepare(root: Path, fake: FakeAnthropic, *, job: str = "Do the job.", sandbo
             env: dict | None = None, attempt_name: str = "a1", guard_body: str | None = None,
             wrapper: list[str] | None = None,
             drop_env: tuple[str, ...] = ()) -> tuple[list[str], dict[str, str], Path, Path]:
-    """The harness's argv and environment for one launch, and its worktree and attempt folder."""
+    """The harness's argv (without `--key-fd`, which `spawn` adds) and environment for one
+    launch, and its worktree and attempt folder."""
     work = root / "work"
     attempt = root / "job" / attempt_name
     work.mkdir(parents=True, exist_ok=True)
@@ -134,19 +138,68 @@ def prepare(root: Path, fake: FakeAnthropic, *, job: str = "Do the job.", sandbo
     if resume:
         argv.append("--resume")
     environment = dict(os.environ)
-    environment.update({"ANTHROPIC_API_KEY": KEY, "SUBFLEET_API_AGENT_TEST_URL": fake.url,
-                        "SUBFLEET_API_LANE": "lane-credit-fixture"})
+    # C-31.2: no launch carries ANTHROPIC_API_KEY; the key goes on the pipe (`spawn`).
+    environment.pop("ANTHROPIC_API_KEY", None)
+    environment.update({"SUBFLEET_API_AGENT_TEST_URL": fake.url, "SUBFLEET_API_LANE": "lane-credit-fixture"})
     environment.update(env or {})
     for name in drop_env:
         environment.pop(name, None)
     return [*(wrapper or []), *argv], environment, work, attempt
 
 
-def launch(root: Path, fake: FakeAnthropic, **options) -> Run:
+def frame(key: str) -> bytes:
+    """C-31.17's frame, built here from its definition: a 4-byte big-endian length, then
+    the key's ASCII bytes."""
+    data = key.encode("ascii")
+    return len(data).to_bytes(4, "big") + data
+
+
+def key_pipe(data: bytes) -> int:
+    """The read end of a pipe that holds `data` and whose write end is closed, as the
+    guardian hands it over (C-31.17)."""
+    read_end, write_end = os.pipe()
+    try:
+        os.write(write_end, data)
+    finally:
+        os.close(write_end)
+    return read_end
+
+
+def spawn(argv: list[str], environment: dict[str, str], cwd: Path, *, key: str | None = KEY,
+          key_bytes: bytes | None = None, **popen) -> subprocess.Popen:
+    """Start the harness with its key on a pipe and `--key-fd <n>` at the end of its argv,
+    as the guardian does; the read end closes here once the harness holds it. With
+    `key=None` and no `key_bytes`, the launch names no descriptor at all."""
+    data = key_bytes if key_bytes is not None else (frame(key) if key is not None else None)
+    if data is None:
+        return subprocess.Popen(argv, env=environment, cwd=cwd, stdin=subprocess.DEVNULL, **popen)
+    read_end = key_pipe(data)
+    try:
+        return subprocess.Popen([*argv, "--key-fd", str(read_end)], env=environment, cwd=cwd,
+                                stdin=subprocess.DEVNULL, pass_fds=(read_end,), **popen)
+    finally:
+        os.close(read_end)
+
+
+def launch(root: Path, fake: FakeAnthropic, *, key: str | None = KEY, key_bytes: bytes | None = None,
+           **options) -> Run:
     argv, environment, work, attempt = prepare(root, fake, **options)
-    proc = subprocess.run(argv, env=environment, capture_output=True, timeout=TIMEOUT_S, cwd=root,
-                          stdin=subprocess.DEVNULL)
-    return Run(proc, attempt, work, root)
+    proc = spawn(argv, environment, root, key=key, key_bytes=key_bytes, stdout=subprocess.PIPE,
+                 stderr=subprocess.PIPE)
+    try:
+        out, err = proc.communicate(timeout=TIMEOUT_S)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    return Run(subprocess.CompletedProcess(proc.args, proc.returncode, out, err), attempt, work, root)
+
+
+def sent_key(request) -> str | None:
+    """The key a request authenticated with: this SDK sends `authorization: Bearer`,
+    others `x-api-key`."""
+    bearer = request.headers.get("authorization", "")
+    return bearer.removeprefix("Bearer ") if bearer.startswith("Bearer ") else request.headers.get("x-api-key")
 
 
 def first_user_text(body: dict) -> str:
@@ -497,32 +550,111 @@ exit 0
 """
 
 
+PLANTED = "planted-" + secrets.token_urlsafe(32)
+
+
 def test_no_process_reads_the_key_from_the_harness_exec_environment(tmp_path):
-    """Invariant 6, C-31.12: popping the key from os.environ leaves it in the block
-    the kernel copied at exec, which any process of the same user reads with
-    `sysctl(KERN_PROCARGS2)` (seatbelt does not stop it) or `ps -E`. The harness
-    overwrites it there: a tool inside the sandbox and the guard hook outside it
-    each read the harness's block and find the variable, but neither the key nor
-    any 12-character run of it."""
+    """Invariant 6, C-31.12, C-31.17: any process of the same user reads the block the
+    kernel copied at the harness's exec with `sysctl(KERN_PROCARGS2)` (seatbelt does
+    not stop it) or `ps -E`. The key reaches the harness on the `--key-fd` pipe, so
+    that block, argv and environment both, never holds it: a tool inside the sandbox
+    and the guard hook outside it each read the harness's block and find neither the
+    key nor any 12-character run of it, and no `ANTHROPIC_API_KEY` entry at all. A
+    credential-like variable that does arrive (`PLANTED_FIXTURE_TOKEN` here) is still
+    overwritten in place, and the strings after it stay whole."""
     reader = tmp_path / "procargs_dump.py"
     reader.write_text(PROCARGS_DUMP)
     command = f"{shlex.quote(sys.executable)} -I {shlex.quote(str(reader))} $PPID harness-procargs.bin"
     turns = [Reply([bash("t1", command)], "tool_use"), Reply([text("done")])]
     with FakeAnthropic(turns) as fake:
-        run = launch(tmp_path, fake, guard_body=PS_GUARD.format(dump=tmp_path / "harness-ps.txt"))
+        run = launch(tmp_path, fake, guard_body=PS_GUARD.format(dump=tmp_path / "harness-ps.txt"),
+                     env={"PLANTED_FIXTURE_TOKEN": PLANTED})
     assert run.proc.returncode == 0, run.proc.stderr.decode()[-2000:]
+    assert fake.requests and all(sent_key(request) == KEY for request in fake.requests), "the key never arrived"
     result = fake.messages()[1].body["messages"][2]["content"][0]
     assert "dumped" in result["content"], result
     block = (run.work / "harness-procargs.bin").read_bytes()
     listed = (tmp_path / "harness-ps.txt").read_text()
     for label, data in (("the sandboxed tool's KERN_PROCARGS2 read", block), ("ps -E from the guard hook", listed)):
         assert_no_key(label, data)
-    # They read the right process: the variable is there, its value overwritten in place,
-    # and the strings after it are whole.
+        text_ = data.decode("utf-8", "replace") if isinstance(data, bytes) else data
+        assert PLANTED not in text_ and not any(PLANTED[i:i + RUN] in text_ for i in range(len(PLANTED) - RUN + 1)), \
+            f"the planted credential is in {label}"
+    # They read the right process: its argv names the pipe, the planted variable is there
+    # with its value overwritten in place, and the strings after it are whole.
     strings = block.split(b"\0")
-    assert b"ANTHROPIC_API_KEY=" + b"*" * (len(KEY)) in strings
+    assert b"--key-fd" in strings
+    assert not any(entry.startswith(b"ANTHROPIC_API_KEY=") for entry in strings)
+    assert b"PLANTED_FIXTURE_TOKEN=" + b"*" * len(PLANTED) in strings
     assert b"SUBFLEET_API_LANE=lane-credit-fixture" in strings
-    assert "ANTHROPIC_API_KEY=" + "*" * len(KEY) in listed
+    assert "PLANTED_FIXTURE_TOKEN=" + "*" * len(PLANTED) in listed
+    assert "ANTHROPIC_API_KEY=" not in listed
+
+
+DECOY = "sk-ant-api03-SUBFLEETDECOYKEY" + secrets.token_urlsafe(48) + "-fakeBB"
+
+
+def test_the_key_comes_only_from_the_key_fd(tmp_path):
+    """C-31.17, mutant (c): the harness never reads ANTHROPIC_API_KEY from its
+    environment. With a decoy key there and the key on the pipe, every request carries
+    the pipe's key and the decoy appears nowhere; with the decoy there and no
+    `--key-fd`, the attempt ends as a `no-key` error and sends nothing."""
+    with FakeAnthropic([Reply([text("done")])]) as fake:
+        run = launch(tmp_path / "piped", fake, env={"ANTHROPIC_API_KEY": DECOY})
+    assert run.proc.returncode == 0, run.proc.stderr.decode()[-2000:]
+    assert fake.requests and all(sent_key(request) == KEY for request in fake.requests)
+    assert not any(DECOY in json.dumps(dict(request.headers)) for request in fake.requests)
+    with FakeAnthropic([Reply([text("never sent")])]) as fake:
+        run = launch(tmp_path / "env-only", fake, env={"ANTHROPIC_API_KEY": DECOY}, key=None)
+    assert fake.requests == []
+    assert run.proc.returncode == 1, run.proc.stderr.decode()[-2000:]
+    errors = [event for event in run.events if event["type"] == "error"]
+    assert [event["error_type"] for event in errors] == ["no-key"], errors
+    assert run.end() == {**run.end(), "outcome": "error", "turns": 0}
+    for label, data in (("stdout", run.proc.stdout), ("stderr", run.proc.stderr),
+                        ("stream.jsonl", (run.attempt / "stream.jsonl").read_bytes())):
+        assert DECOY.encode() not in data, label
+
+
+@pytest.mark.parametrize("label,data", [
+    ("nothing", b""), ("half a length", b"\x00\x00"), ("a length only", (40).to_bytes(4, "big")),
+    ("a short key", (40).to_bytes(4, "big") + b"sk-ant-api03-short"), ("a zero length", bytes(4)),
+    ("an oversized length", (4097).to_bytes(4, "big") + b"x" * 64),
+    ("bytes that are not ASCII", (5).to_bytes(4, "big") + "caf\u00e9".encode()),
+    ("a control character", (5).to_bytes(4, "big") + b"ab\ncd")])
+def test_a_bad_frame_ends_as_no_key_and_sends_nothing(tmp_path, label, data):
+    """C-31.17: end-of-file, a short read, a zero or oversized length, or a key that is
+    not printable ASCII ends the attempt as a `no-key` error before any request, and
+    the reason holds none of the frame's bytes."""
+    with FakeAnthropic([Reply([text("never sent")])]) as fake:
+        run = launch(tmp_path, fake, key_bytes=data)
+    assert fake.requests == [], label
+    assert run.proc.returncode == 1, run.proc.stderr.decode()[-2000:]
+    errors = [event for event in run.events if event["type"] == "error"]
+    assert [event["error_type"] for event in errors] == ["no-key"], errors
+    assert errors[0]["message"].startswith("no key arrived: "), errors
+    if len(data) > 4:
+        assert data[4:].decode("ascii", "replace") not in errors[0]["message"]
+
+
+def test_a_key_fd_that_is_not_a_pipe_is_refused(tmp_path):
+    """C-31.17: the key arrives on a pipe only; a regular file's descriptor is refused
+    (and closed) as `no-key`."""
+    held = tmp_path / "frame.bin"
+    held.write_bytes(frame("sk-ant-api03-" + "F" * 48))
+    with FakeAnthropic([Reply([text("never sent")])]) as fake:
+        argv, environment, _, attempt = prepare(tmp_path, fake)
+        fd = os.open(held, os.O_RDONLY)
+        try:
+            proc = subprocess.run([*argv, "--key-fd", str(fd)], env=environment, cwd=tmp_path, pass_fds=(fd,),
+                                  stdin=subprocess.DEVNULL, capture_output=True, timeout=TIMEOUT_S)
+        finally:
+            os.close(fd)
+    assert fake.requests == []
+    assert proc.returncode == 1, proc.stderr.decode()[-2000:]
+    events = [json.loads(line) for line in (attempt / "stream.jsonl").read_text().splitlines()]
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors and errors[0]["error_type"] == "no-key" and "not a pipe" in errors[0]["message"], errors
 
 
 CREDENTIAL_FILES = (".ssh/id_ed25519", ".codex/auth.json", ".codex-3/auth.json", ".codex-api/auth.json",
@@ -560,8 +692,7 @@ def test_sigterm_kills_the_shell_and_writes_no_end(tmp_path):
     command = "sleep 300 & echo $! > sleep.pid; wait"
     with FakeAnthropic([Reply([bash("t1", command)], "tool_use")]) as fake:
         argv, environment, work, attempt = prepare(tmp_path, fake)
-        proc = subprocess.Popen(argv, env=environment, cwd=tmp_path, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = spawn(argv, environment, tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             pid_file = work / "sleep.pid"
             deadline = time.monotonic() + TIMEOUT_S
