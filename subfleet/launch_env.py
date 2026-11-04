@@ -124,8 +124,10 @@ LAUNCH_NAMES = frozenset({
 VENDOR_WORDS = {"codex": ("OPENAI", "CODEX"), "claude": ("ANTHROPIC", "CLAUDE")}
 #: D-ENV3, C-31.1: the vendor of each provider's model. The API credit lane
 #: (`claude-api`) runs Anthropic's models, so an Anthropic credential is its own
-#: vendor's; it carries `ANTHROPIC_API_KEY`, its resolved credit key, and only
-#: that (the daemon's `_launch_environment`). A provider missing here has no vendor.
+#: vendor's. Its resolved credit key still never rides in its environment: the
+#: daemon's `_launch_environment` removes `ANTHROPIC_API_KEY` from every launch,
+#: and the key reaches the harness only through pipes (C-31.17). A provider
+#: missing here has no vendor.
 PROVIDER_VENDORS = {"codex": "codex", "claude": "claude", "claude-api": "claude"}
 # D-ENV3: Codex's shell snapshot (a stable feature, on by default in codex-cli
 # 0.159.0) runs the person's ~/.zshrc and replays everything it exports before

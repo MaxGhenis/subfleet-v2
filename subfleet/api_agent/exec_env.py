@@ -5,10 +5,12 @@ block the kernel wrote at exec, and any process of the same user reads that bloc
 with `sysctl(KERN_PROCARGS2)`, as `ps -E` does. A tool command inside the shell's
 seatbelt sandbox can too: seatbelt does not mediate that sysctl (the build tried
 `sysctl-read` and `process-info*` rules against it; see
-`docs/reports/credit-lane-harness-report.md`). So before the key leaves
-`os.environ`, `overwrite` writes `*` over the value of every entry a predicate
-names. Each string keeps its length, so the strings after it stay where a reader
-of the block, Subfleet's own census among them (C-5.5), finds them.
+`docs/reports/credit-lane-harness-report.md`). So before anything else,
+`overwrite` writes `*` over the value of every entry a predicate names: any
+credential-like variable a launch carries. The key itself never arrives in the
+environment; it comes on the `--key-fd` pipe (C-31.17). Each string keeps its
+length, so the strings after it stay where a reader of the block, Subfleet's own
+census among them (C-5.5), finds them.
 
 Standard library only: `__main__` runs this before anything else is imported.
 """

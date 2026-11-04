@@ -312,7 +312,14 @@ name and a count of matching runs.
 
 ## For the hub and the adapter build
 
-1. **The guardian's exec block holds each lane's credentials.**
+1. **The guardian's exec block holds each lane's credentials.** Resolved for credit
+   lanes on 2026-11-04: the hub ruled that the key travels only over pipes, and the
+   integration build took the second way below. The daemon sends the key on the launch
+   descriptor, the guardian hands it to the harness on a pipe of its own, and no
+   environment holds it (C-31.17; `docs/reports/credit-lane-integration-report.md`). The
+   harness's own block no longer holds the key at all, so the window in the last point
+   is gone too. Other lanes' credentials still ride in their guardians' blocks; see that
+   report's open questions.
    - What happens: `_spawn_guardian` in `subfleet/daemon.py` starts the guardian with
      `env=env`, the launch's `env_add` included, and the guardian builds its child's
      environment from its own `os.environ` (`subfleet/guardian.py`). So a lane's
