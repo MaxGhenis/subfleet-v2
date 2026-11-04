@@ -18,12 +18,15 @@ from typing import Any
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .launch_env import refused_reference
 from .protocol import PROVIDER_QOS_REQUESTS
-from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
+from .contracts import (API_PROVIDER, CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
                      provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
+#: C-31.3: Subfleet runs one API credit lane. While the roster holds more than
+#: one enabled `claude-api` lane, every one of them is refused for this.
+API_LANE_LIMIT = "api-lane-limit"
 
 
 def _row(value: Any) -> dict[str, Any]:
@@ -828,7 +831,10 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
     fleet_cap = turn_cap(conversation_caps, "max_active_turns") if is_turn else cap(caps, "max_active_attempts")
     if fleet_cap is not None and sum(in_flight.values()) + (0 if is_turn else view.get("reserved_probes", 0)) >= fleet_cap:
         capacity_blocks.append("fleet")
+    # C-31.3: counted from every lane row the view holds, whatever the job's chain.
+    api_lanes = sum(1 for lane in lanes if lane.get("provider") == API_PROVIDER and lane.get("enabled", True))
     return {"policy": policy, "job": job, "authorization_reason": authorization_reason, "now": now,
+            "api_lanes": api_lanes,
             "lanes": lanes, "caps": caps, "floor": floor, "excluded": excluded, "pin": pin,
             "selected": selected, "chain": chain, "is_turn": is_turn, "conversation_caps": conversation_caps,
             "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {},
@@ -887,11 +893,18 @@ def provider_capacity(setup: Mapping[str, Any], short: str) -> dict[str, Any] | 
 
 
 def capacity_blocks(setup: Mapping[str, Any], short: str) -> list[str]:
-    """Fleet/parent blocks plus this model's provider block, never other providers'."""
+    """Fleet/parent blocks plus this model's provider block, never other providers'.
+
+    C-31.3: a `claude-api` model is blocked while the roster holds more than one
+    enabled credit lane. As a block, a lane enabled after a decision's snapshot
+    makes C-6.3's check inside the reservation judge every lane of the walk again
+    (`route_check.still_stands`), so the decision cannot stand on the old count."""
     blocks = list(setup["capacity_blocks"])
     provider = provider_capacity(setup, short)
     if provider and provider["live"] >= provider["max_active_attempts"]:
         blocks.append(f"provider:{provider['provider']}")
+    if setup["policy"]["models"][short]["provider"] == API_PROVIDER and setup.get("api_lanes", 0) > 1:
+        blocks.append(API_LANE_LIMIT)
     return blocks
 
 
@@ -1038,11 +1051,16 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     lane_measured = any(fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
     # C-6.4, C-26.9: None when the policy sets no per-lane cap for the job's pool.
     slot_cap = (turn_cap(setup["conversation_caps"], "turn_slots_per_lane") if setup["is_turn"] else
-                lane_slot_cap(caps, lane_measured))
+                lane_slot_cap(caps, lane_measured, lane.get("provider")))
     if identity in unavailable and not (setup["is_turn"] and pilot_block(unavailable[identity])):
         # C-6.14: a pilot's block holds detached attempts only; a turn is never held for one.
         detail["slot_block"] = unavailable[identity]
-    if capacity_blocks(setup, short) or (slot_cap is not None and in_flight >= slot_cap) or detail.get("slot_block"):
+    blocks = capacity_blocks(setup, short)
+    if lane.get("provider") == API_PROVIDER and setup.get("api_lanes", 0) > 1:
+        # C-31.3, invariant 3: no credit lane launches while two or more are enabled.
+        reasons.append(API_LANE_LIMIT)
+    if ([block for block in blocks if block != API_LANE_LIMIT] or (slot_cap is not None and in_flight >= slot_cap)
+            or detail.get("slot_block")):
         reasons.append("no-slot")
     if any(row["utilization"] >= 1 - setup["floor"] for row in measured_readings):
         reasons.append("below-floor")
@@ -1079,9 +1097,10 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
 #: and left it expired (C-23.47). Any other expired token may still heal by
 #: itself, so it is not standing. A slot, a reading, the floor and the reserve
 #: are capacity, which comes back by itself. A closure is a hold only when it ends
-#: more than `admission.pin_hold_far_s` out; before that it is a wait.
+#: more than `admission.pin_hold_far_s` out; before that it is a wait. A second
+#: enabled API credit lane (C-31.3) ends only when an operator removes one.
 STANDING_REFUSALS = ("excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch",
-                     "credential-refused")
+                     "credential-refused", API_LANE_LIMIT)
 
 #: C-6.12: what evaluating a route may raise; the job's, never the caller's.
 _ROUTE_RAISES = (ValueError, KeyError, TypeError, AttributeError, IndexError)
@@ -1480,6 +1499,10 @@ def probe_required(decision: Decision, job: Any) -> bool:
     if (evaluation["candidate_details"][decision.chosen_lane].get("reserve") or {}).get("requires_probe"):
         return True
     if not (job.get("sandbox") == "workspace-write" or job.get("tier") == "hard"):
+        return False
+    if evaluation.get("provider") == API_PROVIDER or str(decision.chosen_lane).startswith(API_PROVIDER + "-"):
+        # C-31.5: an API credit lane has no window to burn: a request the credit refuses
+        # costs nothing, and the attempt's first request is the check. Never probed.
         return False
     return not evaluation["candidate_details"][decision.chosen_lane]["measured"]
 

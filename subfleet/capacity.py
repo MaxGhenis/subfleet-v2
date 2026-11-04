@@ -612,7 +612,7 @@ def open_lanes(view: Mapping[str, Any], caps: Mapping[str, Any]) -> list[str]:
 
     found = []
     for lane in view["lanes"]:
-        slots = lane_slot_cap(caps, bool(lane.get("measured")))
+        slots = lane_slot_cap(caps, bool(lane.get("measured")), lane.get("provider"))
         if (lane.get("owner") == "v2" and lane.get("enabled", True) and not desktop_excluded(lane)
                 and not identity_blocked(lane)
                 and not any(row.get("scope") == "account" for row in lane.get("closures", ()))

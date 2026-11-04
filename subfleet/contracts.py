@@ -238,6 +238,11 @@ DEFAULT_CAPS: dict[str, int | None] = {
     "max_in_flight_per_lane": None,
     "max_in_flight_unmeasured": None,
     "max_active_attempts_per_parent": None,
+    # C-31.5: an API credit lane has no usage sensor (a standard key cannot read
+    # its balance), so it is never measured; this caps it instead of
+    # `max_in_flight_unmeasured`. The one count cap with a default
+    # (docs/decisions/2026-11-03-api-credit-lanes.md, "Ranking").
+    "max_in_flight_per_api_lane": 2,
     "max_wall_s": 21600,
     "max_attempts": 3,
     "max_child_jobs": None,             # C-6.4: children one parent may create in all

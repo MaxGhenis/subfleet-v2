@@ -1007,7 +1007,7 @@ class Timers:
             caps = self.policy.get('caps', {})
             # C-6.4: no count caps unless the policy sets them; C-10.3: the desktop
             # login's lane is dispatchable while Claude Code is not using it.
-            slot_cap = lane_slot_cap(caps, bool(measured) and not override)
+            slot_cap = lane_slot_cap(caps, bool(measured) and not override, row.get('provider'))
             row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not capacity.desktop_excluded(row) and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and

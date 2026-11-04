@@ -449,8 +449,14 @@ def test_concurrency_caps_default_to_no_cap_and_accept_null_or_a_whole_number(tm
     for key in CONCURRENCY_CAPS:
         policy_data["caps"].pop(key, None)
     loaded = load_policy(write_policy(tmp_path, policy_data))
-    assert {key: loaded["caps"][key] for key in CONCURRENCY_CAPS} == dict.fromkeys(CONCURRENCY_CAPS)
-    assert all(cap(loaded["caps"], key) is None for key in CONCURRENCY_CAPS)
+    # C-31.5: the API credit lane's slot cap is the one concurrency cap with a default
+    # (docs/decisions/2026-11-03-api-credit-lanes.md, "Ranking").
+    uncapped = CONCURRENCY_CAPS - {"max_in_flight_per_api_lane"}
+    assert {key: loaded["caps"][key] for key in uncapped} == dict.fromkeys(uncapped)
+    assert all(cap(loaded["caps"], key) is None for key in uncapped)
+    assert cap(loaded["caps"], "max_in_flight_per_api_lane") == 2
+    assert lane_slot_cap(loaded["caps"], False, "claude-api") == 2
+    assert lane_slot_cap({**loaded["caps"], "max_in_flight_per_api_lane": None}, False, "claude-api") is None
     assert cap({}, "max_active_attempts") is None and cap(None, "max_in_flight_per_lane") is None
     assert lane_slot_cap(loaded["caps"], True) is None and lane_slot_cap(loaded["caps"], False) is None
     policy_data["caps"].update(max_active_attempts=64, max_in_flight_per_lane=6, max_in_flight_unmeasured=None)

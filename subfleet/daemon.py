@@ -21,6 +21,7 @@ import functools
 import hashlib
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import resource
@@ -1275,12 +1276,14 @@ class Daemon:
                 used.append(int(number))
         return f"{provider}-{max(used, default=0) + 1}"
 
-    def _append_lanes_json(self, lane: Lane) -> None:
+    def _append_lanes_json(self, lane: Lane, *, credit_usd: float | None = None) -> None:
         """Keep the seed file (`lanes.json`, C-2.2) in step so a rebuilt store gets the lane back."""
         row = {"lane_id": lane.lane_id, "provider": lane.provider, "account_key": lane.account_key,
                "credential_ref": lane.credential.ref, "credential_kind": lane.credential.kind,
                "credential_epoch": lane.credential.epoch, "home": lane.home, "desktop": lane.desktop,
                "enabled": lane.enabled, "identity": lane.identity, "label": lane.label}
+        if lane.provider == API_PROVIDER and credit_usd is not None:
+            row["credit_usd"] = credit_usd        # C-31.4: a rebuilt store keeps the lane's credit
         edit = lanes_transfer._v2_roster_edit(self.root, row, lane.owner.value)
         if edit.changed:
             lanes_transfer._publish(edit.path, edit.after)
@@ -1288,6 +1291,37 @@ class Daemon:
     def _enroll_lane(self, a: protocol.LanesArgs) -> dict:
         with self._enroll_lock:
             return self._enroll_lane_locked(a)
+
+    @staticmethod
+    def _enroll_credit_usd(value: Any) -> float:
+        """C-31.4: an API credit lane's credit per cycle, $200 (Max 20x) unless given."""
+        if value is None:
+            return credit_lane.DEFAULT_CREDIT_USD
+        try:
+            amount = float(value)
+        except (TypeError, ValueError):
+            amount = float("nan")
+        if isinstance(value, bool) or not math.isfinite(amount) or amount <= 0 or amount > 100_000:
+            raise protocol.ProtocolError("lanes enroll: --credit-usd must be a positive number of US dollars",
+                                         Exit.INVALID_INPUT, reason="enroll-credit-usd")
+        return amount
+
+    def _refuse_second_api_account(self, credential: Credential) -> None:
+        """C-31.3, invariant 3: Subfleet runs at most one API credit lane. Enrolling a
+        second account is refused; the same account again is not. To replace the
+        account, the operator removes the old lane from the roster first."""
+        email = credit_lane.reference_email(credential.ref)
+        if email is None:
+            raise protocol.ProtocolError("lanes enroll: an API credit lane's reference is claude-api-<email>",
+                                         Exit.INVALID_INPUT, reason=credit_lane.REFUSED)
+        other = self.store.one("SELECT lane_id FROM lanes WHERE provider=? AND enabled=1 AND account_key!=? "
+                               "ORDER BY lane_id LIMIT 1", (API_PROVIDER, credit_lane.account_key(email)))
+        if other is not None:
+            raise protocol.ProtocolError(
+                f"lanes enroll: Subfleet runs one API credit lane, and {other['lane_id']} spends another "
+                f"account's credit", Exit.REFUSED,
+                f"remove {other['lane_id']} from lanes.json first to replace its account",
+                reason="api-lane-limit", details={"lane_id": other["lane_id"]})
 
     def _enroll_lane_locked(self, a: protocol.LanesArgs) -> dict:
         """`lanes enroll <credential>` (C-10.2): a Claude home directory (a config
@@ -1309,10 +1343,20 @@ class Daemon:
             credential = Credential(provider, str(path), "home")
         elif text.startswith("claude-quota-"):
             credential = Credential("claude", text, "keychain-token")
+        elif text.startswith(credit_lane.REFERENCE_PREFIX):
+            # C-31.1: the keychain item `claude-credits` keeps a plan's API key under.
+            credential = Credential(API_PROVIDER, text, "keychain-token")
         else:
             raise protocol.ProtocolError(
-                f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> item",
-                Exit.INVALID_INPUT, reason="enroll-credential")
+                f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> "
+                f"or claude-api-<email> item", Exit.INVALID_INPUT, reason="enroll-credential")
+        credit_usd = None
+        if credential.provider == API_PROVIDER:
+            credit_usd = self._enroll_credit_usd(a.credit_usd)
+            self._refuse_second_api_account(credential)        # C-31.3
+        elif a.credit_usd is not None:
+            raise protocol.ProtocolError("lanes enroll: --credit-usd applies only to an API credit lane",
+                                         Exit.INVALID_INPUT, reason="enroll-credit-usd")
         try:
             owner = LaneOwner(a.owner or "v2")
         except ValueError:
@@ -1390,7 +1434,14 @@ class Daemon:
                     if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ? AND holder!=?",
                                       (f"lane:{row['lane_id']}:slot:%", enrollment_holder)):
                         raise protocol.ProtocolError('lane acquired an execution lease during re-enrollment', Exit.REFUSED, reason="reenroll-leased")
-                self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
+                if credential.provider == API_PROVIDER:
+                    # C-31.3: checked again under the transaction that adds the lane.
+                    self._refuse_second_api_account(credential)
+                    if credit_usd is None and existing:
+                        credit_usd = existing.get("credit_usd")
+                self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status,
+                                    **({"credit_usd": credit_usd or credit_lane.DEFAULT_CREDIT_USD}
+                                       if credential.provider == API_PROVIDER else {}))
                 for reading in info.readings:
                     self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
                 # Re-authentication clears only the authentication latch. A new
@@ -1402,7 +1453,8 @@ class Daemon:
                                 lane_id, closure['scope'], closure['until_at'],
                                 ClosureReason(closure['reason']), ClockSource(closure['clock_source']),
                                 closure['source_event']))
-            self._append_lanes_json(lane)
+            self._append_lanes_json(lane, credit_usd=self.store.one(
+                "SELECT credit_usd FROM lanes WHERE lane_id=?", (lane_id,))["credit_usd"])
             self._notify()
             return {"enrolled": self.store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)),
                     "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
@@ -2104,12 +2156,16 @@ class Daemon:
                 "provider": row["provider"], "ref": row["credential_ref"],
                 "kind": row["credential_kind"], "epoch": row.get("credential_epoch", 1),
             }
+            credit = row.get("credit_usd") if row["provider"] == API_PROVIDER else None
             self.store.put_lane(Lane(
                 row["lane_id"], row["provider"], row["account_key"], Credential(**credential),
                 row.get("home"), LaneOwner(row.get("owner", "v2")),
                 bool(row.get("desktop", False)), bool(row.get("enabled", True)),
                 row.get("identity"), row.get("label"),   # C-10.6
-            ), identity_status=row.get("identity_status"))
+            ), identity_status=row.get("identity_status"),
+                # C-31.4: a seeded credit lane keeps the credit lanes.json records.
+                **({"credit_usd": float(credit)} if isinstance(credit, (int, float)) and not isinstance(credit, bool)
+                   and math.isfinite(credit) and credit > 0 else {}))
 
     def _boundary(self, name: str, job_id: str, attempt_id: str | None = None) -> None:
         if self.crash_hook:

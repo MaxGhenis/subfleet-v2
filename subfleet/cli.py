@@ -48,7 +48,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, descriptors, ids, protocol, render, task_holds
+from . import capacity, credit_lane, descriptors, ids, protocol, render, task_holds
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -2333,12 +2333,28 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "lanes release --limits: --note is required")
     elif note is not None and not limits:
         return fail(Exit.INVALID_INPUT, "lanes release: --note requires --limits")
+    credential = getattr(args, "credential", None)
+    credit_usd = getattr(args, "credit_usd", None)
+    if action == "enroll" and getattr(args, "api", False):
+        # C-31.1: the plan's email names the keychain item claude-credits keeps its key under.
+        email = (credential or "").strip()
+        if email.startswith(credit_lane.REFERENCE_PREFIX):
+            email = email[len(credit_lane.REFERENCE_PREFIX):]
+        if credit_lane.reference_email(credit_lane.REFERENCE_PREFIX + email) is None:
+            return fail(Exit.INVALID_INPUT, "lanes enroll --api: name the plan's email, as claude-credits holds it")
+        credential = credit_lane.REFERENCE_PREFIX + email
+    if action == "enroll" and credit_usd is not None and not (credential or "").strip().startswith(
+            credit_lane.REFERENCE_PREFIX):
+        return fail(Exit.INVALID_INPUT, "lanes enroll: --credit-usd applies only to an API credit lane (--api)")
+    if credit_usd is not None and not (math.isfinite(credit_usd) and credit_usd > 0):
+        return fail(Exit.INVALID_INPUT, "lanes enroll: --credit-usd must be a positive number of US dollars")
     lanes_args = protocol.LanesArgs(
         # Older daemons ignore unknown fields. A distinct action prevents them
         # from releasing operator holds when asked to release guessed limits.
         action="release-limits" if limits else action,
         lane_id=getattr(args, "lane", None),
-        credential=getattr(args, "credential", None),
+        credential=credential,
+        credit_usd=credit_usd,
         until=getattr(args, "until", None),
         owner=getattr(args, "to", None),
         dry_run=bool(getattr(args, "dry_run", False)),
@@ -2396,7 +2412,8 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             return fail(Exit.DAEMON_UNAVAILABLE, "the daemon did not enroll the lane; it is older than this CLI",
                         RESTART_DAEMON)
         out(f"{row.get('lane_id')}  {row.get('provider')}  {row.get('account_key')}  owner={row.get('owner')}"
-            f"  label={row.get('label') or '-'}  home={row.get('home') or '-'}")
+            f"  label={row.get('label') or '-'}  home={row.get('home') or '-'}"
+            + (f"  credit=${row['credit_usd']:g}/cycle" if row.get("credit_usd") else ""))
         return int(Exit.OK)
     if action in ("hold", "release"):
         if not (result.get("held") or result.get("released")):
@@ -3734,6 +3751,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(l_probe, nested=True)
     l_enroll = lanes_sub.add_parser("enroll")
     l_enroll.add_argument("credential")
+    # C-31.1, C-31.4: an API credit lane, from the plan email `claude-credits` holds a key for.
+    l_enroll.add_argument("--api", action="store_true",
+                          help="enroll an API credit lane for this plan email (claude-api-<email>)")
+    l_enroll.add_argument("--credit-usd", type=float, default=None,
+                          help="the API credit lane's credit per billing cycle in US dollars (default 200)")
     _add_json(l_enroll, nested=True)
     l_hold = lanes_sub.add_parser("hold")
     l_hold.add_argument("lane")

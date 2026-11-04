@@ -14,7 +14,7 @@ from typing import Any
 
 from .launch_env import IGNORED, ROSTER, STORE, refused_phrase, refused_reference, valid_name
 from .contracts import (
-    CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
+    API_PROVIDER, CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
     RETENTION_REMOTE_LESS_HISTORY_BYTES,
     Closure, Decision, Exit, Lane, Reading,
@@ -168,7 +168,8 @@ CONVERSATION_DEFAULT_EFFORT: dict[str, str | None] = {"claude": "ultracode", "co
 #: submit (C-6.5). Each is a positive whole number or null, which is no cap and
 #: the default (Max, 2026-09-27 and 2026-09-28: "remove *all* caps").
 CONCURRENCY_CAPS = frozenset({"max_active_attempts", "max_in_flight_per_lane",
-                              "max_in_flight_unmeasured", "max_active_attempts_per_parent"})
+                              "max_in_flight_unmeasured", "max_active_attempts_per_parent",
+                              "max_in_flight_per_api_lane"})
 SUBMIT_CAPS = frozenset({"max_writable_per_session", "max_child_jobs"})
 COUNT_CAPS = CONCURRENCY_CAPS | SUBMIT_CAPS
 
@@ -203,15 +204,22 @@ def provider_caps_on(policy: Mapping[str, Any]) -> bool:
     return any(provider_cap(policy, provider) is not None for provider in (policy.get("providers") or {}))
 
 
-def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
+def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool, provider: str | None = None) -> int | None:
     """C-6.4: how many detached attempts one lane may hold, or None for no cap.
 
     A lane with a fresh `provider` reading is capped by `max_in_flight_per_lane`;
     one without by `max_in_flight_unmeasured`, else by `max_in_flight_per_lane`,
     whichever are set. There is no fixed 1 underneath: until 2026-09-27 an
     unmeasured lane was held to one attempt whatever the policy said.
+
+    C-31.5: an API credit lane (`claude-api`) is never measured; it is capped by
+    `max_in_flight_per_api_lane` (2 unless the policy says otherwise) in place of
+    `max_in_flight_unmeasured`, and by `max_in_flight_per_lane` when that is set.
     """
     per_lane = cap(caps, "max_in_flight_per_lane")
+    if provider == API_PROVIDER:
+        limits = [value for value in (per_lane, cap(caps, "max_in_flight_per_api_lane")) if value is not None]
+        return min(limits) if limits else None
     if measured:
         return per_lane
     limits = [value for value in (per_lane, cap(caps, "max_in_flight_unmeasured")) if value is not None]
@@ -857,6 +865,27 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("providers.codex.ca_bundle", "must be an absolute PEM bundle path or null")
     value["providers"] = {**providers, "codex": {**codex, "ca_bundle": bundle}}
 
+    # `claude_api` (C-31.2, C-31.4): the API credit lane's per-attempt limits, and
+    # the organizations whose keys no credit lane may use. The list lives only in
+    # the live policy; the repository's default is empty.
+    credit = value.get("claude_api", {})
+    if not isinstance(credit, dict):
+        fail("claude_api", "must be an object")
+    for key, item in credit.items():
+        if key == "max_usd_per_attempt":
+            if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) or item <= 0:
+                fail("claude_api.max_usd_per_attempt", "must be a positive number of US dollars")
+        elif key == "max_turns_per_attempt":
+            if not isinstance(item, int) or isinstance(item, bool) or item < 1:
+                fail("claude_api.max_turns_per_attempt", "must be a positive integer")
+        elif key == "denied_org_ids":
+            if not isinstance(item, list) or any(not isinstance(org, str) or not org.strip() or org != org.strip()
+                                                 for org in item):
+                fail("claude_api.denied_org_ids", "must be a list of organization id strings")
+        else:
+            fail(f"claude_api.{key}", "is not a credit-lane setting "
+                 "(max_usd_per_attempt, max_turns_per_attempt, denied_org_ids)")
+
     # `network` (d260): whether a writable Codex job's shell reaches the network.
     network = value.get("network", {})
     if not isinstance(network, dict):
@@ -968,7 +997,7 @@ def _time(value: str | datetime) -> datetime:
 
 def lane_capacity(policy: Mapping[str, Any], lane_id: str,
                   readings: Iterable[Reading | Mapping[str, Any]], *,
-                  now: datetime | str | None = None) -> int | None:
+                  now: datetime | str | None = None, provider: str | None = None) -> int | None:
     """C-6.4: how many detached attempts the lane may hold now (`lane_slot_cap`), None for no cap."""
     from .capacity import fresh_provider
 
@@ -985,7 +1014,7 @@ def lane_capacity(policy: Mapping[str, Any], lane_id: str,
                 break
         except (ValueError, TypeError, KeyError):
             continue
-    return lane_slot_cap(caps, measured)
+    return lane_slot_cap(caps, measured, provider)
 
 
 def pick(policy: Mapping[str, Any], lanes: Iterable[Lane | Mapping[str, Any]], *,
