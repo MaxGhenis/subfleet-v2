@@ -213,9 +213,10 @@ def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
     # not promise to test WHERE terms in written order. Such a row names no notice:
     # a pin record holds strings, ints and lists of strings, never a float, and an
     # outcome record's one float is finite or null, so neither is a NaN or Infinity
-    # payload that json.loads would read and json_valid refuse. No ORDER BY: it would steer the planner to `events_kind`, which
-    # walks every pin event; the few matches are ordered here, newest first.
-    # Each kind is named as a literal, so the planner can match its partial index.
+    # payload that json.loads would read and json_valid refuse. No ORDER BY: it
+    # would steer the planner to `events_kind`, which walks every pin event; the
+    # few matches are ordered here, newest first. Each kind is named as a
+    # literal, so the planner can match its partial index.
     events = []
     for kind in kinds:
         if kind not in NOTICE_EVENT_KINDS:
