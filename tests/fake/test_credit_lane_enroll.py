@@ -166,3 +166,28 @@ def test_no_sequence_of_enrollments_enables_a_second_account(credit, steps):
         accounts = [row["account_key"] for row in daemon.store.query(
             "SELECT account_key FROM lanes WHERE provider='claude-api' AND enabled=1")]
         assert len(accounts) <= 1
+
+
+def test_enrolling_and_re_enrolling_a_credit_lane_reads_no_key_and_starts_nothing(credit, monkeypatch):
+    """C-31.17's process list: enrollment's check and a re-enrollment of a credit lane
+    read the registry only. Neither resolves the lane's key (the keychain helper is the
+    one process a resolution starts) nor starts any process; the re-enrollment turn
+    (`_enrollment_turn`) is a Claude lane's alone."""
+    from subfleet import credentials, daemon as daemon_module
+    calls = []
+
+    def refuse(what):
+        def call(*args, **kwargs):
+            calls.append(what)
+            raise AssertionError(f"enrollment reached {what}")
+        return call
+    monkeypatch.setattr(daemon_module, "resolve_credential", refuse("resolve_credential"))
+    monkeypatch.setattr(credentials, "resolve_credit_key", refuse("resolve_credit_key"))
+    monkeypatch.setattr(credentials, "keychain_command", refuse("keychain_command"))
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", refuse("Popen"))
+    monkeypatch.setattr(daemon_module.procs, "spawn_disclaimed", refuse("spawn_disclaimed"))
+    monkeypatch.setattr(daemon_module.Daemon, "_enrollment_turn", refuse("_enrollment_turn"))
+    daemon, _ = credit
+    assert enroll(daemon, "a@example.org")["enrolled"]["lane_id"] == "claude-api-1"
+    assert enroll_after_disable(daemon, "claude-api-1", "a@example.org")["lane_id"] == "claude-api-2"
+    assert calls == []

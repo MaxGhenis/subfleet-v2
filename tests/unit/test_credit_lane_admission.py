@@ -318,6 +318,41 @@ def _credit() -> Lane:
                 False, identity=ORG)
 
 
+@pytest.mark.parametrize("task", ["build", "review"])
+def test_no_guard_preflight_starts_for_a_credit_lane(monkeypatch, tmp_path, task):
+    """C-31.17's process list: the Codex guard preflight (C-14.2), the one process the
+    guard could start for a launch, never starts for a credit lane. `_launch` takes a
+    credit launch's hooks from `_api_guard`, which reads the guard's files and installs
+    the publish hook without starting anything, and `_guard_override` returns before the
+    preflight for any lane that is not Codex's, whatever its adapter."""
+    from types import SimpleNamespace
+    from subfleet import daemon as daemon_module
+    from subfleet.guard import preflight as preflight_module
+    started = []
+
+    def refuse(what):
+        def call(*args, **kwargs):
+            started.append(what)
+            raise AssertionError(f"a credit lane's guard reached {what}")
+        return call
+    monkeypatch.setattr(preflight_module, "preflight", refuse("preflight"))
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", refuse("Popen"))
+    monkeypatch.setattr(daemon_module.procs, "spawn_disclaimed", refuse("spawn_disclaimed"))
+    lane_row = Lane("claude-api-1", "claude-api", "claude-api:plan@example.org",
+                    Credential("claude-api", "claude-api-plan@example.org", "keychain-token"), None, LaneOwner.V2,
+                    False, identity=ORG)
+    assert Daemon._guard_override(SimpleNamespace(codex_bin="/usr/bin/false"), lane_row, str(tmp_path)) is None
+    daemon = Daemon.__new__(Daemon)
+    daemon.root = tmp_path
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("x", encoding="utf-8")
+    for sandbox in (Sandbox.READ_ONLY, Sandbox.WORKSPACE_WRITE):
+        spec = JobSpec("r", "dispatch", str(tmp_path), str(prompt), task, "standard", None, None, sandbox,
+                       None, None)
+        daemon._api_guard(spec)
+    assert started == []
+
+
 def test_a_credit_lane_reaching_the_probe_resolves_no_key_and_starts_nothing(monkeypatch):
     """C-31.5, C-31.17: the scheduler and the timers never probe a credit lane; a probe
     that reaches `_execute_probe` anyway refuses before it resolves the key, makes a
