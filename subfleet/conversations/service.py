@@ -2358,53 +2358,67 @@ class ConversationService:
             if sig == signal.SIGTERM:
                 self._catalog_terminated_at = self.clock()
 
-    def _stop_catalog(self) -> None:
-        """close(): end this service's catalog run before returning, and start none
-        after (C-30.1). A run that outlived its daemon recreated a state root its
-        owner had just removed, or wrote into it while `rmtree` was emptying it
-        (2026-09-25). Closing the fence first means a run that somehow survives
-        the signals still writes nothing (`catalog.Owner`)."""
+    def begin_close(self) -> None:
+        """Close the catalog fence and send TERM without waiting (C-30.1).
+
+        The daemon calls this before its other waits, overlapping the catalog's
+        grace with its drain. Keep the run tracked until close() waits/reaps it;
+        repeated calls never repeat TERM or restart the grace.
+        """
         with self._catalog_lock:
             self._closed = True
-            process, self._catalog_proc = self._catalog_proc, None
             fence, self._catalog_fence = self._catalog_fence, None
-        if fence is not None:
-            os.close(fence[1])
-        try:
-            if process is None or process.poll() is not None:
+            if fence is not None:
+                os.close(fence[1])
+                os.close(fence[0])
+            process = self._catalog_proc
+            if process is None:
                 return
-            if not self._catalog_killed:
-                if self._catalog_terminated_at is None:
-                    self._catalog_terminated_at = self.clock()
-                    self.log.warning("catalog run %s stopping with its service; sending SIGTERM", process.pid)
-                    try:
-                        os.killpg(process.pid, signal.SIGTERM)
-                    except (ProcessLookupError, PermissionError):
-                        pass
-                    self._catalog_terminated_at = self.clock()
-                remaining = max(0.0, CATALOG_TERM_GRACE_S - (self.clock() - self._catalog_terminated_at))
+            if process.poll() is not None:
+                self._catalog_proc = None
+                return
+            if not self._catalog_killed and self._catalog_terminated_at is None:
+                self._catalog_terminated_at = self.clock()
+                self.log.warning("catalog run %s stopping with its service; sending SIGTERM", process.pid)
                 try:
-                    process.wait(timeout=remaining)
-                    return
-                except subprocess.TimeoutExpired:
-                    pass
-                self._catalog_killed = True
-                self.log.warning("catalog run %s outlived %g s after SIGTERM; sending SIGKILL", process.pid,
-                                 CATALOG_TERM_GRACE_S)
-                # Unreaped until a wait returns, so the group it leads is still its own.
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    os.killpg(process.pid, signal.SIGTERM)
                 except (ProcessLookupError, PermissionError):
                     pass
+                self._catalog_terminated_at = self.clock()
+
+    def _stop_catalog(self) -> None:
+        """Finish the stop, waiting only the remaining grace, then 2 s after KILL.
+
+        A run that outlived its daemon recreated a state root its owner had just
+        removed, or wrote while `rmtree` emptied it (2026-09-25). begin_close()
+        closes the fence first so even a surviving run writes nothing (Owner).
+        """
+        self.begin_close()
+        with self._catalog_lock:
+            process, self._catalog_proc = self._catalog_proc, None
+        if process is None or process.poll() is not None:
+            return
+        if not self._catalog_killed:
+            remaining = max(0.0, CATALOG_TERM_GRACE_S - (self.clock() - self._catalog_terminated_at))
             try:
-                process.wait(timeout=CATALOG_STOP_WAIT_S)
+                process.wait(timeout=remaining)
                 return
             except subprocess.TimeoutExpired:
                 pass
-            self.log.warning("catalog run %s did not end within %g s of SIGKILL", process.pid, CATALOG_STOP_WAIT_S)
-        finally:
-            if fence is not None:
-                os.close(fence[0])
+            self._catalog_killed = True
+            self.log.warning("catalog run %s outlived %g s after SIGTERM; sending SIGKILL", process.pid,
+                             CATALOG_TERM_GRACE_S)
+            # Unreaped until a wait returns, so the group it leads is still its own.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        try:
+            process.wait(timeout=CATALOG_STOP_WAIT_S)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        self.log.warning("catalog run %s did not end within %g s of SIGKILL", process.pid, CATALOG_STOP_WAIT_S)
 
     # --- compaction (C-25.4, review IR-6) ---------------------------------------
 

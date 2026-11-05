@@ -331,6 +331,93 @@ def test_close_stops_the_catalog_run_and_starts_none_after(svc, runs, caplog):
     assert len(runs) == 1 and caplog.text == ""
 
 
+@pytest.mark.parametrize("elapsed", [0, 4, 10, 21])
+def test_begin_close_spends_the_catalog_grace_while_the_daemon_drains(svc, runs, monkeypatch, elapsed):
+    """The daemon starts TERM before draining; close waits only the unused grace."""
+    monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 2.0)
+    svc._start_catalog()
+    run = runs[0]
+    run.stubborn = True
+    fence_read, fence_write = svc._catalog_fence
+    svc.begin_close()
+    assert run.signals == [service_module.signal.SIGTERM]
+    assert svc._catalog_proc is run              # still tracked, never waited on
+    assert svc._catalog_fence is None
+    for fd in (fence_read, fence_write):
+        with pytest.raises(OSError):
+            os.fstat(fd)
+    assert svc._start_catalog() == {"requested": False, "running": False}
+    svc.clock.now += elapsed
+    svc.begin_close()                          # no repeated TERM or renewed grace
+    waits = []
+
+    def wait(timeout):
+        waits.append(timeout)
+        if run.signals == [service_module.signal.SIGTERM]:
+            svc.clock.now += timeout
+            raise subprocess.TimeoutExpired("catalog", timeout)
+        run.end(-9)
+        return run.returncode
+
+    monkeypatch.setattr(run, "wait", wait)
+    svc.close()
+    assert waits == [max(0, 10 - elapsed), 2]
+    assert run.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    assert svc._catalog_proc is None
+
+
+def test_begin_close_quietly_reaps_a_run_that_already_declined(svc, runs, caplog):
+    """A run reaped while closing the fence is no later tick's publishing decline."""
+    svc._start_catalog()
+    runs[0].end(catalog_module.OWNER_GONE)
+    with caplog.at_level(logging.WARNING):
+        svc.begin_close()
+        assert svc._catalog_proc is None
+        svc._reap_catalog()
+    assert runs[0].signals == []
+    assert caplog.text == ""
+
+
+@pytest.mark.parametrize("previous_killed", [False, True], ids=["after-sigterm", "after-sigkill"])
+def test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first(svc, runs, previous_killed):
+    """A stopped run's TERM time and KILL state cannot shorten the next run's life."""
+    try:
+        svc._start_catalog()
+        previous = runs[-1]
+        previous.stubborn = True
+        svc.clock.now += 60
+        svc._reap_catalog()
+        assert previous.signals == [service_module.signal.SIGTERM]
+        if previous_killed:
+            svc.clock.now += 10
+            svc._reap_catalog()
+            assert previous.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+        previous.end(-9 if previous_killed else 143)
+        svc._start_catalog()
+        current = runs[-1]
+        assert current is not previous
+        current.stubborn = True
+        started = svc.clock.now
+        for age in (0, 10, 59.999):
+            svc.clock.now = started + age
+            svc._reap_catalog()
+            assert current.signals == []
+        svc.clock.now = started + 60
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM]
+        svc.clock.now += 9.999
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM]
+        svc.clock.now = started + 70
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    finally:
+        # Negative controls must fail in the call phase, never the fixture's
+        # guard against waiting for an unsignalled fake during close.
+        for run in runs:
+            run.end()
+
+
 def test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm(svc, runs, caplog):
     """C-30.1: a run still alive once the wait after SIGTERM passes gets SIGKILL and a
     second bounded wait; close() never waits longer, and says so."""

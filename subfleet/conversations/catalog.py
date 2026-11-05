@@ -425,18 +425,31 @@ def _utc() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+# Python dispatches signal handlers on the main thread even when another thread
+# receives the signal. Deferring in the handler therefore covers every thread,
+# unlike blocking SIGTERM only on the publishing thread.
+_atomic_depth = 0
+_termination_pending = False
+
+
 def _atomic(path: Path, value: Any) -> None:
     """Publish into the state root as it stands. Never create it: a run that outlived
     its owner recreated a root the owner had just removed (2026-09-25); now the
     temporary file cannot be made and the run fails instead. Defer SIGTERM until
     the publisher has cleaned up: mkstemp returns before its try/finally begins,
-    so a handler raising SystemExit in that gap would otherwise leave a temp."""
+    so a handler raising SystemExit in that gap would otherwise leave a temp.
+    `_terminated` records a pending TERM while any nested publish is active;
+    the outermost publish raises once all its cleanup has finished."""
+    global _atomic_depth, _termination_pending
     from ..guardian import atomic_publish
-    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    _atomic_depth += 1
     try:
         atomic_publish(path, (json.dumps(value, separators=(",", ":")) + "\n").encode())
     finally:
-        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        _atomic_depth -= 1
+        if not _atomic_depth and _termination_pending:
+            _termination_pending = False
+            raise SystemExit(128 + signal.SIGTERM)
 
 
 class Owner:
@@ -788,6 +801,10 @@ def _lock_wait() -> None:
 
 def _terminated(signum, frame):
     """Stop by unwinding; `_atomic` defers this until its temp cleanup has finished."""
+    global _termination_pending
+    if _atomic_depth:
+        _termination_pending = True
+        return
     raise SystemExit(128 + signum)
 
 

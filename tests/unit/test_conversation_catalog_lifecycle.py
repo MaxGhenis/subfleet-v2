@@ -19,6 +19,7 @@ FIFO, and the test lets go only after the run has read from it.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import logging
 import os
@@ -39,7 +40,7 @@ from types import SimpleNamespace
 import pytest
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 
-from subfleet import daemon as daemon_module
+from subfleet import daemon as daemon_module, guardian
 from subfleet.conversations import catalog as catalog_module
 from subfleet.conversations import service as service_module
 from subfleet.daemon import Daemon
@@ -225,6 +226,50 @@ def test_publishing_never_makes_the_state_root(tmp_path):
     with pytest.raises(FileNotFoundError):
         catalog_module._atomic(tmp_path / "absent" / "catalog.json", {})
     assert not (tmp_path / "absent").exists()
+
+
+@pytest.mark.parametrize("failure", [errno.ENOENT, errno.EACCES, errno.ENOSPC])
+@pytest.mark.parametrize("pending_term", [False, True])
+def test_atomic_error_cleans_temp_and_restores_sigterm_deferral(tmp_path, monkeypatch, failure, pending_term):
+    def failing_fsync(fd):
+        if pending_term:
+            catalog_module._terminated(signal.SIGTERM, None)
+        raise OSError(failure, os.strerror(failure))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(guardian.os, "fsync", failing_fsync)
+        with pytest.raises(SystemExit if pending_term else OSError) as caught:
+            catalog_module._atomic(tmp_path / "catalog.json", {})
+    if pending_term:
+        assert caught.value.code == 143
+    else:
+        assert caught.value.errno == failure
+    assert list(tmp_path.iterdir()) == []
+    # Neither an error nor a deferred TERM leaves a stale flag for a later call.
+    catalog_module._atomic(tmp_path / "catalog.json", {})
+    with pytest.raises(SystemExit, match="143"):
+        catalog_module._terminated(signal.SIGTERM, None)
+
+
+def test_nested_publish_defers_sigterm_until_the_outer_cleanup(tmp_path, monkeypatch):
+    events = []
+
+    def publish(path, data):
+        try:
+            if path.name == "outer":
+                catalog_module._atomic(tmp_path / "inner", {})
+                events.append("outer continued")
+            else:
+                catalog_module._terminated(signal.SIGTERM, None)
+        finally:
+            events.append(f"{path.name} cleanup")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(guardian, "atomic_publish", publish)
+        with pytest.raises(SystemExit, match="143"):
+            catalog_module._atomic(tmp_path / "outer", {})
+    assert events == ["inner cleanup", "outer continued", "outer cleanup"]
+    catalog_module._atomic(tmp_path / "catalog.json", {})
 
 
 def test_a_run_without_a_state_root_makes_none(home, tmp_path):
@@ -549,7 +594,9 @@ PUBLISH_PHASES = ("created", "before_write", "partial_write", "full_write", "fil
 ATOMIC_PAUSE = r'''
 import inspect
 import os
+import signal
 import sys
+import threading
 from pathlib import Path
 
 from subfleet import guardian
@@ -560,6 +607,18 @@ if phase:
     ready = int(os.environ["SF_CATALOG_PAUSE_READY"])
     release = int(os.environ["SF_CATALOG_PAUSE_RELEASE"])
     paused = False
+    thread_sigterm = os.environ.get("SF_CATALOG_THREAD_SIGTERM")
+    if thread_sigterm:
+        terminate = threading.Event()
+
+        def terminate_from_thread():
+            terminate.wait()
+            signal.pthread_kill(threading.get_ident(), signal.SIGTERM)
+
+        # Start before catalog._atomic: this ordinary thread inherits an unblocked
+        # SIGTERM even if the publishing main thread later blocks the signal.
+        worker = threading.Thread(target=terminate_from_thread)
+        worker.start()
 
     def pause():
         global paused
@@ -567,6 +626,9 @@ if phase:
             paused = True
             os.write(ready, b"ready")
             os.read(release, 1)
+            if thread_sigterm:
+                terminate.set()
+                worker.join()             # handle TERM before mkstemp can return
 
     mkstemp = guardian.tempfile.mkstemp
 
@@ -709,11 +771,13 @@ class PublishingRuns:
         return [sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(self.root)]
 
     @contextlib.contextmanager
-    def paused(self, target: str, phase: str):
+    def paused(self, target: str, phase: str, *, thread_sigterm: bool = False):
         ready_read, ready_write = os.pipe()
         release_read, release_write = os.pipe()
         env = {**self.env, "SF_CATALOG_PAUSE_PHASE": phase, "SF_CATALOG_PAUSE_TARGET": target,
                "SF_CATALOG_PAUSE_READY": str(ready_write), "SF_CATALOG_PAUSE_RELEASE": str(release_read)}
+        if thread_sigterm:
+            env["SF_CATALOG_THREAD_SIGTERM"] = "1"
         process = None
         try:
             process = subprocess.Popen(self.command(), cwd=REPO, env=env,
@@ -774,6 +838,19 @@ def test_sigterm_at_each_atomic_publish_phase_leaves_no_temp(tmp_path, target, p
             os.write(release, b"go")
         except BrokenPipeError:
             pass                          # an unmasked TERM already unwound
+        _, stderr = process.communicate(timeout=30)
+        assert process.returncode == 128 + signal.SIGTERM, stderr.decode()
+        assert _catalog_temps(runs.root) == []
+
+
+@pytest.mark.parametrize("target", PUBLISHES)
+def test_sigterm_from_another_thread_at_temp_creation_leaves_no_temp(tmp_path, target):
+    """A second thread receives TERM while mkstemp has made a temp, before the
+    publisher's cleanup try starts. Joining it makes Python dispatch the handler
+    in that creation seam, even when the main thread has blocked SIGTERM."""
+    runs = PublishingRuns(tmp_path)
+    with runs.paused(target, "created", thread_sigterm=True) as (process, release):
+        os.write(release, b"go")
         _, stderr = process.communicate(timeout=30)
         assert process.returncode == 128 + signal.SIGTERM, stderr.decode()
         assert _catalog_temps(runs.root) == []

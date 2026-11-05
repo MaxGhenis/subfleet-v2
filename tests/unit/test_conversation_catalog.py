@@ -544,6 +544,42 @@ def test_the_sweep_skips_an_unremovable_temp_and_goes_on(tmp_path, monkeypatch, 
     assert calls == [blocked.name, removable.name]
 
 
+@pytest.mark.parametrize("error", [errno.ENOENT, errno.EACCES], ids=["ENOENT", "EACCES"])
+def test_the_sweep_skips_a_temp_that_cannot_be_statted_and_goes_on(tmp_path, monkeypatch, error):
+    """A failed no-follow stat must not prevent a later matching temp being removed."""
+    blocked = tmp_path / ".catalog.json-blocked0"
+    removable = tmp_path / ".catalog-cache.json-remove00"
+    blocked.write_bytes(b"blocked")
+    removable.write_bytes(b"remove")
+    scandir = os.scandir
+    calls = []
+
+    class Entry:
+        def __init__(self, entry):
+            self.entry = entry
+            self.name, self.path = entry.name, entry.path
+
+        def stat(self, *, follow_symlinks):
+            assert follow_symlinks is False
+            calls.append(self.name)
+            if self.name == blocked.name:
+                if error == errno.ENOENT:
+                    blocked.unlink()                        # it vanished after scandir
+                raise OSError(error, os.strerror(error), self.path)
+            return self.entry.stat(follow_symlinks=follow_symlinks)
+
+    @contextmanager
+    def blocked_first(directory):
+        with scandir(directory) as entries:
+            yield [Entry(entry) for entry in sorted(entries, key=lambda entry: entry.name != blocked.name)]
+
+    monkeypatch.setattr(os, "scandir", blocked_first)
+    assert catalog.sweep_temps(tmp_path) == (1, len(b"remove"))
+    assert calls == [blocked.name, removable.name]
+    assert not blocked.exists() if error == errno.ENOENT else blocked.read_bytes() == b"blocked"
+    assert not removable.exists()
+
+
 @pytest.mark.parametrize("lost_owner", ["fence closed", "lock replaced"])
 def test_a_run_whose_owner_is_gone_neither_sweeps_nor_publishes(tmp_path, monkeypatch, lost_owner):
     """C-30.1 Owner: a lost fence or lock prevents all writes, including the sweep."""

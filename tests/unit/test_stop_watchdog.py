@@ -561,6 +561,47 @@ def test_c5_8a_close_arms_on_its_own_thread_before_it_waits_for_anything(tmp_pat
     assert calls == [(threading.current_thread(), False), "timers.stop"]
 
 
+def test_c5_8a_catalog_sigterm_goes_out_before_the_first_other_wait(tmp_path, monkeypatch):
+    """The catalog's grace overlaps all of close's other waits, starting at the top."""
+    from types import SimpleNamespace
+    from subfleet.conversations import service as service_module
+
+    daemon = daemon_module.Daemon(tmp_path / "root", desktop_prober=lambda: None)
+    service = daemon.conversations
+    process = SimpleNamespace(pid=4_000_001, returncode=None)
+    process.poll = lambda: process.returncode
+    signals = []
+
+    def killpg(pid, sig):
+        assert pid == process.pid
+        signals.append(sig)
+        process.returncode = -sig
+
+    service._catalog_proc = process
+    monkeypatch.setattr(service_module.os, "killpg", killpg)
+    original_wait = daemon._waits_answered.wait_for
+
+    def wait(*args, **kwargs):
+        assert signals == [signal.SIGTERM]
+        assert service._catalog_fence is None and service._closed
+        return original_wait(*args, **kwargs)
+
+    monkeypatch.setattr(daemon._waits_answered, "wait_for", wait)
+    closed = False
+    try:
+        daemon.close()
+        closed = True
+        assert service._catalog_proc is None
+    finally:
+        # Release the real daemon even when the negative control stops close
+        # at its first wait; the fake child needs no further signals or waits.
+        if not closed:
+            process.returncode = 0
+            monkeypatch.setattr(daemon._waits_answered, "wait_for", original_wait)
+            daemon._closed = False
+            daemon.close()
+
+
 def test_c5_8a_a_failed_arm_never_stops_close_from_draining_and_unlocking(tmp_path):
     """C-5.8a: whatever `on_stop` does, `close()` still sets `stopping`, drains
     and releases `daemon.lock`."""
@@ -590,7 +631,14 @@ def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_th
     import inspect
     from subfleet import cli
     from subfleet.contracts import STOP_BACKSTOP_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S
+    from subfleet.conversations.service import (CATALOG_KILL_AFTER_S, CATALOG_STOP_WAIT_S,
+                                               CATALOG_TERM_GRACE_S, RUNNER_STOP_WAIT_S)
     assert TERM_GRACE_S + 10 <= STOP_GRACE_S
+    assert CATALOG_KILL_AFTER_S == 60 and CATALOG_TERM_GRACE_S == 10
+    other_waits = 2 + 2 + TERM_GRACE_S + daemon_module.READER_JOIN_S
+    named_stop_bound = max(CATALOG_TERM_GRACE_S, other_waits) + CATALOG_STOP_WAIT_S + RUNNER_STOP_WAIT_S
+    assert named_stop_bound == 28
+    assert named_stop_bound <= STOP_GRACE_S
     assert STOP_BACKSTOP_S >= 5
     assert 0 < STOP_DUMP_MARGIN_S < STOP_BACKSTOP_S
     assert cli.DAEMON_STOP_WAIT_S == STOP_GRACE_S + STOP_BACKSTOP_S

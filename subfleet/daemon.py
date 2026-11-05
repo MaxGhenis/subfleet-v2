@@ -12813,6 +12813,8 @@ class Daemon:
                 self.on_stop()        # C-5.8a, before anything can wait
             except Exception as exc:  # noqa: BLE001 - the drain below must still run
                 self.log.error("stop bound not armed: %s", type(exc).__name__)
+        # C-5.8a, C-30.1: start the catalog grace before any other stop wait.
+        self.conversations.begin_close()
         self.stopping.set()
         self.timers.cancel.set()
         self._notify()

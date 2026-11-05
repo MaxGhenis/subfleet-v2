@@ -1,14 +1,14 @@
 # Catalog temporary-file cleanup
 
-Base: `a8624a4899a2` (`release/217`). Work began 2026-11-04 at 21:07 UTC; all work stays in the assigned job workspace. Implementation commit: `b28784d1525c2d8168c79d4abc4c74a0bac1c2d1`, on `fix/catalog-temp-sweep-217` in workspace-local `.git-local`. The mixed-folder recovery property and the updated signal-handler explanation are committed as `258951a65`. No push or history rewrite.
+D-CATALOG-TMP1, PR #293, branch `fix/catalog-temp-sweep-217`, based on `a8624a4899a2` (`release/217`). The PR changes catalog termination and temporary-file cleanup; the initial implementation and tests were recorded in `b28784d1525c2d8168c79d4abc4c74a0bac1c2d1`, with the mixed-folder recovery property strengthened in `258951a65`. The initial validation below was completed on 2026-11-04; the Fix round 1 section records the subsequent review changes and checks.
 
 The incident supplied with the task describes 29 abandoned catalog temporary files totaling 1.1 GB and 2,606 timeout-stop log lines. I did not inspect the host's state or logs. The code explains the leak: `_reap_catalog` used SIGKILL immediately after 60 seconds, bypassing the atomic writer's cleanup. Shutdown could also exhaust its short wait, and crashes and power loss can leave temps independently.
 
 **Changes**
 
-- `subfleet/conversations/service.py`: send SIGTERM after 60 seconds, record its monotonic timestamp, and send SIGKILL only on a later tick after `CATALOG_TERM_GRACE_S = 10.0`. Reaping remains nonblocking and retains the process until reaped, so the group being signaled still belongs to that run. Each signal gets one log line. Shutdown reuses any signal already sent and honors the remaining grace before escalation, then retains its two-second post-SIGKILL wait.
+- `subfleet/conversations/service.py`: send SIGTERM after 60 seconds, record its monotonic timestamp, and send SIGKILL only on a later tick after `CATALOG_TERM_GRACE_S = 10.0`. Reaping remains nonblocking and retains the process until reaped, so the group being signaled still belongs to that run. Each signal gets one log line. Daemon shutdown starts the catalog stop before its other waits; service close reuses any signal already sent and waits only the remaining grace before escalation, then retains its two-second post-SIGKILL wait.
 - `subfleet/conversations/catalog.py`: `sweep_temps(root)` scans that directory alone, uses whole-name matching and a no-follow regular-file check, skips errors per entry, and returns the number and byte size of files actually unlinked. `build` checks its Owner before sweeping once, before the first publish, and retains the checks before each publish. There is no dedicated successful-run outcome record, so sweep statistics are returned by the helper for callers/tests and are not added to stdout, the catalog, cache, or a new log/record.
-- The signal tests exposed another gap: guardian creates its temp before entering `try/finally`. Catalog's `_atomic` now blocks SIGTERM until that publish has completed its cleanup and restores the previous signal mask in `finally`. A pending SIGTERM then raises the existing `SystemExit`. This covers a signal immediately after temp creation without changing guardian or its other callers. An unresponsive publish can still require SIGKILL; the next completing run repairs its leftovers.
+- The signal tests exposed another gap: guardian creates its temp before entering `try/finally`. Catalog's `_atomic` defers termination until that publish has completed its cleanup. The SIGTERM handler sets a pending flag while `_atomic` runs, and `_atomic` then raises the existing `SystemExit(143)` after cleanup, independently of the run's thread count. This covers a signal immediately after temp creation without changing guardian or its other callers. An unresponsive publish can still require SIGKILL; the next completing run repairs its leftovers. Fix round 1 replaces the original thread-local signal mask with this pending flag.
 - `tests/unit/test_conversation_catalog.py`: generated exact-sweep coverage, error handling, Owner checks, real lock contention, and before-publish integration.
 - `tests/unit/test_conversation_catalog_lifecycle.py`: fake-clock escalation and shutdown coverage, plus real catalog subprocesses stopped at publish phases.
 - `tests/unit/test_conversation_service.py`: update existing timeout, shutdown, and generated lifecycle expectations for the grace and signal logs.
@@ -24,12 +24,12 @@ Test names below are in the two catalog test modules unless otherwise stated.
 | --- | --- |
 | 1. A run ending through SIGTERM leaves no temp of its writes. | `test_sigterm_at_each_atomic_publish_phase_leaves_no_temp`: 14 real `python -m subfleet.conversations.catalog --state-root <test-root>` cases, both publishes at seven phases: temp creation before guardian's cleanup block, before write, partial write, full write, file fsync, rename, and directory fsync. Each exits 143 and leaves no matching temp. The existing `test_a_stopped_run_unwinds_and_leaves_only_its_lock` covers SIGTERM during discovery. |
 | 2. After any sequence of SIGKILL-interrupted runs, a completing run leaves no matching file in the root. | `test_completed_run_sweeps_any_sequence_of_sigkill_interruptions`: Hypothesis generates sequences of one to five real catalog processes and publish phases, with up to 12 generated examples and two explicit examples covering every phase of each publish. It interrupts empty, partial, and completed writes before a final real process completes and leaves no matching file. Each run's random tempfile name comes from the real writer. The same property generates initial names, kinds, links, and byte contents, and checks snapshots of protected root entries, nested files, and link targets after each killed run and the final completion. |
-| 3. Exactly regular files with the two prefixes and eight `[a-z0-9_]` characters are removed, only in the root. | `test_the_sweep_removes_exactly_regular_temps_in_the_root`: Up to 60 Hypothesis examples of names, contents, and kinds, with guaranteed adversarial examples in every folder. Covers seven/nine-character suffixes, `.tmp`, letter case, invalid characters, empty files, file/directory/dangling links, matching directories and FIFOs, nested files and external link targets, ordinary names, and published files/lock. Compares complete no-follow tree snapshots, count/bytes, and idempotence. `test_the_sweep_skips_an_unremovable_temp_and_goes_on` forces ENOENT/EACCES first and verifies later deletion. |
+| 3. Exactly regular files with the two prefixes and eight `[a-z0-9_]` characters are removed, only in the root. | `test_the_sweep_removes_exactly_regular_temps_in_the_root`: Up to 60 Hypothesis examples of names, contents, and kinds, with guaranteed adversarial examples in every folder. Covers seven/nine-character suffixes, `.tmp`, letter case, invalid characters, empty files, file/directory/dangling links, matching directories and FIFOs, nested files and external link targets, ordinary names, and published files/lock. Compares complete no-follow tree snapshots, count/bytes, and idempotence. `test_the_sweep_skips_an_unremovable_temp_and_goes_on` forces ENOENT/EACCES from `unlink` first and verifies later deletion. |
 | 4. A run whose Owner is gone removes and publishes nothing. | `test_a_run_whose_owner_is_gone_neither_sweeps_nor_publishes`, parameterized over a closed fence and replaced lock: preexisting temps and published files stay byte-for-byte intact, and neither sweep nor publish is called. Existing lifecycle tests also exercise real children whose owner closes or whose root disappears/is replaced during discovery. |
 | 5. A run failing to take the lock never reaches the sweep. | `test_a_run_that_cannot_take_the_lock_never_reaches_the_sweep`: real exclusive flock contention through `main`, no sweep call, and unchanged folder snapshot. |
 | 6. SIGTERM precedes SIGKILL, with no SIGKILL before the grace. | `test_a_wedged_run_gets_sigterm_then_a_full_grace_before_sigkill`: fake clock covers the timeout boundary, a late first tick, repeated ticks, just before/exactly at the grace, one log per signal, no waits, and no signal after reaping. `test_a_run_that_unwinds_on_sigterm_is_reaped_without_sigkill` covers graceful completion. `test_close_honors_the_remaining_sigterm_grace_without_repeating_signals` covers shutdown before TERM or at TERM ages 0/4/10/20 seconds; `test_close_after_the_reaper_sent_sigkill_never_repeats_it` prevents duplicate escalation. |
 
-The SIGTERM guarantee concerns the terminated run's own temporary writes. Leftovers from earlier SIGKILLs are repaired when a permitted run reaches the sweep; a run stopped before taking the lock or after losing its Owner cannot remove those older files while respecting invariants 4 and 5. Owner guarantees apply at the checks, with C-30.1's existing check-to-write race unchanged.
+The SIGTERM guarantee concerns the terminated run's own temporary writes. Leftovers from earlier SIGKILLs are repaired when a permitted run reaches the sweep; a run stopped before taking the lock or after losing its Owner cannot remove those older files while respecting invariants 4 and 5. Owner guarantees apply at the checks: both the sweep and publish act by path after their checks, so a root replacement can race either operation, as C-30.1 states.
 
 The child-only test seam is loaded through `sitecustomize` and inherited synchronization pipes; it pauses inside the real atomic writer or immediately after its real `mkstemp`, and splits one write to expose a partial file. This replaces flaky random wall-clock sleeps with generated interruption phases. Every child is reaped in `finally`; all homes, provider stores, and state roots are isolated test directories.
 
@@ -53,21 +53,14 @@ The strengthened mixed-folder property also verifies that a fully fsynced tempor
 
 **Commands and results**
 
-`TASK_TMP` below abbreviates the writable session scratch directory:
-
-```
-/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261104-160336-catalog-tmp-sweep-a1-ihqvjtdd
-```
-
-Dependency setup attempted `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" UV_CACHE_DIR="$TMPDIR/uv-cache" uv sync --group dev --extra api`. The cache path is outside the sandbox's writable roots; with a writable cache, the command then reports that `api` is not a defined extra. The successful equivalent for this checkout was:
+The initial dependency setup attempted `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" UV_CACHE_DIR="$TMPDIR/uv-cache" uv sync --group dev --extra api`. That checkout has no `api` extra; `uv sync --group dev` succeeded with a writable temporary uv cache. Tests used fresh temporary directories beneath the Darwin TMPDIR. The following command template describes those targeted runs without retaining build-specific paths:
 
 ```sh
 export TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
-export UV_CACHE_DIR="$TASK_TMP/uv-cache"
-uv sync --group dev
+export UV_CACHE_DIR="$TMPDIR/uv-cache"
+TEST_ROOT="$(mktemp -d "$TMPDIR/catalog-temp-sweep.XXXXXX")"
+uv run --no-sync pytest -q --basetemp "$TEST_ROOT/targeted" <test-files>
 ```
-
-Targeted commands used `uv run --no-sync pytest -q` with a fresh `--basetemp "$TASK_TMP/<run-name>"` each time; the service runs used the equivalent uv `--cache-dir "$TASK_TMP/uv-cache"` override.
 
 | Scope | Result |
 | --- | --- |
@@ -79,13 +72,13 @@ Targeted commands used `uv run --no-sync pytest -q` with a fresh `--basetemp "$T
 | All requested mutants | All seven caught; 8 expected test failures in total |
 | Whitespace validation | `git diff --check` passed |
 
-The full-suite run uses Python 3.14.7 and holds `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock` around all 12 shards. It sets `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR="$TMPDIR/uv-cache"`, `SUBFLEET_LIVE=0`, `HYPOTHESIS_PROFILE=ci`, and prepends the workspace's `tools` directory to `PYTHONPATH`. For each `I=1..12`, it executes:
+The initial full-suite run used Python 3.14.7 and serialized all 12 shards under the test-suite lock. It set `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR="$TMPDIR/uv-cache"`, `SUBFLEET_LIVE=0`, `HYPOTHESIS_PROFILE=ci`, and prepended the repository's `tools` directory to `PYTHONPATH`. For each `I=1..12`, it executed the following template with a fresh temporary root:
 
 ```sh
-uv --cache-dir "$TASK_TMP/uv-cache" run --no-sync --with 'pytest-xdist>=3.6' \
+uv run --no-sync --with 'pytest-xdist>=3.6' \
   pytest -q -n 4 -p ci_shard_plugin --ci-shard "$I/12" --timeout=540 \
-  --basetemp "$TASK_TMP/catalog-full-suite/tmp-shard-$I" \
-  --junitxml "$TASK_TMP/catalog-full-suite/shard-$I.xml"
+  --basetemp "$TEST_ROOT/full-suite/tmp-shard-$I" \
+  --junitxml "$TEST_ROOT/full-suite/shard-$I.xml"
 ```
 
 All 12 completed shards are recorded below. The full suite is **not green**.
@@ -120,17 +113,15 @@ Failure/error cases by area (including propagated fixture errors):
 
 The first three shards record 968 Swift failure/error cases caused by `xcrun` being denied cache creation directly under the mandated Darwin temp root. Shard 4 has 25 failures in untouched retention repository-walk tests and 2 guard-hook failures plus 5 guard fixture errors. The retention failures are consistent with an allocation error being swallowed before any ambient Git probe; this is an inference from the code and empty probe traces, not a recorded exception or a baseline comparison. The guard failures wrap the 540-second timeout. Later shards include provider-shell/publish-policy failures and explicit temp-path permission denials. No unrelated implementation was changed to conceal these failures, and their unrestricted baseline status was not established.
 
-Final combined focused check: **166 passed in 90.72 s**. It used the same uv/xdist command with the three affected test modules, `-n 4`, `--timeout=120`, and a fresh `--basetemp "$TASK_TMP/catalog-final-focused"`; results: `$TASK_TMP/catalog-final-focused.xml`, output: `$TASK_TMP/catalog-final-focused.log`.
+Final combined focused check: **166 passed in 90.72 s**. It used the same uv/xdist command with the three affected test modules, `-n 4`, `--timeout=120`, and a fresh temporary `--basetemp`; its JUnit result and captured output were temporary validation artifacts.
 
-Full shard logs, JUnit files, and `results.json` are in `$TASK_TMP/catalog-full-suite/`.
-
+The shard logs, JUnit files and aggregate results were temporary validation artifacts, not PR deliverables.
 
 **Deviations and limits**
 
-- The shared Git index/ref directory and `.git` pointer are read-only. Staging and branch creation in the shared metadata were rejected with `Operation not permitted`; the requested branch is also already checked out in the caller's workspace. Commits therefore use the repository's established `.git-local` convention on the exact assigned branch, descending directly from the assigned base, with named-file staging only. The incremental delivery bundle `docs/reports/catalog-temp-sweep.bundle` preserves the commits for the hub without writing into the caller's checkout or shared metadata.
-- The requested `api` extra does not exist at this commit. The dev group was synced without it. The required default uv cache is not writable, so uv uses the session-local cache noted above. Test base directories remain new folders beneath the Darwin TMPDIR in the explicitly writable task directory.
-- Shutdown now honors ten seconds of TERM grace rather than its previous two seconds before escalation. This is necessary to satisfy invariant 6 for shutdown as well as timeout reaping; the separate post-SIGKILL wait remains two seconds.
-- Catalog-only SIGTERM masking is an additional fix required by invariant 1's creation-before-cleanup case. It allows the current atomic publish to finish before the pending signal exits the run. SIGKILL, crashes, and power loss still require the next completing run's sweep.
+- The requested `api` extra does not exist at this commit. The initial validation synced the dev group without it and used a writable temporary cache; each test run had a fresh base directory beneath Darwin TMPDIR.
+- Shutdown honors ten seconds of TERM grace rather than its previous two seconds before escalation. Fix round 1 starts that grace before the daemon's other waits and waits only its remainder at service close, preserving the stop budget; the separate post-SIGKILL wait remains two seconds.
+- Catalog-only SIGTERM deferral is an additional fix required by invariant 1's creation-before-cleanup case. It allows the current atomic publish to finish before the pending signal exits the run. Fix round 1 uses a pending flag rather than a thread-local signal mask. SIGKILL, crashes, and power loss still require the next completing run's sweep.
 - Deterministic publish-phase pauses replace timing-dependent random sleeps as the brief permits. The seam exists entirely in tests; guardian's implementation is untouched.
 - The GitNexus debugging skill was read, but no GitNexus tools are available in this session; source inspection provided the call trace.
 
@@ -140,4 +131,81 @@ No live state or native store was read or changed; no forbidden command, push, d
 
 Why so many catalog runs outlive 60 seconds on a loaded host remains unanswered: this job deliberately does not inspect live processes or stores. Cache loading/decoding, directory walks, provider reads, `ps`, JSON serialization, and a large atomic publish are possible locations; the patch leaves the wall cap, interval, and indexed content unchanged. Host-side timing work can identify the dominant cost separately. Unremovable temps are intentionally retained; their count/size return values describe only successful removals, and a later run retries them.
 
-Report finalized 2026-11-04T23:50:26+00:00. Delivery uses `.git-local` branch `fix/catalog-temp-sweep-217`; the bundle prerequisite is `a8624a4899a2ce40c849cc5c6f7d74a7010f11b5`.
+Initial validation report finalized 2026-11-04T23:50:26+00:00.
+
+## Fix round 1
+
+PR #293, D-CATALOG-TMP1; reviewed head `354f09aa2796`, validation on 2026-11-05.
+
+- **P2-1:** Added nonblocking `ConversationService.begin_close()`. At the top of `Daemon.close()`, after arming the stop watchdog and before its first other wait, it closes the catalog fence and sends SIGTERM. Service close waits only the unused portion of that same grace, then sends SIGKILL if necessary and waits at most 2 s. Repeated calls neither resend TERM nor restart its deadline. A run already reaped while closing is cleared quietly. `_reap_catalog` and its 60 s timeout/10 s grace are unchanged. The order regression failed on the reviewed implementation and passes with the fix.
+- **P3-1:** Replaced `pthread_sigmask` with an active-publish depth and pending TERM flag. `_terminated` sets the flag during a publish; the outermost `_atomic` raises `SystemExit(143)` after cleanup. The deterministic extra-thread probe is now a regression for both catalog files. Both cases leaked temps on the reviewed implementation on Python 3.12.14 and 3.14.7; both pass after the change. Error and nested-publish tests also verify cleanup and reset of the deferral state.
+- **P3-2:** Added ENOENT and EACCES cases in which a matching entry's no-follow stat fails before a removable temp. Both verify that the later temp is removed and counted; M3 fails both during the call phase.
+- **P3-3:** Added direct successor-run cases after SIGTERM and SIGKILL. Each new run receives its own literal 60 s, SIGTERM first, and a full literal 10 s grace. M2 fails both call-phase assertions; cleanup prevents incidental teardown errors.
+- **P3-4:** Added D-CATALOG-TMP1, PR #293 and the report path to the contract change log and removed the splitting blank line. C-30.1 explains pending-flag deferral and that sweep and publish act by path after their checks. The report now describes the PR and distinguishes historical validation from this round.
+
+C-5.8a now records the named worst-case sum: `max(10, 2 + 2 + 15 + 2) + 2 + 5 = 28 s <= STOP_GRACE_S (30 s)`. The maximum overlaps catalog grace with wait answers, the control join, probe containment and reader joins; the final terms are post-SIGKILL and runner waits. The stop-budget test pins this arithmetic and the 60/10 constants. Census, filesystem work and pool drains still rely on the stop watchdog; 28 s is the sum of named bounds, not a measured full-daemon duration.
+
+All 12 requested mutants were run through temporary pytest plugins that alter functions in memory, without editing the implementation on disk. All were killed in the call phase: **17 expected failures, 1 passing control case, no teardown errors**.
+
+| Mutant | Killing test | Result |
+| --- | --- | --- |
+| (a) SIGKILL first | `test_a_wedged_run_gets_sigterm_then_a_full_grace_before_sigkill` | 1 failed |
+| (b) No grace | Same test | 1 failed |
+| (c) Remove pre-sweep Owner check | `test_a_run_whose_owner_is_gone_neither_sweeps_nor_publishes` | 2 failed |
+| (d) Wildcard suffix | `test_the_sweep_removes_exactly_regular_temps_in_the_root` | 1 failed |
+| (e) Follow symlinks | Same exact-sweep property | 1 failed |
+| (f) Recurse | Same exact-sweep property | 1 failed |
+| (g) Drop build's sweep | `test_a_run_sweeps_before_its_first_publish` | 1 failed |
+| M2: Drop TERM-time reset | `test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first`, both predecessor signals | 2 failed |
+| M3: Move stat outside inner try | `test_the_sweep_skips_a_temp_that_cannot_be_statted_and_goes_on`, ENOENT and EACCES | 2 failed |
+| Send TERM after other waits | `test_c5_8a_catalog_sigterm_goes_out_before_the_first_other_wait` | 1 failed |
+| Wait full grace at service close | `test_begin_close_spends_the_catalog_grace_while_the_daemon_drains`, elapsed 4/10/21 s | 3 failed, 1 passed (elapsed 0) |
+| Drop pending flag's raise | `test_nested_publish_defers_sigterm_until_the_outer_cleanup` | 1 failed |
+
+Commands below normalize temporary paths as `$VALIDATION_DIR`, an existing writable directory beneath Darwin TMPDIR. Every invocation used a new `--basetemp` child. No temporary logs or mutation plugins are PR deliverables.
+
+```sh
+export TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+export UV_CACHE_DIR="$TMPDIR/uv-cache"
+uv --cache-dir "$VALIDATION_DIR/uv-cache" sync --group dev
+
+DEFERRAL_CASES='sigterm_from_another_thread_at_temp_creation or sigterm_at_each_atomic_publish_phase or atomic_error_cleans_temp or nested_publish_defers_sigterm'
+uv --cache-dir "$VALIDATION_DIR/uv-cache" run --no-sync python -m pytest -q \
+  tests/unit/test_conversation_catalog_lifecycle.py -k "$DEFERRAL_CASES" \
+  --basetemp "$VALIDATION_DIR/deferral314-fixed"
+uv --cache-dir "$VALIDATION_DIR/uv-cache" run --no-project --python 3.12 \
+  --with pytest --with hypothesis --with pytest-timeout python -m pytest -q \
+  tests/unit/test_conversation_catalog_lifecycle.py -k "$DEFERRAL_CASES" \
+  --basetemp "$VALIDATION_DIR/deferral312-fixed"
+
+uv --cache-dir "$VALIDATION_DIR/uv-cache" run --no-sync --with 'pytest-xdist>=3.6' \
+  pytest -q -n 4 --timeout=180 \
+  tests/unit/test_conversation_catalog.py \
+  tests/unit/test_conversation_catalog_lifecycle.py \
+  tests/unit/test_conversation_service.py tests/unit/test_stop_watchdog.py \
+  tests/unit/test_daemon_verbs.py tests/unit/test_daemon_log_sites.py \
+  tests/fake/test_state_contract.py tests/unit/test_test_module_names.py \
+  tests/unit/test_invariants_index.py \
+  --basetemp "$VALIDATION_DIR/catalog-r1-final" \
+  --junitxml "$VALIDATION_DIR/catalog-r1-final.xml"
+```
+
+The stat regression used `pytest -q tests/unit/test_conversation_catalog.py -k cannot_be_statted`; shutdown/reset checks used `pytest -q tests/unit/test_conversation_service.py tests/unit/test_stop_watchdog.py -k 'begin_close_spends or each_catalog_run_gets or catalog_sigterm_goes or the_grace_outlasts or close_arms'`, with the same uv cache override and fresh bases. Mutation runs added the temporary plugin to `PYTHONPATH` and selected each tabled test with `-p catalog_deferral_mutants` plus `SF_CATALOG_MUTANT` for (a), (b) and the pending raise; `-p catalog_sweep_mutants --catalog-mutant <c-g>`; `-p catalog_stat_m3` for M3; or `-p catalog_stop_mutants --catalog-stop-mutant <M2|late-term|full-grace>`.
+
+| Check | Result |
+| --- | --- |
+| Threaded regression before fix, Python 3.12.14 / 3.14.7 | 2 failed on each version, both leaked temps |
+| Shutdown-order regression before fix | 1 failed, 29 deselected |
+| Signal phases, threaded regression, error and nesting checks, Python 3.12.14 | 23 passed, 26.68 s |
+| Same focused checks, Python 3.14.7 | 23 passed, 24.32 s |
+| New stat regression | 2 passed, 22 deselected, 1.07 s |
+| Corrected shutdown/reset focused checks | 9 passed, 127 deselected, 7.40 s |
+| All requested mutants | 12/12 killed; 17 expected failures, 1 passing control, no errors |
+| Required final nine files, Python 3.14.7, `-n 4` | **373 passed, 7 skipped, 274.64 s** |
+| `git diff --check` | Passed |
+
+The final run includes 24 catalog, 53 lifecycle, 107 service, 30 stop-watchdog, 15 daemon-verbs, 81 daemon-log-sites, 37 state-contract, 1 module-name and 25 invariant-index passing cases. Five daemon-verbs and two daemon-log-sites cases skip because sandboxed macOS boot/process identity inspection is unavailable. An intermediate focused run had four test-harness failures because the existing fake-run fixture patches the post-KILL wait to zero; the new test now explicitly restores 2 s before asserting it. The whole suite was left to CI as requested.
+
+Deviations: the requested `uv sync --group dev --extra api` could not complete: the mandated default cache is unwritable, and retrying with the writable cache confirms that this checkout defines no `api` extra. `uv --cache-dir "$VALIDATION_DIR/uv-cache" sync --group dev` succeeded; tests retained the required TMPDIR/UV_CACHE_DIR exports and used the explicit writable cache override. No dependency manifest changed.
+
+Named-file staging was attempted after each coherent step. Git refused creation of the shared worktree's `index.lock` with `Operation not permitted`, so no commit could be made; all nine changed files, including this report, remain in the assigned workspace for hub collection. No alternate Git metadata, history rewrite or push was used. No live state was read or changed, no new event/record keys or refusals were introduced, and no whole-suite run or persistent background work was started. Work completed within the three-hour limit.
