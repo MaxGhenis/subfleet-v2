@@ -1037,7 +1037,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/retention.py",
   "test_name": "test_surfaced_notices_pruned_after_fourteen_days",
-  "notes": "Rationale: file growth. C-8.4 covers job retention and protects unread notices only; the notice age prune is milestone 4, run by C-18.1's hourly pass."
+  "notes": "Rationale: file growth. C-8.4 covers job retention and protects a job with an unread notice only, for `retention.notice_keep_days` after the notice was written (D-NOTICE-KEEP1); the notice age prune is milestone 4, run by C-18.1's hourly pass."
  },
  {
   "id": 81,
@@ -1063,7 +1063,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/retention.py",
   "test_name": "test_retention_caps_500_jobs_and_2gib_and_spares_active",
-  "notes": "Disk growth versus live dispatches; `C-8.4` widens \"still running\" to active, quarantined, unread-notice, salvage-ref and gate-evidence jobs."
+  "notes": "Disk growth versus live dispatches; `C-8.4` widens \"still running\" to active, quarantined, unread-notice (for `retention.notice_keep_days`, 0 for ever), salvage-ref and gate-evidence jobs."
  },
  {
   "id": 83,

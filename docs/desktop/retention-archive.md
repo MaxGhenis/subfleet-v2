@@ -598,7 +598,10 @@ remainder, so no half-deleted tree is left where retention works. A
 A job is kept while any of these holds (C-8.4, `release/217` pins plus
 the dependency places and pending exports below): it is not terminal; it is a
 gate review; an attempt is live or
-quarantined; an unread notice addressed to a session; it is a parent of any
+quarantined; an unread notice addressed to a session, for `notice_keep_days`
+(default 7; 0: for ever) after the notice was written (D-NOTICE-KEEP1: a
+session that never runs again never reads it, and retiring the job then writes
+that session an outcome notice, which pins nothing); it is a parent of any
 job; it or an attempt holds a lease; another holder has its worktree lease, or,
 for a job with its own allocated tree, a worktree lease on a folder inside it; a
 resume holds its `retire:` fence; a salvage ref of an in-place job (or one that
@@ -846,7 +849,8 @@ until they expire.
   batch would need the same unavailable listing. Status is marked before the hour is
   rearmed; failed bookkeeping leaves retention due. The service-notice prune
   runs first, once per retention call (one bounded batch), and its failure is
-  logged without failing job retention. The worker pool has one more thread for retention.
+  logged without failing job retention. It also withdraws an outcome notice
+  still unread `notice_keep_days` after it was written (C-23.26). The worker pool has one more thread for retention.
 - **Below the operator's apps** (final review of e50716e8, N9). The daemon
   runs at the default QoS, and a thread's QoS reaches no child
   (`docs/reports/2026-09-27-daemon-qos.md`), so every child retention starts
