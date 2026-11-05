@@ -15,7 +15,12 @@ import sys
 
 import pytest
 
-from tests.fake.conftest import REPO
+from tests.fake.conftest import REPO, bounded_text
+
+
+def tail(path, size=20000):
+    """The last `size` characters of what the daemon wrote, read with a bound."""
+    return bounded_text(path, 2 * size)[-size:]
 
 
 # The daemon's process, with some of fds 0, 1 and 2 closed (argv[4]) just before one
@@ -136,14 +141,17 @@ def test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_
     the guardian inherits sits above 2 and the provider runs. Every set of the three a
     process may have closed is covered for the pipe itself in
     tests/process/test_pipe_above_stdio.py."""
-    root, out = tmp_path / "state", tmp_path / "gate.json"
+    root, out, said = tmp_path / "state", tmp_path / "gate.json", tmp_path / "daemon-output.txt"
     root.mkdir()
-    done = subprocess.run([sys.executable, "-c", GATE_CHILD, str(root), str(out), launcher,
-                           ",".join(map(str, closed))],
-                          cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)}, stdin=subprocess.DEVNULL,
-                          capture_output=True, text=True, timeout=180)
+    # D-CREDIT-MEM1: the daemon's output goes to a file, and only its tail is read back, so
+    # a daemon that writes without end cannot fill this test's process.
+    with said.open("wb") as sink:
+        done = subprocess.run([sys.executable, "-c", GATE_CHILD, str(root), str(out), launcher,
+                               ",".join(map(str, closed))],
+                              cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)}, stdin=subprocess.DEVNULL,
+                              stdout=sink, stderr=subprocess.STDOUT, timeout=180)
     result = json.loads(out.read_text()) if out.exists() else {}
-    assert done.returncode == 0 and result and "error" not in result, (done.returncode, done.stderr, result)
+    assert done.returncode == 0 and result and "error" not in result, (done.returncode, tail(said), result)
     assert len(result["pass_fds"]) == 1, result
     # Only the gate's read end: a guardian holding the write end too would never read
     # end-of-file there once the daemon died (C-4.2).

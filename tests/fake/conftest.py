@@ -97,7 +97,7 @@ class Harness:
         return self
 
     def log_text(self) -> str:
-        return "\n".join(Path(stream.name).read_text(errors="replace") for stream in self.logs)
+        return "\n".join(bounded_text(Path(stream.name)) for stream in self.logs)
 
     def connect(self) -> socket.socket:
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -217,6 +217,28 @@ class Harness:
             from tests.fake.notice_invariant import notice_mismatches
             problems = notice_mismatches(self.rows)
             assert not problems, "C-15.1 notice headers disagree with job rows:\n" + "\n".join(problems)
+
+
+#: D-CREDIT-MEM1: the most of one daemon log `Harness.log_text` reads. A longer log (a
+#: daemon that writes without end) keeps its first and last halves, so a failing test's
+#: message never reads the whole file into memory.
+LOG_TEXT_LIMIT = 8 << 20
+
+
+def bounded_text(path: Path, limit: int = LOG_TEXT_LIMIT) -> str:
+    """`path`'s text, whole when it holds at most `limit` bytes, else its first and last
+    `limit // 2` bytes around a line saying how much was left out."""
+    with path.open("rb") as stream:
+        size = os.fstat(stream.fileno()).st_size
+        if size <= limit:
+            data = stream.read(limit)
+        else:
+            half = limit // 2
+            head = stream.read(half)
+            stream.seek(size - half)
+            data = (head + f"\n[... {size - 2 * half} bytes of {path.name} left out (D-CREDIT-MEM1) ...]\n".encode()
+                    + stream.read(half))
+    return data.decode("utf-8", "replace")
 
 
 @pytest.fixture(scope="session")

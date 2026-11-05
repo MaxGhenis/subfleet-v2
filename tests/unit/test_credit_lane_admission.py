@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from subfleet import scheduler
+from subfleet import key_frame, scheduler
 from subfleet.adapters.claude_api import ClaudeApiAdapter
 from subfleet.contracts import Credential, JobSpec, Lane, LaneOwner, Launch, Sandbox
 from subfleet.daemon import Daemon
@@ -224,6 +224,16 @@ def _launch(provider: str, tmp_path: Path, key_in_env_add: str | None) -> tuple[
     return lane_row, Launch(("x",), env_add, (), str(tmp_path), None, "o", "e", None, None, lane_row.lane_id)
 
 
+def read_to_end(fd: int, most: int) -> bytes:
+    """Everything on `fd` up to end-of-file, failing past `most` bytes: a writer that never
+    stops fails the test instead of filling it (D-CREDIT-MEM1)."""
+    data = bytearray()
+    while chunk := os.read(fd, most + 1 - len(data)):
+        data += chunk
+        assert len(data) <= most, f"more than {most} bytes on the launch gate"
+    return bytes(data)
+
+
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(provider=st.sampled_from(["claude-api", "claude", "codex"]),
        daemon_has_key=st.booleans(), passed=st.booleans(), leaked=st.booleans())
@@ -255,7 +265,7 @@ def test_only_a_credit_launch_carries_anthropic_api_key_and_only_its_own(provide
         Daemon._open_gate(write, framed)
         os.close(write)
         write = -1
-        gate = b"".join(iter(lambda: os.read(read, 65536), b""))
+        gate = read_to_end(read, 1 + key_frame.HEADER_BYTES + key_frame.MAX_KEY_BYTES)
     finally:
         os.close(read)
         if write >= 0:
