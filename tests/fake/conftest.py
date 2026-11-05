@@ -250,23 +250,28 @@ OUTPUT_LIMIT = 16 << 20
 
 def watch_output(process: subprocess.Popen, paths, timeout: float, limit: int = OUTPUT_LIMIT) -> int:
     """Wait at most `timeout` seconds for `process`, whose output goes to the files `paths`,
-    and return its exit code. Past `limit` bytes in any of the files, or past the timeout,
-    it kills the process and fails with each file's size and its last 4,000 characters."""
+    and return its exit code. Past `limit` bytes in any of the files (checked again once it
+    has ended, so each file read back afterwards holds at most `limit` bytes), or past the
+    timeout, it kills the process if it still runs and fails with each file's size and its
+    last 4,000 characters."""
     deadline = time.monotonic() + timeout
     while True:
         try:
-            return process.wait(timeout=0.05)
+            returncode = process.wait(timeout=0.05)
         except subprocess.TimeoutExpired:
-            pass
+            returncode = None
         sizes = {Path(path): os.stat(path).st_size for path in paths}
-        over = time.monotonic() > deadline
+        over = returncode is None and time.monotonic() > deadline
         if over or any(size > limit for size in sizes.values()):
-            process.kill()
-            process.wait()
+            if process.poll() is None:
+                process.kill()
+                process.wait()
             why = f"ran past {timeout:.0f} s" if over else f"wrote more than {limit} bytes"
             tails = "\n".join(f"{path.name} ({size} bytes): {bounded_text(path, 8000)[-4000:]}"
                               for path, size in sizes.items())
             raise AssertionError(f"pid {process.pid} {why} (D-CREDIT-MEM1); killed\n{tails}")
+        if returncode is not None:
+            return returncode
 
 
 @pytest.fixture(scope="session")

@@ -19,6 +19,7 @@ pipe named by `--key-fd`, and never in the environment (`spawn`).
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import secrets
@@ -37,6 +38,7 @@ from hypothesis import HealthCheck, Phase, given, settings, strategies as st
 from subfleet import home_paths
 from subfleet.api_agent import cli, prompt
 from subfleet.api_agent.loop import UNKNOWN_TEXT
+from tests.fake.conftest import OUTPUT_LIMIT, bounded_text, watch_output
 from tests.fake.anthropic_api import (CREDIT_MESSAGE, DEFAULT_ORG, WORKSPACE_MESSAGE, Error, FakeAnthropic,
                                       Reply, StreamError, bash, text, thinking, tool_use)
 
@@ -181,17 +183,33 @@ def spawn(argv: list[str], environment: dict[str, str], cwd: Path, *, key: str |
         os.close(read_end)
 
 
+#: Names each launch's two output files under its root (a resume launches twice there).
+_OUTPUTS = itertools.count(1)
+
+
+def run_to_files(root: Path, start) -> tuple[subprocess.Popen, bytes, bytes]:
+    """D-CREDIT-MEM1, C-20.7: start a harness with `start(stdout=..., stderr=...)`, its two
+    streams in files under `root`, wait for it under `watch_output` (which stops it past
+    TIMEOUT_S, or once a file passes 16 MiB) and read both back, each at most 16 MiB.
+    `communicate()` held whatever the harness wrote."""
+    number = next(_OUTPUTS)
+    paths = (root / f"harness-{number}.stdout", root / f"harness-{number}.stderr")
+    with paths[0].open("wb") as out, paths[1].open("wb") as err:
+        proc = start(stdout=out, stderr=err)
+        try:
+            watch_output(proc, paths, TIMEOUT_S)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+    return proc, paths[0].read_bytes(), paths[1].read_bytes()
+
+
 def launch(root: Path, fake: FakeAnthropic, *, key: str | None = KEY, key_bytes: bytes | None = None,
            **options) -> Run:
     argv, environment, work, attempt = prepare(root, fake, **options)
-    proc = spawn(argv, environment, root, key=key, key_bytes=key_bytes, stdout=subprocess.PIPE,
-                 stderr=subprocess.PIPE)
-    try:
-        out, err = proc.communicate(timeout=TIMEOUT_S)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-            proc.communicate()
+    proc, out, err = run_to_files(root, lambda **streams: spawn(argv, environment, root, key=key,
+                                                                key_bytes=key_bytes, **streams))
     return Run(subprocess.CompletedProcess(proc.args, proc.returncode, out, err), attempt, work, root)
 
 
@@ -646,12 +664,13 @@ def test_a_key_fd_that_is_not_a_pipe_is_refused(tmp_path):
         argv, environment, _, attempt = prepare(tmp_path, fake)
         fd = os.open(held, os.O_RDONLY)
         try:
-            proc = subprocess.run([*argv, "--key-fd", str(fd)], env=environment, cwd=tmp_path, pass_fds=(fd,),
-                                  stdin=subprocess.DEVNULL, capture_output=True, timeout=TIMEOUT_S)
+            proc, _, err = run_to_files(tmp_path, lambda **streams: subprocess.Popen(
+                [*argv, "--key-fd", str(fd)], env=environment, cwd=tmp_path, pass_fds=(fd,),
+                stdin=subprocess.DEVNULL, **streams))
         finally:
             os.close(fd)
     assert fake.requests == []
-    assert proc.returncode == 1, proc.stderr.decode()[-2000:]
+    assert proc.returncode == 1, err.decode()[-2000:]
     events = [json.loads(line) for line in (attempt / "stream.jsonl").read_text().splitlines()]
     errors = [event for event in events if event["type"] == "error"]
     assert errors and errors[0]["error_type"] == "no-key" and "not a pipe" in errors[0]["message"], errors
@@ -692,22 +711,27 @@ def test_sigterm_kills_the_shell_and_writes_no_end(tmp_path):
     command = "sleep 300 & echo $! > sleep.pid; wait"
     with FakeAnthropic([Reply([bash("t1", command)], "tool_use")]) as fake:
         argv, environment, work, attempt = prepare(tmp_path, fake)
-        proc = spawn(argv, environment, tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # D-CREDIT-MEM1, C-20.7: the harness's output goes to files, read back with a bound.
+        paths = (tmp_path / "harness.stdout", tmp_path / "harness.stderr")
+        with paths[0].open("wb") as out, paths[1].open("wb") as err_file:
+            proc = spawn(argv, environment, tmp_path, stdout=out, stderr=err_file)
         try:
             pid_file = work / "sleep.pid"
             deadline = time.monotonic() + TIMEOUT_S
             while proc.poll() is None and not (pid_file.exists() and pid_file.read_text().strip()):
                 assert time.monotonic() < deadline, "the tool call never started"
+                assert all(path.stat().st_size <= OUTPUT_LIMIT for path in paths), "the harness wrote without end"
                 time.sleep(0.2)
-            assert proc.poll() is None, proc.communicate()[1].decode()[-2000:]
+            assert proc.poll() is None, bounded_text(paths[1])[-2000:]
             sleeper = int(pid_file.read_text())
             assert (attempt / "tmp").is_dir()
             proc.send_signal(signal.SIGTERM)
-            _, err = proc.communicate(timeout=120)
+            watch_output(proc, paths, 120)
         finally:
             if proc.poll() is None:
                 proc.kill()
-                proc.communicate()
+                proc.wait()
+    err = paths[1].read_bytes()
     assert proc.returncode == 1, err.decode()[-2000:]
     kinds = [json.loads(line)["type"] for line in (attempt / "stream.jsonl").read_text().splitlines()]
     assert kinds == ["start", "response"], kinds
