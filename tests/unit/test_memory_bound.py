@@ -9,6 +9,9 @@ MEM column shows, compressed pages included) from here while it runs:
 - a test whose child process grows has that child killed and fails;
 - a test inside one long C call, which no signal handler can interrupt, has its process
   killed at the hard bound, with every thread's stack left in a file;
+- a test that starts above the bound, because an earlier test in the same process kept
+  what it grew, still fails before the hard bound, at the midpoint between its starting
+  footprint and the hard bound, so the process and the tests after it survive;
 - the bound's own arithmetic: the hard bound stays under the host's 8 GB watchdog while
   the bound leaves room.
 
@@ -65,6 +68,28 @@ def test_grows_in_one_c_call():
     data = zlib.decompress((pathlib.Path(__file__).parent / "zeros.z").read_bytes())
     time.sleep(10)
     assert len(data) == 1536 << 20
+"""
+
+
+#: Two tests in one process: the first keeps what it grew past the bound (a module global),
+#: so the second starts above the bound, and then grows again. Before r3, the bound fired
+#: once and armed again only for a test that started under it, so the second test grew
+#: unwatched until the hard bound killed the whole process (D-CREDIT-MEM1's forced faults).
+GROWS_TWICE = """
+import time
+
+kept = []
+
+def test_keeps_what_it_grew():
+    while True:
+        kept.append(b"x" * (8 << 20))
+        time.sleep(0.05)
+
+def test_grows_again_from_above_the_bound():
+    hold = []
+    while True:
+        hold.append(b"y" * (8 << 20))
+        time.sleep(0.05)
 """
 
 
@@ -134,6 +159,23 @@ def test_a_test_inside_one_long_c_call_is_killed_at_the_hard_bound(tmp_path):
     assert "test_case.py" in written, written       # the stacks name the test's frame
     # Seen past the bound, and killed by the time its 1.5 GB was whole.
     assert SOFT < peak <= (1536 << 20) + (256 << 20), (peak >> 20, SOFT >> 20)
+
+
+def test_a_test_that_starts_above_the_bound_still_fails_before_the_hard_bound(tmp_path):
+    """C-20.7: memory one test keeps does not leave the next unwatched. The second test
+    starts above the bound and fails at the midpoint between its starting footprint and
+    the hard bound, with its stacks; the process survives to report both failures."""
+    result, peak, text = run_bounded(tmp_path, GROWS_TWICE)
+    assert result.returncode == 1, text
+    assert "2 failed" in text, text
+    assert "test_grows_again_from_above_the_bound" in text and "above the bound, so it failed at" in text, text
+    assert peak < HARD, (peak >> 20, HARD >> 20)
+    assert not list((tmp_path / "logs").glob("memory-bound-*.txt")), "the hard bound ended the process"
+
+
+@pytest.mark.parametrize("started_mb,expected_mb", [(0, 256), (200, 256), (256, 256), (300, 534), (700, 734)])
+def test_the_threshold_is_the_bound_or_halfway_to_the_hard_bound(started_mb, expected_mb):
+    assert memory_bound.threshold(SOFT, HARD, started_mb << 20) == expected_mb << 20
 
 
 @pytest.mark.parametrize("limit_mb", [0, 1, 256, 1024, 4096, 6144, 8192])

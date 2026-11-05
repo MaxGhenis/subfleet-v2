@@ -45,7 +45,7 @@ the key:
   characters, so it has 88 12-character runs, and `proc_blocks.leaks` found every one of
   them in the guardian's exec block.
 - `test_the_publish_hook_self_test_holds_no_key` fails at line 233: `runs of the key in
-  the self-test's exec blocks: {'self-test-1-39766.bin': 88}`: the whole key, in the
-  publish hook self-test's exec block.
+  the self-test's exec blocks: {'self-test-1-39766.bin': 88}`: again every run of the
+  key, in the publish hook self-test's exec block.
 
 Result: 2 failed in 351 s. At `922d2ecbc` the same two pass.

@@ -241,6 +241,34 @@ def bounded_text(path: Path, limit: int = LOG_TEXT_LIMIT) -> str:
     return data.decode("utf-8", "replace")
 
 
+#: D-CREDIT-MEM1, C-20.7: the most a test lets a child write into a file it reads back. A
+#: child that writes without end then fails its test within a moment, instead of filling
+#: the disk until the test's timeout (r3 measured 136 MB/s for a Python child writing
+#: zeros to a file on this host: about 24 GB in a 180 s timeout).
+OUTPUT_LIMIT = 16 << 20
+
+
+def watch_output(process: subprocess.Popen, paths, timeout: float, limit: int = OUTPUT_LIMIT) -> int:
+    """Wait at most `timeout` seconds for `process`, whose output goes to the files `paths`,
+    and return its exit code. Past `limit` bytes in any of the files, or past the timeout,
+    it kills the process and fails with each file's size and its last 4,000 characters."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return process.wait(timeout=0.05)
+        except subprocess.TimeoutExpired:
+            pass
+        sizes = {Path(path): os.stat(path).st_size for path in paths}
+        over = time.monotonic() > deadline
+        if over or any(size > limit for size in sizes.values()):
+            process.kill()
+            process.wait()
+            why = f"ran past {timeout:.0f} s" if over else f"wrote more than {limit} bytes"
+            tails = "\n".join(f"{path.name} ({size} bytes): {bounded_text(path, 8000)[-4000:]}"
+                              for path, size in sizes.items())
+            raise AssertionError(f"pid {process.pid} {why} (D-CREDIT-MEM1); killed\n{tails}")
+
+
 @pytest.fixture(scope="session")
 def process_inspection_available():
     from subfleet.procs import InspectionError, boot_id, proc_start

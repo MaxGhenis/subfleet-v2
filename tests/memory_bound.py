@@ -13,7 +13,13 @@ for the process that runs the tests and for each process below it, every 0.1 s.
   phase fails: SIGUSR2 to the main thread raises `pytest.fail` there, as pytest-timeout's
   signal method raises its own failure, so a blocking read or a `select` is interrupted
   too. The failure names the footprint and RSS and holds every thread's stack. It fires
-  once; it fires again only after the footprint has come back under the bound.
+  at most once per test. A test that starts above the bound, because memory an earlier
+  test grew is still held (freed memory that the allocator keeps counts too), would fail
+  at once; it fails instead at the midpoint between its starting footprint and the hard
+  bound, so a second runaway in the same process still fails softly, with its stacks,
+  before the hard bound ends the whole process (r3's forced faults: the second of two
+  capture readers started at 711 MB under a 256 MB bound and, with the bound armed only
+  below the bound, reached the hard bound).
 - **Processes below it.** A process the test started that passes the bound is killed
   (SIGKILL), and the running test fails the same way. A process that left the tree (a
   guardian's own session after its parent exited, a double fork) is out of reach.
@@ -108,6 +114,12 @@ def bounds(limit_mb: int) -> tuple[int, int]:
     return soft, min(hard, max(HARD_CEILING, soft + 256 * MB))
 
 
+def threshold(soft: int, hard: int, started_at: int) -> int:
+    """Where a test's own process fails: the bound, or, for a test that starts above it,
+    the midpoint between its starting footprint and the hard bound."""
+    return soft if started_at <= soft else max(soft, (started_at + hard) // 2)
+
+
 def limit_mb(environ=os.environ) -> int:
     text = environ.get(ENV, "").strip()
     if not text:
@@ -137,6 +149,10 @@ class MemoryBound:
         self.nodeid: str | None = None
         self.in_phase = False
         self.armed = True
+        #: Where this test's own process fails: the bound, or the midpoint between the
+        #: footprint the test started at and the hard bound when it started above the bound.
+        self.threshold = self.soft
+        self.started_at = 0
         self.pending: str | None = None
         self.peak = 0
         self.trips: list[dict] = []
@@ -156,8 +172,9 @@ class MemoryBound:
     def pytest_runtest_protocol(self, item, nextitem):
         self.nodeid = item.nodeid
         found = footprint(self.pid)
-        if found is not None and found[0] <= self.soft:
-            self.armed = True
+        self.started_at = 0 if found is None else found[0]
+        self.threshold = threshold(self.soft, self.hard, self.started_at)
+        self.armed = True
         yield
         self.nodeid = None
 
@@ -211,9 +228,12 @@ class MemoryBound:
                 self._fail(f"memory bound (D-CREDIT-MEM1): process {pid}, which this test started, reached "
                            f"a phys_footprint of {below[0] // MB} MB (RSS {below[1] // MB} MB), over the "
                            f"{self.limit} MB bound ({ENV}), and was killed", rearm=True)
-        if size > self.soft and self.armed:
+        if size > self.threshold and self.armed:
+            above = ("" if self.threshold == self.soft else
+                     f"; it started at {self.started_at // MB} MB, above the bound, so it failed at "
+                     f"{self.threshold // MB} MB, halfway to the hard bound of {self.hard // MB} MB")
             self._fail(f"memory bound (D-CREDIT-MEM1): this test's process reached a phys_footprint of "
-                       f"{size // MB} MB (RSS {resident // MB} MB), over the {self.limit} MB bound ({ENV})",
+                       f"{size // MB} MB (RSS {resident // MB} MB), over the {self.limit} MB bound ({ENV}){above}",
                        rearm=False)
 
     def _fail(self, message: str, *, rearm: bool) -> None:
