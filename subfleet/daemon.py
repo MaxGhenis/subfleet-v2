@@ -5869,6 +5869,7 @@ class Daemon:
             result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                                  turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
                                  turn_keep_s=float(budget["turn_keep_days"]) * 86400,
+                                 notice_keep_s=float(budget["notice_keep_days"]) * 86400,
                                  pins=self._retention_pins,
                                  cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                                  state=self._retention_state,
