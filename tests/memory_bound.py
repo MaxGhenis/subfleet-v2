@@ -245,8 +245,11 @@ class MemoryBound:
 
 
 def install(config) -> MemoryBound | None:
-    """Bound this pytest process, once; none on an xdist controller, off the Mac, or at 0."""
-    if config.pluginmanager.has_plugin(NAME) or _libc is None:
+    """Bound this pytest process, once; none on an xdist controller, off the Mac, or at 0.
+    A stand-in config without a plugin manager (a test calling `pytest_configure` itself)
+    gets none either: the session already has its own."""
+    manager = getattr(config, "pluginmanager", None)
+    if manager is None or manager.has_plugin(NAME) or _libc is None:
         return None
     if not hasattr(config, "workerinput") and config.getoption("numprocesses", None):
         return None         # the xdist controller: its workers run the tests
