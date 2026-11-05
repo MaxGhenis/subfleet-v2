@@ -509,7 +509,8 @@ class _Pass:
         self.progress = progress
         self.errors: list[dict[str, str]] = progress["errors"]
         self.ctx = rarch.Context(root, store, cancel=cancel, clock=clock, pinned=self._pinned_at_commit,
-                                 remote_less_history_bytes=remote_less_history_bytes, deadline=deadline)
+                                 remote_less_history_bytes=remote_less_history_bytes, deadline=deadline,
+                                 notice_keep_s=notice_keep_s)
         self.sizes: dict[str, int] = {}
         #: Jobs whose size could not be measured: decided, size unknown (N2).
         self.unknown: set[str] = set()
