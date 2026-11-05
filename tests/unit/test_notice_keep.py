@@ -486,6 +486,39 @@ def test_a_row_that_reused_an_outcomes_id_is_not_withdrawn(retained):
     assert [row["text"] for row in outcomes(store)] == ["a later ping"]
 
 
+def test_a_row_surfaced_between_the_read_and_the_delete_stays(retained, monkeypatch):
+    """The candidates are read before the deleting transaction; a hook that surfaces
+    the outcome in between keeps it (the delete names the row whole, unread included)."""
+    store, root = retained
+    outcome = write_outcome(store, root, "raced", "s1", NOW - timedelta(days=8))
+    real = store.transaction
+
+    @contextmanager
+    def surfaced_first(*args, **kwargs):
+        with real("test.hook") as tx:
+            tx.execute("UPDATE service_notices SET state='surfaced' WHERE notice_id=?", (outcome,))
+        with real(*args, **kwargs) as tx:
+            yield tx
+    monkeypatch.setattr(store, "transaction", surfaced_first)
+    assert rnotices.expire_outcomes(store, 7 * DAY, now=NOW) == []
+    assert [row["state"] for row in outcomes(store)] == ["surfaced"]
+
+
+def test_nothing_due_writes_nothing(retained, monkeypatch):
+    """Once per retention call, every few seconds in a catch-up: no write transaction
+    unless an outcome is due."""
+    store, root = retained
+    write_outcome(store, root, "young", "s1", NOW - timedelta(days=6))
+    with store.transaction() as tx:
+        tx.execute("INSERT INTO service_notices(session_id,text,state,created_at) VALUES('s1','old ping',"
+                   "'pending',?)", (stamp(NOW - timedelta(days=60)),))
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("no transaction when nothing is due")
+    monkeypatch.setattr(store, "transaction", refuse)
+    assert rnotices.expire_outcomes(store, 7 * DAY, now=NOW) == []
+
+
 def test_naming_an_outcome_is_an_index_step(retained):
     """`notice.pending` names an outcome's job through `events_notice_retired`, not a
     walk of every outcome event, with no statistics (nothing here runs ANALYZE)."""

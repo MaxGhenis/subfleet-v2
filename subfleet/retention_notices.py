@@ -144,24 +144,32 @@ def expire_outcomes(store: Any, keep_s: float, *, now: datetime | None = None) -
     matched by id, session and creation time, as its event names it, so a ping
     or an alert that reused an outcome's id is left alone. One event records
     what went. Returns the service notice ids withdrawn; none while `keep_s`
-    keeps for ever."""
+    keeps for ever.
+
+    The candidates are read before any write: this runs once per retention
+    call, every few seconds while a backlog is worked off, and most calls find
+    nothing due. The delete names each row whole (id, session, creation time,
+    still unread), so a row a hook surfaced or that took a reused id between
+    the read and the delete is left as it is; events are only ever added, so a
+    row named once stays named."""
     from .store import pin_notice_jobs
     oldest = cutoff(now or datetime.now(UTC), keep_s)
     if oldest is None:
         return []
+    old = [row for row in store.query(
+        "SELECT notice_id, session_id, created_at FROM service_notices WHERE state IN ('pending','offered')")
+        if (written := written_at(row["created_at"])) is not None and written < oldest]
+    named = pin_notice_jobs(store.query, old, kinds=(RETIRED_EVENT,)) if old else {}
+    due = [row for row in old if row["notice_id"] in named]
+    if not due:
+        return []
     record: dict[str, Any] = {"service_notice_ids": [], "jobs": [], "notice_keep_s": float(keep_s),
                               "why": "unread for retention.notice_keep_days"}
     with store.transaction(EXPIRED_EVENT, data=record) as tx:
-        old = [dict(row) for row in tx.execute(
-            "SELECT notice_id, session_id, created_at FROM service_notices WHERE state IN ('pending','offered')")
-            if (written := written_at(row["created_at"])) is not None and written < oldest]
-        named = pin_notice_jobs(lambda sql, params: tx.execute(sql, params).fetchall(), old,
-                                kinds=(RETIRED_EVENT,)) if old else {}
-        for row in old:
-            if row["notice_id"] in named and tx.execute(
-                    "DELETE FROM service_notices WHERE notice_id=? AND session_id=? AND created_at=? "
-                    "AND state IN ('pending','offered')",
-                    (row["notice_id"], row["session_id"], row["created_at"])).rowcount:
+        for row in due:
+            if tx.execute("DELETE FROM service_notices WHERE notice_id=? AND session_id=? AND created_at=? "
+                          "AND state IN ('pending','offered')",
+                          (row["notice_id"], row["session_id"], row["created_at"])).rowcount:
                 record["service_notice_ids"].append(row["notice_id"])
                 record["jobs"].append(named[row["notice_id"]])
     return record["service_notice_ids"]
