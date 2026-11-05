@@ -22,6 +22,12 @@ delivered is withdrawn `notice_keep_days` after it was written
 (`expire_outcomes`, with a `retention.notice_outcome_expired` event), so a
 session that never returns holds at most one window's outcomes.
 
+The queue's expiry does not erase the outcome: `archived_outcomes` reconstructs
+it from the job's existing archived notices and retirement event, on request
+through `subfleet retention outcomes --session ID`. It writes nothing, so a
+session returning after any length of time can still look up what happened
+without holding another notice or recreating one.
+
 Timestamps: notices store `created_at` as `YYYY-MM-DDTHH:MM:SSZ`, while turn
 retention spells its cutoff with milliseconds and `+00:00`. Ages here are
 compared as parsed datetimes, never as strings across the two spellings; a
@@ -32,6 +38,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Sequence
 
 #: The event that names an outcome notice (its id, session and creation time) and the job.
@@ -81,11 +88,11 @@ def cutoff(now: datetime, keep_s: float) -> datetime | None:
 def fresh(created_at: Any, oldest: datetime | None) -> bool:
     """Whether a notice written at `created_at` still keeps its job: nothing
     expires (`oldest` None), its time does not parse (kept, as before), or it
-    was written at or after `oldest`."""
+    was written after `oldest`."""
     if oldest is None:
         return True
     written = written_at(created_at)
-    return written is None or written >= oldest
+    return written is None or written > oldest
 
 
 def keep_days_text(keep_s: float) -> str:
@@ -102,7 +109,7 @@ def outcome_text(first_lines: Sequence[str], queued: Sequence[str], retired_at: 
     when = ", ".join(dict.fromkeys(item for item in queued if item)) or "at an unknown time"
     text = f"retention retired this job at {retired_at} with its notice unread (queued {when})"
     if expires(keep_s):
-        text += f": an unread notice keeps its job retention.notice_keep_days ({keep_days_text(keep_s)})"
+        text += f" after retention.notice_keep_days ({keep_days_text(keep_s)})"
     text += "."
     if archive:
         text += (f" Its files and rows are in {archive}; `subfleet retention restore {name} --to DIR` "
@@ -173,3 +180,70 @@ def expire_outcomes(store: Any, keep_s: float, *, now: datetime | None = None) -
                 record["service_notice_ids"].append(row["notice_id"])
                 record["jobs"].append(named[row["notice_id"]])
     return record["service_notice_ids"]
+
+
+def archived_outcomes(root: Path, session_id: str) -> dict[str, Any]:
+    """Read a session's retired unread outcomes, including after queue expiry.
+
+    The existing archive owns the original notice text, and the retirement
+    event owns the time and keep period. Neither expires with its service
+    notice. Only the given state root is read; an archive path recorded before
+    that root moved is resolved by its name under this root's archive folder.
+    No notice is marked, recreated or pinned, and no new records are written.
+    An unavailable archive is reported explicitly rather than losing its outcome.
+    """
+    from . import retention_fs as rfs
+    from .store import Store
+
+    root = Path(root).resolve()
+    database = root / "state.sqlite3"
+    if database.resolve().parent != root:
+        raise ValueError("state.sqlite3 is outside the state root")
+    report: dict[str, Any] = {"session_id": session_id, "read_only": True, "outcomes": [], "errors": []}
+    with Store(database, read_only=True) as store:
+        events = store.query("SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id",
+                             (RETIRED_EVENT,))
+    for event in events:
+        try:
+            record = json.loads(event["data_json"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(record, dict) or record.get("session_id") != session_id:
+            continue
+        try:
+            stored_path = record.get("archive")
+            if not isinstance(stored_path, str) or not stored_path:
+                raise ValueError("retirement event names no archive")
+            name = Path(stored_path).name
+            if name in ("", ".", ".."):
+                raise ValueError("retirement event names no archive")
+            archive = root / "archive" / name
+            if archive.resolve().parent != root / "archive":
+                raise ValueError("archive is outside the state root's archive folder")
+            saved = json.loads(rfs.read_regular(archive / "rows.json"))
+            if not isinstance(saved, dict) or saved.get("job_id") != event["job_id"]:
+                raise ValueError("archived rows name a different job")
+            archived_rows = saved.get("rows")
+            archived_notices = archived_rows.get("notices") if isinstance(archived_rows, dict) else None
+            if not isinstance(archived_notices, list) or any(not isinstance(row, dict) for row in archived_notices):
+                raise ValueError("archived notices are malformed")
+            notice_ids = record.get("notice_ids", [])
+            notices = [row for row in archived_notices
+                       if row.get("session_id") == session_id and row.get("notice_id") in notice_ids
+                       and row.get("state") in ("pending", "offered")]
+            if not notices:
+                raise ValueError("archived rows contain none of the event's unread notices")
+            first_lines = list(dict.fromkeys(str(row.get("text") or "").split("\n", 1)[0].strip()
+                                            for row in notices))
+            keep_s = record.get("notice_keep_s")
+            retired_at = record.get("created_at") or event["ts"]
+            report["outcomes"].append({
+                "job_id": event["job_id"], "archive": str(archive), "retired_at": retired_at,
+                "notice_keep_days": keep_s / 86400 if expires(keep_s) or keep_s == 0 else None,
+                "first_lines": first_lines,
+                "text": outcome_text(first_lines, [str(row.get("created_at") or "") for row in notices],
+                                     retired_at, keep_s, str(archive), name),
+            })
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            report["errors"].append({"job_id": event["job_id"], "error": str(exc)})
+    return report

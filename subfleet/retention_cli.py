@@ -1,8 +1,9 @@
-"""`subfleet retention archives | restore | survey` (C-17.1, design d635).
+"""`subfleet retention archives | restore | survey | outcomes` (C-17.1, design d635).
 
-All three run offline, without the daemon: `archives` lists what retention has
+All run offline, without the daemon: `archives` lists what retention has
 archived, `restore` puts an archive back (it touches only its destinations),
-and `survey` is a read-only dry run of retention over the state root.
+`survey` is a read-only dry run of retention over the state root, and `outcomes`
+reads what happened to a session's jobs whose notices were retired unread.
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from .contracts import Exit
 
 
 def add_verbs(sub) -> None:
-    parser = sub.add_parser("retention", help="archives of retired jobs: list, restore, survey")
+    parser = sub.add_parser("retention", help="archives of retired jobs: list, restore, survey, outcomes")
     verbs = parser.add_subparsers(dest="retention_command")
     parser.set_defaults(handler=cmd_retention, retention_command=None)
     listing = verbs.add_parser("archives", help="every archive retention has written")
@@ -33,6 +34,9 @@ def add_verbs(sub) -> None:
     survey.add_argument("--sample", type=int, metavar="N",
                         help="estimate from N sampled jobs what retirement frees versus archives (read-only)")
     survey.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    outcomes = verbs.add_parser("outcomes", help="retired unread job outcomes, even after their notices expired")
+    outcomes.add_argument("--session", required=True, help="the session whose archived outcomes to read")
+    outcomes.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
 
 
 def cmd_retention(args: argparse.Namespace) -> int:
@@ -41,6 +45,23 @@ def cmd_retention(args: argparse.Namespace) -> int:
     root = state_root()
     command = args.retention_command
     as_json = getattr(args, "json", False)
+    if command == "outcomes":
+        from .retention_notices import archived_outcomes
+        import sqlite3
+        try:
+            result = archived_outcomes(root, args.session)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            return fail(Exit.OPERATIONAL, f"retention outcomes: {exc}")
+        if as_json:
+            emit(result)
+        else:
+            for outcome in result["outcomes"]:
+                out(outcome["text"])
+            if not result["outcomes"] and not result["errors"]:
+                out(f"No retired unread job outcomes for session {args.session}.")
+            for error in result["errors"]:
+                out(f"{error['job_id']}: outcome unavailable: {error['error']}")
+        return int(Exit.OPERATIONAL if result["errors"] else Exit.OK)
     if command in (None, "archives"):
         archives = rarch.list_archives(root)
         if as_json:

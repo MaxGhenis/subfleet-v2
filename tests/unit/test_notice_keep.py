@@ -115,7 +115,7 @@ def test_a_notice_just_under_the_keep_pins_and_one_just_over_does_not(retained, 
     # `at` was written at 06:00:00, half a second before the cutoff (NOW less the keep):
     # stored times have whole seconds, so it is older than the keep, by half a second.
     assert pins(store, keep_s) == {"under": "unread-notice"}
-    assert pins(store, keep_s, NOW - timedelta(seconds=0.5)) == {"under": "unread-notice", "at": "unread-notice"}
+    assert pins(store, keep_s, NOW - timedelta(seconds=0.5)) == {"under": "unread-notice"}
 
 
 def test_zero_keeps_an_unread_notice_for_ever(retained):
@@ -229,7 +229,7 @@ def model(notices, keep_s: float, now: datetime = NOW) -> set[str]:
     oldest = now - timedelta(seconds=keep_s) if keep_s else None
     return {job_id for job_id, session, state, age in notices
             if state in ("pending", "offered") and session
-            and (oldest is None or datetime.fromisoformat(ago(age, now)) >= oldest)}
+            and (oldest is None or datetime.fromisoformat(ago(age, now)) > oldest)}
 
 
 @PROPERTY
@@ -414,6 +414,28 @@ def test_a_job_without_an_unread_notice_writes_no_outcome(retained):
     assert retire(store, root)["pruned"] == ["quiet"]
     assert outcomes(store) == [] and not [e for e in store.list_events("quiet")
                                           if e["kind"] == rnotices.RETIRED_EVENT]
+
+
+def test_outcome_and_job_deletion_roll_back_together(retained, monkeypatch):
+    store, root = retained
+    add_job(store, root, "rollback")
+    add_notice(store, "rollback", "s1", ago(8 * DAY, datetime.now(UTC)))
+    original = rnotices.write_outcomes
+
+    def fail_after_writing(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("outcome transaction interrupted")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rnotices, "write_outcomes", fail_after_writing)
+        with pytest.raises(RuntimeError, match="outcome transaction interrupted"):
+            retire(store, root)
+    assert store.get_job("rollback") is not None
+    assert len(store.query("SELECT * FROM notices WHERE job_id='rollback'")) == 1
+    assert outcomes(store) == []
+    assert store.query("SELECT * FROM events WHERE kind=?", (rnotices.RETIRED_EVENT,)) == []
+    assert retire(store, root)["pruned"] == ["rollback"]
+    assert len(outcomes(store)) == 1
 
 
 def test_the_outcome_pins_nothing(retained):
