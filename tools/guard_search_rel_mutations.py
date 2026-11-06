@@ -98,14 +98,16 @@ def mutate(tree: Path, name: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def pytest(tree: Path, tests: list[str], scratch: Path) -> dict[str, str]:
+def pytest(tree: Path, tests: list[str], scratch: Path, first_kill: bool = False) -> dict[str, str]:
     """{file::test name: passed|failed|error|skipped} from one pytest run in ``tree``; a parametrized
-    test's cases fold into its name (failed if any failed)."""
+    test's cases fold into its name (failed if any failed). With ``first_kill`` the run stops at its first
+    failure (pytest -x), so the named tests after the killer have no outcome."""
     report = scratch / f"{tree.name}.xml"
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH" and k != "GUARD_DIFF_CACHE"}
     env["TMPDIR"] = str(scratch)
     subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={report}",
-                    f"--basetemp={scratch / ('bt-' + tree.name)}", *tests], cwd=tree, env=env, capture_output=True)
+                    f"--basetemp={scratch / ('bt-' + tree.name)}", *(["-x"] if first_kill else []), *tests],
+                   cwd=tree, env=env, capture_output=True)
     outcomes: dict[str, str] = {}
     rank = ["passed", "skipped", "error", "failed"]
     for case in ElementTree.parse(report).getroot().iter("testcase"):
@@ -123,6 +125,8 @@ def main() -> int:
     parser.add_argument("--scratch", type=Path, required=True)
     parser.add_argument("--only", nargs="*", default=list(MUTATIONS))
     parser.add_argument("--no-control", action="store_true", help="skip the control (it ran in an earlier call)")
+    parser.add_argument("--first-kill", action="store_true",
+                        help="stop each mutant's run at its first failed test (pytest -x); the control runs whole")
     args = parser.parse_args()
     if "/sf-" not in str(args.scratch.resolve()):
         parser.error("--scratch must be a /sf- scratch directory")
@@ -141,7 +145,7 @@ def main() -> int:
             export(tree)
             mutate(tree, name)
             tests = MUTATIONS[name][1]
-            outcome = pytest(tree, tests, scratch)
+            outcome = pytest(tree, tests, scratch, first_kill=args.first_kill)
             killed_by = [test for test in tests if outcome.get(test) == "failed"]
             ok = ok and bool(killed_by)
             print(json.dumps({"mutant": name, "killed": bool(killed_by), "killed_by": killed_by,
