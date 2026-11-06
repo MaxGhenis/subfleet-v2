@@ -36,6 +36,7 @@ from subfleet.contracts import ExitInfo, Sandbox
 from subfleet.api_agent.loop import UNKNOWN_TEXT
 from tests.fake.anthropic_api import (CREDIT_MESSAGE, WORKSPACE_MESSAGE, Error, FakeAnthropic, Reply, bash,
                                       text)
+from tests.fake.conftest import OUTPUT_LIMIT, bounded_text, watch_output
 from tests.process.test_api_agent_process import TIMEOUT_S, spawn
 from tests.unit.test_claude_api_adapter import EMAIL, FIXTURES, KEY, MODEL, ORG, OTHER_ORG, classified, job, lane
 
@@ -96,7 +97,12 @@ SCENARIOS = {
 
 
 def run_harness(tmp_path: Path, case: str):
-    """The real harness's run of `case`: its attempt folder, launch and exit code."""
+    """The real harness's run of `case`: its attempt folder, launch and exit code.
+
+    C-20.7 (D-CREDIT-MEM1): the harness's two streams go to the attempt's files, as the
+    guardian sends them, under `watch_output`: a harness that writes without end is
+    stopped once a file passes `OUTPUT_LIMIT`, instead of writing until `TIMEOUT_S`
+    (600 s, about 80 GB at the 136 MB/s r3 measured for a child writing to a file)."""
     script, org, policy, _ = SCENARIOS[case]
     found = real_adapter(**policy)
     (tmp_path / "work").mkdir(parents=True, exist_ok=True)
@@ -104,6 +110,7 @@ def run_harness(tmp_path: Path, case: str):
     adir = tmp_path / "jobs" / "job1" / "a1"
     launch = found.build_launch(spec, "job1/a1", adir, lane(), {"ANTHROPIC_API_KEY": KEY, "TMPDIR": str(tmp_path)},
                                 MODEL, "high", Path(spec.prompt_path), None)
+    outputs = [Path(launch.stdout_path), Path(launch.stderr_path)]
     with FakeAnthropic(script, org_id=org) as fake, open(launch.stdout_path, "wb") as stdout, \
             open(launch.stderr_path, "wb") as stderr:
         proc = spawn(list(launch.argv), environment(launch, fake.url), tmp_path, key=KEY, stdout=stdout,
@@ -115,9 +122,11 @@ def run_harness(tmp_path: Path, case: str):
                 deadline = time.monotonic() + TIMEOUT_S
                 while not started.exists():
                     assert proc.poll() is None and time.monotonic() < deadline, "the tool never started"
+                    assert all(path.stat().st_size <= OUTPUT_LIMIT for path in outputs), \
+                        f"the harness wrote more than {OUTPUT_LIMIT} bytes before its tool started (D-CREDIT-MEM1)"
                     time.sleep(0.05)
                 proc.send_signal(signal.SIGTERM)
-            rc = proc.wait(timeout=TIMEOUT_S)
+            rc = watch_output(proc, outputs, TIMEOUT_S)
         finally:
             if proc.poll() is None:
                 proc.kill()
@@ -166,7 +175,7 @@ def shapes(path: Path) -> tuple[list[str], dict[str, dict[str, str]]]:
 @pytest.mark.parametrize("case", sorted(SCENARIOS))
 def test_the_adapter_reads_the_real_harness_as_it_reads_the_fixture(tmp_path, case):
     found, adir, launch, rc = run_harness(tmp_path / "real", case)
-    assert rc == SCENARIOS[case][3], (adir / "stderr").read_text()[-2000:]
+    assert rc == SCENARIOS[case][3], bounded_text(adir / "stderr", 8000)[-2000:]
     real = summary(found, adir, launch, found.classify(adir, launch, ExitInfo(rc=rc, signal=None, wall_s=1.0,
                                                                                 child_pid=None)))
     fixture_adapter, fixture_dir, fixture_launch, fixture_outcome = classified(tmp_path / "fixture", case, rc=rc)
@@ -176,6 +185,31 @@ def test_the_adapter_reads_the_real_harness_as_it_reads_the_fixture(tmp_path, ca
     fixture_kinds, fixture_shapes = shapes(FIXTURES / case / "stream.jsonl")
     assert real_kinds == fixture_kinds
     assert real_shapes == fixture_shapes
+
+
+#: A harness stand-in: 32 MiB of zeros on stdout, then it waits without writing more.
+WRITES_THEN_WAITS = "import os, time\nb = bytes(1 << 20)\nfor _ in range(32):\n    os.write(1, b)\ntime.sleep(600)\n"
+
+
+def test_a_harness_that_writes_past_the_output_limit_is_stopped_at_once(tmp_path, monkeypatch):
+    """C-20.7 (D-CREDIT-MEM1): `run_harness` stops a harness as soon as one of its output
+    files passes `OUTPUT_LIMIT`, not at its timeout. With the timeout cut to 20 s here,
+    a `run_harness` that only waits for the harness fails this test with
+    `TimeoutExpired` after 20 s; the one that watches the files fails the run within
+    moments, saying so."""
+    def writer(argv, environment, cwd, *, key=None, key_bytes=None, **popen):
+        return subprocess.Popen([sys.executable, "-c", WRITES_THEN_WAITS], cwd=cwd, stdin=subprocess.DEVNULL,
+                                **popen)
+
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "spawn", writer)
+    monkeypatch.setattr(here, "TIMEOUT_S", 20)
+    start = time.monotonic()
+    with pytest.raises(AssertionError, match="wrote more than"):
+        run_harness(tmp_path, "done")
+    assert time.monotonic() - start < 15
+    stdout = tmp_path / "jobs" / "job1" / "a1" / "stdout"
+    assert OUTPUT_LIMIT < stdout.stat().st_size <= 32 << 20
 
 
 def test_a_stopped_attempt_resumes_with_its_history_only_growing(tmp_path):
