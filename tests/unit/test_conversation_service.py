@@ -378,6 +378,172 @@ def test_begin_close_quietly_reaps_a_run_that_already_declined(svc, runs, caplog
     assert caplog.text == ""
 
 
+def test_begin_close_grace_starts_after_a_slow_term_send(svc, runs, monkeypatch):
+    svc._start_catalog()
+    run = runs[0]
+    run.stubborn = True
+    original_send = service_module.os.killpg
+
+    def slow_send(pid, sig):
+        original_send(pid, sig)
+        svc.clock.now += 0.5
+
+    monkeypatch.setattr(service_module.os, "killpg", slow_send)
+    try:
+        svc.begin_close()
+        assert svc._catalog_terminated_at == 1000.5
+        svc.clock.now = 1010.499
+        svc._reap_catalog()
+        assert run.signals == [service_module.signal.SIGTERM]
+        svc.clock.now = 1010.5
+        svc._reap_catalog()
+        assert run.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    finally:
+        run.end()
+
+
+@pytest.mark.parametrize("phase", ["before-lock", "in-spawn", "before-handoff", "after-handoff"])
+def test_close_at_each_catalog_start_boundary(svc, runs, monkeypatch, phase):
+    entered, release = threading.Event(), threading.Event()
+    original_spawn = catalog_module.spawn_refresh
+    original_clock = svc.clock
+    original_close = os.close
+    closed_fds = []
+    reaped = set()
+    errors = []
+    from subfleet.procs import pipe_above_stdio
+    svc._catalog_fence = pipe_above_stdio()
+    fence = list(svc._catalog_fence)
+
+    def close_fd(fd):
+        if fd in fence:
+            closed_fds.append(fd)
+        original_close(fd)
+
+    def clock():
+        if phase == "before-handoff" and threading.current_thread() is starter and svc._catalog_starting and runs:
+            entered.set()
+            assert release.wait(5)
+        return original_clock()
+
+    def spawn(*args, **kwargs):
+        if phase == "in-spawn":
+            entered.set()
+            assert release.wait(5)
+            for fd in fence:
+                os.fstat(fd)
+        process = original_spawn(*args, **kwargs)
+        if process is not None:
+            original_poll = process.poll
+
+            def poll():
+                result = original_poll()
+                if result is not None:
+                    reaped.add(process.pid)
+                return result
+
+            monkeypatch.setattr(process, "poll", poll)
+        return process
+
+    def start():
+        try:
+            svc._start_catalog()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    monkeypatch.setattr(svc, "clock", clock)
+    monkeypatch.setattr(service_module.os, "close", close_fd)
+    starter = threading.Thread(target=start)
+    try:
+        if phase == "before-lock":
+            svc.begin_close()
+        starter.start()
+        if phase in ("in-spawn", "before-handoff"):
+            assert entered.wait(5)
+            assert svc._start_catalog() == {"requested": False, "running": True}
+            closer = threading.Thread(target=svc.begin_close)
+            closer.start()
+            closer.join(0.25)
+            assert not closer.is_alive()
+            assert closed_fds == []
+            for fd in fence:
+                os.fstat(fd)
+            release.set()
+        starter.join(5)
+        assert not starter.is_alive() and not errors
+        if phase in ("in-spawn", "before-handoff"):
+            assert runs[0].signals == [service_module.signal.SIGTERM]
+        svc._stop_catalog()
+        assert len(runs) == (0 if phase == "before-lock" else 1)
+        if runs:
+            assert runs[0].signals == [service_module.signal.SIGTERM]
+            assert runs[0].returncode == -15
+            assert reaped == {runs[0].pid}
+        else:
+            assert reaped == set()
+        assert sorted(closed_fds) == sorted(fence)
+        assert svc._catalog_proc is None and svc._catalog_fence is None
+        assert svc._start_catalog() == {"requested": False, "running": False}
+    finally:
+        release.set()
+        starter.join(5)
+        if "closer" in locals():
+            closer.join(5)
+        for run in runs:
+            run.end()
+
+
+@pytest.mark.parametrize("elapsed", [0, 0.5, 1])
+def test_close_bounds_the_start_handoff_and_the_late_starter_reaps(svc, runs, monkeypatch, elapsed):
+    entered, release = threading.Event(), threading.Event()
+    original_spawn = catalog_module.spawn_refresh
+    errors = []
+
+    def spawn(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original_spawn(*args, **kwargs)
+
+    def start():
+        try:
+            svc._start_catalog()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    starter = threading.Thread(target=start)
+    try:
+        starter.start()
+        assert entered.wait(5)
+        svc.begin_close()
+        fence = svc._catalog_fence
+        svc.clock.now += elapsed
+        waits = []
+
+        def wait(timeout):
+            waits.append(timeout)
+            svc.clock.now += timeout
+            return False
+
+        with monkeypatch.context() as patch:
+            patch.setattr(svc._catalog_handoff, "wait", wait)
+            svc._stop_catalog()
+        assert waits == [service_module.CATALOG_HANDOFF_WAIT_S - elapsed]
+        assert svc._catalog_stop_abandoned and svc._catalog_fence == fence
+        release.set()
+        starter.join(5)
+        assert not starter.is_alive() and not errors
+        assert len(runs) == 1 and runs[0].signals == [service_module.signal.SIGTERM]
+        assert runs[0].returncode == -15
+        assert svc._catalog_proc is None and svc._catalog_fence is None
+    finally:
+        release.set()
+        starter.join(5)
+        for run in runs:
+            run.end()
+
+
 @pytest.mark.parametrize("previous_killed", [False, True], ids=["after-sigterm", "after-sigkill"])
 def test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first(svc, runs, previous_killed):
     """A stopped run's TERM time and KILL state cannot shorten the next run's life."""
@@ -450,9 +616,9 @@ def test_close_kills_a_real_run_that_ignores_sigterm(svc, monkeypatch, tmp_path)
     assert time.monotonic() - started < 10
 
 
-def test_a_run_started_while_close_waits_for_the_lock_is_stopped_too(svc, runs, monkeypatch):
-    """C-30.1: a start and close() take the same lock. A start already inside it
-    finishes; close() then stops the run it made, so none outlives close()."""
+def test_a_run_in_flight_when_close_begins_is_stopped_too(svc, runs, monkeypatch):
+    """C-30.1: close waits for the reserved start's handoff, not its spawn lock.
+    The starter signals the run it made before the waiting close reaps it."""
     entered, go = threading.Event(), threading.Event()
     fake_spawn = catalog_module.spawn_refresh
 

@@ -380,6 +380,12 @@ def tracked_catalog(monkeypatch):
     process.wait = no_wait
     service = object.__new__(service_module.ConversationService)
     service._catalog_lock = threading.RLock()
+    service._catalog_starting = False
+    service._catalog_terminating = False
+    service._catalog_handoff = threading.Event()
+    service._catalog_handoff.set()
+    service._catalog_close_started = None
+    service._catalog_stop_abandoned = False
     service._catalog_proc = process
     service._catalog_started = clock.now
     service._catalog_terminated_at = None

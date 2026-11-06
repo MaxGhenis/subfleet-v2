@@ -623,27 +623,184 @@ def test_c5_8a_a_failed_arm_never_stops_close_from_draining_and_unlocking(tmp_pa
         os.close(fd)
 
 
-def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_the_grace():
-    """C-5.8a: a stop's probe containment (SIGTERM, up to TERM_GRACE_S of census
-    polling, SIGKILL, one census) finishes before the bound; launchd and `daemon
-    stop` wait past the bound before their own SIGKILL, so the daemon's dump
-    comes first."""
+@pytest.mark.parametrize("start_in_flight", [False, True])
+def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_the_grace(
+        tmp_path, monkeypatch, start_in_flight):
+    """C-5.8a: real close spends every named remaining bound under a fake clock.
+
+    An in-flight start hands off at its deadline during the answer wait. Every
+    modelled wait spends its full remaining timeout; an unmodelled bounded wait
+    fails rather than silently disappearing from the 28 s total. Probe
+    containment and the watchdog still precede the unchanged external backstops.
+    """
     import inspect
     from subfleet import cli
     from subfleet.contracts import STOP_BACKSTOP_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S
-    from subfleet.conversations.service import (CATALOG_KILL_AFTER_S, CATALOG_STOP_WAIT_S,
-                                               CATALOG_TERM_GRACE_S, RUNNER_STOP_WAIT_S)
+    from subfleet.conversations.service import CATALOG_KILL_AFTER_S, CATALOG_TERM_GRACE_S
     assert TERM_GRACE_S + 10 <= STOP_GRACE_S
     assert CATALOG_KILL_AFTER_S == 60 and CATALOG_TERM_GRACE_S == 10
-    other_waits = 2 + 2 + TERM_GRACE_S + daemon_module.READER_JOIN_S
-    named_stop_bound = max(CATALOG_TERM_GRACE_S, other_waits) + CATALOG_STOP_WAIT_S + RUNNER_STOP_WAIT_S
+    from types import SimpleNamespace
+    from subfleet.conversations import service as service_module
+    from tests.unit.test_conversation_service import FakeRun
+
+    daemon = daemon_module.Daemon(tmp_path / "root", desktop_prober=lambda: None)
+    daemon.lock_watch.stop()
+    daemon.lock_watch._stop.clear()
+    now = [1000.0]
+    waits = []
+    service = daemon.conversations
+    process = FakeRun(4_000_000)
+    process.stubborn = True
+    if start_in_flight:
+        service._catalog_starting = True
+        service._catalog_handoff.clear()
+    else:
+        service._catalog_proc = process
+
+    def spend(name, timeout):
+        waits.append((name, timeout))
+        deadline = now[0] + timeout
+        if name == "answers" and start_in_flight:
+            now[0] += service_module.CATALOG_HANDOFF_WAIT_S
+            service._catalog_starting = False
+            service._catalog_proc = process
+            service.begin_close()
+        now[0] = deadline
+
+    def join(name):
+        return SimpleNamespace(join=lambda timeout: spend(name, max(0, timeout)))
+
+    def wait(timeout):
+        spend("catalog", timeout)
+        raise subprocess.TimeoutExpired("catalog", timeout)
+
+    def send(pid, sig):
+        assert pid == process.pid
+        process.signals.append(sig)
+
+    def handoff_wait(timeout):
+        spend("handoff", timeout)
+        return True
+
+    original_timers_stop = daemon.timers.stop
+
+    def timers_stop():
+        spend("probe-containment", TERM_GRACE_S)
+        original_timers_stop()
+
+    runner = join("runner")
+    runner.stop = lambda: None
+    runner.attempt_id = "fake/a1"
+    service.runners[runner.attempt_id] = runner
+    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: now[0])
+    service.clock = lambda: now[0]
+    daemon.lock_watch.clock = lambda: now[0]
+    daemon.lock_watch._thread = join("lockwatch")
+    daemon._control_thread = join("control")
+    daemon._readers = [join("reader")]
+    monkeypatch.setattr(daemon._waits_answered, "wait_for", lambda predicate, timeout: spend("answers", timeout))
+    monkeypatch.setattr(daemon.store._returned, "wait_for", lambda predicate, timeout: spend("store-readers", timeout))
+    monkeypatch.setattr(daemon.timers, "stop", timers_stop)
+    monkeypatch.setattr(service._catalog_handoff, "wait", handoff_wait)
+    monkeypatch.setattr(process, "wait", wait)
+    monkeypatch.setattr(service_module.os, "killpg", send)
+    original_join = threading.Thread.join
+    original_event_wait = threading.Event.wait
+    original_condition_wait = threading.Condition.wait_for
+    original_condition_sleep = threading.Condition.wait
+    original_process_wait = subprocess.Popen.wait
+
+    def unmodelled_wait(original):
+        signature = inspect.signature(original)
+
+        def checked(receiver, *args, **kwargs):
+            timeout = signature.bind(receiver, *args, **kwargs).arguments.get("timeout")
+            assert timeout is None, f"unmodelled bounded wait: {original.__qualname__}"
+            return original(receiver, *args, **kwargs)
+        return checked
+
+    try:
+        with monkeypatch.context() as bounded:
+            bounded.setattr(threading.Thread, "join", unmodelled_wait(original_join))
+            bounded.setattr(threading.Event, "wait", unmodelled_wait(original_event_wait))
+            bounded.setattr(threading.Condition, "wait_for", unmodelled_wait(original_condition_wait))
+            bounded.setattr(threading.Condition, "wait", unmodelled_wait(original_condition_sleep))
+            bounded.setattr(subprocess.Popen, "wait", unmodelled_wait(original_process_wait))
+            daemon.close()
+    finally:
+        process.end()
+    named_stop_bound = now[0] - 1000.0
     assert named_stop_bound == 28
-    assert named_stop_bound <= STOP_GRACE_S
+    assert waits == [("answers", 2), ("control", 2), ("probe-containment", 15),
+                     ("reader", 2), ("handoff", 0), ("catalog", 0), ("catalog", 2),
+                     ("runner", 5), ("lockwatch", 0), ("store-readers", 0)]
+    assert named_stop_bound <= STOP_GRACE_S - 2
     assert STOP_BACKSTOP_S >= 5
     assert 0 < STOP_DUMP_MARGIN_S < STOP_BACKSTOP_S
     assert cli.DAEMON_STOP_WAIT_S == STOP_GRACE_S + STOP_BACKSTOP_S
     default = inspect.signature(daemon_module.Daemon).parameters["stop_grace_s"].default
     assert default == STOP_GRACE_S
+
+
+def test_begin_close_during_start_is_nonblocking(tmp_path, monkeypatch):
+    from subfleet.conversations import catalog as catalog_module
+    from subfleet.conversations import service as service_module
+    from tests.unit.test_conversation_service import FakeRun
+
+    daemon = daemon_module.Daemon(tmp_path / "root", desktop_prober=lambda: None)
+    service = daemon.conversations
+    entered, release = threading.Event(), threading.Event()
+    process = FakeRun(4_000_000)
+    signals = []
+    fence = []
+    errors = []
+
+    def spawn(root, *, fence_fd):
+        fence.extend(service._catalog_fence)
+        entered.set()
+        assert release.wait(5)
+        for fd in fence:
+            import os
+            os.fstat(fd)
+        return process
+
+    def send(pid, sig):
+        signals.append(sig)
+        process.end(-sig)
+
+    def guarded(action):
+        try:
+            action()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    monkeypatch.setattr(service_module.os, "killpg", send)
+    starter = threading.Thread(target=lambda: guarded(service._start_catalog))
+    closer = threading.Thread(target=lambda: guarded(daemon.close))
+    try:
+        starter.start()
+        assert entered.wait(5)
+        deadline = time.monotonic() + 0.25
+        closer.start()
+        assert daemon.stopping.wait(max(0, deadline - time.monotonic()))
+        assert daemon.timers.cancel.wait(max(0, deadline - time.monotonic()))
+        assert service._closed and service._catalog_fence is not None
+        release.set()
+        starter.join(5)
+        closer.join(5)
+        assert not starter.is_alive() and not closer.is_alive() and not errors
+        assert signals == [signal.SIGTERM]
+        assert service._catalog_fence is None and service._catalog_proc is None
+    finally:
+        release.set()
+        starter.join(5)
+        if closer.ident is not None:
+            closer.join(5)
+        process.end()
+        if errors:
+            daemon._closed = False
+            daemon.close()
 
 
 @pytest.mark.parametrize("kind", ["invalid-frame", "slow-arm"])
