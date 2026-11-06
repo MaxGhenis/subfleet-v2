@@ -1,0 +1,149 @@
+{
+  "commits": {
+    "base": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5",
+    "head": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5"
+  },
+  "head_overlay_sha256": {
+    "subfleet/daemon.py": "a2d56e2efecb049a18780d8bb7cadb7f1877e181b48ecb7bf706955e17b52c07"
+  },
+  "samples": [
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 33.98496195900225,
+      "thread_cpu_s": 0.2801447089999999,
+      "instructions": 1088792879,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 38.88384354200389,
+      "thread_cpu_s": 0.279067167,
+      "instructions": 1028782616,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    }
+  ],
+  "summary": [
+    {
+      "label": "base",
+      "scenario": "closed",
+      "wall_s": {
+        "min": 33.98496195900225,
+        "median": 33.98496195900225,
+        "max": 33.98496195900225
+      },
+      "thread_cpu_s": {
+        "min": 0.2801447089999999,
+        "median": 0.2801447089999999,
+        "max": 0.2801447089999999
+      },
+      "instructions": {
+        "min": 1088792879,
+        "median": 1088792879,
+        "max": 1088792879
+      },
+      "cuts": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "workspace_calls": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "evaluations": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "store_read_calls": {
+        "min": 607,
+        "median": 607,
+        "max": 607
+      },
+      "store_rows": {
+        "min": 303,
+        "median": 303,
+        "max": 303
+      },
+      "reservations": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      }
+    },
+    {
+      "label": "head",
+      "scenario": "closed",
+      "wall_s": {
+        "min": 38.88384354200389,
+        "median": 38.88384354200389,
+        "max": 38.88384354200389
+      },
+      "thread_cpu_s": {
+        "min": 0.279067167,
+        "median": 0.279067167,
+        "max": 0.279067167
+      },
+      "instructions": {
+        "min": 1028782616,
+        "median": 1028782616,
+        "max": 1028782616
+      },
+      "cuts": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "workspace_calls": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "evaluations": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "store_read_calls": {
+        "min": 607,
+        "median": 607,
+        "max": 607
+      },
+      "store_rows": {
+        "min": 303,
+        "median": 303,
+        "max": 303
+      },
+      "reservations": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      }
+    }
+  ],
+  "complete": true,
+  "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d",
+  "command_total_s": 800.43,
+  "command": "time uv run --no-sync python tools/benchmark_tree_thrash.py --samples 1 --jobs 300 --scenarios closed --head-overlay subfleet/daemon.py --output docs/reports/2026-11-06-tree-thrash-cost-overlay.json"
+}

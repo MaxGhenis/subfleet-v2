@@ -1,0 +1,66 @@
+F
+=================================== FAILURES ===================================
+_ test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation _
+
+fleet_factory = <function fleet_factory.<locals>.make at 0x10b7cdd20>
+repo = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests/tree-thrash-mutant-1x_g4gj9/pytest/test_reopening_the_original_la0/repo')
+immutable_source = None
+
+    def test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation(
+            fleet_factory, repo, immutable_source):  # noqa: F811
+        """The basis stays paired with its original decision across both checks (I2)."""
+        service, harness, cuts = fleet_factory(lanes=2, slots=None, synthetic=True)
+        job = submit(service, harness, repo)
+        evaluations = []
+        pick = service._pick
+    
+        def picked(row, **options):
+            decision = pick(row, **options)
+            evaluations.append(decision.chosen_lane)
+            # The evaluation's read snapshot has ended: commit the controller's
+            # closure off the writer lock, before its first reservation check.
+            if len(evaluations) == 1:
+                close(service, "codex-1")
+            return decision
+    
+        service._pick = picked
+        stands = service._route_stands
+        checks = []
+    
+        def checked(basis, decision):
+            checks.append(True)
+            return stands(basis, decision)
+    
+        service._route_stands = checked
+        workspace = service._workspace
+    
+        def reopen_while_preparing(row):
+            result = workspace(row)
+            open_lanes(service)
+            return result
+    
+        service._workspace = reopen_while_preparing
+        service._admit()
+        (attempt,) = service.store.list_attempts(job)
+        assert len(checks) == 2 and evaluations == ["codex-1"]
+>       assert cuts == [job] and attempt["lane_id"] == "codex-1"
+E       AssertionError: assert (['20261106-101317-astra'] == ['20261106-101317-astra']
+E         
+E         Use -v to get more diff and 'codex-2' == 'codex-1'
+E         
+E         - codex-1
+E         ?       ^
+E         + codex-2
+E         ?       ^)
+
+tests/fake/test_admission_tree_thrash.py:341: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4489319424:daemon.py:998 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4489319424:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4487744544:daemon.py:998 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4487744544:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_tree_thrash.py::test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 91.01s (0:01:31)
