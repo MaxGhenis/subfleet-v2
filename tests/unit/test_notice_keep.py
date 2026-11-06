@@ -8,13 +8,16 @@ unread leaves that session an outcome notice, which pins nothing and ends.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
+import time
 from collections import Counter
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
@@ -85,6 +88,140 @@ def retained(tmp_path):
 
 def no_holders(watches, **_):
     return {}
+
+
+def test_reused_same_second_ping_is_not_expired(retained, monkeypatch):
+    from subfleet import daemon
+    store, root = retained
+    then = NOW - timedelta(days=8)
+    outcome = write_outcome(store, root, "reused", "s1", then)
+    with store.transaction() as tx:
+        tx.execute("DELETE FROM service_notices WHERE notice_id=?", (outcome,))
+    monkeypatch.setattr(daemon, "utcnow", lambda: stamp(then))
+    instance = SimpleNamespace(store=store, policy={}, _notify=lambda: None)
+    reply = daemon.Daemon.dispatch.__wrapped__(instance, "ping", {"session_id": "s1", "text": "different ping"})
+    assert -reply["notice_id"] == outcome
+    assert rnotices.expire_outcomes(store, 7 * DAY, now=NOW) == []
+    assert [row["text"] for row in outcomes(store)] == ["different ping"]
+
+
+def test_expiry_exact_cutoff_is_not_older(retained):
+    store, root = retained
+    exact = NOW.replace(microsecond=0)
+    outcome = write_outcome(store, root, "cutoff", "s1", exact - timedelta(days=7))
+    assert rnotices.expire_outcomes(store, 7 * DAY, now=exact) == []
+    assert rnotices.expire_outcomes(store, 7 * DAY, now=exact + timedelta(microseconds=1)) == [outcome]
+
+
+@pytest.mark.parametrize("replacement", ["creation-time", "text"])
+def test_row_replaced_between_expiry_read_and_delete_stays(retained, monkeypatch, replacement):
+    store, root = retained
+    outcome = write_outcome(store, root, "replaced", "s1", NOW - timedelta(days=8))
+    (original,) = outcomes(store)
+    real = store.transaction
+    text = original["text"] if replacement == "creation-time" else "replacement ping"
+    created = stamp(NOW) if replacement == "creation-time" else original["created_at"]
+
+    @contextmanager
+    def replace_first(kind="state.changed", **kwargs):
+        if kind == rnotices.EXPIRED_EVENT:
+            with real("test.replaced") as tx:
+                tx.execute("DELETE FROM service_notices WHERE notice_id=?", (outcome,))
+                tx.execute("INSERT INTO service_notices(notice_id,session_id,text,state,created_at) "
+                           "VALUES(?,'s1',?,'pending',?)", (outcome, text, created))
+        with real(kind, **kwargs) as tx:
+            yield tx
+
+    monkeypatch.setattr(store, "transaction", replace_first)
+    assert rnotices.expire_outcomes(store, 7 * DAY, now=NOW) == []
+    assert [(row["text"], row["created_at"]) for row in outcomes(store)] == [(text, created)]
+
+
+def test_three_hundred_headers_and_mixed_state(retained):
+    store, root = retained
+    add_job(store, root, "j")
+    headers = [f"j: failed; rc={number}; deliverable=/tmp/result-{number}.md; out=/tmp/out-{number}.md"
+               for number in range(300)]
+    for text in [*headers, headers[0]]:
+        notice_id = store.add_notice("j", text + "\nbody", "s")
+        store.update_notice(notice_id, created_at=ago(8 * DAY, datetime.now(UTC)))
+    store.add_notice("j", "already surfaced header", "s", state="surfaced")
+    for session in ("two", "quota-burn-20261006"):
+        add_notice(store, "j", session, ago(8 * DAY, datetime.now(UTC)))
+    assert retire(store, root)["pruned"] == ["j"]
+    rows = outcomes(store)
+    assert len(rows) == 3
+    row = next(row for row in rows if row["session_id"] == "s")
+    assert row["text"].splitlines()[:-1] == headers
+    assert len(row["text"].splitlines()) == 301
+    print("OUTCOME_300_BYTES", len(row["text"].encode()), "LINES", len(row["text"].splitlines()))
+    later = max(rnotices.written_at(row["created_at"]) for row in rows) + timedelta(days=8)
+    assert len(rnotices.expire_outcomes(store, 7 * DAY, now=later)) == 3
+
+
+def test_changelog_names_pr_294():
+    contract = Path(__file__).resolve().parents[2] / "docs" / "acceptance-contract.md"
+    line = next(line for line in contract.read_text().splitlines()
+                if line.startswith("- C-8.4, C-15.3, C-23.26 (2026-11-05"))
+    assert "D-NOTICE-KEEP1" in line and "docs/reports/2026-11-05-notice-keep-days.md" in line
+    assert "#294" in line
+
+
+def test_expiry_ten_thousand(retained, monkeypatch):
+    store, _ = retained
+    old = stamp(NOW - timedelta(days=8))
+    digest = hashlib.sha256(b"outcome").hexdigest()
+    with store.transaction() as tx:
+        tx.executemany("INSERT INTO service_notices(notice_id,session_id,text,state,created_at) "
+                       "VALUES(?,?,'outcome','pending',?)",
+                       ((number, f"s{number % 68}", old) for number in range(1, 10001)))
+        tx.executemany("INSERT INTO events(ts,kind,job_id,data_json) VALUES(?,?,?,?)",
+                       ((old, rnotices.RETIRED_EVENT, f"j{number}", json.dumps({
+                           "service_notice_id": number, "session_id": f"s{number % 68}",
+                           "created_at": old, "outcome_sha256": digest})) for number in range(1, 10001)))
+    original_query, original_transaction = store.query, store.transaction
+    queries, writes = [], []
+
+    def querying(sql, params=()):
+        queries.append(sql)
+        return original_query(sql, params)
+
+    @contextmanager
+    def writing(*args, **kwargs):
+        started = time.perf_counter()
+        with original_transaction(*args, **kwargs) as tx:
+            yield tx
+        writes.append(time.perf_counter() - started)
+
+    monkeypatch.setattr(store, "query", querying)
+    monkeypatch.setattr(store, "transaction", writing)
+    started = time.perf_counter()
+    assert len(rnotices.expire_outcomes(store, 7 * DAY, now=NOW)) == 10000
+    elapsed = time.perf_counter() - started
+    assert len(queries) == 21 and len(writes) == 1
+    assert all("SELECT" in query for query in queries)
+    print("EXPIRY_COST", json.dumps({"outcomes": 10000, "total_s": elapsed, "write_s": writes[0],
+                                     "queries": len(queries)}))
+    with original_transaction() as tx:
+        tx.executemany("INSERT INTO service_notices(notice_id,session_id,text,state,created_at) "
+                       "VALUES(?,?,'outcome','pending',?)",
+                       ((number, f"s{number % 68}", stamp(NOW)) for number in range(1, 10001)))
+    queries.clear()
+    writes.clear()
+    started = time.perf_counter()
+    assert rnotices.expire_outcomes(store, 7 * DAY, now=NOW) == []
+    assert len(queries) == 1 and writes == []
+    print("EXPIRY_NONE_DUE_S", time.perf_counter() - started)
+
+
+def test_legacy_event_without_identity_cannot_authorize_expiry(retained):
+    store, root = retained
+    outcome = write_outcome(store, root, "legacy", "s1", NOW - timedelta(days=8))
+    with store.transaction() as tx:
+        tx.execute("UPDATE events SET data_json=json_remove(data_json,'$.outcome_sha256') WHERE kind=?",
+                   (rnotices.RETIRED_EVENT,))
+    assert rnotices.expire_outcomes(store, 7 * DAY, now=NOW) == []
+    assert [row["notice_id"] for row in outcomes(store)] == [outcome]
 
 
 # --- the setting -----------------------------------------------------------------------------
@@ -380,11 +517,11 @@ def test_retiring_a_job_with_an_unread_notice_writes_its_session_the_outcome(ret
     archive = root.resolve() / "archive" / "gone"
     assert f"Its files and rows are in {archive};" in second and archive.is_dir()
     assert "`subfleet retention restore gone --to DIR`" in second
-    # The event names it, as a pin notice's does, and only by id, session and creation time.
     (event,) = [e for e in store.list_events("gone") if e["kind"] == rnotices.RETIRED_EVENT]
     data = json.loads(event["data_json"])
     assert (data["service_notice_id"], data["session_id"], data["created_at"]) == (
         row["notice_id"], "session-gone", row["created_at"])
+    assert data["outcome_sha256"] == hashlib.sha256(row["text"].encode()).hexdigest()
     assert pin_notice_jobs(store.query, [row]) == {row["notice_id"]: "gone"}
     (pruned,) = [json.loads(e["data_json"]) for e in store.list_events("gone")
                  if e["kind"] == "retention.pruned" and e["data_json"] != "{}"]

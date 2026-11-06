@@ -1,4 +1,4 @@
-"""Replay D-NOTICE-KEEP1's eight behavioral mutants without editing source.
+"""Replay D-NOTICE-KEEP1's behavioral mutants without editing source.
 
 Run from the checkout after syncing the dev environment::
 
@@ -41,10 +41,18 @@ MUTANTS = {
     "f": ("let an outcome pin its job", TEST + "test_the_outcome_pins_nothing"),
     "g": ("never withdraw an expired unread outcome", TEST + "test_an_undelivered_outcome_is_withdrawn_after_the_keep_and_a_delivered_one_is_left"),
     "h": ("keep a notice at exactly the cutoff", TEST + "test_a_notice_just_under_the_keep_pins_and_one_just_over_does_not[7]"),
+    "i": ("drop 299 of 300 distinct outcome headers", TEST + "test_three_hundred_headers_and_mixed_state"),
+    "j": ("expire an outcome at exactly the cutoff", TEST + "test_expiry_exact_cutoff_is_not_older"),
+    "k": ("omit the delete's creation-time check", TEST + "test_row_replaced_between_expiry_read_and_delete_stays[creation-time]"),
+    "l": ("omit the delete's text identity check", TEST + "test_row_replaced_between_expiry_read_and_delete_stays[text]"),
+    "m": ("open the outcome lookup the old way", "tests/unit/test_retention_outcomes.py::test_outcomes_does_not_create_sqlite_sidecars"),
+    "n": ("omit PR 294 from the change log", TEST + "test_changelog_names_pr_294"),
+    "o": ("omit the retirement event's outcome digest check", TEST + "test_reused_same_second_ping_is_not_expired"),
 }
 SOURCE_FILES = (
     "subfleet/retention.py", "subfleet/retention_archive.py", "subfleet/retention_notices.py",
-    "subfleet/retention_survey.py", "tests/unit/test_notice_keep.py",
+    "subfleet/retention_survey.py", "subfleet/store.py", "subfleet/retention_snapshot.py",
+    "tests/unit/test_notice_keep.py", "tests/unit/test_retention_outcomes.py", "docs/acceptance-contract.md",
 )
 
 
@@ -102,6 +110,47 @@ def install_mutant(name: str):
             written = notices.written_at(created_at)
             return written is None or written >= oldest
         patch.setattr(notices, "fresh", inclusive_cutoff)
+    elif name == "i":
+        original = notices.outcome_text
+
+        def first_header_only(first_lines, *args, **kwargs):
+            return original(first_lines[:1], *args, **kwargs)
+        patch.setattr(notices, "outcome_text", first_header_only)
+    elif name in ("j", "k", "l", "o"):
+        source = inspect.getsource(notices.expire_outcomes)
+        replacements = {
+            "j": [("written < oldest", "written <= oldest")],
+            "k": [("AND created_at=? AND text=? ", "AND text=? "),
+                  ('row["session_id"], row["created_at"], row["text"]', 'row["session_id"], row["text"]')],
+            "l": [("AND text=? ", ""), ('row["created_at"], row["text"]', 'row["created_at"]')],
+            "o": [("match_outcome_text=True", "match_outcome_text=False")],
+        }
+        for old, new in replacements[name]:
+            if source.count(old) != 1:
+                raise RuntimeError(f"mutant {name} requires exactly one {old!r}")
+            source = source.replace(old, new)
+        namespace = dict(notices.__dict__)
+        exec(compile(source, f"<notice-keep-mutant-{name}>", "exec"), namespace)
+        patch.setattr(notices, "expire_outcomes", namespace["expire_outcomes"])
+    elif name == "m":
+        from contextlib import contextmanager
+        from subfleet import retention_snapshot
+        from subfleet.store import Store
+
+        @contextmanager
+        def old_lookup(database):
+            with Store(database, read_only=True) as store:
+                yield store, "sqlite-coordination"
+        patch.setattr(retention_snapshot, "lookup_store", old_lookup)
+    elif name == "n":
+        original = Path.read_text
+
+        def missing_pr(path, *args, **kwargs):
+            text = original(path, *args, **kwargs)
+            if path.resolve() == ROOT / "docs/acceptance-contract.md":
+                text = text.replace("D-NOTICE-KEEP1, #294;", "D-NOTICE-KEEP1;")
+            return text
+        patch.setattr(Path, "read_text", missing_pr)
     else:
         raise ValueError(f"unknown notice-keep mutant: {name}")
     return patch

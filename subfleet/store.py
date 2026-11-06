@@ -169,7 +169,7 @@ def cancel_info(at: str, data_json: str) -> dict[str, Any]:
     return data
 
 
-def _pin_notice_key(data_json: str | None) -> tuple | None:
+def _pin_notice_key(data_json: str | None, *, include_outcome_digest: bool = False) -> tuple | None:
     """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
     try:
         data = json.loads(data_json or "{}")
@@ -177,7 +177,8 @@ def _pin_notice_key(data_json: str | None) -> tuple | None:
         return None
     if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
         return None
-    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+    key = data["service_notice_id"], data.get("session_id"), data.get("created_at")
+    return (*key, data.get("outcome_sha256")) if include_outcome_digest else key
 
 
 #: C-11.8: the expression `events_pin_notice` (and `events_notice_retired`) indexes,
@@ -193,7 +194,8 @@ NOTICE_EVENT_KINDS = ("job.pin_noticed", "retention.notice_retired")
 
 def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
                     rows: Iterable[Mapping[str, Any]], *,
-                    kinds: Sequence[str] = NOTICE_EVENT_KINDS) -> dict[int, str]:
+                    kinds: Sequence[str] = NOTICE_EVENT_KINDS,
+                    match_outcome_text: bool = False) -> dict[int, str]:
     """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from its
     `job.pin_noticed` event, or the job an outcome notice reports (C-8.4: retention
     retired it with its notice unread), from its `retention.notice_retired` event;
@@ -201,8 +203,14 @@ def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
     (positive) ids. A row matches its event by id, session and creation time
     together: a service notice's id is reused once the row with the highest id is
     deleted (it has no AUTOINCREMENT), and a ping, a nudge or an alert that gets an
-    old pin notice's id names none."""
-    wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
+    old pin notice's id names none. Expiry also requires an outcome's full text
+    digest via `match_outcome_text`; old events without one cannot authorize deletion."""
+    wanted = {}
+    for row in rows:
+        key = row["notice_id"], row["session_id"], row["created_at"]
+        if match_outcome_text:
+            key = (*key, hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest())
+        wanted[key] = row["notice_id"]
     found: dict[int, str] = {}
     ids = sorted({key[0] for key in wanted})
     # Exactly the events that name one of these notices, newest first, with no
@@ -226,7 +234,7 @@ def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
             events += query(f"SELECT event_id,job_id,data_json FROM events WHERE kind='{kind}' AND "
                             f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
     for event in sorted(events, key=lambda event: event["event_id"], reverse=True):
-        key = _pin_notice_key(event["data_json"])
+        key = _pin_notice_key(event["data_json"], include_outcome_digest=match_outcome_text)
         if key in wanted and event["job_id"]:
             found.setdefault(wanted[key], event["job_id"])
     return found

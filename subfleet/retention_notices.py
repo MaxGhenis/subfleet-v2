@@ -11,7 +11,7 @@ the same transaction writes the notice's session a service notice, the
 *outcome*: the notice's first line (C-15.1: job id, state, rc, deliverable and
 `-o` paths), when retention retired the job with the notice unread, and where
 the job's archive is. A `retention.notice_retired` event names the outcome by
-id, session and creation time, as a pin's `job.pin_noticed` event names its
+id, session, creation time and a full SHA-256 digest of its text, as a pin's `job.pin_noticed` event names its
 notice (C-11.8), so `notice.pending` names the job and a session Subfleet
 launched surfaces it too (C-15.2, C-26.13).
 
@@ -24,9 +24,11 @@ session that never returns holds at most one window's outcomes.
 
 The queue's expiry does not erase the outcome: `archived_outcomes` reconstructs
 it from the job's existing archived notices and retirement event, on request
-through `subfleet retention outcomes --session ID`. It writes nothing, so a
+through `subfleet retention outcomes --session ID`. It writes no store records, so a
 session returning after any length of time can still look up what happened
-without holding another notice or recreating one.
+without holding another notice or recreating one. A private locked snapshot
+avoids state-root files on a closed store; a busy-store fallback may create
+SQLite WAL/SHM coordination files, never a daemon lock or store records.
 
 Timestamps: notices store `created_at` as `YYYY-MM-DDTHH:MM:SSZ`, while turn
 retention spells its cutoff with milliseconds and `+00:00`. Ages here are
@@ -35,6 +37,7 @@ compared as parsed datetimes, never as strings across the two spellings; a
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from datetime import UTC, datetime, timedelta
@@ -135,6 +138,7 @@ def write_outcomes(conn: Any, job_id: str, *, keep_s: float, archive: str | None
         cursor = conn.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
                               "VALUES(?,?,'pending',?)", (session, text, written))
         record = {"service_notice_id": cursor.lastrowid, "session_id": session, "created_at": written,
+                  "outcome_sha256": hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(),
                   "notice_ids": [row["notice_id"] for row in notices],
                   "notices_created_at": [row["created_at"] for row in notices],
                   "notice_keep_s": keep_s if expires(keep_s) or keep_s == 0 else None, "archive": archive}
@@ -148,25 +152,26 @@ def write_outcomes(conn: Any, job_id: str, *, keep_s: float, archive: str | None
 def expire_outcomes(store: Any, keep_s: float, *, now: datetime | None = None) -> list[int]:
     """Withdraw the outcome notices no one was shown (`pending` or `offered`)
     within `keep_s` of their writing: their session has not run since. Each is
-    matched by id, session and creation time, as its event names it, so a ping
+    matched by id, session, creation time and its event's SHA-256 of the text, so a ping
     or an alert that reused an outcome's id is left alone. One event records
     what went. Returns the service notice ids withdrawn; none while `keep_s`
     keeps for ever.
 
     The candidates are read before any write: this runs once per retention
     call, every few seconds while a backlog is worked off, and most calls find
-    nothing due. The delete names each row whole (id, session, creation time,
+    nothing due. The delete names each row whole (id, session, creation time, text,
     still unread), so a row a hook surfaced or that took a reused id between
     the read and the delete is left as it is; events are only ever added, so a
-    row named once stays named."""
+    row named once stays named. Legacy events without a digest cannot prove
+    ownership and are not expired here; delivered rows retain normal cleanup."""
     from .store import pin_notice_jobs
     oldest = cutoff(now or datetime.now(UTC), keep_s)
     if oldest is None:
         return []
     old = [row for row in store.query(
-        "SELECT notice_id, session_id, created_at FROM service_notices WHERE state IN ('pending','offered')")
+        "SELECT notice_id, session_id, created_at, text FROM service_notices WHERE state IN ('pending','offered')")
         if (written := written_at(row["created_at"])) is not None and written < oldest]
-    named = pin_notice_jobs(store.query, old, kinds=(RETIRED_EVENT,)) if old else {}
+    named = pin_notice_jobs(store.query, old, kinds=(RETIRED_EVENT,), match_outcome_text=True) if old else {}
     due = [row for row in old if row["notice_id"] in named]
     if not due:
         return []
@@ -174,9 +179,9 @@ def expire_outcomes(store: Any, keep_s: float, *, now: datetime | None = None) -
                               "why": "unread for retention.notice_keep_days"}
     with store.transaction(EXPIRED_EVENT, data=record) as tx:
         for row in due:
-            if tx.execute("DELETE FROM service_notices WHERE notice_id=? AND session_id=? AND created_at=? "
+            if tx.execute("DELETE FROM service_notices WHERE notice_id=? AND session_id=? AND created_at=? AND text=? "
                           "AND state IN ('pending','offered')",
-                          (row["notice_id"], row["session_id"], row["created_at"])).rowcount:
+                          (row["notice_id"], row["session_id"], row["created_at"], row["text"])).rowcount:
                 record["service_notice_ids"].append(row["notice_id"])
                 record["jobs"].append(named[row["notice_id"]])
     return record["service_notice_ids"]
@@ -190,17 +195,26 @@ def archived_outcomes(root: Path, session_id: str) -> dict[str, Any]:
     notice. Only the given state root is read; an archive path recorded before
     that root moved is resolved by its name under this root's archive folder.
     No notice is marked, recreated or pinned, and no new records are written.
+    A closed checkpointed database is read from a locked private copy outside
+    the state root, creating nothing there. When the database is busy, has a
+    WAL, cannot be write-locked, or TMPDIR is inside the state root, SQLite's
+    read-only fallback may create/update only
+    state.sqlite3-wal and state.sqlite3-shm for coordination. It never takes
+    daemon.lock or deletes state-root files. `read_only` means store records;
+    `state_root_files` reports which filesystem promise applies to this read.
     An unavailable archive is reported explicitly rather than losing its outcome.
     """
     from . import retention_fs as rfs
-    from .store import Store
+    from .retention_snapshot import lookup_store
 
     root = Path(root).resolve()
     database = root / "state.sqlite3"
     if database.resolve().parent != root:
         raise ValueError("state.sqlite3 is outside the state root")
-    report: dict[str, Any] = {"session_id": session_id, "read_only": True, "outcomes": [], "errors": []}
-    with Store(database, read_only=True) as store:
+    report: dict[str, Any] = {"session_id": session_id, "read_only": True, "read_only_scope": "records",
+                              "outcomes": [], "errors": []}
+    with lookup_store(database) as (store, file_policy):
+        report["state_root_files"] = file_policy
         events = store.query("SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id",
                              (RETIRED_EVENT,))
     for event in events:

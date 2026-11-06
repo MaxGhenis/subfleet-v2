@@ -1,7 +1,9 @@
 # D-NOTICE-KEEP1: unread notice retention
 
-Continued from checkpoint `7e982649f549a09d4a5b15a243a9be15946008db`, based on
-`a8624a4899a2`, in the assigned worktree. No live state or policy was read or changed;
+PR #294 was reviewed at committed head `d4b21a244c43`, based on
+`a8624a4899a2`. The earlier build continued from checkpoint
+`7e982649f549a09d4a5b15a243a9be15946008db`; its continuation files are included
+in the reviewed PR, not nine outstanding uncommitted files. No live state or policy was read or changed;
 no push or history rewrite was attempted.
 
 This continuation started around 04:00 UTC. Verification stopped at
@@ -273,9 +275,9 @@ separate repair. No real credential or live state was involved.
   including this completed report. Git reports
   `Operation not permitted` creating
   `/Users/maxghenis/subfleet-v2/.git/worktrees/20261104-211650-notice-keep-build/index.lock`.
-  HEAD remains `7e982649f549a09d4a5b15a243a9be15946008db`; checkpoint commits
-  are preserved. No continuation commit could be made, including the requested
-  report commit. All nine continuation files remain in the assigned workspace.
+  That was the earlier build workspace's state, not the reviewed PR's state:
+  the nine continuation files were subsequently included in committed PR head
+  `d4b21a244c43`. Round 1's workspace and commit results are recorded below.
   No protection was bypassed and nothing was pushed.
 - The extra offline lookup closes the gap between bounded automatic delivery
   and a session returning arbitrarily late. After queue expiry this is a manual
@@ -302,3 +304,175 @@ separate repair. No real credential or live state was involved.
   precise I/O failure cause, and separate repair of the existing scrubber
   counterexample. No further notice-retention correctness issue was found in
   the final independent code/report reviews.
+
+## Fix round 1
+
+### Findings and identity
+
+- Reproduced both runtime findings on reviewed head `d4b21a244c43` before
+  changing production code. The corrected baseline ran seven cases: **4 failed,
+  3 passed in 45.14 s**. Failures were the same-second daemon `ping`, a
+  same-second/text replacement between expiry's read and delete, SQLite
+  sidecar creation, and the missing `#294` change-log reference.
+- Retirement now records `outcome_sha256`, the full SHA-256 of the exact
+  outcome text. Expiry matches that digest alongside id, session and creation
+  time before opening its write transaction. The delete rechecks the exact
+  text, creation time, session, id and unread state. Hashing stays outside the
+  write transaction; no schema change, SQL hash function or new identity
+  table is required. Identical text/id/session/time is the same notice under
+  the existing notice-fingerprint semantics; a different same-second ping is
+  not. Events without a digest cannot authorize deletion and are left alone;
+  surfaced/acknowledged rows retain normal 14-day cleanup.
+- Kept the read-then-delete structure and the 10,000-row case's **21 SELECTs**
+  outside its single write transaction. Added a permanent timing probe.
+- Added all three reviewer coverage probes. The creation-time race preserves
+  the original text so the new text check cannot mask a missing time check;
+  a separate same-time/text-change race guards the delete's new identity check.
+  The 300-header case preserves every distinct header, deduplicates repeats,
+  retains mixed sessions/states and expires all three outcomes. It rendered
+  **21,449 bytes / 301 lines** here; the reviewer's 21,358-byte result used a
+  shorter archive path.
+- Added `#294` to the change log. Corrected the report to identify the reviewed
+  committed PR head and distinguish the earlier build's uncommitted state.
+
+### Lookup filesystem promise
+
+`retention outcomes` writes no store records. Its JSON keeps `read_only=true`
+and explicitly narrows that to `read_only_scope=records`; `state_root_files`
+reports `unchanged` or `sqlite-coordination`.
+
+- **Closed, checkpointed store without WAL/SHM:** a short-lived child acquires
+  SQLite's Unix byte-range locks without touching `daemon.lock`, verifies
+  there is no WAL/recovery journal, and copies the database into private
+  temporary storage. The lookup reads that copy and creates nothing in the
+  state root. The test compares all state-root file bytes and mtimes.
+- **Live WAL writer:** the exclusive copy lock cannot be acquired, so ordinary
+  SQLite read-only WAL coordination reads committed events, including events
+  still in the WAL. The test gets the correct archived outcome, creates no new
+  state-root files and leaves the ledger unchanged while `daemon.lock` is held.
+- **Writer opening during the read:** after the locked copy is complete, the
+  writer opens and changes the original while the lookup queries its private
+  snapshot. The lookup returns the correct pre-write outcome; a subsequent
+  lookup sees the writer's committed change.
+- **Narrower concurrent fallback:** if a busy writer closes between the copy
+  attempt and the SQLite read-only open, that open can create
+  `state.sqlite3-wal` and `state.sqlite3-shm`. An existing WAL or unavailable
+  write-lock permission also selects this safe fallback. If TMPDIR is inside
+  the state root, the lookup skips temporary allocation entirely and selects
+  the same fallback; a test pins that protection too. These are SQLite's
+  recovery/reader-coordination files, not new store records. A deterministic
+  race test pins this explicitly permitted exception. The lookup never
+  deletes state-root files, acquires `daemon.lock`, or uses immutable mode on
+  a potentially live database. The contract and docstring now say this rather
+  than promising unconditional filesystem purity. A separate process is
+  necessary because POSIX record locks belong to a process, and the caller
+  may already have a Store open.
+
+### Verification and commands
+
+- **Final regression: 1,029 passed in 2,253.62 s (37:33)**, across all fifteen
+  requested files plus `tests/unit/test_handler_refusals.py`, with four xdist
+  workers and no failures, skips or timeouts. This includes the final TMPDIR
+  safeguard and the stronger fallback file-bytes/mtime comparison. No new
+  daemon refusal was introduced. CI still owns the whole-suite run.
+- Earlier focused checks: **49 passed in 355.72 s** for notice keep and
+  **12 passed in 136.23 s** for the lookup before its additional TMPDIR test.
+  Searched all tests for `outcome_sha256`, `read_only_scope` and
+  `state_root_files`; no existing whole-record expectation was silently
+  relaxed. `git diff --check` passes.
+- Initial mutation run: **7 controls passed; 7 killed, 0 survived, 0 invalid**,
+  taking **740.348 s** of subprocess time. Every kill was a call-phase
+  `AssertionError`; there were no collection/setup/teardown failures, and all
+  monitored source hashes stayed unchanged. **Final-source confirmation:
+  7 controls passed; 7 killed, 0 survived, 0 invalid in 201.185 s**, again with
+  only call-phase assertion kills, no other phase failures and unchanged
+  monitored source hashes.
+- **Isolated expiry check: 1 passed in 12.34 s.** For 10,000 due outcomes,
+  expiry took **0.461 s total, 0.071 s inside the write transaction**, with
+  **21 read queries**. The same-sized queue with nothing due took **0.066 s**,
+  with one read query and no write transaction. This preserves the reviewer's
+  approximately 0.41-second overall cost and keeps the write lock shorter than
+  its approximately 0.18-second measurement.
+
+| Mutant | Permanent test that kills it |
+| --- | --- |
+| i: drop 299 distinct headers | `test_three_hundred_headers_and_mixed_state` |
+| j: expire at the exact cutoff | `test_expiry_exact_cutoff_is_not_older` |
+| k: omit creation-time predicate | `test_row_replaced_between_expiry_read_and_delete_stays[creation-time]` |
+| l: omit delete's text predicate | `test_row_replaced_between_expiry_read_and_delete_stays[text]` |
+| m: open lookup the old way | `test_outcomes_does_not_create_sqlite_sidecars` |
+| n: omit `#294` | `test_changelog_names_pr_294` |
+| o: omit event-digest matching | `test_reused_same_second_ping_is_not_expired` |
+
+The creation/text identity and header/boundary killers are in
+`tests/unit/test_notice_keep.py`; the sidecar killer is in
+`tests/unit/test_retention_outcomes.py`. The reproducible runner is
+`tools/notice_keep_mutants.py`; it installs faults in isolated pytest processes
+without editing production files.
+
+Commands used after syncing, with `SUBFLEET_LIVE=0`, the permitted TMPDIR below,
+`UV_CACHE_DIR=$TMPDIR/uv-cache`, and a fresh `--basetemp` for each pytest run:
+
+```sh
+uv run --no-sync pytest -q --tb=short --basetemp "$TMPDIR/baseline-r1c" \
+  tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired \
+  tests/unit/test_notice_keep.py::test_expiry_exact_cutoff_is_not_older \
+  tests/unit/test_notice_keep.py::test_row_replaced_between_expiry_read_and_delete_stays \
+  tests/unit/test_notice_keep.py::test_three_hundred_headers_and_mixed_state \
+  tests/unit/test_notice_keep.py::test_changelog_names_pr_294 \
+  tests/unit/test_retention_outcomes.py::test_outcomes_does_not_create_sqlite_sidecars
+
+uv run --no-sync pytest -q -s --tb=short --basetemp "$TMPDIR/expiry-r1" tests/unit/test_notice_keep.py
+uv run --no-sync pytest -q --tb=short --basetemp "$TMPDIR/lookup-r1" tests/unit/test_retention_outcomes.py
+uv run --no-sync python tools/notice_keep_mutants.py --mutants i j k l m n o --output-dir "$TMPDIR/mutants-r1"
+
+uv run --no-sync --with 'pytest-xdist>=3.6' pytest -q -n 4 --timeout=540 \
+  --durations=10 --basetemp "$TMPDIR/final-r1" \
+  tests/unit/test_notice_keep.py tests/unit/test_retention_outcomes.py \
+  tests/fake/test_notice_keep_delivery.py tests/unit/test_policy.py \
+  tests/unit/test_retention_archive.py tests/unit/test_retention_archive_properties.py \
+  tests/unit/test_notice_rendering.py tests/unit/test_operator_notices.py \
+  tests/fake/test_notice_delivery.py tests/fake/test_notice_header.py \
+  tests/unit/test_timers_retention.py tests/fake/test_retention_dormant.py \
+  tests/fake/test_state_contract.py tests/unit/test_test_module_names.py \
+  tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py
+
+uv run --no-sync pytest -q -s --tb=short --basetemp "$TMPDIR/perf-r1-final" \
+  tests/unit/test_notice_keep.py::test_expiry_ten_thousand
+uv run --no-sync python tools/notice_keep_mutants.py --mutants i j k l m n o --output-dir "$TMPDIR/mutants-r1-final"
+```
+
+Logs and JSON phase receipts use those basenames under the permitted TMPDIR.
+An earlier alternating six-run
+synthetic comparison executed the reviewed implementation from
+`git show d4b21a244c43:subfleet/retention_notices.py` and the fix against the same
+10,000-row data, in new temporary stores. On this loaded host, wall-time
+medians were **2.320 s original / 2.479 s fixed**; write-transaction medians
+were **0.450 / 0.713 s**, with original write times ranging **0.389–1.052 s**.
+That comparison ran while other tests were active and is retained as a
+diagnostic, not the isolated performance estimate above. The read-then-delete
+query/transaction counts are unchanged.
+
+All validation completed by **03:04:38 UTC on 2026-11-06**, within the round's
+three-hour allowance.
+
+### Environment and deviations
+
+- All work stays in the assigned detached worktree; no live state, caller
+  checkout, live process, secrets service or daemon-management command was
+  inspected or changed. No push, branch creation or history rewrite occurred.
+- `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and its `uv-cache` were attempted;
+  the sandbox denied cache creation there. Runs use the permitted child
+  `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261105-203022-nk-fix-r1-a1-wtrr_cjd`
+  with `UV_CACHE_DIR=$TMPDIR/uv-cache` and fresh basetemps, not `/private/tmp`.
+- `uv sync --group dev --extra api` failed because this committed project has
+  no `api` extra. `uv sync --group dev` initially hit a PyPI timeout; retrying
+  with `UV_HTTP_TIMEOUT=120` succeeded. The first test attempt lacked installed
+  Hypothesis; an early helper-return mismatch was corrected before recording
+  the valid baseline above. Neither invalid diagnostic is a runtime finding.
+- Named-file staging attempts after the reproduction, runtime and final-report
+  steps were refused: Git cannot create the parent worktree's `index.lock`
+  (`Operation not permitted`), so no commit could be made. No lock protection
+  was bypassed. All eight changed/new files, including this completed report,
+  remain in the assigned workspace for the hub to collect. HEAD remains the
+  supplied `d4b21a244c43`; nothing was pushed.
