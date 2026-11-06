@@ -2,10 +2,12 @@
 
 Incident, 2026-11-02: with every Codex lane held for the Microcosm US release, 164
 folders under `worktrees/` belonged to jobs that never had an attempt at 18:10:58Z,
-8.54 GB in all: 125 of jobs that had ended, 39 of jobs still waiting. `_workspace`
-cuts a job's tree on its first look, before routing; a job that then waits keeps it,
-and one cancelled keeps it until retention retires the job, which can be days later.
-Only refused jobs gave theirs back (`_discard_fresh_worktree`).
+8.54 GB in all: 125 of jobs that had ended, 39 of jobs still waiting. At that
+incident's base, `_workspace` cut a job's tree on its first look, before routing;
+a job that then waited kept it until retention, which could be days later.
+Only refused jobs gave theirs back (`_discard_fresh_worktree`). Fresh jobs now
+prepare only after placement checks pass; these sweep tests also cover trees
+left by earlier admission behavior or a preparation race.
 
 These tests run the real admission pass and real git against a fake disk.
 """
@@ -68,7 +70,7 @@ def submit(daemon, harness, repo, **changes):
 
 
 def cut(daemon, job_id):
-    """What a job's first admission look does before routing (`_admit_pass`)."""
+    """Prepare an unused tree directly, as an earlier look or a preparation race can."""
     workspace, _, _, _ = daemon._workspace(daemon.store.get_job(job_id))
     assert workspace == str(daemon.root / "worktrees" / job_id) and os.path.isdir(workspace)
     return workspace
