@@ -650,19 +650,36 @@ def child_cpu_and_wall(command: str, cwd: str, home: str, hook: Path) -> tuple[f
 @needs_python
 def test_cost_before_and_after(world, r12d_hook):
     """$SEARCH_REL_TIMING (a JSON path): each row and each NO_WALK command, 20 runs of each hook,
-    alternating, from the row's cwd: wall time (median, worst) and child CPU (median), in ms."""
+    alternating, from the row's cwd: wall time (median, worst) and child CPU (median), in ms. Each case's
+    row lands in ``<path>.partial`` (JSON lines, keyed by both hooks' bytes) as it is measured, and a rerun
+    measures only the cases missing there, so a run stopped by a cap at high load loses one case at most."""
     target = os.environ.get("SEARCH_REL_TIMING")
     if not target:
         pytest.skip("set SEARCH_REL_TIMING to a JSON path to measure the hook's cost before and after")
     cases = [place(world, row) for row in ROWS] + [(world["wt"], command) for command in NO_WALK]
+    hooks = hashlib.sha256(r12d_hook.read_bytes() + b"\0" + HOOK.read_bytes()).hexdigest()
+    partial = Path(target + ".partial")
+    done = {}
+    if partial.exists():
+        for line in partial.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue            # a line a stopped run cut short
+            if row.get("hooks") == hooks:
+                done[(row["cwd"], row["command"])] = row
     rows = []
     for cwd, command in cases:
+        key = (cwd.replace(world["wt"], "<wt>"),
+               command.replace(world["wt"], "<wt>").replace(world["home"], "<home>"))
+        if key in done:
+            rows.append(done[key])
+            continue
         runs = {"before": [], "after": []}
         for _ in range(20):
             for which, hook in (("before", r12d_hook), ("after", HOOK)):
                 runs[which].append(child_cpu_and_wall(command, cwd, world["home"], hook))
-        row = {"command": command.replace(world["wt"], "<wt>").replace(world["home"], "<home>"),
-               "cwd": cwd.replace(world["wt"], "<wt>")}
+        row = {"command": key[1], "cwd": key[0], "hooks": hooks, "load": os.getloadavg()}
         for which, values in runs.items():
             walls = [wall * 1000 for _, wall in values]
             cpus = [cpu * 1000 for cpu, _ in values]
@@ -670,6 +687,8 @@ def test_cost_before_and_after(world, r12d_hook):
                           "cpu_median": round(statistics.median(cpus), 1)}
         row["added_wall_median"] = round(row["after"]["wall_median"] - row["before"]["wall_median"], 1)
         row["added_cpu_median"] = round(row["after"]["cpu_median"] - row["before"]["cpu_median"], 1)
+        with partial.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
         rows.append(row)
     Path(target).write_text(json.dumps({"interpreter": interpreter(), "load": os.getloadavg(), "rows": rows},
                                        indent=1) + "\n", encoding="utf-8")
