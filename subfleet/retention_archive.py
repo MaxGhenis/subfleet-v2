@@ -54,6 +54,11 @@ from .retention_holders import Watch
 SCHEMA = 1
 ARCHIVE_TABLES = ("jobs", "attempts", "artifacts", "readings", "notices", "decisions")
 IN_FLIGHT = ("selected", "locking", "locked", "quarantining", "quarantined", "archived", "committing")
+#: When a retirement was quarantined (holder check 1 covers what came before)
+#: and when its archive ended (check 2 does): `Context.stamp` values, in the
+#: journal, so the rule that a listing serves a check only if it started later
+#: holds across restarts (D-HOLDERS-LSOF1).
+STAMPS = ("quarantined_stamp", "archived_stamp")
 COMMITTED = ("committed", "published", "reclaiming")
 #: How long a job waits after a rollback, by reason.
 DEFER_BUSY_S = 3600
@@ -240,10 +245,30 @@ class Context:
     #: Repository discovery must yield to the pass deadline. Archive slices
     #: still use their own bounds, and verified archives may finish the pass.
     deadline: float | None = None
+    #: The wall clock stamps read (integer nanoseconds since the epoch).
+    stamp_clock: Callable[[], int] = time.time_ns
+    #: The latest stamp given or seen in a journal; every new one is later.
+    stamp_floor: int = 0
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
             raise Interrupted("cancelled")
+
+    def stamp(self) -> int:
+        """When something happened, for the holder check's ordering rule
+        (D-HOLDERS-LSOF1): wall-clock nanoseconds, but always later than every
+        stamp given before and every stamp read from a journal (`saw`), so a
+        wall clock stepped back can make no later event look earlier. A
+        listing serves a check only if its stamp is later than the event's."""
+        self.stamp_floor = max(int(self.stamp_clock()), self.stamp_floor + 1)
+        return self.stamp_floor
+
+    def saw(self, journal: dict[str, Any] | None) -> None:
+        """Keep every later stamp after the ones this journal recorded."""
+        for key in STAMPS:
+            value = (journal or {}).get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                self.stamp_floor = max(self.stamp_floor, value)
 
     def known_repositories(self) -> list[Path]:
         if self.repositories is None:
@@ -705,7 +730,7 @@ class Retirement:
         changed = self._identity_changed()
         if changed is not None:
             raise Defer("changed", DEFER_CHANGED_S, changed)
-        self.save(state="quarantined")
+        self.save(state="quarantined", quarantined_stamp=self.ctx.stamp())
 
     def _identity_changed(self) -> str | None:
         """Why the tree or its registration is not the one `begin` read, or None.
@@ -1264,7 +1289,8 @@ class Retirement:
             conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{self.job_id}",))
         if keep_cache and os.path.isdir(self.building):
             self.save(state="idle", lock=None, check1=False, reason=reason, idle_since=time.time(),
-                      failures=failures, defer_until=defer_until, rollback_pending=None)
+                      failures=failures, defer_until=defer_until, rollback_pending=None,
+                      **dict.fromkeys(STAMPS))
         else:
             self._drop_journal()
             try:
@@ -1784,7 +1810,8 @@ class _Builder:
         self._drop_unreferenced(trees)
         rfs.sync_path(self.files)
         rfs.sync_path(self.dir)
-        self.r.save(state="archived", manifest_sha256=hashlib.sha256(data).hexdigest())
+        self.r.save(state="archived", manifest_sha256=hashlib.sha256(data).hexdigest(),
+                    archived_stamp=self.ctx.stamp())
         return "done"
 
     def _original(self, label: str) -> str | None:

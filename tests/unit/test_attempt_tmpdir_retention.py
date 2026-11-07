@@ -9,6 +9,11 @@ from subfleet.disk import DiskAdmission
 from subfleet.store import Store
 from tests.conftest import make_lane
 from subfleet.home_paths import PYTEST_SESSION
+import pytest
+
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
 
 
 def test_retention_counts_private_scratch_and_keeps_its_attempt_evidence(tmp_path):

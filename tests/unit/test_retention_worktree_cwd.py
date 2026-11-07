@@ -19,7 +19,8 @@ from tests.unit.test_retention_worktrees import owned  # noqa: F401
 from tests.unit.test_daemon_settle import daemon  # noqa: F401
 
 pytestmark = [pytest.mark.skipif(sys.platform != "darwin", reason="macOS in-process cwd read"),
-              pytest.mark.real_cwd]
+              pytest.mark.real_cwd,
+              pytest.mark.retention_catch_up]   # one listing a pass (D-HOLDERS-LSOF1): `catch_up`, tests/conftest.py
 
 
 @pytest.fixture

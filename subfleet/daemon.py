@@ -231,7 +231,8 @@ PROBE_RECORD = (
 #: most `store.READ_WAIT_S` (1 s), then opens one of its own, and says so.
 READ_CONNECTIONS = 6
 #: d635: seconds a retention pass may start new work; a started job gets its
-#: archive slice (`retention.SLICE_S`) and the batch's two holder listings.
+#: archive slice (`retention.SLICE_S`), and the pass its one holder listing
+#: (D-HOLDERS-LSOF1).
 RETENTION_PASS_S = 180
 #: C-8.4: an idle, cancelled or non-advancing pass waits an hour from its end.
 RETENTION_INTERVAL_S = 3600

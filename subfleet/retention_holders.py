@@ -1,7 +1,8 @@
 """Which processes still hold a retiring job's trees (design 5.4).
 
-One ``lsof`` listing of every process serves a whole batch of jobs, so a pass
-pays for two listings however many jobs it retires (review of ccc85387, finding
+One ``lsof`` listing of every process serves a whole batch of jobs, and a pass
+takes one listing at most (D-HOLDERS-LSOF1: check 1 for its quarantines and check
+2 for the last pass's archives), however many jobs it retires (review of ccc85387, finding
 4: a listing took 46 s to 6 min under load). A process holds a tree if it has
 its current or root directory in it, a text or memory mapping of a file in it,
 any descriptor on a directory in it, or a descriptor open for writing on a file

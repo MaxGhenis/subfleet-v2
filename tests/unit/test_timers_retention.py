@@ -13,6 +13,10 @@ from subfleet import retention_fs as rfs
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.store import Store
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.fixture
 def retained(tmp_path):
@@ -192,7 +196,9 @@ def test_cancel_mid_archive_keeps_rows_and_the_next_pass_finishes(retained, monk
 def test_a_deadline_after_the_first_prune_reports_that_prune(retained, monkeypatch):
     """C-8.4 (review of 19ecb52f): the daemon tells a pass that pruned from one that did
     not by `pruned`, which a deadline between batches must still carry.
-    A started batch finishes committing; the next job has not started yet."""
+    One listing a pass (D-HOLDERS-LSOF1): the first pass archives a, the second's
+    listing gives it check 2 and it commits; b, quarantined before that listing,
+    stops at the deadline there and resumes in the next pass."""
     from contextlib import contextmanager
     store, root = retained
     job(store, root, "a")
@@ -214,11 +220,15 @@ def test_a_deadline_after_the_first_prune_reports_that_prune(retained, monkeypat
             expired.set()
     monkeypatch.setattr(store, "transaction", transaction)
     monkeypatch.setattr(retention, "time", Clock())
-    result = retention.maintenance(store, root, max_jobs=0, deadline=real_time.monotonic() + 600, batch=1)
+    single, state = getattr(retention.maintenance, "real", retention.maintenance), retention.RetentionState()
+    first = single(store, root, max_jobs=0, deadline=real_time.monotonic() + 600, batch=1, state=state)
+    assert first["pruned"] == [] and first["awaiting_check2"] == ["a"] and first["progressed"] is True
+    assert "interrupted" not in first and later.exists()
+    result = single(store, root, max_jobs=0, deadline=real_time.monotonic() + 600, batch=1, state=state)
     assert result["interrupted"] == "deadline"
     assert result["pruned"] == ["a"]
     assert result["progressed"] is True
-    assert store.get_job("a") is None and store.get_job("b") is not None and later.exists()
+    assert store.get_job("a") is None and store.get_job("b") is not None and not later.exists()
 
 
 def test_an_interrupted_sizing_pass_retains_advancement_and_resumes_at_the_next_job(retained, monkeypatch):
@@ -268,7 +278,11 @@ def test_a_journal_less_leftover_lease_takes_priority_over_older_jobs(retained, 
     (root / 'jobs' / 'leftover' / 'stderr').write_bytes(b'remaining')
     key = 'retire:leftover' if lease_kind == 'retire' else f'worktree:{root / "worktrees" / "leftover"}'
     store.acquire_lease(key, 'retention:leftover')
-    result = retention.maintenance(store, root, max_jobs=0, batch=1)
+    # One listing a pass (D-HOLDERS-LSOF1): the first pass archives the leftover,
+    # the second gives it check 2 and commits it (and starts the next batch).
+    single, state = getattr(retention.maintenance, 'real', retention.maintenance), retention.RetentionState()
+    assert single(store, root, max_jobs=0, batch=1, state=state)['awaiting_check2'] == ['leftover']
+    result = single(store, root, max_jobs=0, batch=1, state=state)
     assert result['pruned'] == ['leftover']
     assert store.get_job('a') and store.get_job('b')
     assert rarch.check_archive(root, 'leftover')['ok']
@@ -288,7 +302,9 @@ def test_orphan_priority_survives_an_interrupted_pass(retained, monkeypatch):
         patch.setattr(retention._Pass, '_reasons', reasons)
         result = retention.maintenance(store, root, state=state, max_jobs=0, cancel=cancel)
     assert result['interrupted'] == 'cancelled' and 'z' in state.leftovers
-    result = retention.maintenance(store, root, state=state, max_jobs=0, batch=1)
+    single = getattr(retention.maintenance, 'real', retention.maintenance)
+    assert single(store, root, state=state, max_jobs=0, batch=1)['awaiting_check2'] == ['z']
+    result = single(store, root, state=state, max_jobs=0, batch=1)
     assert result['pruned'] == ['z']
 
 

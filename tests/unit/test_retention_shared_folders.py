@@ -20,6 +20,10 @@ from subfleet.daemon import after
 from subfleet.store import Store
 from tests.unit.retention_world import Clock, World, git, snapshot
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def run(w):
     return retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0,

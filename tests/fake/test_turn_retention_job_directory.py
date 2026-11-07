@@ -7,6 +7,11 @@ from tests.fake.test_admission_latency import fleet_daemon, measure
 from tests.fake.test_admission_liveness import CODEX, _checkout, _end, _live
 from tests.fake.test_turn_wait_reasons import SETTINGS, message_in, reason
 from tests.unit.test_retention_shared_folders import retiring_tree
+import pytest
+
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
 
 
 def test_review_retirement_leaves_a_live_readonly_turns_job_directory_in_place(tmp_path):

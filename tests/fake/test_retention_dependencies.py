@@ -47,6 +47,10 @@ from tests.fake.test_writer_retention_fence import lease, look, measured
 from tests.unit.retention_world import git, snapshot
 from tests.unit.test_retention_shared_folders import retiring_tree
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 #: How each job shape is submitted (`subfleet run`): read-only, a writer whose
 #: worktree the daemon cuts (C-6.6), and a writer in place.
 SHAPES = {"read-only": {"sandbox": "read-only"}, "worktree": {"sandbox": "workspace-write"},

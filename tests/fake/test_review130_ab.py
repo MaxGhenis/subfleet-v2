@@ -13,6 +13,10 @@ import pytest
 from subfleet import daemon as daemon_module
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def _fake(monkeypatch, result):
     monkeypatch.setattr(daemon_module, 'maintenance', lambda *a, **k: dict(result))
@@ -140,8 +144,10 @@ def _old_jobs(service, names):
     service.policy = {**service.policy, 'retention': {**service.policy['retention'], 'jobs': 0}}
 
 
-def _real_pass(monkeypatch, clock, holders):
+def _real_pass(monkeypatch, clock, holders, *, single=False):
     real = daemon_module.maintenance
+    if single:                       # one pass a call, as the daemon makes it
+        real = getattr(real, "real", real)
 
     def maintenance(*args, **kwargs):
         clock.skipped = 0.0
@@ -198,14 +204,18 @@ def test_churn_a_failing_holder_scan_waits_the_hour_then_recovers(state_daemon, 
         if unavailable[0]:
             raise ScanFailed('lsof exited 1: fixture')
         return {}
-    _real_pass(monkeypatch, _Skipping(), failing)
+    _real_pass(monkeypatch, _Skipping(), failing, single=True)
     rows = _passes(service, 1)
     assert rows == [('returned', 3600, 70)]
     assert len(scans) == 1
     assert not _due(service), 'failed listings must not offer the next batch after 5 s'
     assert service.timers.status()['retention']['last_error_type'] == 'ScanFailed'
     unavailable[0] = False
-    assert _passes(service, 1) == [('returned', 5, 38)]
+    # One listing a pass (D-HOLDERS-LSOF1): the recovered pass archives a batch
+    # of 32, which waits for check 2 and keeps catch-up due; the next pass's
+    # listing gives it check 2 and check 1 to the last 6 over budget.
+    assert _passes(service, 3) == [('returned', 5, 70), ('returned', 5, 38), ('returned', 3600, 32)]
+    assert len(scans) == 4, 'one listing a pass'
 
 
 def test_rule1_a_deadline_after_progress_still_raises_with_more_waiting(state_daemon, monkeypatch):

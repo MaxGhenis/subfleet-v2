@@ -8,6 +8,10 @@ from subfleet import cli, daemon as daemon_module
 from tests.fake.test_state_contract import state_daemon
 from tests.fake.test_admission_visibility import Inline
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.fixture(autouse=True)
 def active_retention(monkeypatch):
@@ -274,8 +278,10 @@ def _old_jobs(service, *names, kind="dispatch"):
 
 
 def test_the_real_pass_with_slow_selection_still_prunes_and_is_retried(state_daemon, monkeypatch):
-    """Slow pre-selection work must still permit one archive slice and commit;
-    the deadline between batches then retries on the worker clock."""
+    """Slow pre-selection work must still permit one archive slice; the deadline
+    between batches then retries on the worker clock. One listing a pass
+    (D-HOLDERS-LSOF1): the slice's job waits archived for its holder check 2,
+    which the retry's listing gives it, and the retry commits it."""
     from subfleet import retention
     service, _ = state_daemon
     _old_jobs(service, "old-a", "old-b")
@@ -285,6 +291,12 @@ def test_the_real_pass_with_slow_selection_still_prunes_and_is_retried(state_dae
                         lambda *a, **k: (clock.jumped.set(), real_reasons(*a, **k))[1])
     _budget(service, jobs=0)
     service._last_maintenance = 0
+    with pytest.raises(TimeoutError):
+        service._retention()
+    assert service._last_maintenance == 0
+    assert not (service.root / "jobs" / "old-a").exists(), "old-a was quarantined and archived"
+    assert service.store.get_job("old-a") is not None and service.store.get_job("old-b") is not None
+    clock.jumped.clear()                     # the retry: slow pre-selection again
     with pytest.raises(TimeoutError):
         service._retention()
     assert service._last_maintenance == 0

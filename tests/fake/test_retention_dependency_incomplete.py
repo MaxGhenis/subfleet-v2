@@ -11,6 +11,10 @@ from tests.fake.test_admission_latency import fleet_daemon, submit
 from tests.fake.test_admission_liveness import _live
 from tests.unit.retention_world import World
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def damage(monkeypatch, alternate, defect):
     alternate.parent.mkdir(parents=True, exist_ok=True)

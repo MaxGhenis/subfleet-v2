@@ -41,6 +41,10 @@ from tests.fake.test_writer_retention_fence import checkout, lease, look, measur
 from tests.unit.retention_world import git, snapshot
 from tests.unit.test_retention_shared_folders import nested_repository, retiring_tree
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 #: The two shapes: a read-only job, and a writer whose worktree the daemon cuts (C-6.6).
 SHAPES = {"read-only": {"sandbox": "read-only"}, "worktree": {"sandbox": "workspace-write"}}
 
@@ -978,13 +982,18 @@ def test_interleavings_never_run_a_detached_job_in_a_tree_being_retired(tmp_path
 
         for method in STEPS[1:]:
             def wrapped(self, *args, _real=getattr(rarch.Retirement, method), _at=method, **kwargs):
-                step(_at)
+                # The schedule names the boundaries of the tree's retirement; the
+                # follow-up pass (D-HOLDERS-LSOF1) may also retire a job it ended.
+                if self.job_id == "retired":
+                    step(_at)
                 return _real(self, *args, **kwargs)
             patch.setattr(rarch.Retirement, method, wrapped)
         step("select")
         result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
                                        holders=lambda watches, **_: {})
+        # A job the follow-up pass retired was finished: retention takes no other.
         open_in_tree = [job_id for job_id, folder in jobs if folders.within(folder, tree)
+                        and daemon.store.get_job(job_id) is not None
                         and daemon._job(job_id)["state"] not in ("succeeded", "failed", "cancelled", "lost")]
         if open_in_tree:
             assert "retired" in result["protected"] and Path(tree).is_dir(), (steps, result)
