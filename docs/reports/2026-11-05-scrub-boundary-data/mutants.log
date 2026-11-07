@@ -1,0 +1,16 @@
+== M1 no masks on the bounded path's head side
+   KILLED  test_the_stored_example_keeps_only_what_the_whole_scrub_keeps  (1 failed in 28.19s)
+   KILLED  test_a_value_at_an_omission_marker_keeps_only_what_the_whole_scrub_keeps[after-the-marker-budget+1]  (1 failed in 32.44s)
+   KILLED  test_an_excerpt_edge_keeps_no_value_a_data_uri_split[marker-then-value-head-end]  (1 failed in 61.14s (0:01:01))
+== M2 excerpt scrub resolves blocks unguarded
+   KILLED  test_a_value_at_an_omission_marker_keeps_only_what_the_whole_scrub_keeps[after-the-marker-budget-1]  (1 failed in 51.35s)
+   KILLED  test_no_block_leaves_the_rest_of_a_value_it_splits[data-uri-before-separator-and-quote]  (1 failed in 33.38s)
+   survived  test_the_stored_example_keeps_only_what_the_whole_scrub_keeps  (1 passed in 64.49s (0:01:04))
+== M3 no run-on to the next closer
+   KILLED  test_no_block_leaves_the_rest_of_a_value_it_splits[private-key-closer-in-a-value]  (1 failed in 52.20s)
+   KILLED  test_no_block_leaves_the_rest_of_a_value_it_splits[reminder-closer-in-a-value]  (1 failed in 61.28s (0:01:01))
+   survived  test_no_block_leaves_the_rest_of_a_value_it_splits[private-key-holds-key-and-quote]  (1 passed in 140.95s (0:02:20))
+== M4 a key split inside its identifier is not read
+   KILLED  test_no_block_leaves_the_rest_of_a_value_it_splits[data-uri-inside-the-key]  (1 failed in 43.18s)
+   survived  test_no_block_leaves_the_rest_of_a_value_it_splits[data-uri-before-colon]  (1 passed in 41.12s)
+restored: True

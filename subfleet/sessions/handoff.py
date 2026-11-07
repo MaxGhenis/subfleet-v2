@@ -623,7 +623,9 @@ def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False
     resolution, excerpts, scrub and bound, as `scrub_release.scrub_bounded` joins them,
     each excerpt cut where both scrubbers allow a cut), and each scrubbed piece keeps
     only the runs that the head's own scrub of the same text holds (`shown_by_both`): of
-    the text release scrubbed whole, or of the same excerpt, before release scrubbed it;
+    the text release scrubbed whole, or of the same excerpt, before release scrubbed it,
+    with the rest of each quoted value a block split masked (`_split_masks`,
+    D-SCRUB-BOUNDARY1: release's blocks leave such a value keyless, so release keeps it);
     each piece is kept so before it is cut. A text release scrubs whole (within the
     budget, or once its blocks are resolved) is one piece, release's scrub before its
     `truncate`, and `truncate` bounds what is written of it, as release bounds its own
@@ -661,9 +663,10 @@ def _released_pieces(text: str, limit: int | None, strip_reminders: bool):
     """Release/217's `scrub_bounded` (`scrub_release`), as the pieces it joins: each
     scrubbed piece with False and each marker with True, whether the join is stripped,
     release's count; then for each piece the head's own scrub of the same text (`_scrub`
-    of the text release scrubbed, whole or the same excerpt of it; "" for a marker), and
-    the head's count. The steps are release's, in its order, by its helpers, and the
-    blocks it resolves first are the head's too (`_resolve_blocks`); a text that needs no
+    of the text release scrubbed, whole or the same excerpt of it, with the masks of
+    `_split_masks` that fall in it; "" for a marker), and the head's count. The steps are
+    release's, in its order, by its helpers, and the blocks it resolves first are the
+    head's too (`_split_masks` resolves them alike, and checked so); a text that needs no
     excerpt is one piece, release's scrub before the `truncate` that `scrub_bounded` then
     applies to the written text. With a limit, each excerpt is kept for the runs the
     head's scrub of it holds (`shown_by_both`) before release's cut, so its pieces come
@@ -762,7 +765,8 @@ def _head_scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool =
 
     Within MAX_SCRUB_CHARS that is exactly what it does. A longer text first has
     the blocks that can span lines resolved over all of it, exactly as the scrub
-    of the whole text resolves them (`_resolve_blocks`: linear scans). If it is
+    of the whole text resolves them, with no part of a quoted value a block splits
+    left (`_guarded_blocks`: linear scans, and bounded windows). If it is
     still too long, the other rules run only on its head and its tail, each the
     whole lines within EXCERPT_CHARS, joined by a marker giving the characters
     left out. Those rules match within a line, except where a key, `Bearer` or
