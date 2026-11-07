@@ -15,7 +15,12 @@ from typing import Any
 
 # --- Identifiers (C-1) -------------------------------------------------------
 
-PROVIDERS = ("codex", "claude")
+PROVIDERS = ("codex", "claude", "claude-api")
+#: C-31.1: the API credit lane's provider. Its launches run Subfleet's own Messages API
+#: tool loop (`python -I -m subfleet.api_agent`) on a plan's credit key, never the
+#: `claude` CLI, which the credit refuses. Claude-only behaviour (transcripts, OAuth,
+#: MCP, the desktop login) stays with `claude`.
+API_PROVIDER = "claude-api"
 JOB_ID_SLUG_MAX = 40
 REQUEST_ID_MAX = 128
 HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
@@ -150,10 +155,13 @@ class Capability(str, enum.Enum):
 
 
 def launch_capability(provider: str, sandbox: str | Sandbox) -> Capability:
-    """C-12.3–4: writes include temporary files; commands alone cannot run pytest."""
+    """C-12.3–4: writes include temporary files; commands alone cannot run pytest.
+
+    C-31.1: a read-only credit-lane attempt keeps its `bash` tool under a read-only
+    sandbox, as a read-only Codex attempt keeps its shell, so it has commands."""
     if sandbox == Sandbox.WORKSPACE_WRITE:
         return Capability.WRITABLE
-    return Capability.COMMANDS if provider == "codex" else Capability.NONE
+    return Capability.COMMANDS if provider in ("codex", API_PROVIDER) else Capability.NONE
 
 
 def launch_has_shell(provider: str, sandbox: str | Sandbox) -> bool:
@@ -230,6 +238,11 @@ DEFAULT_CAPS: dict[str, int | None] = {
     "max_in_flight_per_lane": None,
     "max_in_flight_unmeasured": None,
     "max_active_attempts_per_parent": None,
+    # C-31.5: an API credit lane has no usage sensor (a standard key cannot read
+    # its balance), so it is never measured; this caps it instead of
+    # `max_in_flight_unmeasured`. The one count cap with a default
+    # (docs/decisions/2026-11-03-api-credit-lanes.md, "Ranking").
+    "max_in_flight_per_api_lane": 2,
     "max_wall_s": 21600,
     "max_attempts": 3,
     "max_child_jobs": None,             # C-6.4: children one parent may create in all

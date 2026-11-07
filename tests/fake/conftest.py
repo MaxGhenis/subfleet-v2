@@ -97,7 +97,7 @@ class Harness:
         return self
 
     def log_text(self) -> str:
-        return "\n".join(Path(stream.name).read_text(errors="replace") for stream in self.logs)
+        return "\n".join(bounded_text(Path(stream.name)) for stream in self.logs)
 
     def connect(self) -> socket.socket:
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -217,6 +217,61 @@ class Harness:
             from tests.fake.notice_invariant import notice_mismatches
             problems = notice_mismatches(self.rows)
             assert not problems, "C-15.1 notice headers disagree with job rows:\n" + "\n".join(problems)
+
+
+#: D-CREDIT-MEM1: the most of one daemon log `Harness.log_text` reads. A longer log (a
+#: daemon that writes without end) keeps its first and last halves, so a failing test's
+#: message never reads the whole file into memory.
+LOG_TEXT_LIMIT = 8 << 20
+
+
+def bounded_text(path: Path, limit: int = LOG_TEXT_LIMIT) -> str:
+    """`path`'s text, whole when it holds at most `limit` bytes, else its first and last
+    `limit // 2` bytes around a line saying how much was left out."""
+    with path.open("rb") as stream:
+        size = os.fstat(stream.fileno()).st_size
+        if size <= limit:
+            data = stream.read(limit)
+        else:
+            half = limit // 2
+            head = stream.read(half)
+            stream.seek(size - half)
+            data = (head + f"\n[... {size - 2 * half} bytes of {path.name} left out (D-CREDIT-MEM1) ...]\n".encode()
+                    + stream.read(half))
+    return data.decode("utf-8", "replace")
+
+
+#: D-CREDIT-MEM1, C-20.7: the most a test lets a child write into a file it reads back. A
+#: child that writes without end then fails its test within a moment, instead of filling
+#: the disk until the test's timeout (r3 measured 136 MB/s for a Python child writing
+#: zeros to a file on this host: about 24 GB in a 180 s timeout).
+OUTPUT_LIMIT = 16 << 20
+
+
+def watch_output(process: subprocess.Popen, paths, timeout: float, limit: int = OUTPUT_LIMIT) -> int:
+    """Wait at most `timeout` seconds for `process`, whose output goes to the files `paths`,
+    and return its exit code. Past `limit` bytes in any of the files (checked again once it
+    has ended, so each file read back afterwards holds at most `limit` bytes), or past the
+    timeout, it kills the process if it still runs and fails with each file's size and its
+    last 4,000 characters."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            returncode = process.wait(timeout=0.05)
+        except subprocess.TimeoutExpired:
+            returncode = None
+        sizes = {Path(path): os.stat(path).st_size for path in paths}
+        over = returncode is None and time.monotonic() > deadline
+        if over or any(size > limit for size in sizes.values()):
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            why = f"ran past {timeout:.0f} s" if over else f"wrote more than {limit} bytes"
+            tails = "\n".join(f"{path.name} ({size} bytes): {bounded_text(path, 8000)[-4000:]}"
+                              for path, size in sizes.items())
+            raise AssertionError(f"pid {process.pid} {why} (D-CREDIT-MEM1); killed\n{tails}")
+        if returncode is not None:
+            return returncode
 
 
 @pytest.fixture(scope="session")

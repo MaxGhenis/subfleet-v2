@@ -39,7 +39,8 @@ def reserve_policy():
 
 
 def lane(identity="claude-1", **changes):
-    provider = identity.split("-")[0]
+    # C-31.1: `claude-api-<n>` is the API credit lane's provider, the only one with a dash.
+    provider = "claude-api" if identity.startswith("claude-api-") else identity.split("-")[0]
     return {"lane_id": identity, "provider": provider, "account_key": f"{provider}:{identity}@example.com",
             "owner": "v2", "enabled": True, "desktop": False, "home": f"/lanes/{identity}", **changes}
 

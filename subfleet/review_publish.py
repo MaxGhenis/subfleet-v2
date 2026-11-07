@@ -201,14 +201,19 @@ def protect_launch(job: JobSpec, launch: Launch, attempt_dir: Path) -> Launch:
 
 def installed_publish_hooks(argv) -> list[str]:
     """The publish-hook commands a launch's own argv installs: Claude's
-    `--settings` PreToolUse hooks, and the group of Codex's `-c hooks=`
-    override whose status is the publish guard's."""
+    `--settings` PreToolUse hooks, the group of Codex's `-c hooks=`
+    override whose status is the publish guard's, and a credit lane's
+    `--publish-hook <path>`."""
     from .guard.preflight import PUBLISH_HOOK_STATUS
     import tomllib
     argv = [str(arg) for arg in argv]
     commands: list[str] = []
     for index, arg in enumerate(argv):
         groups = []
+        if arg == "--publish-hook" and index + 1 < len(argv):
+            # C-31.1: a credit lane's harness runs the hook at this path before each command.
+            commands.append(hook_command(Path(argv[index + 1])))
+            continue
         if arg == "--settings" and index + 1 < len(argv):
             try:
                 groups = json.loads(argv[index + 1]).get("hooks", {}).get("PreToolUse", [])

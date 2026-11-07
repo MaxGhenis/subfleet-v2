@@ -105,6 +105,12 @@ LAUNCH_NAMES = frozenset({
     # PreToolUse` reads; `review_publish.pinned_environment` adds it with the
     # git denial, so a parent's value never reaches any launch.
     "SUBFLEET_PUBLISH_DENIED",
+    # C-31.1, C-31.9, C-31.11: an API credit lane's launch names its lane, which
+    # the adapter hands its harness (`subfleet/adapters/claude_api.py`, the
+    # interface's `env_add`; the harness records it in `start`), and the
+    # harness's test-only endpoint, which it honors only in a live test session.
+    # Neither is inherited, so only a launch that adds one carries it.
+    "SUBFLEET_API_LANE", "SUBFLEET_API_AGENT_TEST_URL",
 })
 # D-ENV3: each provider's vendor, by the words its credential names carry. A
 # Codex lane's commands run under OpenAI's model and a Claude lane's under
@@ -116,6 +122,13 @@ LAUNCH_NAMES = frozenset({
 # `CODEX_HOME`) carry no credential word; a test session's children inherit
 # them by design (D-ST1).
 VENDOR_WORDS = {"codex": ("OPENAI", "CODEX"), "claude": ("ANTHROPIC", "CLAUDE")}
+#: D-ENV3, C-31.1: the vendor of each provider's model. The API credit lane
+#: (`claude-api`) runs Anthropic's models, so an Anthropic credential is its own
+#: vendor's. Its resolved credit key still never rides in its environment: the
+#: daemon's `_launch_environment` removes `ANTHROPIC_API_KEY` from every launch,
+#: and the key reaches the harness only through pipes (C-31.17). A provider
+#: missing here has no vendor.
+PROVIDER_VENDORS = {"codex": "codex", "claude": "claude", "claude-api": "claude"}
 # D-ENV3: Codex's shell snapshot (a stable feature, on by default in codex-cli
 # 0.159.0) runs the person's ~/.zshrc and replays everything it exports before
 # each command, after this module's selection and Codex's own
@@ -179,9 +192,10 @@ def foreign_credentials(provider: str | None, names: Iterable[str],
     kept only as one of the caller's own `additions`, never from the parent.
     """
     kept = frozenset(additions) if provider is None else frozenset()
+    own = {PROVIDER_VENDORS.get(provider, provider)} if provider is not None else set()
     return tuple(name for name in names
                  if (vendors := credential_vendors(name))
-                 and (vendors - {provider} if provider is not None else name not in kept))
+                 and (vendors - own if provider is not None else name not in kept))
 
 
 def session_name(name: str) -> bool:

@@ -344,6 +344,7 @@ class LanesArgs:
     dry_run: bool = False               # transfer: print the diff, write nothing
     confirm_v1_edit: bool = False       # transfer: --i-understand-v1-edit
     note: str | None = None            # release-limits: operator's reason
+    credit_usd: float | None = None    # enroll, C-31.4: an API credit lane's credit per cycle (default 200)
 
 
 @dataclass

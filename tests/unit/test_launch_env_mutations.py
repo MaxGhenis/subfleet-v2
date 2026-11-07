@@ -153,7 +153,8 @@ def test_named_transcript_regression_kills_ambient_mutant(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize("relay", [False, True], ids=["stdin", "relay"])
 def test_named_guardian_regression_kills_ambient_mutant(tmp_path, monkeypatch, relay):
-    monkeypatch.setattr(guardian, "run_guardian", mutated(guardian.run_guardian, keyword_index=0 if relay else 1))
+    # C-31.17: the released half of run_guardian, where the provider's two spawns are.
+    monkeypatch.setattr(guardian, "_run_released", mutated(guardian._run_released, keyword_index=0 if relay else 1))
     with pytest.raises(AssertionError):
         guardian_oracle(tmp_path, monkeypatch, relay)
 

@@ -69,6 +69,11 @@
   "network": {
     "codex_workspace_write": true
   },
+  "claude_api": {
+    "max_usd_per_attempt": 25,
+    "max_turns_per_attempt": 400,
+    "denied_org_ids": []
+  },
   "models": {
     "fable": {
       "provider": "claude",
@@ -89,6 +94,21 @@
     "haiku": {
       "provider": "claude",
       "id": "claude-haiku-4-5-20251001",
+      "priority": 1
+    },
+    "opus-api": {
+      "provider": "claude-api",
+      "id": "claude-opus-5-5",
+      "priority": 3
+    },
+    "sonnet-api": {
+      "provider": "claude-api",
+      "id": "claude-sonnet-5-5",
+      "priority": 2
+    },
+    "haiku-api": {
+      "provider": "claude-api",
+      "id": "claude-haiku-5-5",
       "priority": 1
     },
     "astra": {

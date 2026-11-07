@@ -1,0 +1,218 @@
+{
+ "note": "r3 attempt a3's whole-suite shards at 9fc1834db (code as at b77f91e6e), 2026-11-07, -n 4 --timeout=540, under the shared suite lock, in windows that resume where the last stopped (suite_resume.py, run_shard.py)",
+ "shards": {
+  "1/12": {
+   "collected": 975,
+   "finished": 975,
+   "complete": true,
+   "outcomes": {
+    "passed": 974,
+    "xfailed": 1
+   },
+   "test_files": 54,
+   "test_seconds_sum": 857,
+   "windows": [
+    {
+     "started": "2026-11-07T05:05:35Z",
+     "seconds": 87,
+     "how": "exited",
+     "remaining_at_start": 975,
+     "finished": 0
+    },
+    {
+     "started": "2026-11-07T06:45:11Z",
+     "seconds": 253,
+     "how": "exited",
+     "remaining_at_start": 975,
+     "finished": 975
+    }
+   ],
+   "not_passed": [],
+   "skipped": []
+  },
+  "2/12": {
+   "collected": 41,
+   "finished": 41,
+   "complete": true,
+   "outcomes": {
+    "passed": 41
+   },
+   "test_files": 2,
+   "test_seconds_sum": 1008,
+   "windows": [
+    {
+     "started": "2026-11-07T06:08:07Z",
+     "seconds": 278,
+     "how": "exited",
+     "remaining_at_start": 41,
+     "finished": 41
+    }
+   ],
+   "not_passed": [],
+   "skipped": []
+  },
+  "3/12": {
+   "collected": 149,
+   "finished": 149,
+   "complete": true,
+   "outcomes": {
+    "passed": 149
+   },
+   "test_files": 10,
+   "test_seconds_sum": 1092,
+   "windows": [
+    {
+     "started": "2026-11-07T06:54:24Z",
+     "seconds": 291,
+     "how": "exited",
+     "remaining_at_start": 149,
+     "finished": 149
+    }
+   ],
+   "not_passed": [],
+   "skipped": []
+  },
+  "4/12": {
+   "collected": 1903,
+   "finished": 1903,
+   "complete": true,
+   "outcomes": {
+    "passed": 1884,
+    "failed": 4,
+    "xfailed": 13,
+    "skipped": 2
+   },
+   "test_files": 66,
+   "test_seconds_sum": 5117,
+   "windows": [
+    {
+     "started": "2026-11-07T05:08:01Z",
+     "seconds": 534,
+     "how": "interrupted at the hard deadline",
+     "remaining_at_start": 1903,
+     "finished": 96
+    },
+    {
+     "started": "2026-11-07T05:46:44Z",
+     "seconds": 472,
+     "how": "exited",
+     "remaining_at_start": 1807,
+     "finished": 1133
+    },
+    {
+     "started": "2026-11-07T05:55:22Z",
+     "seconds": 455,
+     "how": "exited",
+     "remaining_at_start": 770,
+     "finished": 1640
+    },
+    {
+     "started": "2026-11-07T06:03:26Z",
+     "seconds": 244,
+     "how": "exited",
+     "remaining_at_start": 263,
+     "finished": 1903
+    }
+   ],
+   "not_passed": [
+    {
+     "nodeid": "tests/e2e/test_codex_turn_completed_e2e.py::test_zero_exit_cut_off_turn_cannot_publish_output[cut-off-item-completed]",
+     "outcome": "failed",
+     "seconds": 179.034,
+     "detail_tail": " _ _ \n\nself = <conftest.E2E object at 0x109f742f0>\npredicate = <function test_zero_exit_cut_off_turn_cannot_publish_output.<locals>.<lambda> at 0x10c0685c0>\ntimeout = 10\n\n    def until(self, predicate, timeout=10):\n        deadline = time.monotonic() + timeout\n        while time.monotonic() < deadline:\n            value = predicate()\n            if value:\n                return value\n            time.sleep(.02)\n>       raise AssertionError(f\"condition timed out after {timeout}s\\n{self.log_text()}\")\nE       AssertionError: condition timed out after 10s\n\ntests/e2e/conftest.py:297: AssertionError"
+    },
+    {
+     "nodeid": "tests/e2e/test_codex_turn_completed_e2e.py::test_zero_exit_cut_off_turn_cannot_publish_output[cut-off-item-started]",
+     "outcome": "failed",
+     "seconds": 22.092,
+     "detail_tail": " _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <conftest.E2E object at 0x10be6b390>\npredicate = <function E2E.start.<locals>.ready at 0x10c06b950>, timeout = 10\n\n    def until(self, predicate, timeout=10):\n        deadline = time.monotonic() + timeout\n        while time.monotonic() < deadline:\n            value = predicate()\n            if value:\n                return value\n            time.sleep(.02)\n>       raise AssertionError(f\"condition timed out after {timeout}s\\n{self.log_text()}\")\nE       AssertionError: condition timed out after 10s\n\ntests/e2e/conftest.py:297: AssertionError"
+    },
+    {
+     "nodeid": "tests/e2e/test_codex_turn_completed_e2e.py::test_zero_exit_cut_off_turn_cannot_publish_output[cut-off-error]",
+     "outcome": "failed",
+     "seconds": 49.464,
+     "detail_tail": " _ _ \n\nself = <conftest.E2E object at 0x10be6b250>\npredicate = <function test_zero_exit_cut_off_turn_cannot_publish_output.<locals>.<lambda> at 0x10c0685c0>\ntimeout = 10\n\n    def until(self, predicate, timeout=10):\n        deadline = time.monotonic() + timeout\n        while time.monotonic() < deadline:\n            value = predicate()\n            if value:\n                return value\n            time.sleep(.02)\n>       raise AssertionError(f\"condition timed out after {timeout}s\\n{self.log_text()}\")\nE       AssertionError: condition timed out after 10s\n\ntests/e2e/conftest.py:297: AssertionError"
+    },
+    {
+     "nodeid": "tests/e2e/test_stop_bound.py::test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock",
+     "outcome": "failed",
+     "seconds": 41.172,
+     "detail_tail": " _ _ _ _ \n\nself = <conftest.E2E object at 0x10be73360>\npredicate = <bound method Path.exists of PosixPath('/private/tmp/sf-e2e-qzw19nh8/hook-running.json')>\ntimeout = 10\n\n    def until(self, predicate, timeout=10):\n        deadline = time.monotonic() + timeout\n        while time.monotonic() < deadline:\n            value = predicate()\n            if value:\n                return value\n            time.sleep(.02)\n>       raise AssertionError(f\"condition timed out after {timeout}s\\n{self.log_text()}\")\nE       AssertionError: condition timed out after 10s\n\ntests/e2e/conftest.py:297: AssertionError"
+    }
+   ],
+   "skipped": [
+    "tests/unit/test_guard_subfleet_root.py::test_s4_the_claude_half_agrees_on_plain_new_root_searches",
+    "tests/unit/test_guard_subfleet_root.py::test_s4_the_claude_half_differs_on_new_roots_only_where_it_differs_on_home_children"
+   ]
+  },
+  "7/12": {
+   "collected": 2224,
+   "finished": 2224,
+   "complete": true,
+   "outcomes": {
+    "passed": 2197,
+    "skipped": 16,
+    "xfailed": 11
+   },
+   "test_files": 75,
+   "test_seconds_sum": 1164,
+   "windows": [
+    {
+     "started": "2026-11-07T06:13:07Z",
+     "seconds": 336,
+     "how": "exited",
+     "remaining_at_start": 2224,
+     "finished": 2224
+    }
+   ],
+   "not_passed": [],
+   "skipped": [
+    "tests/e2e/test_conversations.py::test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once",
+    "tests/e2e/test_conversations.py::test_a_denied_question_and_an_answered_question",
+    "tests/e2e/test_conversations.py::test_multiple_question_answers_reach_the_provider_once_and_a_new_message_keeps_them_pending",
+    "tests/e2e/test_conversations.py::test_a_turn_that_ends_without_a_result_blocks_the_conversation_until_a_person_decides",
+    "tests/e2e/test_conversations.py::test_a_codex_approval_and_limit",
+    "tests/e2e/test_conversations.py::test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice",
+    "tests/e2e/test_conversations.py::test_a_steer_joins_the_running_turn_once_without_its_own_job[claude]",
+    "tests/e2e/test_conversations.py::test_a_steer_joins_the_running_turn_once_without_its_own_job[codex]",
+    "tests/e2e/test_conversations.py::test_a_claude_steer_after_the_last_boundary_runs_in_the_same_process",
+    "tests/e2e/test_conversations.py::test_a_codex_steer_that_misses_returns_to_its_original_queue_place",
+    "tests/e2e/test_conversations.py::test_a_person_can_cancel_a_steer_before_handover",
+    "tests/e2e/test_conversations.py::test_stopping_a_host_cancels_its_provider_queue_and_requeues_pending_steers",
+    "tests/e2e/test_conversations.py::test_a_daemon_restart_with_a_steer_in_flight_replays_without_resending",
+    "tests/e2e/test_conversations.py::test_a_message_read_but_never_acknowledged_is_delivery_unknown_until_a_person_resolves_it",
+    "tests/e2e/test_conversations.py::test_a_person_who_resolves_a_claude_message_delivered_then_chooses_how_to_go_on",
+    "tests/process/test_guardian_qos_process.py::test_c5_1_inherit_runs_the_provider_at_the_guardians_qos"
+   ]
+  },
+  "12/12": {
+   "collected": 2642,
+   "finished": 2642,
+   "complete": true,
+   "outcomes": {
+    "passed": 2610,
+    "xfailed": 32
+   },
+   "test_files": 79,
+   "test_seconds_sum": 1737,
+   "windows": [
+    {
+     "started": "2026-11-07T06:20:00Z",
+     "seconds": 505,
+     "how": "interrupted at the hard deadline",
+     "remaining_at_start": 2642,
+     "finished": 2610
+    },
+    {
+     "started": "2026-11-07T06:35:30Z",
+     "seconds": 58,
+     "how": "exited",
+     "remaining_at_start": 32,
+     "finished": 2642
+    }
+   ],
+   "not_passed": [],
+   "skipped": []
+  }
+ }
+}

@@ -1,0 +1,8 @@
+{"test": "c8_stdio_gate_reader", "seconds": 14.81, "footprint_mb_before": 33, "footprint_mb_after": 1026, "outcome": "Failed: memory bound (D-CREDIT-MEM1): this test's process reached a phys_footprint of 1026 MB (RSS 1037 MB), over the 1024 MB bound (SUBFLEET_TEST_MEMORY_MB).\nEvery thr"}
+{"test": "c8_stdio_gate_reader", "seconds": 8.9, "footprint_mb_before": 1034, "footprint_mb_after": 1287, "outcome": "Failed: memory bound (D-CREDIT-MEM1): this test's process reached a phys_footprint of 1286 MB (RSS 1297 MB), over the 1024 MB bound (SUBFLEET_TEST_MEMORY_MB); it starte"}
+{"test": "next_test_start", "seconds": 0.0, "footprint_mb_before": 1288, "footprint_mb_after": 1288}
+{"test": "c8_admission_gate_reader", "seconds": 120.21, "footprint_mb_before": 1288, "footprint_mb_after": 1288, "outcome": "Failed: Timeout (>120.0s) from pytest-timeout.", "written": 65536}
+{"test": "head_admission_gate_reader", "seconds": 101.91, "footprint_mb_before": 1306, "footprint_mb_after": 1000, "outcome": "Failed: Timeout (>120.0s) from pytest-timeout.", "written": 65536}
+{"test": "guardian_read_gate", "seconds": 0.05, "footprint_mb_before": 1001, "footprint_mb_after": 1001, "prefix": "", "outcome": "released=False key_bytes=None", "written": 65536}
+{"test": "guardian_read_gate", "seconds": 0.04, "footprint_mb_before": 1001, "footprint_mb_after": 1001, "prefix": "31ffffffff", "outcome": "released=False key_bytes=None", "written": 0}
+{"test": "guardian_read_gate", "seconds": 0.05, "footprint_mb_before": 1001, "footprint_mb_after": 1001, "prefix": "31000000106b6b6b6b6b", "outcome": "released=True key_bytes=16", "written": 0}

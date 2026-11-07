@@ -749,6 +749,8 @@ CALL_SITES = {
         SCOPE.format("Daemon._run_worker, ConversationService._resume_start"),
     ("subfleet/conversations/wakes.py", "query_prs"): SCOPE.format("WakeEngine._poll_prs"),
     ("subfleet/credentials.py", "resolve_credential"): SCOPE.format("Timers._run_worker, Daemon._run_worker"),
+    # C-31.2: reached only through resolve_credential, for a credit lane, which no timer reads.
+    ("subfleet/credentials.py", "resolve_credit_key"): SCOPE.format("Daemon._run_worker"),
     ("subfleet/descriptors.py", "kernel_open_files_ceiling"): CLI.format("daemon install, doctor"),
     ("subfleet/doctor.py", "_run_full"): CLI.format("doctor"),
     ("subfleet/doctor.py", "_run"): CLI.format("doctor"),
@@ -761,7 +763,8 @@ CALL_SITES = {
     ("subfleet/guard/preflight.py", "preflight"):
         "daemon: parent is ProviderEnvironment.assemble's, " + SCOPE.format("Daemon._run_worker, Timers._run_worker")
         + "; " + CLI.format("doctor --live"),
-    ("subfleet/guardian.py", "run_guardian"): "the guardian process: its parent is the daemon's withheld launch env",
+    # C-31.17: run_guardian's released half, split out so the gate's key is wiped in one place.
+    ("subfleet/guardian.py", "_run_released"): "the guardian process: its parent is the daemon's withheld launch env",
     ("subfleet/provider_env.py", "ProviderEnvironment.assemble"):
         "explicit withheld=; " + SCOPE.format("many") + "; " + CLI.format("doctor"),
     ("subfleet/retention_git.py", "environment"):
@@ -783,4 +786,4 @@ def test_every_build_environment_call_site_is_classified():
     whether the daemon runs it inside a helper scope, or how else it is covered."""
     found = {(path, function) for path, function, _ in calls("build_environment")}
     assert found == set(CALL_SITES)
-    assert len(calls("build_environment")) == 31, "a function gained or lost a call: reclassify it"
+    assert len(calls("build_environment")) == 32, "a function gained or lost a call: reclassify it"

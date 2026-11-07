@@ -21,6 +21,11 @@ from .status_json import CREDENTIAL_VERDICTS, dispatchable, instant, lane_verdic
 
 def _login(lane: Mapping[str, Any]) -> str:
     reference = shlex.quote(str(lane.get("credential_ref") or _home(lane)))
+    if lane["provider"] == "claude-api":
+        # C-31.2: a credit lane's key lives in claude-credits' keychain item; a
+        # revoked key is replaced there, and the lane re-enrolled from its email.
+        email = shlex.quote(str(lane.get("credential_ref") or "").removeprefix("claude-api-"))
+        return f"claude-credits add {email}; subfleet lanes enroll --api {email}"
     if lane["provider"] == "codex":
         return f"CODEX_HOME={shlex.quote(_home(lane))} codex login; subfleet lanes enroll {reference}"
     return f"claude setup-token; subfleet lanes enroll {reference}"
@@ -56,6 +61,15 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
             add(key, "critical" if verdict in {"auth-dead", "auth-revoked", "revoked"} else "warn",
                 f"{provider} credentials: {home} is {verdict}",
                 f"{home} ({email}): {verdict}. Run: {_login(lane)}", home=home)
+        if provider == "claude-api" and lane.get("credit_refused_by_kind_at"):
+            # C-31.4: the harness found the credit refusing a request by its kind
+            # while the key still answers. The lane stays open, so this alert is
+            # the operator's one sign; it recovers a day after the last such attempt.
+            add(f"claude-api-refused-by-kind:{email}", "critical",
+                f"claude-api: {home}'s credit refused a request by its kind",
+                f"{home} ({email}): an attempt ended refused-by-kind at {lane['credit_refused_by_kind_at']}; "
+                "the lane stays open. Read that attempt's stream.jsonl: Subfleet's own system prompt "
+                "should make this impossible.", home=home)
         if provider == "codex" and lane.get("app_shadowed"):
             add(f"codex-app-shadow:{home}", "warn", f"codex: app shares {home}'s account",
                 f"The app and {home} share {email}. Automatic reset credits prefer unshadowed lanes. "

@@ -1,0 +1,338 @@
+[
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "write inside the worktree",
+    "passed": true,
+    "required": true,
+    "detail": "rc=0"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "write to $HOME/credit-lane-check",
+    "passed": true,
+    "required": true,
+    "detail": "rc=1, created=False, /bin/bash: /Users/maxghenis/credit-lane-check: Operation not permitted"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "security find-generic-password",
+    "passed": true,
+    "required": true,
+    "detail": "rc=44, said 'ecurity: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.'; bootstrap look-ups {'com.apple.SecurityServer': '1100', 'com.apple.securityd': '1100', 'com.apple.securityd.xpc': '1100'}"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "ls ~/Library/Keychains",
+    "passed": true,
+    "required": true,
+    "detail": "rc=1, ls: /Users/maxghenis/Library/Keychains: Operation not permitted"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "curl https://example.com, network off",
+    "passed": true,
+    "required": true,
+    "detail": "rc=6, curl: (6) Could not resolve host: example.com"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "env shows no credential variable",
+    "passed": true,
+    "required": true,
+    "detail": "credential-shaped names: none of the planted ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'], and 0 of the launching session's own (names withheld)"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "unix socket outside the writable roots",
+    "passed": true,
+    "required": false,
+    "detail": "refused 1"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "write in the worktree's .git",
+    "passed": true,
+    "required": false,
+    "detail": "rc=1"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "append to an attempt record",
+    "passed": true,
+    "required": false,
+    "detail": "rc=1"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "read an outside process's exec block (KERN_PROCARGS2)",
+    "passed": false,
+    "required": false,
+    "detail": "read"
+  },
+  {
+    "candidate": "subfleet",
+    "network": false,
+    "check": "write in /private/tmp",
+    "passed": true,
+    "required": false,
+    "detail": "rc=1, created=False"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "write inside the worktree",
+    "passed": true,
+    "required": true,
+    "detail": "rc=0"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "write to $HOME/credit-lane-check",
+    "passed": true,
+    "required": true,
+    "detail": "rc=1, created=False, /bin/bash: /Users/maxghenis/credit-lane-check: Operation not permitted"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "security find-generic-password",
+    "passed": true,
+    "required": true,
+    "detail": "rc=44, said 'ecurity: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.'; bootstrap look-ups {'com.apple.SecurityServer': '1100', 'com.apple.securityd': '1100', 'com.apple.securityd.xpc': '1100'}"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "ls ~/Library/Keychains",
+    "passed": true,
+    "required": true,
+    "detail": "rc=1, ls: /Users/maxghenis/Library/Keychains: Operation not permitted"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "curl https://example.com, network on",
+    "passed": true,
+    "required": true,
+    "detail": "rc=0, http=200, "
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "env shows no credential variable",
+    "passed": true,
+    "required": true,
+    "detail": "credential-shaped names: none of the planted ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'], and 0 of the launching session's own (names withheld)"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "unix socket outside the writable roots",
+    "passed": true,
+    "required": false,
+    "detail": "refused 1"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "write in the worktree's .git",
+    "passed": true,
+    "required": false,
+    "detail": "rc=1"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "append to an attempt record",
+    "passed": true,
+    "required": false,
+    "detail": "rc=1"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "read an outside process's exec block (KERN_PROCARGS2)",
+    "passed": false,
+    "required": false,
+    "detail": "read"
+  },
+  {
+    "candidate": "subfleet",
+    "network": true,
+    "check": "write in /private/tmp",
+    "passed": true,
+    "required": false,
+    "detail": "rc=1, created=False"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "write inside the worktree",
+    "passed": true,
+    "required": true,
+    "detail": "rc=0"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "write to $HOME/credit-lane-check",
+    "passed": true,
+    "required": true,
+    "detail": "rc=1, created=False, /bin/bash: /Users/maxghenis/credit-lane-check: Operation not permitted"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "security find-generic-password",
+    "passed": true,
+    "required": true,
+    "detail": "rc=44, said 'ecurity: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.'; bootstrap look-ups {'com.apple.SecurityServer': '1100', 'com.apple.securityd': '1100', 'com.apple.securityd.xpc': '1100'}"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "ls ~/Library/Keychains",
+    "passed": false,
+    "required": true,
+    "detail": "rc=0, "
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "curl https://example.com, network off",
+    "passed": true,
+    "required": true,
+    "detail": "rc=6, curl: (6) Could not resolve host: example.com"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "env shows no credential variable",
+    "passed": false,
+    "required": true,
+    "detail": "credential-shaped names: ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'] of the planted ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'], and 4 of the launching session's own (names withheld)"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "unix socket outside the writable roots",
+    "passed": true,
+    "required": false,
+    "detail": "refused 1"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "write in the worktree's .git",
+    "passed": true,
+    "required": false,
+    "detail": "rc=1"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "read an outside process's exec block (KERN_PROCARGS2)",
+    "passed": false,
+    "required": false,
+    "detail": "read"
+  },
+  {
+    "candidate": "codex",
+    "network": false,
+    "check": "write in /private/tmp",
+    "passed": false,
+    "required": false,
+    "detail": "rc=0, created=True"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "write inside the worktree",
+    "passed": true,
+    "required": true,
+    "detail": "rc=0"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "write to $HOME/credit-lane-check",
+    "passed": true,
+    "required": true,
+    "detail": "rc=1, created=False, /bin/bash: /Users/maxghenis/credit-lane-check: Operation not permitted"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "security find-generic-password",
+    "passed": true,
+    "required": true,
+    "detail": "rc=44, said 'ecurity: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.'; bootstrap look-ups {'com.apple.SecurityServer': '1100', 'com.apple.securityd': '1100', 'com.apple.securityd.xpc': '1100'}"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "ls ~/Library/Keychains",
+    "passed": false,
+    "required": true,
+    "detail": "rc=0, "
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "curl https://example.com, network on",
+    "passed": false,
+    "required": true,
+    "detail": "rc=6, http=000, curl: (6) Could not resolve host: example.com"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "env shows no credential variable",
+    "passed": false,
+    "required": true,
+    "detail": "credential-shaped names: ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'] of the planted ['MATRIX_ACCESS_TOKEN', 'SUBFLEET_MATRIX_API_KEY'], and 4 of the launching session's own (names withheld)"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "unix socket outside the writable roots",
+    "passed": true,
+    "required": false,
+    "detail": "refused 1"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "write in the worktree's .git",
+    "passed": true,
+    "required": false,
+    "detail": "rc=1"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "read an outside process's exec block (KERN_PROCARGS2)",
+    "passed": false,
+    "required": false,
+    "detail": "read"
+  },
+  {
+    "candidate": "codex",
+    "network": true,
+    "check": "write in /private/tmp",
+    "passed": false,
+    "required": false,
+    "detail": "rc=0, created=True"
+  }
+]

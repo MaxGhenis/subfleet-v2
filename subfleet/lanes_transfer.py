@@ -64,7 +64,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .contracts import Exit
+from .contracts import API_PROVIDER, Exit
 from .home_paths import home_path
 from .launch_env import lane_reference, refused_reference
 from .sessions.transcripts import NotRegularFile, read_regular
@@ -377,6 +377,8 @@ def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str,
             "home": home if home is not None else lane["home"],
             "owner": to_owner, "desktop": bool(lane["desktop"]),
             "enabled": bool(lane["enabled"]),
+            # C-31.4: a store rebuilt from this file keeps an API credit lane's credit.
+            **({"credit_usd": lane["credit_usd"]} if lane.get("credit_usd") is not None else {}),
         })
     after = (_restyle(before, {"lanes": rows} if isinstance(roster, dict) else rows)
              if before.strip() else _dumps({"lanes": rows} if isinstance(roster, dict) else rows))
@@ -563,6 +565,11 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
                             f"{held[1]}): it holds no credential to move",
                             Exit.REFUSED, HELD_LANE_FIX, reason="transfer-held",
                             details={"lane_id": lane_id, "lane_variable": held[1]})
+    if row["provider"] == API_PROVIDER:
+        # C-31.1: v1 has no API credit lane, so there is no owner to move one to or from.
+        raise TransferError(f"lanes transfer: lane {lane_id} is an API credit lane, which only v2 runs",
+                            Exit.REFUSED, "keep it on v2",
+                            reason="transfer-api-lane", details={"lane_id": lane_id})
     roster_dir = (Path(roster_dir) if roster_dir else
                   Path(home_path("SUBFLEET_V1_ROSTER_DIR", lambda: V1_ROSTER_DIR, test_only=True)))
     from .home_paths import provider_home

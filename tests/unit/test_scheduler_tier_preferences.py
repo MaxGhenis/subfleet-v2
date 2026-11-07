@@ -98,8 +98,13 @@ def test_closed_first_model_uses_next_in_same_tier_before_higher_tier(names, lan
     policy = preference_policy()
     policy["chains"]["review"] = [higher, [first, second], higher, higher]
     providers = {policy["models"][name]["provider"] for name in names}
-    lanes = [lane(f"{provider}-{n}") for provider in sorted(providers) for n in range(1, lane_count + 1)]
-    closed = [closure(row["lane_id"], scope=policy["models"][first]["id"]) for row in lanes]
+    # C-31.3: Subfleet runs one API credit lane; a second would hold both.
+    lanes = [lane(f"{provider}-{n}") for provider in sorted(providers)
+             for n in range(1, (1 if provider == "claude-api" else lane_count) + 1)]
+    # The first model is closed on its own provider's lanes: `opus` and `opus-api`
+    # share a model id, and a closure scoped to it on the credit lane closes both there.
+    closed = [closure(row["lane_id"], scope=policy["models"][first]["id"]) for row in lanes
+              if row["provider"] == policy["models"][first]["provider"]]
     snapshot = view(lanes, [reading(row["lane_id"]) for row in lanes], closed)
     decision = scheduler.evaluate(policy, snapshot, job(task="review", tier="easy"))
     assert decision.chosen_model == second

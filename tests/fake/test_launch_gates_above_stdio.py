@@ -12,10 +12,16 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 import pytest
 
-from tests.fake.conftest import REPO
+from tests.fake.conftest import OUTPUT_LIMIT, REPO, bounded_text, watch_output
+
+
+def tail(path, size=20000):
+    """The last `size` characters of what the daemon wrote, read with a bound."""
+    return bounded_text(path, 2 * size)[-size:]
 
 
 # The daemon's process, with some of fds 0, 1 and 2 closed (argv[4]) just before one
@@ -136,14 +142,24 @@ def test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_
     the guardian inherits sits above 2 and the provider runs. Every set of the three a
     process may have closed is covered for the pipe itself in
     tests/process/test_pipe_above_stdio.py."""
-    root, out = tmp_path / "state", tmp_path / "gate.json"
+    root, out, said = tmp_path / "state", tmp_path / "gate.json", tmp_path / "daemon-output.txt"
     root.mkdir()
-    done = subprocess.run([sys.executable, "-c", GATE_CHILD, str(root), str(out), launcher,
-                           ",".join(map(str, closed))],
-                          cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)}, stdin=subprocess.DEVNULL,
-                          capture_output=True, text=True, timeout=180)
+    # D-CREDIT-MEM1: the daemon's output goes to a file, and only its tail is read back, so
+    # a daemon that writes without end cannot fill this test's process; past OUTPUT_LIMIT
+    # bytes it is killed, so it cannot fill the disk either (C-20.7).
+    with said.open("wb") as sink:
+        child = subprocess.Popen([sys.executable, "-c", GATE_CHILD, str(root), str(out), launcher,
+                                  ",".join(map(str, closed))],
+                                 cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)}, stdin=subprocess.DEVNULL,
+                                 stdout=sink, stderr=subprocess.STDOUT)
+        try:
+            returncode = watch_output(child, [said], timeout=180)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
     result = json.loads(out.read_text()) if out.exists() else {}
-    assert done.returncode == 0 and result and "error" not in result, (done.returncode, done.stderr, result)
+    assert returncode == 0 and result and "error" not in result, (returncode, tail(said), result)
     assert len(result["pass_fds"]) == 1, result
     # Only the gate's read end: a guardian holding the write end too would never read
     # end-of-file there once the daemon died (C-4.2).
@@ -157,3 +173,28 @@ def test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_
     else:
         assert result["state"] == "reserved", result
         assert (result["guardian_rc"], result["start"], result["rc"]) == (0, True, 0), result
+
+
+#: A daemon stand-in that writes zeros without end, a mebibyte a write.
+WRITES_WITHOUT_END = "import os\nb = bytes(1 << 20)\nwhile True:\n    os.write(1, b)\n"
+
+
+def test_a_daemon_that_writes_without_end_stops_at_the_output_limit(tmp_path):
+    """C-20.7 (D-CREDIT-MEM1): the reader this file's test uses stops a child that writes
+    without end once its file passes `OUTPUT_LIMIT`, within moments, not at its timeout:
+    neither the test's memory nor the disk takes what the child writes."""
+    said = tmp_path / "daemon-output.txt"
+    start = time.monotonic()
+    with said.open("wb") as sink:
+        child = subprocess.Popen([sys.executable, "-c", WRITES_WITHOUT_END], stdin=subprocess.DEVNULL, stdout=sink,
+                                 stderr=subprocess.STDOUT)
+        try:
+            with pytest.raises(AssertionError, match="wrote more than"):
+                watch_output(child, [said], timeout=20)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+    assert time.monotonic() - start < 15
+    assert child.returncode is not None and child.returncode < 0
+    assert OUTPUT_LIMIT < said.stat().st_size < OUTPUT_LIMIT + (64 << 20)

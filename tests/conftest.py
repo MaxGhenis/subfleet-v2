@@ -95,6 +95,10 @@ def pytest_configure(config):
     scratch_root = base / "attempt-temp"
     scratch_root.mkdir(mode=0o700)
     attempt_tmp.user_temp_root = lambda: scratch_root
+    # D-CREDIT-MEM1: each test runs under a phys_footprint bound, its own process and every
+    # process below it (tests/memory_bound.py; SUBFLEET_TEST_MEMORY_MB, 4096 by default).
+    from tests import memory_bound
+    memory_bound.install(config)
 
 
 def pytest_sessionstart(session):

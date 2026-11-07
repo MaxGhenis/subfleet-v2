@@ -21,6 +21,7 @@ import functools
 import hashlib
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import resource
@@ -58,13 +59,14 @@ from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
-    CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
+    API_PROVIDER, CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_MAX_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
 from .status_json import closure_row, closure_rows, decision_rows, timestamp
+from . import credit_lane, key_frame
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -542,6 +544,8 @@ def imported_external(attempt: dict) -> bool:
     except (TypeError, ValueError):
         return False
 LIVE = ("reserved", "starting", "running", "finalizing")
+#: C-31.4: one credit grant at a time is decided and recorded (`Daemon._built`).
+_CREDIT_GRANT_LOCK = threading.Lock()
 WRITE_PREAMBLE = (
     "<!-- subfleet:write -->\n"
     "Work only in the assigned workspace. Preserve existing changes. "
@@ -1272,12 +1276,14 @@ class Daemon:
                 used.append(int(number))
         return f"{provider}-{max(used, default=0) + 1}"
 
-    def _append_lanes_json(self, lane: Lane) -> None:
+    def _append_lanes_json(self, lane: Lane, *, credit_usd: float | None = None) -> None:
         """Keep the seed file (`lanes.json`, C-2.2) in step so a rebuilt store gets the lane back."""
         row = {"lane_id": lane.lane_id, "provider": lane.provider, "account_key": lane.account_key,
                "credential_ref": lane.credential.ref, "credential_kind": lane.credential.kind,
                "credential_epoch": lane.credential.epoch, "home": lane.home, "desktop": lane.desktop,
                "enabled": lane.enabled, "identity": lane.identity, "label": lane.label}
+        if lane.provider == API_PROVIDER and credit_usd is not None:
+            row["credit_usd"] = credit_usd        # C-31.4: a rebuilt store keeps the lane's credit
         edit = lanes_transfer._v2_roster_edit(self.root, row, lane.owner.value)
         if edit.changed:
             lanes_transfer._publish(edit.path, edit.after)
@@ -1285,6 +1291,42 @@ class Daemon:
     def _enroll_lane(self, a: protocol.LanesArgs) -> dict:
         with self._enroll_lock:
             return self._enroll_lane_locked(a)
+
+    @staticmethod
+    def _enroll_credit_usd(value: Any) -> float | None:
+        """C-31.4: an API credit lane's credit per cycle as `--credit-usd` gave it, or
+        None. A new lane takes $200 (Max 20x); a re-enrolled one keeps its own."""
+        if value is None:
+            return None
+        try:
+            amount = float(value)
+        except (TypeError, ValueError):
+            amount = float("nan")
+        if isinstance(value, bool) or not math.isfinite(amount) or amount <= 0 or amount > 100_000:
+            raise protocol.ProtocolError("lanes enroll: --credit-usd must be a positive number of US dollars",
+                                         Exit.INVALID_INPUT, reason="enroll-credit-usd")
+        return amount
+
+    def _refuse_second_api_account(self, credential: Credential) -> None:
+        """C-31.3, invariant 3: Subfleet runs at most one API credit lane. Enrolling a
+        second account is refused; the same account again is not. To replace the
+        account, the operator removes the old lane from the roster first."""
+        email = credit_lane.reference_email(credential.ref)
+        if email is None:
+            raise protocol.ProtocolError("lanes enroll: the credential is neither a home directory nor a "
+                                         "claude-quota-<email> or claude-api-<email> item",
+                                         Exit.INVALID_INPUT, reason="enroll-credential")
+        other = self.store.one("SELECT lane_id FROM lanes WHERE provider=? AND enabled=1 AND account_key!=? "
+                               "ORDER BY lane_id LIMIT 1", (API_PROVIDER, credit_lane.account_key(email)))
+        if other is not None:
+            # No lanes verb disables a lane: seeding never removes a stored one, and
+            # only an auth-dead or identity verdict sets `enabled` to 0 (see the
+            # credit-lane report's open questions).
+            raise protocol.ProtocolError(
+                f"lanes enroll: Subfleet runs one API credit lane, and {other['lane_id']} spends another "
+                f"account's credit", Exit.REFUSED,
+                f"enroll another account only after {other['lane_id']} leaves the enabled roster",
+                reason="api-lane-limit", details={"lane_id": other["lane_id"]})
 
     def _enroll_lane_locked(self, a: protocol.LanesArgs) -> dict:
         """`lanes enroll <credential>` (C-10.2): a Claude home directory (a config
@@ -1306,10 +1348,20 @@ class Daemon:
             credential = Credential(provider, str(path), "home")
         elif text.startswith("claude-quota-"):
             credential = Credential("claude", text, "keychain-token")
+        elif text.startswith(credit_lane.REFERENCE_PREFIX):
+            # C-31.1: the keychain item `claude-credits` keeps a plan's API key under.
+            credential = Credential(API_PROVIDER, text, "keychain-token")
         else:
             raise protocol.ProtocolError(
-                f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> item",
-                Exit.INVALID_INPUT, reason="enroll-credential")
+                f"lanes enroll: {text!r} is neither a home directory nor a claude-quota-<email> "
+                f"or claude-api-<email> item", Exit.INVALID_INPUT, reason="enroll-credential")
+        credit_usd = None
+        if credential.provider == API_PROVIDER:
+            credit_usd = self._enroll_credit_usd(a.credit_usd)
+            self._refuse_second_api_account(credential)        # C-31.3
+        elif a.credit_usd is not None:
+            raise protocol.ProtocolError("lanes enroll: --credit-usd applies only to an API credit lane",
+                                         Exit.INVALID_INPUT, reason="enroll-credit-provider")
         try:
             owner = LaneOwner(a.owner or "v2")
         except ValueError:
@@ -1387,7 +1439,14 @@ class Daemon:
                     if self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE ? AND holder!=?",
                                       (f"lane:{row['lane_id']}:slot:%", enrollment_holder)):
                         raise protocol.ProtocolError('lane acquired an execution lease during re-enrollment', Exit.REFUSED, reason="reenroll-leased")
-                self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status)
+                if credential.provider == API_PROVIDER:
+                    # C-31.3: checked again under the transaction that adds the lane.
+                    self._refuse_second_api_account(credential)
+                    if credit_usd is None and existing:
+                        credit_usd = existing.get("credit_usd")
+                self.store.put_lane(lane, plan=info.plan, identity_status=info.identity_status,
+                                    **({"credit_usd": credit_usd or credit_lane.DEFAULT_CREDIT_USD}
+                                       if credential.provider == API_PROVIDER else {}))
                 for reading in info.readings:
                     self.store.add_reading(dataclasses.replace(reading, lane_id=lane_id, attempt_id=None))
                 # Re-authentication clears only the authentication latch. A new
@@ -1399,7 +1458,11 @@ class Daemon:
                                 lane_id, closure['scope'], closure['until_at'],
                                 ClosureReason(closure['reason']), ClockSource(closure['clock_source']),
                                 closure['source_event']))
-            self._append_lanes_json(lane)
+            if credential.provider == API_PROVIDER:
+                self._append_lanes_json(lane, credit_usd=self.store.one(
+                    "SELECT credit_usd FROM lanes WHERE lane_id=?", (lane_id,))["credit_usd"])
+            else:
+                self._append_lanes_json(lane)
             self._notify()
             return {"enrolled": self.store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)),
                     "lanes": self.store.query("SELECT * FROM lanes ORDER BY lane_id")}
@@ -2101,12 +2164,16 @@ class Daemon:
                 "provider": row["provider"], "ref": row["credential_ref"],
                 "kind": row["credential_kind"], "epoch": row.get("credential_epoch", 1),
             }
+            credit = row.get("credit_usd") if row["provider"] == API_PROVIDER else None
             self.store.put_lane(Lane(
                 row["lane_id"], row["provider"], row["account_key"], Credential(**credential),
                 row.get("home"), LaneOwner(row.get("owner", "v2")),
                 bool(row.get("desktop", False)), bool(row.get("enabled", True)),
                 row.get("identity"), row.get("label"),   # C-10.6
-            ), identity_status=row.get("identity_status"))
+            ), identity_status=row.get("identity_status"),
+                # C-31.4: a seeded credit lane keeps the credit lanes.json records.
+                **({"credit_usd": float(credit)} if isinstance(credit, (int, float)) and not isinstance(credit, bool)
+                   and math.isfinite(credit) and credit > 0 else {}))
 
     def _boundary(self, name: str, job_id: str, attempt_id: str | None = None) -> None:
         if self.crash_hook:
@@ -4051,7 +4118,78 @@ class Daemon:
         environment = getattr(self, "_provider_environment", None)
         if environment is not None:
             adapter.provider_environment = environment
+        if provider == API_PROVIDER:
+            # C-31.4: the adapter never reads policy or store; it is handed its section.
+            adapter.credit_policy = dict((getattr(self, "policy", None) or {}).get("claude_api") or {})
         return adapter
+
+    def _api_guard(self, spec: JobSpec) -> str | None:
+        """C-31.1, C-14.2: the hooks a credit launch hands its harness, as JSON:
+        the trusted never-rules hook from the guard preflight's files, and the
+        review publish hook when C-12.3's rule applies. Either may be missing;
+        the adapter refuses a writable launch that needs one."""
+        hooks: dict[str, str] = {}
+        try:
+            from .guard.preflight import load_guard
+            hooks["guard_hook"] = str(load_guard(self.root)[0])
+        except (ImportError, ValueError, OSError):
+            pass
+        from .review_publish import HOOK_DIRECTORY, install_hook, publishing_denied
+        if publishing_denied(spec):
+            try:
+                hooks["publish_hook"] = str(install_hook(self.root / HOOK_DIRECTORY))
+            except OSError:
+                pass
+        return json.dumps(hooks, sort_keys=True) if hooks else None
+
+    def _credit_budget(self, lane: Lane) -> dict[str, Any]:
+        """C-31.4: the lane's credit, ledger and grants in flight this cycle.
+
+        The ledger spans every lane of the lane's account (`claude-api:<email>`),
+        so a re-enrolled lane keeps its predecessor's spend. The cycle comes from
+        the registry's renewal day, or the trailing 31 days when that is unknown."""
+        row = self.store.one("SELECT account_key,credit_usd FROM lanes WHERE lane_id=?", (lane.lane_id,))
+        email = credit_lane.reference_email(lane.credential.ref)
+        day = credit_lane.renews_day(credit_lane.registry_entry(email, credit_lane.read_registry())) if email else None
+        since = credit_lane.cycle_start(day, datetime.now(timezone.utc))
+        rows = self.store.query(
+            "SELECT a.state,a.guardian_pid,a.finished_at,a.evidence_json FROM attempts a JOIN lanes l "
+            "ON a.lane_id=l.lane_id WHERE l.provider=? AND l.account_key=?",
+            (API_PROVIDER, row["account_key"] if row else credit_lane.account_key(email or "")))
+        ledger, in_flight = credit_lane.spend(
+            ({"live": r["state"] in LIVE, "started": bool(r["guardian_pid"]), "finished_at": r["finished_at"],
+              "evidence": json.loads(r["evidence_json"] or "{}")} for r in rows), since)
+        return {"credit_usd": row["credit_usd"] if row else None, "ledger_usd": ledger, "in_flight_usd": in_flight,
+                "cycle_start": since.isoformat(), "renews_day": day}
+
+    def _built(self, a: dict, lane: Lane, adapter, build: Callable[[], Launch | None]) -> Launch | None:
+        """C-31.4, invariant 8: a credit launch's grant is decided and recorded under one
+        lock, so two launches on the lane never both spend the same remaining budget."""
+        if lane.provider != API_PROVIDER:
+            return build()
+        with _CREDIT_GRANT_LOCK:
+            adapter.credit_budget = self._credit_budget(lane)
+            launch = build()
+            if launch is not None:
+                grant = launch.notes.get("credit_grant_usd")
+                with self.store.transaction("attempt.credit_grant", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                            lane_id=lane.lane_id, data={"credit_grant_usd": grant}) as tx:
+                    found = tx.execute("SELECT evidence_json FROM attempts WHERE attempt_id=?",
+                                       (a["attempt_id"],)).fetchone()
+                    evidence = json.loads((found[0] if found else None) or "{}")
+                    evidence["credit_grant_usd"] = grant
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                               (json.dumps(evidence), a["attempt_id"]))
+            return launch
+
+    def _close_spent_credit(self, lane: Lane, exc: AdapterError) -> str:
+        """C-31.4: a grant under $1 closes the lane for credit until the next renewal."""
+        details = exc.details or {}
+        until = details.get("until_at") or after(86400)
+        self.store.add_closure(Closure(lane.lane_id, "account", until, ClosureReason.CREDITS,
+                                       ClockSource(details.get("clock_source") or ClockSource.GUESSED.value),
+                                       "api-credit:spent"))
+        return until
 
     def _lane_credential_references(self) -> frozenset[str]:
         """D-ENV1: the daemon variables env-kind lanes name; no launch inherits one."""
@@ -4072,14 +4210,52 @@ class Daemon:
         return environment.withheld() if environment is not None else frozenset()
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
-        return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
+        if lane.provider != API_PROVIDER:
+            return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
+        # C-31.2: a credit lane's key resolves only for its own enrolled organization,
+        # and never for one the live policy denies. A Daemon assembled without
+        # `__init__` (unit tests build one by hand) has no policy, so denies none.
+        denied = credit_lane.denied_org_ids(getattr(self, "policy", None) or {})
+        return self._provider_environment.additions(lane.provider, resolve_credential(
+            lane.credential, identity=lane.identity, denied_org_ids=denied))
 
     def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
-        """Every provider launch's environment: no other vendor's credential (D-ENV3)."""
+        """Every provider launch's environment: no other vendor's credential (D-ENV3).
+
+        C-31.2, C-31.17: `ANTHROPIC_API_KEY` is removed from every launch, an API
+        credit lane's included. The daemon's own value, a parent's, a policy's
+        `env.pass` and any lane's never reach a launch: a credit key travels to
+        its guardian as the launch gate's frame (`_open_gate`) and from there to
+        the harness through a pipe, never in an environment."""
         return self._provider_environment.assemble(
             launch.env_add,
             (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
             provider=lane.provider)
+
+    @staticmethod
+    def _credit_key(lane: Lane, credential_env: dict[str, str], *, turn: bool = False) -> str | None:
+        """C-31.17: the key a credit launch's harness gets through the launch gate, or
+        None for every other launch, which sends no frame."""
+        if lane.provider != API_PROVIDER or turn:
+            return None
+        return credential_env.get(key_frame.CREDENTIAL_NAME) or None
+
+    @staticmethod
+    def _open_gate(write_fd: int, key: str | None) -> None:
+        """C-4.2, C-31.17: release a guardian's launch gate. A credit launch's key
+        follows the release byte as one frame (`key_frame`), in the same write; the
+        copy made here is overwritten once it is written."""
+        if key is None:
+            os.write(write_fd, b"1")
+            return
+        message = bytearray(b"1")
+        framed = key_frame.encode(key)
+        message += framed
+        key_frame.wipe(framed)
+        try:
+            key_frame.write_all(write_fd, message)
+        finally:
+            key_frame.wipe(message)
 
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
@@ -6472,7 +6648,9 @@ class Daemon:
         root = job.get("worktree") or job["workdir"]
         workspace = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("workspace") or {}
         prefix = workspace.get("prefix")
-        if provider == "codex" or not prefix or prefix == "." or _outside(prefix):
+        # C-31.1: a credit lane's harness, like Codex, writes only under its working
+        # directory, so it starts at the worktree's top too.
+        if provider in ("codex", API_PROVIDER) or not prefix or prefix == "." or _outside(prefix):
             return root
         # The source's worktree is recorded as the state root was given; the resume's own
         # workdir as submit spells it (`folders.canonical`). `realpath` keeps case, Unicode
@@ -6904,6 +7082,11 @@ class Daemon:
         This is the process seam for tests. A normal return guarantees containment
         unless the durable probe record is quarantined; no secret enters a receipt.
         """
+        if lane.provider == API_PROVIDER:
+            # C-31.5, C-31.17: a credit lane is never probed (`scheduler.probe_required`,
+            # the timers' cycle), so no path here resolves its key or starts a guardian
+            # for it; this refuses one that reaches it anyway, before either.
+            return Outcome(OutcomeClass.UNKNOWN, "an API credit lane is never probed")
         record = self._probe_record(holder)
         directory = Path(record["directory"])
         if not self._reusable_tmpdir(record.get("tmpdir")):
@@ -9739,12 +9922,18 @@ class Daemon:
             credential_env = {**credential_env, "TMPDIR": tmpdir}
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             from .review_publish import publish_hook, publishing_denied
-            guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
-                adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
-                env=self._provider_environment.assemble(credential_env, provider=lane.provider), env_pass=credential_env,
-                # C-12.3: a review's Codex launch judges every command with the publish rule.
-                publish_command=(publish_hook(self.root) if publishing_denied(spec)
-                                 and lane.provider == "codex" else None))
+            if lane.provider == API_PROVIDER:
+                # C-31.1: a credit launch's hooks, as JSON. The Codex guard preflight never
+                # runs for it, and no environment is assembled from its credential (C-31.17).
+                guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._api_guard(spec)
+            else:
+                guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
+                    adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
+                    env=self._provider_environment.assemble(credential_env, provider=lane.provider),
+                    env_pass=credential_env,
+                    # C-12.3: a review's Codex launch judges every command with the publish rule.
+                    publish_command=(publish_hook(self.root) if publishing_denied(spec)
+                                     and lane.provider == "codex" else None))
             resume = None
             if turn_block is not None:
                 guard = None
@@ -9768,18 +9957,26 @@ class Daemon:
                 # being revived. `build_launch` would start a NEW conversation
                 # under a fresh `--session-id`, which looks like a revive and is
                 # not one.
-                launch = adapter.resume_launch(spec, a["attempt_id"], adir, lane,
-                                               credential_env, resume["native_session_id"] if resume else job["caller_session"],
-                                               prompt_path, guard_override, model["id"])
+                launch = self._built(a, lane, adapter, lambda: adapter.resume_launch(
+                    spec, a["attempt_id"], adir, lane, credential_env,
+                    resume["native_session_id"] if resume else job["caller_session"],
+                    prompt_path, guard_override, model["id"]))
                 if launch is None:
                     raise AdapterError(
                         f"{lane.provider} cannot resume a session in place", code=7,
                         fix="use `subfleet sessions handoff` to continue this session", reason="resume-provider",
                         details={"provider": lane.provider})
             else:
-                launch = adapter.build_launch(spec, a["attempt_id"], adir, lane, credential_env,
-                                              model["id"], model.get("effort"), prompt_path, guard_override)
+                launch = self._built(a, lane, adapter, lambda: adapter.build_launch(
+                    spec, a["attempt_id"], adir, lane, credential_env,
+                    model["id"], model.get("effort"), prompt_path, guard_override))
         except AdapterError as exc:
+            if exc.reason == "api-credit-spent" and lane.provider == API_PROVIDER:
+                # C-31.4: no launch; the lane closes for credit and the job is queued
+                # again while it has attempts left, for the chain's next model.
+                until = self._close_spent_credit(lane, exc)
+                self._unlaunched(a, f"the credit lane's cycle budget is spent; it reopens {until}")
+                return
             self._launch_failure(a, self._refused_job(a["job_id"], exc), rc=exc.code)
             return
         except SalvageError as exc:
@@ -9830,10 +10027,15 @@ class Daemon:
         qos, qos_reason = self._launch_qos(job)
         if scheduler.requested_qos(job) == "default":
             self.log.info("attempt %s: %s", a["attempt_id"], qos_reason)
+        # C-31.17: a credit launch's key goes to its guardian as the gate's frame, never
+        # in the environment or argv above; every other launch sends no frame.
+        key = self._credit_key(lane, credential_env, turn=turn_block is not None)
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(adir),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
                    "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]
+        if key is not None:
+            command.append("--key-frame")
         if launch.stdin_path:
             command += ["--stdin-path", launch.stdin_path]
         if turn_block is not None:
@@ -9875,7 +10077,7 @@ class Daemon:
                         evidence["responsible_root"] = root
                         tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                                    (json.dumps(evidence), a["attempt_id"]))
-            os.write(write_fd, b"1")
+            self._open_gate(write_fd, key)
         except (OSError, procs.InspectionError) as exc:
             # Closing the gate guarantees an unrecorded guardian cannot launch.
             os.close(write_fd)
@@ -11330,7 +11532,9 @@ class Daemon:
         """
         env = {"SUBFLEET_LANE": lane_id}
         lane = self.store.get_lane(lane_id)
-        if lane is None:
+        if lane is None or lane.provider == API_PROVIDER:
+            # C-31.2: a credit lane's identity check reads its stream's organization
+            # header; its key stays out of the daemon's memory.
             return env
         try:
             env.update(resolve_credential(lane.credential))

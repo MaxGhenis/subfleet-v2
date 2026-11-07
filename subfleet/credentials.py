@@ -13,8 +13,9 @@ from typing import Any
 from .launch_env import (
     IGNORED, ROSTER, STORE, build_environment, harness_name, lane_reference, refused_reference,
 )
+from . import credit_lane
 from .adapters.base import AdapterError
-from .contracts import Credential, Lane
+from .contracts import API_PROVIDER, Credential, Lane
 from .home_paths import (
     PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, checked_override, home_path, session_alive, under_pytest,
 )
@@ -624,6 +625,18 @@ def _starts_keychain_binary(security_bin: str) -> bool:
     return target is not None and _is_keychain_binary(target, _native_keychain_binary())
 
 
+def agent_secret_helper() -> str | None:
+    """The agent-keychain helper `claude-quota-` and `claude-api-` references are read
+    through: `CLAUDE_LANE_AGENT_SECRET`, else `~/bin/agent-secret` when it is a file."""
+    helper = checked_override("CLAUDE_LANE_AGENT_SECRET", os.environ.get("CLAUDE_LANE_AGENT_SECRET"))
+    if not helper:
+        default = Path(home_path("SUBFLEET_AGENT_SECRET",
+                                 lambda: Path.home() / "bin" / "agent-secret",
+                                 test_only=True))
+        helper = str(default) if default.is_file() else None
+    return helper or None
+
+
 def keychain_command(reference: str, security_bin: str = "security", *,
                      runner=None) -> list[str]:
     """Keep v1's dedicated agent keychain when its helper is installed.
@@ -634,12 +647,7 @@ def keychain_command(reference: str, security_bin: str = "security", *,
     # Provider-owned desktop/home OAuth blobs stay in their native keychain.
     # Only the explicit per-lane setup-token namespace belongs to agent-secret.
     if reference.startswith("claude-quota-"):
-        helper = checked_override("CLAUDE_LANE_AGENT_SECRET", os.environ.get("CLAUDE_LANE_AGENT_SECRET"))
-        if not helper:
-            default = Path(home_path("SUBFLEET_AGENT_SECRET",
-                                     lambda: Path.home() / "bin" / "agent-secret",
-                                     test_only=True))
-            helper = str(default) if default.is_file() else None
+        helper = agent_secret_helper()
         if helper:
             return [helper, "get", reference]
     # A reference or fake HOME does not isolate macOS's login keychain. Fixture
@@ -652,8 +660,80 @@ def keychain_command(reference: str, security_bin: str = "security", *,
     return [security_bin, "find-generic-password", "-s", reference, "-w"]
 
 
-def resolve_credential(credential: Credential, *, runner=None) -> dict[str, str]:
-    """C-10.5: credential values appear only in the returned child environment."""
+def _credit_refused(message: str, fix: str) -> AdapterError:
+    """C-31.2: every refusal of a credit lane's credential. No message names its value."""
+    return credit_lane.refused(message, fix)
+
+
+def resolve_credit_key(credential: Credential, *, identity: str | None,
+                       denied_org_ids: Iterable[str] = (), runner=None,
+                       registry: Mapping[str, Any] | None = None, enrolling: bool = False) -> dict[str, str]:
+    """C-31.2: an API credit lane's key, `{"ANTHROPIC_API_KEY": value}`, or a refusal.
+
+    Only a `keychain-token` credential whose reference is `claude-api-<email>`,
+    read through the agent-keychain helper (never `security`, never an env
+    variable: the daemon's own `ANTHROPIC_API_KEY` is a metered key). The value
+    must be a Console key (`claude_credits.classify`'s rules) whose fingerprint
+    is the registry's for that email. The registry's organization for the email
+    must be the lane's identity and must not be in the live policy's
+    `claude_api.denied_org_ids`. The registry and the organization are checked
+    before the value is read. `registry` is a caller's already-read registry;
+    resolution reads the file itself. Only `enrolling` accepts a lane with no
+    identity yet: enrolment records the registry's organization as it."""
+    fix = "re-enroll the credit lane after `claude-credits` records this email's key and organization"
+    if credential.kind != "keychain-token":
+        raise _credit_refused("an API credit lane's credential must be a keychain token", fix)
+    email = credit_lane.reference_email(credential.ref)
+    if email is None:
+        raise _credit_refused("an API credit lane's reference must be claude-api-<email>", fix)
+    entry = credit_lane.registry_entry(email, credit_lane.read_registry() if registry is None else registry)
+    expected, org = credit_lane.entry_fingerprint(entry), credit_lane.entry_org(entry)
+    if expected is None or org is None:
+        raise _credit_refused("the claude-credits registry holds no key fingerprint and organization for "
+                              "this lane's email", fix)
+    if org != identity and not (enrolling and identity is None):
+        # C-10.6, invariant 7: the key now belongs to another organization than the
+        # one this lane enrolled with.
+        raise _credit_refused("the registry's organization for this email is not the lane's", fix)
+    if org in frozenset(denied_org_ids):
+        raise _credit_refused("the registry's organization for this email is denied by policy "
+                              "(claude_api.denied_org_ids)", "enroll a plan whose organization is not denied")
+    helper = agent_secret_helper()
+    if not helper:
+        raise _credit_refused("the agent-keychain helper that holds credit keys is not installed",
+                              "install agent-secret or set CLAUDE_LANE_AGENT_SECRET")
+    execute = runner or subprocess.run
+    try:
+        # D-ENV1: the native reader gets the allowlisted environment; a supplied
+        # runner (D-ST1's stand-ins under pytest) builds its own.
+        result = execute([helper, "get", credential.ref], capture_output=True, text=True, timeout=10, check=False,
+                         **({"env": build_environment()} if native_runner(runner) else {}))
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        raise _credit_refused("could not read the credit lane's keychain item", fix) from None
+    value = result.stdout.rstrip("\r\n") if result.returncode == 0 and isinstance(result.stdout, str) else ""
+    if not value.strip():
+        raise _credit_refused("could not read the credit lane's keychain item", fix)
+    why = credit_lane.key_refusal(value)
+    if why is not None:
+        raise _credit_refused(why, "store the plan's Console API key with `claude-credits add`")
+    try:
+        found = credit_lane.fingerprint(value)
+    except UnicodeError:
+        raise _credit_refused("the keychain item does not hold a Claude Console API key", fix) from None
+    if found != expected:
+        raise _credit_refused("the keychain item's key is not the one the claude-credits registry records "
+                              "for this email", fix)
+    return {"ANTHROPIC_API_KEY": value}
+
+
+def resolve_credential(credential: Credential, *, runner=None, identity: str | None = None,
+                       denied_org_ids: Iterable[str] = ()) -> dict[str, str]:
+    """C-10.5: credential values appear only in the returned child environment.
+
+    C-31.2: a `claude-api` credential resolves only through `resolve_credit_key`,
+    which needs the lane's `identity` and the policy's `denied_org_ids`."""
+    if credential.provider == API_PROVIDER:
+        return resolve_credit_key(credential, identity=identity, denied_org_ids=denied_org_ids, runner=runner)
     if credential.kind == "home" and credential.provider in ("codex", "claude"):
         key = "CODEX_HOME" if credential.provider == "codex" else "CLAUDE_CONFIG_DIR"
         return {key: str(Path(credential.ref).expanduser().resolve())}

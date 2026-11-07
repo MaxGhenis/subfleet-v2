@@ -84,11 +84,13 @@ def test_the_migration_is_additive(version_1_store):
     with Store(version_1_store) as store:
         after = columns(version_1_store)
         assert after[:len(before)] == before
-        assert set(after) - set(before) == {"identity", "label", "identity_status"}
+        # C-31.4: schema 11 adds the API credit lane's budget, last and nullable too.
+        assert set(after) - set(before) == {"identity", "label", "identity_status", "credit_usd"}
+        assert after[-1] == "credit_usd"
         row = store.one("SELECT * FROM lanes WHERE lane_id='claude-1'")
     assert [row[name] for name in before] == list(LANE_ROW)
     assert row["identity"] is None and row["label"] is None
-    assert row["identity_status"] is None
+    assert row["identity_status"] is None and row["credit_usd"] is None
 
 
 def test_the_migration_is_numbered_and_recorded(version_1_store):

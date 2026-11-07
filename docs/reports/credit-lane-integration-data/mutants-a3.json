@@ -1,0 +1,235 @@
+{
+  "note": "r3 attempt a3's run of tools/credit_key_mutations.py on a git archive copy of 9fc1834db (code as at b77f91e6e), 2026-11-07 05:21Z-05:45Z. Strings that held the tests' fake key (tests/unit/test_claude_api_adapter.py KEY) read <the test's fake KEY>.",
+  "baseline": {
+    "rc": 0,
+    "seconds": 473.2,
+    "tests": {
+      "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key": {
+        "verdict": "passed",
+        "message": null
+      },
+      "tests/unit/test_credit_lane_admission.py::test_only_a_credit_launch_carries_anthropic_api_key_and_only_its_own": {
+        "verdict": "passed",
+        "message": null
+      },
+      "tests/unit/test_claude_api_adapter.py::test_build_launch_is_exactly_the_interface": {
+        "verdict": "passed",
+        "message": null
+      },
+      "tests/fake/test_credit_key_containment.py::test_the_publish_hook_self_test_holds_no_key": {
+        "verdict": "passed",
+        "message": null
+      },
+      "tests/unit/test_api_agent_units.py::test_the_harness_reads_no_key_from_its_environment": {
+        "verdict": "passed",
+        "message": null
+      },
+      "tests/process/test_api_agent_process.py::test_the_key_comes_only_from_the_key_fd": {
+        "verdict": "passed",
+        "message": null
+      },
+      "tests/process/test_credit_key_frame.py::test_the_guardian_holds_no_pipe_while_its_provider_runs": {
+        "verdict": "passed",
+        "message": null
+      },
+      "tests/unit/test_api_agent_units.py::test_read_key_returns_the_framed_key_and_closes_the_descriptor": {
+        "verdict": "passed",
+        "message": null
+      },
+      "tests/process/test_credit_key_frame.py::test_any_key_reaches_the_harness_reader_unchanged_through_a_real_guardian": {
+        "verdict": "passed",
+        "message": null
+      }
+    },
+    "tail": ".........                                                                [100%]\n9 passed in 456.59s (0:07:36)\n"
+  },
+  "mutants": {
+    "c": {
+      "mutant": "c",
+      "what": "the harness reads ANTHROPIC_API_KEY from its environment again, when no key came on --key-fd",
+      "rc": 1,
+      "seconds": 158.8,
+      "caught": true,
+      "caught_by": [
+        "tests/unit/test_api_agent_units.py::test_the_harness_reads_no_key_from_its_environment",
+        "tests/process/test_api_agent_process.py::test_the_key_comes_only_from_the_key_fd"
+      ],
+      "tests": {
+        "tests/unit/test_api_agent_units.py::test_the_harness_reads_no_key_from_its_environment": {
+          "verdict": "failed",
+          "message": "AssertionError: assert ['harness.py:163'] == [] Left contains one more item: 'harness.py:163' Use -v to get more diff"
+        },
+        "tests/process/test_api_agent_process.py::test_the_key_comes_only_from_the_key_fd": {
+          "verdict": "failed",
+          "message": "AssertionError: assert [Recorded(pat...ream': True})] == [] Left contains one more item: Recorded(path='/v1/messages', headers={'host': '127.0.0.1:49756', 'accept-encoding': 'gzip, deflate, zstd', 'connectio...me': 'str_replace_based_edit_tool', 'max_characters': 60000, 'cache_control': {'type': 'ephemeral'}}], 'stream': True}) Use -v to get more diff"
+        }
+      },
+      "tail": "'s key and the decoy appears nowhere; with the decoy there and no\n        `--key-fd`, the attempt ends as a `no-key` error and sends nothing.\"\"\"\n        with FakeAnthropic([Reply([text(\"done\")])]) as fake:\n            run = launch(tmp_path / \"piped\", fake, env={\"ANTHROPIC_API_KEY\": DECOY})\n        assert run.proc.returncode == 0, run.proc.stderr.decode()[-2000:]\n        assert fake.requests and all(sent_key(request) == KEY for request in fake.requests)\n        assert not any(DECOY in json.dumps(dict(request.headers)) for request in fake.requests)\n        with FakeAnthropic([Reply([text(\"never sent\")])]) as fake:\n            run = launch(tmp_path / \"env-only\", fake, env={\"ANTHROPIC_API_KEY\": DECOY}, key=None)\n>       assert fake.requests == []\nE       AssertionError: assert [Recorded(pat...ream': True})] == []\nE         \nE         Left contains one more item: Recorded(path='/v1/messages', headers={'host': '127.0.0.1:49756', 'accept-encoding': 'gzip, deflate, zstd', 'connectio...me': 'str_replace_based_edit_tool', 'max_characters': 60000, 'cache_control': {'type': 'ephemeral'}}], 'stream': True})\nE         Use -v to get more diff\n\ntests/process/test_api_agent_process.py:627: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_api_agent_units.py::test_the_harness_reads_no_key_from_its_environment\nFAILED tests/process/test_api_agent_process.py::test_the_key_comes_only_from_the_key_fd\n2 failed in 138.77s (0:02:18)\n"
+    },
+    "c-hidden": {
+      "mutant": "c-hidden",
+      "what": "(c) with the variable's name built at run time, which the source check cannot see: only the process test can catch it",
+      "rc": 1,
+      "seconds": 173.8,
+      "caught": true,
+      "caught_by": [
+        "tests/process/test_api_agent_process.py::test_the_key_comes_only_from_the_key_fd"
+      ],
+      "tests": {
+        "tests/unit/test_api_agent_units.py::test_the_harness_reads_no_key_from_its_environment": {
+          "verdict": "passed",
+          "message": null
+        },
+        "tests/process/test_api_agent_process.py::test_the_key_comes_only_from_the_key_fd": {
+          "verdict": "failed",
+          "message": "AssertionError: assert [Recorded(pat...ream': True})] == [] Left contains one more item: Recorded(path='/v1/messages', headers={'host': '127.0.0.1:50348', 'accept-encoding': 'gzip, deflate, zstd', 'connectio...me': 'str_replace_based_edit_tool', 'max_characters': 60000, 'cache_control': {'type': 'ephemeral'}}], 'stream': True}) Use -v to get more diff"
+        }
+      },
+      "tail": "th a decoy key there and the key on the pipe, every request carries\n        the pipe's key and the decoy appears nowhere; with the decoy there and no\n        `--key-fd`, the attempt ends as a `no-key` error and sends nothing.\"\"\"\n        with FakeAnthropic([Reply([text(\"done\")])]) as fake:\n            run = launch(tmp_path / \"piped\", fake, env={\"ANTHROPIC_API_KEY\": DECOY})\n        assert run.proc.returncode == 0, run.proc.stderr.decode()[-2000:]\n        assert fake.requests and all(sent_key(request) == KEY for request in fake.requests)\n        assert not any(DECOY in json.dumps(dict(request.headers)) for request in fake.requests)\n        with FakeAnthropic([Reply([text(\"never sent\")])]) as fake:\n            run = launch(tmp_path / \"env-only\", fake, env={\"ANTHROPIC_API_KEY\": DECOY}, key=None)\n>       assert fake.requests == []\nE       AssertionError: assert [Recorded(pat...ream': True})] == []\nE         \nE         Left contains one more item: Recorded(path='/v1/messages', headers={'host': '127.0.0.1:50348', 'accept-encoding': 'gzip, deflate, zstd', 'connectio...me': 'str_replace_based_edit_tool', 'max_characters': 60000, 'cache_control': {'type': 'ephemeral'}}], 'stream': True})\nE         Use -v to get more diff\n\ntests/process/test_api_agent_process.py:627: AssertionError\n=========================== short test summary info ============================\nFAILED tests/process/test_api_agent_process.py::test_the_key_comes_only_from_the_key_fd\n1 failed, 1 passed in 163.07s (0:02:43)\n"
+    },
+    "e": {
+      "mutant": "e",
+      "what": "the harness keeps the key's descriptor open after its one read",
+      "rc": 1,
+      "seconds": 43.4,
+      "caught": true,
+      "caught_by": [
+        "tests/unit/test_api_agent_units.py::test_read_key_returns_the_framed_key_and_closes_the_descriptor",
+        "tests/process/test_credit_key_frame.py::test_any_key_reaches_the_harness_reader_unchanged_through_a_real_guardian"
+      ],
+      "tests": {
+        "tests/unit/test_api_agent_units.py::test_read_key_returns_the_framed_key_and_closes_the_descriptor": {
+          "verdict": "failed",
+          "message": "assert False + where False = _closed(11) Failing test case: test_read_key_returns_the_framed_key_and_closes_the_descriptor( key='0', # or any other generated value )"
+        },
+        "tests/process/test_credit_key_frame.py::test_any_key_reaches_the_harness_reader_unchanged_through_a_real_guardian": {
+          "verdict": "failed",
+          "message": "AssertionError: assert {'sha256': '2...losed': False} == {'sha256': '2...closed': True} Omitting 3 identical items, use -vv to show Differing items: {'closed': False} != {'closed': True} Use -v to get more diff (note: 2 other explicit examples also failed with this error; use Verbosity.verbose to view) Failing explicit example: test_any_key_reaches_the_harness_reader_unchanged_through_a_real_guard"
+        }
+      },
+      "tail": "  got = chain.provider_ran()\n>       assert got == {\"sha256\": hashlib.sha256(key.encode()).hexdigest(), \"length\": len(key), \"problem\": None,\n                       \"closed\": True}\nE       AssertionError: assert {'sha256': '2...losed': False} == {'sha256': '2...closed': True}\nE         \nE         Omitting 3 identical items, use -vv to show\nE         Differing items:\nE         {'closed': False} != {'closed': True}\nE         Use -v to get more diff\nE       (note: 2 other explicit examples also failed with this error; use Verbosity.verbose to view)\nE       Failing explicit example: test_any_key_reaches_the_harness_reader_unchanged_through_a_real_guardian(\nE           tmp_path_factory=TempPathFactory(_given_basetemp=PosixPath('/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/credit-mutants-14gs_td_/bt-e'),\nE            _trace=<pluggy._tracing.TagTracerSub object at 0x107311ba0>,\nE            _basetemp=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/credit-mutants-14gs_td_/bt-e'),\nE            _retention_count=3,\nE            _retention_policy='all'),\nE           key='x',\nE       )\n\ntests/process/test_credit_key_frame.py:183: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_api_agent_units.py::test_read_key_returns_the_framed_key_and_closes_the_descriptor\nFAILED tests/process/test_credit_key_frame.py::test_any_key_reaches_the_harness_reader_unchanged_through_a_real_guardian\n2 failed in 34.32s\n"
+    },
+    "a": {
+      "mutant": "a",
+      "what": "the key back in the guardian's environment: the daemon's launch path adds the resolved key to the environment it starts the guardian with",
+      "rc": 1,
+      "seconds": 96.3,
+      "caught": true,
+      "caught_by": [
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key"
+      ],
+      "tests": {
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key": {
+          "verdict": "failed",
+          "message": "AssertionError: runs of the key in exec blocks (argv or environment): {'guardian 2674': 88} assert not {'guardian 2674': 88}"
+        }
+      },
+      "tail": "    seen.setdefault(name, []).append((pid, proc_blocks.leaks(data, world.key)))\n                    argvs.setdefault(name, []).append(proc_blocks.argv(data))\n                    environments[name] = environments.get(name, False) or bool(proc_blocks.environment(data))\n                    if name == \"guardian\":\n                        pipes[pid] = [fd for fd, kind in proc_blocks.descriptors(pid) if kind == proc_blocks.PIPE]\n                # The shell's environment as the shell itself has it, read while the attempt\n                # runs (the harness removes its private TMPDIR when it ends).\n                dumps = list(world.harness.root.rglob(\"tool-env.txt\"))\n                shell_env = dumps[0].read_bytes() if len(dumps) == 1 else None\n            finally:\n                release.set()\n            job = world.harness.done(job_id)\n            requests = list(fake.requests)\n        leaked = {f\"{name} {pid}\": count for name, found in seen.items() for pid, count in found if count}\n>       assert not leaked, f\"runs of the key in exec blocks (argv or environment): {leaked}\"\nE       AssertionError: runs of the key in exec blocks (argv or environment): {'guardian 2674': 88}\nE       assert not {'guardian 2674': 88}\n\ntests/fake/test_credit_key_containment.py:200: AssertionError\n=========================== short test summary info ============================\nFAILED tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key\n1 failed in 87.97s (0:01:27)\n"
+    },
+    "a-renamed": {
+      "mutant": "a-renamed",
+      "what": "(a) under a name no credential rule knows (SUBFLEET_CREDIT_HANDOFF): only a check that reads values, not names, can catch it",
+      "rc": 1,
+      "seconds": 118.1,
+      "caught": true,
+      "caught_by": [
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key"
+      ],
+      "tests": {
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key": {
+          "verdict": "failed",
+          "message": "AssertionError: runs of the key in exec blocks (argv or environment): {'guardian 39133': 88, 'harness 39596': 88} assert not {'guardian 39133': 88, 'harness 39596': 88}"
+        }
+      },
+      "tail": "oc_blocks.leaks(data, world.key)))\n                    argvs.setdefault(name, []).append(proc_blocks.argv(data))\n                    environments[name] = environments.get(name, False) or bool(proc_blocks.environment(data))\n                    if name == \"guardian\":\n                        pipes[pid] = [fd for fd, kind in proc_blocks.descriptors(pid) if kind == proc_blocks.PIPE]\n                # The shell's environment as the shell itself has it, read while the attempt\n                # runs (the harness removes its private TMPDIR when it ends).\n                dumps = list(world.harness.root.rglob(\"tool-env.txt\"))\n                shell_env = dumps[0].read_bytes() if len(dumps) == 1 else None\n            finally:\n                release.set()\n            job = world.harness.done(job_id)\n            requests = list(fake.requests)\n        leaked = {f\"{name} {pid}\": count for name, found in seen.items() for pid, count in found if count}\n>       assert not leaked, f\"runs of the key in exec blocks (argv or environment): {leaked}\"\nE       AssertionError: runs of the key in exec blocks (argv or environment): {'guardian 39133': 88, 'harness 39596': 88}\nE       assert not {'guardian 39133': 88, 'harness 39596': 88}\n\ntests/fake/test_credit_key_containment.py:200: AssertionError\n=========================== short test summary info ============================\nFAILED tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key\n1 failed in 107.97s (0:01:47)\n"
+    },
+    "a-base": {
+      "mutant": "a-base",
+      "what": "the design's first path restored: the adapter puts the key in env_add and `_launch_environment` puts it back, as at da2eb8b56",
+      "rc": 1,
+      "seconds": 74.9,
+      "caught": true,
+      "caught_by": [
+        "tests/unit/test_credit_lane_admission.py::test_only_a_credit_launch_carries_anthropic_api_key_and_only_its_own",
+        "tests/unit/test_claude_api_adapter.py::test_build_launch_is_exactly_the_interface",
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key"
+      ],
+      "tests": {
+        "tests/unit/test_credit_lane_admission.py::test_only_a_credit_launch_carries_anthropic_api_key_and_only_its_own": {
+          "verdict": "failed",
+          "message": "AssertionError: assert 'ANTHROPIC_API_KEY' not in {'PATH': '/usr/bin:/bin', 'SUBFLEET_API_LANE': 'claude-api-1', 'ANTHROPIC_API_KEY': '<the test's fake KEY>'} Failing test case: test_only_a_credit_launch_carries_anthropic_api_key_and_only_its_own( # The test always failed when commented parts were varied together. tmp_path"
+        },
+        "tests/unit/test_claude_api_adapter.py::test_build_launch_is_exactly_the_interface": {
+          "verdict": "failed",
+          "message": "AssertionError: assert {'ANTHROPIC_A...claude-api-1'} == {'SUBFLEET_AP...claude-api-1'} Omitting 1 identical items, use -vv to show Left contains 1 more item: {'ANTHROPIC_API_KEY': '<the test's fake KEY>'} Use -v to get more diff"
+        },
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key": {
+          "verdict": "failed",
+          "message": "AssertionError: runs of the key in exec blocks (argv or environment): {'guardian 84807': 88} assert not {'guardian 84807': 88}"
+        }
+      },
+      "tail": "ts.get(name, False) or bool(proc_blocks.environment(data))\n                    if name == \"guardian\":\n                        pipes[pid] = [fd for fd, kind in proc_blocks.descriptors(pid) if kind == proc_blocks.PIPE]\n                # The shell's environment as the shell itself has it, read while the attempt\n                # runs (the harness removes its private TMPDIR when it ends).\n                dumps = list(world.harness.root.rglob(\"tool-env.txt\"))\n                shell_env = dumps[0].read_bytes() if len(dumps) == 1 else None\n            finally:\n                release.set()\n            job = world.harness.done(job_id)\n            requests = list(fake.requests)\n        leaked = {f\"{name} {pid}\": count for name, found in seen.items() for pid, count in found if count}\n>       assert not leaked, f\"runs of the key in exec blocks (argv or environment): {leaked}\"\nE       AssertionError: runs of the key in exec blocks (argv or environment): {'guardian 84807': 88}\nE       assert not {'guardian 84807': 88}\n\ntests/fake/test_credit_key_containment.py:200: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_credit_lane_admission.py::test_only_a_credit_launch_carries_anthropic_api_key_and_only_its_own\nFAILED tests/unit/test_claude_api_adapter.py::test_build_launch_is_exactly_the_interface\nFAILED tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key\n3 failed in 69.95s (0:01:09)\n"
+    },
+    "d": {
+      "mutant": "d",
+      "what": "the guardian keeps its end of the key's pipe (the read end it passed on) open past the spawn",
+      "rc": 1,
+      "seconds": 85.9,
+      "caught": true,
+      "caught_by": [
+        "tests/process/test_credit_key_frame.py::test_the_guardian_holds_no_pipe_while_its_provider_runs",
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key"
+      ],
+      "tests": {
+        "tests/process/test_credit_key_frame.py::test_the_guardian_holds_no_pipe_while_its_provider_runs": {
+          "verdict": "failed",
+          "message": "AssertionError: [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), ...] assert [8] == [] Left contains one more item: 8 Use -v to get more diff"
+        },
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key": {
+          "verdict": "failed",
+          "message": "AssertionError: the guardian holds pipes: {4422: [8]} assert False + where False = all(<generator object test_no_process_of_a_credit_attempt_holds_the_key.<locals>.<genexpr> at 0x1087298a0>)"
+        }
+      },
+      "tail": "aked, f\"runs of the key in exec blocks (argv or environment): {leaked}\"\n        assert shell_env is not None, \"the shell's environment was not read\"\n        assert proc_blocks.leaks(shell_env, world.key) == 0, \"runs of the key in the shell's environment\"\n        assert {\"daemon\", \"guardian\", \"harness\", \"shell\", \"background\"} <= set(seen), sorted(seen)\n        # Each Python process's block was read whole, environment included.\n        assert environments[\"daemon\"] and environments[\"guardian\"] and environments[\"harness\"], environments\n        assert b\"SUBFLEET_API_LANE=claude-api-1\" in shell_env\n        assert len(seen[\"guardian\"]) == 1 and len(seen[\"harness\"]) == 1, seen\n        # The guardian keeps no pipe once its provider runs: not the gate, and not its end of\n        # the key's pipe (C-31.17).\n>       assert all(found == [] for found in pipes.values()), f\"the guardian holds pipes: {pipes}\"\nE       AssertionError: the guardian holds pipes: {4422: [8]}\nE       assert False\nE        +  where False = all(<generator object test_no_process_of_a_credit_attempt_holds_the_key.<locals>.<genexpr> at 0x1087298a0>)\n\ntests/fake/test_credit_key_containment.py:210: AssertionError\n=========================== short test summary info ============================\nFAILED tests/process/test_credit_key_frame.py::test_the_guardian_holds_no_pipe_while_its_provider_runs\nFAILED tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key\n2 failed in 80.95s (0:01:20)\n"
+    },
+    "b": {
+      "mutant": "b",
+      "what": "the key in the publish hook self-test's environment: `_publish_self_test` adds the lane's resolved credential to the environment it tests the hook in",
+      "rc": 1,
+      "seconds": 72.0,
+      "caught": true,
+      "caught_by": [
+        "tests/fake/test_credit_key_containment.py::test_the_publish_hook_self_test_holds_no_key"
+      ],
+      "tests": {
+        "tests/fake/test_credit_key_containment.py::test_the_publish_hook_self_test_holds_no_key": {
+          "verdict": "failed",
+          "message": "AssertionError: runs of the key in the self-test's exec blocks: {'self-test-1-44576.bin': 88} assert not {'self-test-1-44576.bin': 88}"
+        }
+      },
+      "tail": "sh_hook_self_test_holds_no_key(world):\n        \"\"\"C-12.4's self-test runs in the launch's environment (`Daemon._publish_self_test`),\n        which never holds the key (C-31.2, C-31.17); mutant (b).\"\"\"\n        dump = Path(tempfile.mkdtemp(prefix=\"sfk-dump-\")).resolve()\n        try:\n            with FakeAnthropic([Reply([text(\"The review.\")])], org_id=ORG) as fake:\n                world.harness.start(\"--credit-api-url\", fake.url, \"--self-test-dump\", str(dump))\n                job_id = world.harness.submit(pinned_model=\"haiku-api\", task=\"review\")\n                job = world.harness.done(job_id)\n            blocks = {path.name: path.read_bytes() for path in sorted(dump.glob(\"self-test-*.bin\"))}\n        finally:\n            shutil.rmtree(dump, ignore_errors=True)\n        assert blocks, f\"the review's launch ran no publish hook self-test\\n{world.harness.log_text()[-3000:]}\"\n        leaked = {name: count for name, data in blocks.items() if (count := proc_blocks.leaks(data, world.key))}\n>       assert not leaked, f\"runs of the key in the self-test's exec blocks: {leaked}\"\nE       AssertionError: runs of the key in the self-test's exec blocks: {'self-test-1-44576.bin': 88}\nE       assert not {'self-test-1-44576.bin': 88}\n\ntests/fake/test_credit_key_containment.py:233: AssertionError\n=========================== short test summary info ============================\nFAILED tests/fake/test_credit_key_containment.py::test_the_publish_hook_self_test_holds_no_key\n1 failed in 62.78s (0:01:02)\n"
+    },
+    "d-write": {
+      "mutant": "d-write",
+      "what": "the guardian keeps the key pipe's write end open past the spawn",
+      "rc": 1,
+      "seconds": 40.0,
+      "caught": true,
+      "caught_by": [
+        "tests/process/test_credit_key_frame.py::test_the_guardian_holds_no_pipe_while_its_provider_runs",
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key"
+      ],
+      "tests": {
+        "tests/process/test_credit_key_frame.py::test_the_guardian_holds_no_pipe_while_its_provider_runs": {
+          "verdict": "failed",
+          "message": "AssertionError: [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), ...] assert [9] == [] Left contains one more item: 9 Use -v to get more diff"
+        },
+        "tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key": {
+          "verdict": "failed",
+          "message": "AssertionError: the guardian holds pipes: {79542: [9]} assert False + where False = all(<generator object test_no_process_of_a_credit_attempt_holds_the_key.<locals>.<genexpr> at 0x10a860d40>)"
+        }
+      },
+      "tail": "rt not leaked, f\"runs of the key in exec blocks (argv or environment): {leaked}\"\n        assert shell_env is not None, \"the shell's environment was not read\"\n        assert proc_blocks.leaks(shell_env, world.key) == 0, \"runs of the key in the shell's environment\"\n        assert {\"daemon\", \"guardian\", \"harness\", \"shell\", \"background\"} <= set(seen), sorted(seen)\n        # Each Python process's block was read whole, environment included.\n        assert environments[\"daemon\"] and environments[\"guardian\"] and environments[\"harness\"], environments\n        assert b\"SUBFLEET_API_LANE=claude-api-1\" in shell_env\n        assert len(seen[\"guardian\"]) == 1 and len(seen[\"harness\"]) == 1, seen\n        # The guardian keeps no pipe once its provider runs: not the gate, and not its end of\n        # the key's pipe (C-31.17).\n>       assert all(found == [] for found in pipes.values()), f\"the guardian holds pipes: {pipes}\"\nE       AssertionError: the guardian holds pipes: {79542: [9]}\nE       assert False\nE        +  where False = all(<generator object test_no_process_of_a_credit_attempt_holds_the_key.<locals>.<genexpr> at 0x10a860d40>)\n\ntests/fake/test_credit_key_containment.py:210: AssertionError\n=========================== short test summary info ============================\nFAILED tests/process/test_credit_key_frame.py::test_the_guardian_holds_no_pipe_while_its_provider_runs\nFAILED tests/fake/test_credit_key_containment.py::test_no_process_of_a_credit_attempt_holds_the_key\n2 failed in 37.17s\n"
+    }
+  }
+}

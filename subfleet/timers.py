@@ -16,10 +16,10 @@ from uuid import uuid4
 
 from .provider_env import ProviderEnvironment
 from .launch_env import helper_policy
-from . import capacity, claude_cards
+from . import capacity, claude_cards, credit_lane
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
-from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
+from .contracts import API_PROVIDER, ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential, withheld_references
 from .sessions.transcripts import read_regular
 from .store import Store
@@ -955,7 +955,20 @@ class Timers:
         overrides = self.actions.override_context()      # read once for every lane (C-3.7)
         overrides['lanes'].update({row['lane_id']: Store.lane_from_row(row) for row in lanes})
         return {'enabled': self.store.query('SELECT * FROM lanes WHERE enabled=1 ORDER BY created_at,rowid'),
-                'overrides': overrides}
+                'overrides': overrides, 'refused_by_kind': self.refused_by_kind()}
+
+    def refused_by_kind(self):
+        """C-31.4: each API credit lane's latest attempt in the last day that its
+        harness ended `refused-by-kind` (the adapter's `credit-refused-by-kind`
+        alert in the attempt's evidence), by lane id. The lane stays open; the
+        alerts read this (`alerts.evaluate_conditions`)."""
+        since = (self.now() - timedelta(days=1)).isoformat(timespec='seconds').replace('+00:00', 'Z')
+        rows = self.store.query(
+            "SELECT a.lane_id, MAX(a.finished_at) AS at FROM attempts a JOIN lanes l ON l.lane_id=a.lane_id "
+            "WHERE l.provider=? AND a.finished_at>=? "
+            "AND json_extract(a.evidence_json, '$.classification.alert.key')=? GROUP BY a.lane_id",
+            (API_PROVIDER, since, credit_lane.REFUSED_BY_KIND_ALERT))
+        return {row['lane_id']: row['at'] for row in rows}
 
     def merge_lane(self, row):
         """What the last probe found of a lane (`metadata`), laid over its row, as a view has it.
@@ -974,9 +987,12 @@ class Timers:
         for lane in rows['enabled']:
             bindings[(lane['provider'], lane['home'] or lane['credential_ref'])] = lane['lane_id']
         overrides = rows['overrides']
+        refused = rows.get('refused_by_kind') or {}
         full = self.fleet_full(view)
         for row in view['lanes']:
             self.merge_lane(row)
+            if row['lane_id'] in refused:
+                row['credit_refused_by_kind_at'] = refused[row['lane_id']]     # C-31.4
             bound = bindings.get((row['provider'], row['home'] or row['credential_ref']))
             if not row['enabled'] and bound and bound != row['lane_id']:
                 row['superseded_by'] = bound
@@ -1007,7 +1023,7 @@ class Timers:
             caps = self.policy.get('caps', {})
             # C-6.4: no count caps unless the policy sets them; C-10.3: the desktop
             # login's lane is dispatchable while Claude Code is not using it.
-            slot_cap = lane_slot_cap(caps, bool(measured) and not override)
+            slot_cap = lane_slot_cap(caps, bool(measured) and not override, row.get('provider'))
             row['dispatchable'] = bool(headroom_ok and row['enabled'] and row['owner'] == 'v2' and not capacity.desktop_excluded(row) and
                                        not row['closures'] and row.get('revoked_epoch') is None and row.get('probe_status') not in ('auth-dead', 'revoked', 'expired-token', 'no-auth') and
                                        row['lane_id'] not in view.get('unavailable_lanes', {}) and
@@ -1029,8 +1045,11 @@ class Timers:
             self.cancel.wait(wait)
         if self.cancel.is_set():
             return
+        # C-31.5: an API credit lane has no usage sensor (a standard key cannot read
+        # its balance), and the daemon makes no request to Anthropic for one: all
+        # its traffic is its harness's. So no cycle reads it.
         futures = [self._lanes.submit(self._run_worker, self._probe_lane, lane) for lane in self.store.list_lanes()
-                   if lane.enabled and lane.owner == 'v2']
+                   if lane.enabled and lane.owner == 'v2' and lane.provider != API_PROVIDER]
         # Every holder this cycle took is released, whatever raised: one lane's
         # failure must not leave another lane's `slot:0` held until a restart
         # (review of PR #72). All homes heal before any cycle reading or verdict
