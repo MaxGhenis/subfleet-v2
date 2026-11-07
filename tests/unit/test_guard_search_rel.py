@@ -656,7 +656,7 @@ def test_cost_before_and_after(world, r12d_hook):
     target = os.environ.get("SEARCH_REL_TIMING")
     if not target:
         pytest.skip("set SEARCH_REL_TIMING to a JSON path to measure the hook's cost before and after")
-    cases = [place(world, row) for row in ROWS] + [(world["wt"], command) for command in NO_WALK]
+    cases = [(world["wt"], command) for command in NO_WALK] + [place(world, row) for row in ROWS]
     hooks = hashlib.sha256(r12d_hook.read_bytes() + b"\0" + HOOK.read_bytes()).hexdigest()
     partial = Path(target + ".partial")
     done = {}

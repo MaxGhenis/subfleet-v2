@@ -51,12 +51,13 @@ LATE_TEST = f"{TEST}::test_fallback_no_answer_within_5_s_is_no_answer"
 OVERLAY_PIN_TEST = f"{OVERLAY}::test_private_overlay_bytes_remain_the_original_reviewed_pair"
 BASE_PIN_TEST = f"{BASE}::test_trust_pins_the_new_hook_bytes"
 
-# name -> (edits to HOOK as (old, new), each old occurring once; the named tests)
+# name -> (edits to HOOK as (old, new), each old occurring once; the named tests, the quickest killer first for
+# --first-kill)
 MUTATIONS = {
     # (a) the hook never calls the parser.
-    "a-parser-never-called": ([(ASK, 'if [ -n "" ]; then\n  us_boot=')], [ROWS_TEST, STARTS_TEST, EXIT_TEST]),
+    "a-parser-never-called": ([(ASK, 'if [ -n "" ]; then\n  us_boot=')], [EXIT_TEST, STARTS_TEST, ROWS_TEST]),
     # (b) the parser runs, and its answer is ignored.
-    "b-answer-ignored": ([('&& [ -n "$us_hit" ]; then', '&& [ -n "" ]; then')], [ROWS_TEST, EXIT_TEST]),
+    "b-answer-ignored": ([('&& [ -n "$us_hit" ]; then', '&& [ -n "" ]; then')], [EXIT_TEST, ROWS_TEST]),
     # (c) the regex judgment's block is skipped whenever the parser can run (a searcher named, an
     # interpreter there).
     "c-regex-skipped-when-the-parser-runs": (
@@ -71,7 +72,7 @@ MUTATIONS = {
                             '"""Argument-aware analyser for the [unscoped-search] rule')],
                           [BYTES_TEST, ARGS_TEST, OVERLAY_PIN_TEST, BASE_PIN_TEST]),
     # (g) the loader arms no alarm.
-    "g-no-alarm": ([("signal.alarm(5)\n", "")], [ALARM_TEST, LATE_TEST]),
+    "g-no-alarm": ([("signal.alarm(5)\n", "")], [LATE_TEST, ALARM_TEST]),
 }
 
 #: What the named tests need of HEAD.
@@ -127,6 +128,8 @@ def main() -> int:
     parser.add_argument("--no-control", action="store_true", help="skip the control (it ran in an earlier call)")
     parser.add_argument("--first-kill", action="store_true",
                         help="stop each mutant's run at its first failed test (pytest -x); the control runs whole")
+    parser.add_argument("--one-export", action="store_true",
+                        help="export HEAD once and mutate its hook in turn, restoring (and checking) its bytes after each")
     args = parser.parse_args()
     if "/sf-" not in str(args.scratch.resolve()):
         parser.error("--scratch must be a /sf- scratch directory")
@@ -140,12 +143,22 @@ def main() -> int:
             outcome = pytest(control, named, scratch)
             print(json.dumps({"mutant": "control", "outcomes": outcome}), flush=True)
             ok = all(outcome.get(test) == "passed" for test in named)
+        shared = scratch / "mutant"
+        if args.one_export:
+            export(shared)
+            original = (shared / HOOK).read_bytes()
         for name in args.only:
-            tree = scratch / name
-            export(tree)
+            tree = shared if args.one_export else scratch / name
+            if args.one_export:
+                (tree / HOOK).write_bytes(original)
+            else:
+                export(tree)
             mutate(tree, name)
             tests = MUTATIONS[name][1]
             outcome = pytest(tree, tests, scratch, first_kill=args.first_kill)
+            if args.one_export:
+                (tree / HOOK).write_bytes(original)
+                assert (tree / HOOK).read_bytes() == original
             killed_by = [test for test in tests if outcome.get(test) == "failed"]
             ok = ok and bool(killed_by)
             print(json.dumps({"mutant": name, "killed": bool(killed_by), "killed_by": killed_by,
