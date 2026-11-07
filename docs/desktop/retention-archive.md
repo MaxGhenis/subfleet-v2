@@ -573,6 +573,12 @@ descriptor on a file is not a hold. The check fails closed: `lsof` missing,
 failing or timing out (15 minutes) defers the batch. `lsof` runs under the
 retention clamp (section 12).
 
+Every listing writes one line to `daemon.log` (D-HOLDERS-LSOF1): `retention:
+holder listing check=<first|second> jobs=<n> reader=<name> seconds=<s>`, then
+`ok` (with what the reader asked about, counts only, such as `processes=`) or
+`failed: <reason>`. A pass's result counts its listings (`listings`) and their
+wall seconds (`listing_s`).
+
 ## 9. Verified deletion
 
 Descriptor-relative and post-order. For every entry present: unlisted or

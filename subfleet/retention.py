@@ -29,6 +29,7 @@ moving; progress survives an interruption so the driver can retry promptly.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil  # noqa: F401  (kept for callers that patch it)
 import subprocess
@@ -49,8 +50,12 @@ from .contracts import (
 )
 from . import dependencies, folders, procs
 from .attempt_tmp import cleared_tmpdirs, job_tmpdirs, probe_tmpdir_rows
-from .retention_holders import ScanFailed, lsof_holders
+from .retention_holders import ScanFailed, lsof_holders, reader_name
 from .store import Store
+
+#: Where a pass's listing lines go when its caller passes no logger (the daemon
+#: passes its own, so they land in `daemon.log`).
+LOG = logging.getLogger("subfleet.retention")
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 
@@ -417,7 +422,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 holders: Callable[..., dict[str, list[str]]] | None = None,
                 clock: Callable[[], float] | None = None, batch: int = BATCH,
                 slice_s: float = SLICE_S, measure_s: float | None = None,
-                remote_less_history_bytes: int | None = RETENTION_REMOTE_LESS_HISTORY_BYTES) -> dict[str, Any]:
+                remote_less_history_bytes: int | None = RETENTION_REMOTE_LESS_HISTORY_BYTES,
+                log: logging.Logger | None = None) -> dict[str, Any]:
     """Retire the oldest unpinned terminal jobs of each pool over its budget.
 
     Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
@@ -431,7 +437,9 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     every file, including paths salvage skipped, still needs archive verification. A job
     whose baseline no network remote holds, and whose bundle would carry more
     than `remote_less_history_bytes` of history, is kept (`remote-less-history`;
-    None: no limit).
+    None: no limit). Every holder listing writes one line to `log` (default
+    `LOG`), and the result counts them (`listings`) and their seconds
+    (`listing_s`).
     """
     budgets = {"detached": (max_jobs, max_bytes), "turn": (turn_max_jobs, turn_max_bytes)}
     if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:
@@ -441,7 +449,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
                                 "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
                                 "progressed": False, "holder_scan_failed": False, "tmpdir_left": [],
-                                **dict.fromkeys(FREED_KEYS, 0)}
+                                "listings": 0, "listing_s": 0.0, **dict.fromkeys(FREED_KEYS, 0)}
     try:
         _checkpoint(cancel, deadline, clock=clock)
     except _Interrupted as exc:
@@ -452,7 +460,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 explicit=set(referenced_job_ids), salvage_referenced_elsewhere=salvage_referenced_elsewhere,
                 cancel=cancel, deadline=deadline, state=state, holders=holders or lsof_holders, clock=clock,
                 batch=batch, slice_s=slice_s, measure_s=measure_s, progress=progress,
-                remote_less_history_bytes=remote_less_history_bytes)
+                remote_less_history_bytes=remote_less_history_bytes, log=log or LOG)
     try:
         return run.run()
     except (_Interrupted, rarch.Interrupted, rgit.Cancelled) as exc:
@@ -465,8 +473,9 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
 class _Pass:
     def __init__(self, store, root, *, budgets, turn_keep_s, pins, explicit, salvage_referenced_elsewhere,
                  cancel, deadline, state, holders, clock, batch, slice_s, measure_s, progress,
-                 remote_less_history_bytes=RETENTION_REMOTE_LESS_HISTORY_BYTES):
+                 remote_less_history_bytes=RETENTION_REMOTE_LESS_HISTORY_BYTES, log=LOG):
         self.store = store
+        self.log = log
         self.root = root
         self.budgets = budgets
         self.turn_keep_s = turn_keep_s
@@ -943,7 +952,7 @@ class _Pass:
                         busy[job_id] = [f"pid {pid}: cwd in worktree" for pid in sorted(pids)]
             watches = {job_id: r.watch(inodes=second) for job_id, r in wanted.items() if job_id not in busy}
             if watches:
-                busy.update(self.holders(watches, cancel=self.cancel))
+                busy.update(self._listing(watches, "second" if second else "first"))
         except (ScanFailed, procs.InspectionError) as exc:
             if self.cancel is not None and self.cancel.is_set():
                 raise rarch.Interrupted("cancelled") from exc
@@ -964,6 +973,30 @@ class _Pass:
                 retirements.pop(job_id, None)
             elif not second:
                 retirement.save(check1=True)
+
+    def _listing(self, watches: dict[str, Any], check: str) -> dict[str, list[str]]:
+        """One whole-machine holder listing for `watches`: counted, timed (wall
+        seconds, whatever the pass's clock) and logged in exactly one line, ok
+        or failed with the reason (D-HOLDERS-LSOF1; nothing logged a successful
+        listing before, so nobody could count them)."""
+        reader = reader_name(self.holders)
+        started = time.perf_counter()
+        outcome, busy = "ok", None
+        try:
+            busy = self.holders(watches, cancel=self.cancel)
+            return busy
+        except BaseException as exc:
+            outcome = "failed: " + (" ".join(str(exc).split()) or type(exc).__name__)[:300]
+            raise
+        finally:
+            seconds = time.perf_counter() - started
+            self.progress["listings"] += 1
+            self.progress["listing_s"] = round(self.progress["listing_s"] + seconds, 3)
+            stats = getattr(busy, "stats", None) or {}
+            detail = "".join(f" {key}={value}" for key, value in stats.items())
+            self.log.log(logging.INFO if outcome == "ok" else logging.WARNING,
+                         "retention: holder listing check=%s jobs=%d reader=%s seconds=%.2f %s%s",
+                         check, len(watches), reader, seconds, outcome, detail if outcome == "ok" else "")
 
     def _finish(self, retirement: rarch.Retirement, protected: set[str]) -> None:
         job_id = retirement.job_id

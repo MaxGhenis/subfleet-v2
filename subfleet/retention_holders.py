@@ -24,6 +24,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from .launch_env import build_environment
 from . import retention_qos as rqos
@@ -44,6 +45,21 @@ class Watch:
 
 
 Holders = Callable[[Mapping[str, Watch]], dict[str, list[str]]]
+
+
+class Busy(dict):
+    """A reader's answer, job id -> busy reasons, with what the listing asked
+    about in `stats` (counts only: no path or command), for the listing's log line."""
+
+    def __init__(self, busy: Mapping[str, list[str]], stats: Mapping[str, int] | None = None):
+        super().__init__(busy)
+        self.stats = dict(stats or {})
+
+
+def reader_name(holders: Callable[..., Any]) -> str:
+    """What a listing's log line calls its reader: the built-in readers' names, or
+    the callable's own (a test's stand-in)."""
+    return str(getattr(holders, "reader", None) or getattr(holders, "__name__", None) or type(holders).__name__)
 
 
 def _under(name: str, prefixes: Iterable[str]) -> bool:
@@ -135,4 +151,9 @@ def lsof_holders(watches: Mapping[str, Watch], *, timeout: float = 900,
                                  else f"lsof did not finish in {timeout:g} s") from None
     if process.returncode != 0 or not out:
         raise ScanFailed(f"lsof exited {process.returncode}: {err.decode('utf-8', 'replace').strip()[-300:]}")
-    return parse(out.decode("utf-8", "surrogateescape"), watches, own_pid=os.getpid())
+    text = out.decode("utf-8", "surrogateescape")
+    return Busy(parse(text, watches, own_pid=os.getpid()),
+                {"processes": sum(1 for line in text.split("\n") if line[:1] == "p")})
+
+
+lsof_holders.reader = "lsof"

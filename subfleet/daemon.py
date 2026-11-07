@@ -5872,7 +5872,8 @@ class Daemon:
                                  pins=self._retention_pins,
                                  cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                                  state=self._retention_state,
-                                 remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+                                 remote_less_history_bytes=int(budget["remote_less_history_bytes"]),
+                                 log=self.log)
         if self._unrun_dirty:
             # C-6.20: a sweep offered while this pass ran found the lock taken.
             self._sweep_unrun_worktrees()
