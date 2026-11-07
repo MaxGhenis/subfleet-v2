@@ -257,8 +257,8 @@ def test_with_the_timer_off_the_catalog_runs_only_on_request(svc, runs):
 
 
 def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs):
-    """C-30.1: a run alive past three times its own cap is killed by process group, once;
-    a later tick reaps it and the timer carries on."""
+    """C-30.1: a run alive past three times its cap gets SIGTERM, then SIGKILL after
+    its grace; a later tick reaps it and the timer carries on."""
     svc._catalog_tick()
     runs[0].stubborn = True                 # it takes a while to die
     svc.clock.now += service_module.CATALOG_KILL_AFTER_S - 1
@@ -267,7 +267,11 @@ def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs):
     svc.clock.now += 2
     svc._catalog_tick()
     svc._catalog_tick()
-    assert runs[0].signals == [service_module.signal.SIGKILL]
+    assert runs[0].signals == [service_module.signal.SIGTERM]
+    svc.clock.now += service_module.CATALOG_TERM_GRACE_S
+    svc._catalog_tick()
+    svc._catalog_tick()
+    assert runs[0].signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
     runs[0].end(-9)
     svc._catalog_tick()
     assert svc._catalog_proc is not None and len(runs) == 2         # reaped, and the next one due
@@ -319,11 +323,276 @@ def test_close_stops_the_catalog_run_and_starts_none_after(svc, runs, caplog):
     assert runs[0].signals == [service_module.signal.SIGTERM] and runs[0].returncode == -15
     assert svc._catalog_proc is None and svc._catalog_fence is None
     svc.clock.now += 1000
+    caplog.clear()
     with caplog.at_level(logging.WARNING):
         svc._catalog_tick()
         svc.tick()
     assert svc.handle("catalog.refresh", {}, None)["requested"] is False
     assert len(runs) == 1 and caplog.text == ""
+
+
+@pytest.mark.parametrize("elapsed", [0, 4, 10, 21])
+def test_begin_close_spends_the_catalog_grace_while_the_daemon_drains(svc, runs, monkeypatch, elapsed):
+    """The daemon starts TERM before draining; close waits only the unused grace."""
+    monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 2.0)
+    svc._start_catalog()
+    run = runs[0]
+    run.stubborn = True
+    fence_read, fence_write = svc._catalog_fence
+    svc.begin_close()
+    assert run.signals == [service_module.signal.SIGTERM]
+    assert svc._catalog_proc is run              # still tracked, never waited on
+    assert svc._catalog_fence is None
+    for fd in (fence_read, fence_write):
+        with pytest.raises(OSError):
+            os.fstat(fd)
+    assert svc._start_catalog() == {"requested": False, "running": False}
+    svc.clock.now += elapsed
+    svc.begin_close()                          # no repeated TERM or renewed grace
+    waits = []
+
+    def wait(timeout):
+        waits.append(timeout)
+        if run.signals == [service_module.signal.SIGTERM]:
+            svc.clock.now += timeout
+            raise subprocess.TimeoutExpired("catalog", timeout)
+        run.end(-9)
+        return run.returncode
+
+    monkeypatch.setattr(run, "wait", wait)
+    svc.close()
+    assert waits == [max(0, 10 - elapsed), 2]
+    assert run.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    assert svc._catalog_proc is None
+
+
+def test_begin_close_quietly_reaps_a_run_that_already_declined(svc, runs, caplog):
+    """A run reaped while closing the fence is no later tick's publishing decline."""
+    svc._start_catalog()
+    runs[0].end(catalog_module.OWNER_GONE)
+    with caplog.at_level(logging.WARNING):
+        svc.begin_close()
+        assert svc._catalog_proc is None
+        svc._reap_catalog()
+    assert runs[0].signals == []
+    assert caplog.text == ""
+
+
+def test_begin_close_grace_starts_after_a_slow_term_send(svc, runs, monkeypatch):
+    svc._start_catalog()
+    run = runs[0]
+    run.stubborn = True
+    original_send = service_module.os.killpg
+
+    def slow_send(pid, sig):
+        original_send(pid, sig)
+        svc.clock.now += 0.5
+
+    monkeypatch.setattr(service_module.os, "killpg", slow_send)
+    try:
+        svc.begin_close()
+        assert svc._catalog_terminated_at == 1000.5
+        svc.clock.now = 1010.499
+        svc._reap_catalog()
+        assert run.signals == [service_module.signal.SIGTERM]
+        svc.clock.now = 1010.5
+        svc._reap_catalog()
+        assert run.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    finally:
+        run.end()
+
+
+@pytest.mark.parametrize("phase", ["before-lock", "in-spawn", "before-handoff", "after-handoff"])
+def test_close_at_each_catalog_start_boundary(svc, runs, monkeypatch, phase):
+    entered, release = threading.Event(), threading.Event()
+    original_spawn = catalog_module.spawn_refresh
+    original_clock = svc.clock
+    original_close = os.close
+    closed_fds = []
+    reaped = set()
+    errors = []
+    from subfleet.procs import pipe_above_stdio
+    svc._catalog_fence = pipe_above_stdio()
+    fence = list(svc._catalog_fence)
+
+    def close_fd(fd):
+        if fd in fence:
+            closed_fds.append(fd)
+        original_close(fd)
+
+    def clock():
+        if phase == "before-handoff" and threading.current_thread() is starter and svc._catalog_starting and runs:
+            entered.set()
+            assert release.wait(5)
+        return original_clock()
+
+    def spawn(*args, **kwargs):
+        if phase == "in-spawn":
+            entered.set()
+            assert release.wait(5)
+            os.fstat(fence[0])
+            with pytest.raises(OSError):
+                os.fstat(fence[1])
+        process = original_spawn(*args, **kwargs)
+        if process is not None:
+            original_poll = process.poll
+
+            def poll():
+                result = original_poll()
+                if result is not None:
+                    reaped.add(process.pid)
+                return result
+
+            monkeypatch.setattr(process, "poll", poll)
+        return process
+
+    def start():
+        try:
+            svc._start_catalog()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    monkeypatch.setattr(svc, "clock", clock)
+    monkeypatch.setattr(service_module.os, "close", close_fd)
+    starter = threading.Thread(target=start)
+    try:
+        if phase == "before-lock":
+            svc.begin_close()
+        starter.start()
+        if phase in ("in-spawn", "before-handoff"):
+            assert entered.wait(5)
+            assert svc._start_catalog() == {"requested": False, "running": True}
+            closer = threading.Thread(target=svc.begin_close)
+            closer.start()
+            closer.join(0.25)
+            assert not closer.is_alive()
+            assert closed_fds == [fence[1]]
+            assert svc._catalog_fence == (fence[0], None)
+            os.fstat(fence[0])
+            with pytest.raises(OSError):
+                os.fstat(fence[1])
+            release.set()
+        starter.join(5)
+        assert not starter.is_alive() and not errors
+        if phase in ("in-spawn", "before-handoff"):
+            assert runs[0].signals == [service_module.signal.SIGTERM]
+        svc._stop_catalog()
+        assert len(runs) == (0 if phase == "before-lock" else 1)
+        if runs:
+            assert runs[0].signals == [service_module.signal.SIGTERM]
+            assert runs[0].returncode == -15
+            assert reaped == {runs[0].pid}
+        else:
+            assert reaped == set()
+        assert sorted(closed_fds) == sorted(fence)
+        assert svc._catalog_proc is None and svc._catalog_fence is None
+        assert svc._start_catalog() == {"requested": False, "running": False}
+    finally:
+        release.set()
+        starter.join(5)
+        if "closer" in locals():
+            closer.join(5)
+        for run in runs:
+            run.end()
+
+
+@pytest.mark.parametrize("elapsed", [0, 0.5, 1])
+def test_close_bounds_the_start_handoff_and_the_late_starter_reaps(svc, runs, monkeypatch, elapsed):
+    entered, release = threading.Event(), threading.Event()
+    original_spawn = catalog_module.spawn_refresh
+    errors = []
+
+    def spawn(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original_spawn(*args, **kwargs)
+
+    def start():
+        try:
+            svc._start_catalog()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    starter = threading.Thread(target=start)
+    try:
+        starter.start()
+        assert entered.wait(5)
+        fence_read, fence_write = svc._catalog_fence
+        svc.begin_close()
+        fence = svc._catalog_fence
+        assert fence == (fence_read, None)
+        os.fstat(fence_read)
+        with pytest.raises(OSError):
+            os.fstat(fence_write)
+        svc.clock.now += elapsed
+        waits = []
+
+        def wait(timeout):
+            waits.append(timeout)
+            svc.clock.now += timeout
+            return False
+
+        with monkeypatch.context() as patch:
+            patch.setattr(svc._catalog_handoff, "wait", wait)
+            svc._stop_catalog()
+        assert waits == [service_module.CATALOG_HANDOFF_WAIT_S - elapsed]
+        assert svc._catalog_stop_abandoned and svc._catalog_fence == fence
+        os.fstat(fence_read)
+        with pytest.raises(OSError):
+            os.fstat(fence_write)
+        release.set()
+        starter.join(5)
+        assert not starter.is_alive() and not errors
+        assert len(runs) == 1 and runs[0].signals == [service_module.signal.SIGTERM]
+        assert runs[0].returncode == -15
+        assert svc._catalog_proc is None and svc._catalog_fence is None
+    finally:
+        release.set()
+        starter.join(5)
+        for run in runs:
+            run.end()
+
+
+@pytest.mark.parametrize("previous_killed", [False, True], ids=["after-sigterm", "after-sigkill"])
+def test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first(svc, runs, previous_killed):
+    """A stopped run's TERM time and KILL state cannot shorten the next run's life."""
+    try:
+        svc._start_catalog()
+        previous = runs[-1]
+        previous.stubborn = True
+        svc.clock.now += 60
+        svc._reap_catalog()
+        assert previous.signals == [service_module.signal.SIGTERM]
+        if previous_killed:
+            svc.clock.now += 10
+            svc._reap_catalog()
+            assert previous.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+        previous.end(-9 if previous_killed else 143)
+        svc._start_catalog()
+        current = runs[-1]
+        assert current is not previous
+        current.stubborn = True
+        started = svc.clock.now
+        for age in (0, 10, 59.999):
+            svc.clock.now = started + age
+            svc._reap_catalog()
+            assert current.signals == []
+        svc.clock.now = started + 60
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM]
+        svc.clock.now += 9.999
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM]
+        svc.clock.now = started + 70
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    finally:
+        # Negative controls must fail in the call phase, never the fixture's
+        # guard against waiting for an unsignalled fake during close.
+        for run in runs:
+            run.end()
 
 
 def test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm(svc, runs, caplog):
@@ -340,6 +609,7 @@ def test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm(svc, runs, caplo
 def test_close_kills_a_real_run_that_ignores_sigterm(svc, monkeypatch, tmp_path):
     """C-30.1: the same with a real process: close() returns with it killed and reaped."""
     monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.5)
+    monkeypatch.setattr(service_module, "CATALOG_TERM_GRACE_S", 0.5)
     ready = tmp_path / "ready"
     script = ("import pathlib, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
               "pathlib.Path(sys.argv[1]).touch(); time.sleep(60)")
@@ -357,9 +627,9 @@ def test_close_kills_a_real_run_that_ignores_sigterm(svc, monkeypatch, tmp_path)
     assert time.monotonic() - started < 10
 
 
-def test_a_run_started_while_close_waits_for_the_lock_is_stopped_too(svc, runs, monkeypatch):
-    """C-30.1: a start and close() take the same lock. A start already inside it
-    finishes; close() then stops the run it made, so none outlives close()."""
+def test_a_run_in_flight_when_close_begins_is_stopped_too(svc, runs, monkeypatch):
+    """C-30.1: close waits for the reserved start's handoff, not its spawn lock.
+    The starter signals the run it made before the waiting close reaps it."""
     entered, go = threading.Event(), threading.Event()
     fake_spawn = catalog_module.spawn_refresh
 
@@ -462,7 +732,10 @@ def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, mo
                 for run, before in zip(runs, signals):
                     added = run.signals[len(before):]
                     if run in found:
-                        assert added == ([TERM, KILL] if run.stubborn else [TERM]), where
+                        expected = ([TERM] if TERM not in before else [])
+                        if run.stubborn and KILL not in before:
+                            expected.append(KILL)
+                        assert added == expected, where
                     else:
                         assert added == [], where
         finally:
