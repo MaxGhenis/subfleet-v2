@@ -202,7 +202,7 @@ PYTHONPATH`, and `--basetemp` under the job's temp folder.
   stored example passes, Hypothesis goes on to generate its 80 examples of 262,145–382,144
   characters, at load about 110. Row 1 is byte-identical to the stored example and passes.
 - `pytest -n 4 -k "<the new tests>"` on `9137930b8`: 33 passed in 535.01 s.
-- **Final set: not completed.** The brief's set is the excerpts file, the other 18 `tests/unit/test_sessions_*` files, the 14 `tests/unit/test_scrub*` files and the three contract guards, run with `-n 4` (log: the job temp folder's `final.log`). It started at 11:22 at load 106–115 and was 8% done (about 160 tests) at 11:32, with no failure so far. It couldn't finish inside the brief's 3-hour limit, so I'm reporting it as not run to completion. The hub's CI run of the whole suite is the check.
+- **Final set: not completed.** The brief's set is the excerpts file, the other 18 `tests/unit/test_sessions_*` files, the 14 `tests/unit/test_scrub*` files and the three contract guards, run with `-n 4` (log: the job temp folder's `final.log`). It started at 11:22 at load 106–115. The shell's background limit stopped it at 11:42, 67% of the way through, with 1,118 tests passed and no failure, error or skip. It couldn't finish inside the brief's 3-hour limit, so the last third is unrun. The hub's CI run of the whole suite is the check.
 
 ## Deviations from the brief
 
