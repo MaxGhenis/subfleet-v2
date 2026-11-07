@@ -53,13 +53,13 @@ from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
 from .adapters import claude_mcp
-from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
+from .descriptors import busy_answer, send_reply, shut, stopping_answer  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
     CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
-    OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_MAX_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
+    OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_MAX_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, STOP_REPLY_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
@@ -266,6 +266,14 @@ ACCEPT_RETRY_CEILING_S = 2.0
 ACCEPT_GIVE_UP_S = 300
 #: C-16.7: how long `close()` waits, in all, for connection readers to return.
 READER_JOIN_S = 2.0
+
+
+class Stopping(protocol.ProtocolError):
+    """C-16.8: the daemon is stopping and did not run the request. Raised only before
+    a request has changed anything, so it is answered 69 like any request not run."""
+
+    def __init__(self) -> None:
+        super().__init__(protocol.STOPPING_MESSAGE, Exit.DAEMON_UNAVAILABLE, protocol.STOPPING_FIX)
 
 #: C-6.11: how long admission may place nothing while jobs are pending before
 #: `daemon.log` says so, and how often it repeats while that lasts.
@@ -844,6 +852,7 @@ class Daemon:
                  inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
+                 stop_reply_s: float = STOP_REPLY_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
                  desktop_prober: Callable[[], Any] | None = None,
@@ -873,6 +882,7 @@ class Daemon:
         # `close()` calls first, on its own thread, to start that bound. Only
         # `main` sets it: a daemon built in a test process ends nothing.
         self.stop_grace_s = stop_grace_s
+        self.stop_reply_s = stop_reply_s          # C-16.8
         self.on_stop: Callable[[], bool | None] | None = None
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
         # C-12.4, #221 review r2 P3-7: publish-hook self-tests that denied, for
@@ -933,6 +943,12 @@ class Daemon:
         # reply has been written; what the cap counts, and what `close()` shuts.
         self._connections: set[socket.socket] = set()
         self._connection_lock = threading.Lock()
+        # C-16.8: the requests read and started whose reply is still owed, and the
+        # connections whose reader has not returned; a stop's drain waits on both
+        # (`_drain_replies`), woken through this condition on the connection lock.
+        self._inflight: set[Future] = set()
+        self._reading: set[socket.socket] = set()
+        self._connections_changed = threading.Condition(self._connection_lock)
         # C-15.5: `wait` requests between dispatch and their answer being sent, so
         # `close` can let each answer before it shuts the connections down.
         self._waits_answering = 0
@@ -945,7 +961,8 @@ class Daemon:
         self._pinned_max_connections = None if max_connections is None else max(1, int(max_connections))
         self.connection_idle_s = connection_idle_s
         self._connection_counts = {"accepted": 0, "refused": 0, "idle_closed": 0,
-                                   "abandoned": 0, "accept_failures": 0, "unscheduled": 0}
+                                   "abandoned": 0, "accept_failures": 0, "unscheduled": 0,
+                                   "not_run": 0}       # C-16.8
         self._closed = False
         self._socket: socket.socket | None = None
         self._lock_fd = os.open(self.root / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -3411,6 +3428,7 @@ class Daemon:
                 if retire_fence is not None:
                     tx.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", retire_fence)
             self._notify()
+            self._boundary("submitted", job_id)     # committed, not yet answered (C-16.8's tests)
             return {"job_id": job_id, "request_id": args.request_id, "created": True,
                     **self._where_it_writes(job_id, sandbox.value)}
 
@@ -5215,7 +5233,8 @@ class Daemon:
                                 "detail": f"attempt a{a['seq']} still has {self._census_words(census)}; nothing "
                                           f"was released; {then}"}
                 return {"job_id": args.job_id, "status": "already finished" if job["state"] in TERMINAL else "not quarantined"}
-            self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
+            if self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args) is False:
+                raise Stopping()                 # C-16.8: nothing was scheduled, nothing changed
             return {"job_id": args.job_id, "status": "resolution requested"}
         if job["state"] in TERMINAL:
             # D-KILL4: a finished job whose last attempt still has census members
@@ -5230,8 +5249,8 @@ class Daemon:
                 # attempt's real round out of its evidence; an unverifiable one too, unless a
                 # verifiable read could attribute a member (review r3's P3-1).
                 contain = self._may_signal(a, census)
-                if contain:
-                    self._schedule("recontain:" + args.job_id, self._recontain, a, census)
+                if contain and self._schedule("recontain:" + args.job_id, self._recontain, a, census) is False:
+                    raise Stopping()             # C-16.8: before the cascade below writes anything
                 if job["cancel_requested_at"]:
                     # A cancelled parent's kill still cascades to live dependents (C-7.3).
                     self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
@@ -5418,23 +5437,41 @@ class Daemon:
         return function(*args, **kwargs)
 
     def _schedule(self, key: str, fn: Callable, *args, paced: bool = False,
-                  pool: ThreadPoolExecutor | None = None) -> None:
+                  pool: ThreadPoolExecutor | None = None) -> bool:
         """Run `fn` on the worker pool (or `pool`) unless `key` is already running.
 
         C-5.10: `paced` is for the keys the control loop offers again every tick.
         A one-shot request (an operator's `kill --confirm-dead`) is never paced:
         nothing would offer it again, so holding it back would drop it after the
         caller was told it was accepted.
+
+        True when `fn` will run: started now, or already running under `key`.
+        False when nothing was started: the daemon is stopping (C-16.8; its pools
+        take nothing new), or a paced key waits for its retry. A one-shot caller
+        must not report as requested what returned False. Callers test `is False`,
+        so a stand-in that runs `fn` inline and answers its None counts as run.
         """
         with self._busy_lock:
-            if (key in self._busy or self.stopping.is_set()
-                    or (paced and time.monotonic() < self._worker_retry_at.get(key, 0))):
-                return
+            if self.stopping.is_set() or (paced and time.monotonic() < self._worker_retry_at.get(key, 0)):
+                return False
+            if key in self._busy:
+                return True
             self._busy.add(key)
         generation = self.store.generation
-        future = (pool or self.workers).submit(self._run_worker, fn, *args)
+        try:
+            future = (pool or self.workers).submit(self._run_worker, fn, *args)
+        except RuntimeError:
+            # A pool shut down by a stopping daemon (C-16.8), or one that cannot
+            # start a thread: either way the key must not stay busy for ever.
+            with self._busy_lock:
+                self._busy.discard(key)
+            if self.stopping.is_set():
+                return False
+            raise
         def done(f):
             try:
+                if f.cancelled():
+                    return                      # a stop's pool shutdown (C-16.8): no failure
                 deferred = f.result() is DEFERRED
                 with self._busy_lock:
                     if not deferred:            # C-5.11: a deferred retry keeps its count
@@ -5472,6 +5509,7 @@ class Daemon:
                 with self._busy_lock:
                     self._busy.discard(key)
         future.add_done_callback(done)
+        return True
 
     def _pending_exports(self) -> list[str]:
         """Jobs whose accepted attempt still holds a lease: an export to finish.
@@ -12343,6 +12381,8 @@ class Daemon:
         try:
             response = protocol.ok(req.id, self.dispatch(req.op, req.args, arrived=arrived, client_gone=client_gone,
                                                        **({"peer": peer} if req.op == "kill" else {})))
+        except Stopping:
+            response = self._not_run(req.id)    # C-16.8: raised before anything changed
         except (protocol.ProtocolError, AdapterError) as exc:
             response = protocol.refuse(req.id, exc)
             refusals.log_detail(self.log, req.op, exc)
@@ -12379,7 +12419,7 @@ class Daemon:
             # Conversation ops run on the conversation pools: the long polls on
             # their own (C-25.4), the file work on its own (C-25.3).
             return self.conversations.pool_for(req.op).submit(
-                self._run_worker, self.conversations.respond, conn, write_lock, req, peer)
+                self._run_worker, self._run_request, self.conversations.respond, conn, write_lock, req, peer)
         if req.op == "ping" and not protocol.ping_writes(req.args):
             # C-16.5, C-15.8: a liveness question is answered here, never queued:
             # it reads nothing, so a slow daemon still says at once that it is alive.
@@ -12390,8 +12430,46 @@ class Daemon:
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
                 self.waiters if req.op == "wait" else
                 self.lookups if req.op in LOOKUP_OPS else self.requests)
-        return pool.submit(self._run_worker, self._respond, conn, write_lock, req, arrived,
+        return pool.submit(self._run_worker, self._run_request, self._respond, conn, write_lock, req, arrived,
                            **({"peer": peer} if req.op == "kill" else {}))
+
+    def _run_request(self, respond: Callable, conn: socket.socket, write_lock: threading.Lock,
+                     req: protocol.Request, *args, **kwargs) -> None:
+        """C-16.8: a request whose turn on its pool comes after the stop began is
+        not run; it is answered 69 at once, under its own id, so its client knows
+        nothing was done and may send it again. Every pool's requests start here."""
+        if self.stopping.is_set():
+            self._reply(conn, write_lock, self._not_run(req.id))
+            return
+        respond(conn, write_lock, req, *args, **kwargs)
+
+    def _reply(self, conn: socket.socket, write_lock: threading.Lock, response: dict) -> bool:
+        return send_reply(conn, write_lock, response, end_stream=self._end_stream)
+
+    def _not_run(self, req_id: str) -> dict:
+        """C-16.8: the answer to a request a stopping daemon did not run, counted."""
+        self._count_connection("not_run")
+        return stopping_answer(req_id)
+
+    def _say_stopping(self, conn: socket.socket, write_lock: threading.Lock | None = None) -> None:
+        """C-16.8: the last line on a connection a stopping daemon lets go: 69 for
+        request id "", the answer to every request read there and not answered (a
+        queued one the stop cancelled) and to any it never read (a stop's SHUT_RD
+        discards what was not read). A client that already has its reply reads only
+        that. Never blocks: the line fits an empty send buffer, and a full one means
+        a client that stopped reading, which gets nothing more."""
+        if write_lock is not None and not write_lock.acquire(timeout=1):
+            return                              # a reply is still being sent; nothing may follow it
+        try:
+            conn.setblocking(False)
+            line = protocol.encode(stopping_answer())
+            if conn.send(line) != len(line):
+                shut(conn)                      # a broken last line, then the end of the stream
+        except OSError:
+            pass
+        finally:
+            if write_lock is not None:
+                write_lock.release()
 
     def _connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         write_lock = threading.Lock()
@@ -12402,6 +12480,22 @@ class Daemon:
 
         def note_reply(_future=None) -> None:
             replied[0] = time.monotonic()
+
+        def count_unrun(future: Future) -> None:
+            # C-16.8: a request the stop cancelled before a thread reached it. The
+            # connection's last line (`_say_stopping`) is its answer.
+            if future.cancelled() and self.stopping.is_set():
+                self._count_connection("not_run")
+
+        unsaid = [False]                        # C-16.8: a request may have run with no reply
+
+        def note_raised(future: Future) -> None:
+            # A responder that raised (a reply that would not encode, say) sent
+            # nothing for a request that may have changed state. The last line
+            # would then say that it was not run, so none is sent: the client
+            # reads the end of the stream, an unknown outcome (C-16.3).
+            if not future.cancelled() and future.exception() is not None:
+                unsaid[0] = True
         try:
             # C-16.7: reads time out instead of blocking, so a client that says
             # nothing cannot hold this reader and its descriptor for ever. The
@@ -12422,6 +12516,10 @@ class Daemon:
                     req = self._decode(conn, write_lock, line)
                     if req is None:
                         continue
+                    if self.stopping.is_set():
+                        # C-16.8: read after the stop began: not run, and said so.
+                        self._reply(conn, write_lock, self._not_run(req.id))
+                        continue
                     pending = [f for f in pending if not f.done()]
                     reads.intersection_update(pending)
                     try:
@@ -12433,15 +12531,24 @@ class Daemon:
                         # future to wait on here. The reader goes on, and the count
                         # says so (review of 3c8fe55, P2), as `unscheduled` as on
                         # main (#55). A pool shut down by a stopping daemon refuses
-                        # the same way, and is not counted.
-                        if not self.stopping.is_set():
+                        # the same way, before it queues anything: that request is
+                        # not run, and is answered so (C-16.8).
+                        if self.stopping.is_set():
+                            self._reply(conn, write_lock, self._not_run(req.id))
+                        else:
                             # Logged: the exception's words scrubbed, as C-25.7 asks of each site.
                             self._count_connection("unscheduled", f"{req.op} ({refusals.scrubbed_words(exc)})")
                         continue
                     if future is None:
                         note_reply()
                         continue
+                    # C-16.8: owed a reply until it is done; a stop waits for it.
+                    with self._connection_lock:
+                        self._inflight.add(future)
                     future.add_done_callback(note_reply)
+                    future.add_done_callback(count_unrun)
+                    future.add_done_callback(note_raised)
+                    future.add_done_callback(self._request_ended)
                     pending.append(future)
                     if descriptors.read_only(req.op, req.args):
                         reads.add(future)
@@ -12468,15 +12575,78 @@ class Daemon:
                         self._count_connection("abandoned", "queued read")
             # No process waits here. Running callbacks own their response socket
             # until they finish, including after the caller closes its write half.
+            # C-16.8: on a stopping daemon the last of them also says that nothing
+            # else read or sent there was run, before the connection closes.
+            closing = threading.Lock()
+
             def finish(_=None):
-                if all(f.done() for f in pending):
-                    conn.close()
-                    with self._connection_lock:
-                        self._connections.discard(conn)
-                        self._shut_down.discard(conn)
+                if not all(f.done() for f in pending) or not closing.acquire(blocking=False):
+                    return
+                if self.stopping.is_set() and not unsaid[0]:
+                    self._say_stopping(conn, write_lock)
+                conn.close()
+                self._let_go(conn)
             for f in pending:
                 f.add_done_callback(finish)
             finish()
+
+    def _let_go(self, conn: socket.socket) -> None:
+        """C-16.7, C-16.8: a connection closed and no longer held; a stop's drain
+        may be waiting for it."""
+        with self._connections_changed:
+            self._connections.discard(conn)
+            self._shut_down.discard(conn)
+            self._connections_changed.notify_all()
+
+    def _request_ended(self, future: Future) -> None:
+        """C-16.8: a request's reply is written, or it will never be (cancelled)."""
+        with self._connections_changed:
+            self._inflight.discard(future)
+            self._connections_changed.notify_all()
+
+    def _answer_backlog(self) -> None:
+        """C-16.8: answer the connections still waiting in the listen backlog, which
+        closing the listener would drop unanswered: their clients would read the end
+        of the stream, an unknown outcome (C-16.3). Each is told that nothing was
+        run. A connect that lands after the last accept here and before the listener
+        closes is still dropped. Nothing is read from these connections, so no
+        audit token is saved for them (C-25.6 needs one only for a request read)."""
+        try:
+            self._socket.setblocking(False)
+        except OSError:
+            return
+        for _ in range(2 * max(64, socket.SOMAXCONN)):
+            try:
+                conn, _ = self._socket.accept()
+            except BlockingIOError:             # the backlog is empty
+                return
+            except OSError as exc:
+                if exc.errno in (errno.ECONNABORTED, errno.EINTR):
+                    continue                    # that connection is gone; the next one may not be
+                # C-16.6 counts every failed accept. Out of descriptors or
+                # buffers, the rest of the backlog is dropped unanswered.
+                self._count_connection("accept_failures")
+                self.log.warning("stopping: accept failed (%s) while answering the listen backlog; "
+                                 "connections still waiting there were dropped unanswered (C-16.8)",
+                                 errno.errorcode.get(exc.errno, exc.errno))
+                return
+            self._refuse(conn, protocol.STOPPING_MESSAGE, "connection a stopping daemon did not read")
+
+    def _drain_replies(self, deadline: float) -> tuple[float, int, int]:
+        """C-16.8: wait until every request already running has written its reply
+        and every connection whose reader has returned is let go, or until
+        `deadline`; then shut down every connection still held (a reply still owed,
+        or a reader that has not returned). Returns when the wait ended, how many
+        replies were still owed then, and how many connections were shut down."""
+        with self._connections_changed:
+            while ((self._inflight or self._connections - self._reading)
+                   and (remaining := deadline - time.monotonic()) > 0):
+                self._connections_changed.wait(remaining)
+            unanswered, late = len(self._inflight), list(self._connections)
+        ended = time.monotonic()
+        for conn in late:
+            shut(conn)
+        return ended, unanswered, len(late)
 
     @property
     def max_connections(self) -> int:
@@ -12509,9 +12679,10 @@ class Daemon:
             admitted = held < cap and not self.stopping.is_set()
             if admitted:
                 self._connections.add(conn)       # close() shuts down whatever is here
+                self._reading.add(conn)           # C-16.8: until its reader returns
                 self._connection_counts["accepted"] += 1
         if not admitted:
-            self._refuse(conn, f"the daemon is busy: it holds {held} client connections, its limit",
+            self._refuse(conn, f"{protocol.BUSY_MESSAGE}: it holds {held} client connections, its limit",
                          "connection over the cap")
             return
         reader = threading.Thread(target=self._read_connection, args=(conn, peer),
@@ -12521,21 +12692,25 @@ class Daemon:
         try:
             reader.start()
         except RuntimeError:                     # no thread could start
-            with self._connection_lock:
+            with self._connections_changed:
                 self._readers.discard(reader)
+                self._reading.discard(conn)
                 self._connections.discard(conn)
+                self._connections_changed.notify_all()
             # Nothing was read, so the answer is busy, and the client may try again.
             # Logged through the refusal count (1st, 2nd, 4th ...), not once per
             # connection: out of threads, every client would add a line.
-            self._refuse(conn, "the daemon is busy: it could not start a thread for this connection",
+            self._refuse(conn, f"{protocol.BUSY_MESSAGE}: it could not start a thread for this connection",
                          "connection no reader thread could start for")
 
     def _read_connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         try:
             self._connection(conn, peer)
         finally:
-            with self._connection_lock:
+            with self._connections_changed:
                 self._readers.discard(threading.current_thread())
+                self._reading.discard(conn)
+                self._connections_changed.notify_all()
 
     def _ended_here(self, conn: socket.socket) -> bool:
         """C-16.7: whether this daemon shut the stream down after a broken reply:
@@ -12552,13 +12727,15 @@ class Daemon:
         with self._connection_lock:
             if conn in self._connections:
                 self._shut_down.add(conn)
-        with contextlib.suppress(OSError):
-            conn.shutdown(socket.SHUT_RDWR)
+        shut(conn)              # after a stop's SHUT_RD, SHUT_RDWR alone would shut nothing
 
     def _refuse(self, conn: socket.socket, message: str, detail: str) -> None:
-        """C-16.7: answer busy (exit 69) before reading anything, and close."""
+        """C-16.7: answer busy (exit 69) before reading anything, and close. A
+        stopping daemon answers that it ran nothing instead (C-16.8)."""
         if self.stopping.is_set():
-            conn.close()                       # shutting down: not busy, just gone
+            self._count_connection("not_run")
+            self._say_stopping(conn)
+            conn.close()
             return
         self._count_connection("refused", detail)
         try:
@@ -12808,6 +12985,7 @@ class Daemon:
         if self._closed:
             return
         self._closed = True
+        began = time.monotonic()                # C-16.8: the reply drain counts from here
         if self.on_stop:
             try:
                 self.on_stop()        # C-5.8a, before anything can wait
@@ -12820,22 +12998,35 @@ class Daemon:
         self.stopping.set()
         self.timers.cancel.set()
         self._notify()
+        # C-16.8: keep new work out. Nothing queued on the daemon's pools starts
+        # now, and no request queued on any pool does; such a request is answered
+        # 69, not run, by its connection's last line. What runs already goes on:
+        # its reply is drained below, and the pools are joined after that.
+        for pool in (self.requests, self.lookups, self.waiters, self.workers, self.pushes):
+            pool.shutdown(wait=False, cancel_futures=True)
+        with self._connection_lock:
+            owed = list(self._inflight)
+        for future in owed:
+            future.cancel()                     # the conversation pools' queued requests
         # C-15.5: every waiter wakes now, sees the daemon stopping and answers
         # `{"timeout": true}` while its connection is still open; the answers get
-        # up to 2 s to be sent before the connections are shut down.
+        # up to 2 s to be sent before the listener closes.
         self.wait_hub.stop()
         with self._waits_answered:
             self._waits_answered.wait_for(lambda: self._waits_answering == 0, timeout=2)
         if self._socket:
+            self._answer_backlog()              # C-16.8: closing the listener drops them
             self._socket.close()
         if self._control_thread and threading.current_thread() != self._control_thread:
             self._control_thread.join(timeout=2)
+        # C-16.8: stop reading, not writing. A reader blocked in recv wakes with the
+        # end of the stream and returns; what was sent and not read is discarded,
+        # and the connection's last line answers it. The replies of requests
+        # already running still reach their clients.
         with self._connection_lock:
             for conn in self._connections:
-                try:
-                    conn.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
+                with contextlib.suppress(OSError):
+                    conn.shutdown(socket.SHUT_RD)
         self.timers.stop()
         # C-16.7: a reader returns as soon as its socket is shut down. The wait
         # is bounded all the same; the C-5.8a bound covers the rest of the stop.
@@ -12844,6 +13035,19 @@ class Daemon:
         joined_by = time.monotonic() + READER_JOIN_S
         for reader in readers:
             reader.join(max(0.0, joined_by - time.monotonic()))
+        # C-16.8: the replies owed are written, or STOP_REPLY_S after the stop
+        # began every connection still held is shut down, so a client that stopped
+        # reading cannot hold the stop. Before the conversation service closes,
+        # since a conversation op still running needs its store to answer.
+        ended, unanswered, shut_down = self._drain_replies(began + self.stop_reply_s)
+        if unanswered:
+            self.log.warning("stopping: %d request(s) still unanswered %.1f s after the stop began; "
+                             "their connections were shut down (C-16.8)", unanswered, ended - began)
+        with self._connection_lock:
+            not_run = self._connection_counts["not_run"]
+        self.log.info("stopping: client replies drained %.1f s after the stop began; %d request(s) were "
+                      "answered as not run; %d connection(s) still held were shut down (C-16.8)",
+                      ended - began, not_run, shut_down)
         self.conversations.close()
         for pool in (self.requests, self.lookups, self.waiters, self.workers, self.pushes):
             pool.shutdown(wait=True, cancel_futures=True)

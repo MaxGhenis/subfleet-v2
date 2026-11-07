@@ -166,11 +166,34 @@ def client_gone(conn: socket.socket) -> bool:
 def busy_answer(message: str) -> bytes:
     """C-16.7: the line a connection the daemon cannot hold now is answered with,
     before its request is read: exit 69, for request id "" since no request was
-    read, and "try again shortly". Nothing else the daemon sends over the socket
-    carries 69, so a client may send the same request again (`Client.call`)."""
+    read, and "try again shortly". The only other answer that carries 69 is a
+    stopping daemon's for a request it did not run (`stopping_answer`, C-16.8), so
+    69 always means nothing was run and a client may send the same request again
+    (`Client.call`)."""
     return protocol.encode(protocol.fail(
         "", int(Exit.DAEMON_UNAVAILABLE), message,
         "try again shortly; `subfleet doctor --live` reports its connections and descriptors"))
+
+
+def stopping_answer(req_id: str = "") -> dict:
+    """C-16.8: a stopping daemon's answer to a request it did not run: exit 69, under
+    the request's id, or "" for the last line it sends on a connection, which answers
+    every request it read there and did not answer, and any it never read."""
+    return protocol.fail(req_id, int(Exit.DAEMON_UNAVAILABLE), protocol.STOPPING_MESSAGE,
+                         protocol.STOPPING_FIX)
+
+
+def shut(conn: socket.socket) -> None:
+    """C-16.7, C-16.8: shut a connection down both ways, or its write half when that
+    is all that is left. On macOS `shutdown(SHUT_RDWR)` after a `shutdown(SHUT_RD)`
+    fails with ENOTCONN and shuts nothing, so a reply still being sent would go on
+    blocking; SHUT_WR still ends it (measured on macOS 26.6.2)."""
+    for how in (socket.SHUT_RDWR, socket.SHUT_WR):
+        try:
+            conn.shutdown(how)
+            return
+        except OSError:
+            continue
 
 
 def send_reply(conn: socket.socket, write_lock, response: dict, *,
@@ -195,10 +218,7 @@ def send_reply(conn: socket.socket, write_lock, response: dict, *,
             if end_stream is not None:
                 end_stream(conn)
             else:
-                try:
-                    conn.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
+                shut(conn)
             return False
 
 

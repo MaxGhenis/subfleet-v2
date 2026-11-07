@@ -135,7 +135,9 @@ def test_daemon_captures_the_token_before_reading_and_keeps_it_for_every_request
     daemon.stopping = threading.Event()
     daemon.connection_idle_s = 5
     daemon._connection_lock = threading.Lock()
+    daemon._connections_changed = threading.Condition(daemon._connection_lock)
     daemon._connections = {conn}
+    daemon._inflight = set()
     daemon._shut_down = set()
     daemon._decode = lambda *args: SimpleNamespace(op="message.resolve", args={})
     def start(conn, lock, request, arrived, peer):

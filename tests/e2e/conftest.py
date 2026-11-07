@@ -72,8 +72,11 @@ if Path(sys.argv[0]).name == "subfleetd":
         if boundary:
             def hold(name, job_id, attempt_id):
                 if name == boundary:
-                    (root / ("hook-" + name + ".json")).write_text(json.dumps({
+                    # Whole or absent: a test polls for the name, then reads it.
+                    marker = root / ("hook-" + name + ".json")
+                    marker.with_name(marker.name + ".tmp").write_text(json.dumps({
                         "job_id": job_id, "attempt_id": attempt_id}))
+                    os.replace(marker.with_name(marker.name + ".tmp"), marker)
                     while not (root / "release-hook").exists():
                         time.sleep(.01)
             kwargs["crash_hook"] = hold
@@ -81,6 +84,8 @@ if Path(sys.argv[0]).name == "subfleetd":
             os.environ.get("SUBFLEET_E2E_START_DELAY_S", "0"))
         if os.environ.get("SUBFLEET_E2E_STOP_GRACE_S"):
             kwargs["stop_grace_s"] = float(os.environ["SUBFLEET_E2E_STOP_GRACE_S"])
+        if os.environ.get("SUBFLEET_E2E_STOP_REPLY_S"):
+            kwargs["stop_reply_s"] = float(os.environ["SUBFLEET_E2E_STOP_REPLY_S"])
         original_init(self, *args, **kwargs)
         clock_file = os.environ.get("SUBFLEET_FAKE_WAKE_CLOCK")
         if clock_file:

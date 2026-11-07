@@ -529,6 +529,14 @@ def coerce_args(cls: type, args: dict[str, Any]) -> Any:
         raise request_error("invalid-args") from None
 
 
+#: C-16.7, C-16.8: the two answers that carry exit 69 over the socket, and say that
+#: nothing was run, so a client may send the same request again. Shared here so the
+#: client tells them apart by the same words the daemon sends.
+BUSY_MESSAGE = "the daemon is busy"
+STOPPING_MESSAGE = "the daemon is stopping and did not run this request"
+STOPPING_FIX = "send it again once the daemon is back; `subfleet daemon status` says when"
+
+
 def ok(req_id: str, result: dict[str, Any]) -> Response:
     return Response(id=correlation_id(req_id), ok=True, result=result)
 

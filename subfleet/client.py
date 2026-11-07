@@ -45,7 +45,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from . import boot_identity, ids
+from . import boot_identity, ids, protocol
 
 from .contracts import Exit
 from .protocol import (PROTOCOL_VERSION, REFUSAL_MESSAGES, ListArgs, ProtocolError,
@@ -164,10 +164,18 @@ class DaemonError(Exception):
 
     @property
     def busy(self) -> bool:
-        """C-16.7: the daemon was at its connection cap and answered before
-        reading the request. It sends 69 over the socket for nothing else, so
-        the request did nothing and may be sent again as it is."""
+        """C-16.7, C-16.8: the daemon did not run the request: it was at its
+        connection cap and answered before reading it, or it is stopping
+        (`stopping`). It sends 69 over the socket for nothing else, so the
+        request did nothing and may be sent again as it is."""
         return self.code == Exit.DAEMON_UNAVAILABLE
+
+    @property
+    def stopping(self) -> bool:
+        """C-16.8: the 69 came from a daemon that is stopping, which will run
+        nothing more; a connect refused after it is a daemon gone, not a busy
+        one's full backlog."""
+        return self.busy and str(self).startswith(protocol.STOPPING_MESSAGE)
 
 
 #: C-16.7: how long a loop with no deadline of its own keeps taking refused
@@ -763,8 +771,17 @@ class Client:
                                        op=op, request_id=request_id)
                 return result
             except DaemonUnavailable as exc:
+                if busy is None:
+                    raise
+                # C-16.8: after a stopping daemon's answer, a failed connect is that
+                # daemon gone, so the caller may take its offline path (C-17.5); the
+                # message says what the daemon answered first. Its own class stays
+                # (`DaemonStopped` names the signal that continues the daemon).
+                if busy.stopping:
+                    exc.args = (f"{exc} (before that it answered: {busy})", *exc.args[1:])
+                    raise
                 # An unverifiable lock counts as busy here: the half-deadline bounds it.
-                if busy is None or refused_while_busy(self, exc, deadline_at=started + deadline) is False:
+                if refused_while_busy(self, exc, deadline_at=started + deadline) is False:
                     raise
                 raise busy from None
             except DaemonError as exc:
@@ -932,14 +949,15 @@ class Client:
 
     def _settle_busy_resend(self, op: str, busy: DaemonError, request_id: str, *,
                             minted: bool, first: ResponseLost) -> dict[str, Any]:
-        """The re-send met only busy answers (C-16.7): it was never read, so it
-        settles nothing, and the first request's outcome is still unknown (C-16.3).
+        """The re-send met only busy or stopping answers (C-16.7, C-16.8): it was
+        never run, so it settles nothing, and the first request's outcome is still
+        unknown (C-16.3).
 
         A submit under a request id this call minted is answered by a job that
         carries the id, as for a refused re-send. Anything else is reported as
         unknown, never as busy: exit 69 would read as "nothing was sent".
         """
-        reasons = [str(first), f"the re-sent request was not read: {busy}"]
+        reasons = [str(first), f"the re-sent request was not {'run' if busy.stopping else 'read'}: {busy}"]
         if op == "submit" and request_id:
             try:
                 job = self.find_request(request_id)

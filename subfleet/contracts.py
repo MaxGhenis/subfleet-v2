@@ -306,6 +306,12 @@ STOP_GRACE_S = 30
 # C-5.8a: split this diagnostic budget equally between the Python snapshot
 # and the C fallback; the kernel alarm cuts either off at the end of it.
 STOP_DUMP_MARGIN_S = 3.0
+# C-16.8: how long after `close()` begins the replies of requests already running
+# may still be written. Then every client connection still held is shut down, so a
+# client that stopped reading cannot hold a stop until C-5.8a ends it. Counted from
+# the top of the drain, like the store's CLOSE_WAIT_S, so it overlaps the waits
+# before it and adds nothing to C-5.8a's named bounds while they take 10 s or more.
+STOP_REPLY_S = 10.0
 # C-5.8a: how much longer launchd (the plist's ExitTimeOut) and `subfleet daemon
 # stop` wait before SIGKILL: time for the dump, and the backstop for a stop that
 # could not arm because a thread held the GIL through the signal.

@@ -420,7 +420,8 @@ def test_c16_7_a_client_that_stops_reading_cannot_hold_a_thread_for_ever(serve):
 
 def test_c16_7_shutdown_leaves_no_client_connection_open(serve, monkeypatch):
     """C-16.7 close() waits a bounded time for readers, then closes every connection
-    it accepted, including those of a reader that has not returned."""
+    it accepted, including those of a reader that has not returned. C-16.8: before
+    it closes one whose reader returned, it says that nothing more was run there."""
     monkeypatch.setattr(daemon_module, "READER_JOIN_S", .5)
     service = serve()
     wedged = threading.Event()
@@ -439,7 +440,11 @@ def test_c16_7_shutdown_leaves_no_client_connection_open(serve, monkeypatch):
     until(lambda: service._closed and not service._connections, timeout=5)
     assert time.monotonic() - started < 3                # the join was bounded
     for sock in held:
-        assert sock.recv(1) == b""                       # closed by the daemon, not left open
+        data = b""
+        while chunk := sock.recv(65536):                 # closed by the daemon, not left open
+            data += chunk
+        for line in data.splitlines():                   # at most C-16.8's last line, 69
+            assert json.loads(line)["error"]["code"] == 69, line
         sock.close()
     wedged.set()
 
