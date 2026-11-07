@@ -382,6 +382,164 @@ def test_an_excerpt_never_shows_a_value_the_whole_scrub_removes(text, strip, lim
     assert handoff.scrub_bounded(text, limit, strip_reminders=strip) == (out, _count)
 
 
+# --- D-SCRUB-BOUNDARY1: a block never splits a quoted value --------------------------------
+#
+# The property's stored counterexample (job 20261104-211650-notice-keep-build, shard 5): the
+# whole-text scrub masks quoted values before it resolves blocks, the excerpt rules resolved the
+# data URI first, and its body (`[A-Za-z0-9+/=\s]`) ran on through the `x = 1` lines and
+# `password = ` to the value's quote, so `[BASE64 DATA OMITTED]"Zq0x100000"` showed the value.
+
+FILLER = "x = 1\n"
+DATA_URI = "data:image/png;base64,\n" + ("QUJD" * 19 + "\n") * 3        # SHAPES' "a run the filler may go on"
+AFTER = 'password = "{s}"\n'                                               # the value, just after the marker
+LIMITS = [None, 0, 40, 2_048]
+
+
+def filled(*placed: tuple[int, str], total: int) -> str:
+    """`total` characters of `x = 1` lines with each `(position, shape)` placed as `long_texts`
+    places them (a shape placed inside the one before starts where that one ends)."""
+    text, cursor = [], 0
+    for at, shape in sorted(placed):
+        at = max(at, cursor)
+        text += [prose(at - cursor, FILLER), shape]
+        cursor = at + len(shape)
+    text.append(prose(max(0, total - cursor), FILLER))
+    return "".join(text)
+
+
+def stored_example() -> str:
+    """Hypothesis's stored example, rebuilt: 262,145 characters (one over the budget) with the
+    data URI at 107,073 (`total - TAIL - 24_000`), `Zq0` at 131,072 (the head excerpt's edge)
+    and `Zq1` placed at the tail's start, pushed to the line after it."""
+    total = BUDGET + 1
+    return filled((total - TAIL - 24_000, DATA_URI), (HEAD, AFTER.format(s="Zq0x100000")),
+                  (total - TAIL, AFTER.format(s="Zq1x100000")), total=total)
+
+
+def assert_keeps_only_what_the_whole_scrub_keeps(text: str) -> None:
+    """The invariants, for each limit and both reminder modes: no made-up value the whole-text
+    scrub removes shows; a limit bounds the result; within the budget the result is exactly the
+    excerpt scrub, cut; past it the count is the larger of release's and the head's."""
+    values = set(re.findall(r"Zq\d+x\d+", text))
+    assert values
+    for strip in (False, True):
+        whole = handoff.scrub_secrets(text, strip_reminders=strip, whole=True)[0]
+        hidden = {value for value in values if value not in whole}
+        scrubbed, count = handoff.scrub_secrets(text, strip_reminders=strip)
+        for limit in LIMITS:
+            out = handoff.scrub_bounded(text, limit, strip_reminders=strip)
+            assert not {value for value in hidden if value in out[0]}, (len(text), strip, limit)
+            assert limit is None or len(out[0]) <= limit
+            if len(text) <= BUDGET:
+                assert out == ((scrubbed if limit is None else handoff.truncate(scrubbed, limit)), count)
+        if len(text) > BUDGET:
+            released = scrub_release.scrub_bounded(text, None, strip_reminders=strip)[1]
+            _pieces, _strip, release_count, _heads, head_count = handoff._released_pieces(text, None, strip)
+            assert count == max(release_count, head_count) >= released == release_count
+            if len(scrub_release._resolve_blocks(text, strip, scrub_release._Tally())) <= BUDGET:
+                # One piece: the head's side is the head's own bounded scrub.
+                assert head_count == handoff._head_scrub_bounded(text, None, strip_reminders=strip)[1]
+
+
+def test_the_stored_example_keeps_only_what_the_whole_scrub_keeps():
+    """C-23.14, C-25.5 (D-SCRUB-BOUNDARY1), fixed row 1: the stored example, which showed
+    `Zq0x100000` after `[BASE64 DATA OMITTED]` on release/217 (a8624a489) for every limit."""
+    text = stored_example()
+    assert len(text) == BUDGET + 1
+    assert text[107_070:107_096] == "x =data:image/png;base64,\n"
+    assert text[131_069:131_096] == 'x =password = "Zq0x100000"\n'
+    assert "Zq0x100000" not in handoff.scrub_secrets(text, whole=True)[0]
+    assert_keeps_only_what_the_whole_scrub_keeps(text)
+    assert scrub_release.scrub_bounded(text, None)[1] == 2 and handoff.scrub_bounded(text, None)[1] == 3
+
+
+@pytest.mark.parametrize("total", [BUDGET - 1, BUDGET, BUDGET + 1, BUDGET + 2],
+                         ids=["budget-1", "budget", "budget+1", "budget+2"])
+@pytest.mark.parametrize("row", ["after-the-marker", "before-the-marker", "at-each-edge"])
+def test_a_value_at_an_omission_marker_keeps_only_what_the_whole_scrub_keeps(row, total):
+    """C-23.14, C-23.36, C-25.5 (D-SCRUB-BOUNDARY1), fixed rows 2-4 at one under, at, one over
+    and two over the budget: the stored example's filler and data URI with the test's value just
+    after its omission marker (2), just before it (3), and two such values, one at each excerpt
+    edge (4). Within the budget the bounded scrub is the excerpt scrub, cut, so that scrub keeps
+    no such value either."""
+    if row == "after-the-marker":
+        placed = [(total - TAIL - 24_000, DATA_URI), (HEAD, AFTER.format(s="Zq0x200000"))]
+    elif row == "before-the-marker":
+        placed = [(total - TAIL - 24_000, AFTER.format(s="Zq0x300000") + DATA_URI)]
+    else:
+        placed = [(HEAD - 24_000, DATA_URI), (HEAD, AFTER.format(s="Zq0x400000")),
+                  (total - TAIL - 24_000, DATA_URI), (total - TAIL, AFTER.format(s="Zq1x400000"))]
+    text = filled(*placed, total=total)
+    assert len(text) == total
+    assert_keeps_only_what_the_whole_scrub_keeps(text)
+
+
+@pytest.mark.parametrize("edge", ["head-end", "tail-start"])
+@pytest.mark.parametrize("gap", [0, 6, 600], ids=["marker-then-value", "a-line-between", "lines-between"])
+def test_an_excerpt_edge_keeps_no_value_a_data_uri_split(edge, gap):
+    """C-23.14, C-25.5 (D-SCRUB-BOUNDARY1): the same split where the resolved text is still over
+    the budget, so the value is at an excerpt's edge and each excerpt is scrubbed on its own."""
+    total = 300_000
+    shape = DATA_URI + FILLER * (gap // len(FILLER)) + AFTER.format(s="Zq0x500000")
+    at = (HEAD if edge == "head-end" else total - TAIL) - len(shape) + len(AFTER.format(s="Zq0x500000"))
+    text = filled((at, shape), total=total)
+    assert len(scrub_release._resolve_blocks(text, False, scrub_release._Tally())) > BUDGET
+    assert_keeps_only_what_the_whole_scrub_keeps(text)
+
+
+SPLITS = {
+    "data-uri-before-separator-and-quote": DATA_URI + 'password = "Zq0x600001"\n',
+    "data-uri-before-colon": DATA_URI + 'password: "Zq0x600002"\n',
+    "data-uri-inside-the-key": DATA_URI + 'api_key = "Zq0x600003"\n',
+    "data-uri-before-escaped-quote": DATA_URI + 'password = \\"Zq0x600004\\"\n',
+    "data-uri-key-lines-above": DATA_URI + 'password\n=\n"Zq0x600005"\n',
+    "private-key-holds-key-and-quote": "-----BEGIN PRIVATE KEY-----\nAAA\npassword = \"x-----END PRIVATE KEY-----"
+                                       "Zq0x600006\" more\n",
+    "private-key-closer-in-a-value": "-----BEGIN PRIVATE KEY-----\nk1\npassword = \"-----END PRIVATE KEY-----\"\n"
+                                     "Zq0x600007\n-----END PRIVATE KEY-----\n",
+    "reminder-holds-key-and-quote": '<system-reminder>password = "</system-reminder>Zq0x600008"\n',
+    "reminder-closer-in-a-value": '<system-reminder>\nk1\npassword = "</system-reminder>"\nZq0x600009\n'
+                                  "</system-reminder>\n",
+}
+
+
+@pytest.mark.parametrize("name", sorted(SPLITS))
+def test_no_block_leaves_the_rest_of_a_value_it_splits(name):
+    """C-23.14 (D-SCRUB-BOUNDARY1): a data URI, private key or reminder that takes a quoted
+    value's key, separator or opening quote leaves none of the rest; a private key or reminder
+    whose closer the value holds runs on to its next closer, as the whole-text scrub's does once
+    it has masked the value. In a short text (the excerpt scrub of the whole text) and a long one
+    (a value at the tail's start), with reminders stripped and not."""
+    shape = SPLITS[name]
+    for text in (shape, around(300_000 - TAIL - len(shape) // 2, shape, 300_000)):
+        value = re.search(r"Zq\d+x\d+", text).group()
+        for strip in (False, True):
+            if value in handoff.scrub_secrets(text, strip_reminders=strip, whole=True)[0]:
+                continue                        # the whole-text scrub shows it (a reminder kept)
+            assert value not in handoff.scrub_secrets(text, strip_reminders=strip)[0], (name, strip)
+            assert value not in handoff.scrub_bounded(text, None, strip_reminders=strip)[0], (name, strip)
+
+
+def test_a_quoted_data_uri_keeps_the_rest_of_its_line():
+    """D-SCRUB-BOUNDARY1: a data URI that closes a quoted string splits no value, so what
+    follows it on the line is kept, as before."""
+    text = 'img = "data:image/png;base64,' + "QUJD" * 20 + '", alt = "logo"\n'
+    assert handoff.scrub_secrets(text) == ('img = "[BASE64 DATA OMITTED]", alt = "logo"\n', 1)
+
+
+@pytest.mark.parametrize("text", [stored_example(), SPLITS["reminder-closer-in-a-value"] + prose(300_000)],
+                         ids=["stored-example", "reminder-and-long-prose"])
+@pytest.mark.parametrize("strip", [False, True])
+def test_the_head_resolves_the_blocks_as_release_does(text, strip):
+    """D-SCRUB-BOUNDARY1 (differential): the head's guarded block step resolves exactly the
+    text and count release's `_resolve_blocks` does; it only adds masks."""
+    tally, mine = scrub_release._Tally(), handoff._Tally()
+    released = scrub_release._resolve_blocks(text, strip, tally)
+    resolved, masks = handoff._split_masks(text, strip, mine)
+    assert resolved == released and mine.total == tally.total
+    assert all(0 <= a < b <= len(resolved) for a, b in masks)
+
+
 GAINED = "Zq5x123456"
 
 
