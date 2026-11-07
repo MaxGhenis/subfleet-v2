@@ -85,8 +85,8 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import (Store, _pin_notice_key, cancel_info, job_flags, notice_fingerprint, notice_rows,
-                    pin_notice_jobs, shell_flags)
+from .store import (CLOSE_WAIT_S as STORE_CLOSE_WAIT_S, Store, _pin_notice_key, cancel_info, job_flags,
+                    notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags)
 from . import uncommitted
 
 
@@ -12813,6 +12813,10 @@ class Daemon:
                 self.on_stop()        # C-5.8a, before anything can wait
             except Exception as exc:  # noqa: BLE001 - the drain below must still run
                 self.log.error("stop bound not armed: %s", type(exc).__name__)
+        # C-5.8a, C-30.1: start the catalog grace before any other stop wait.
+        store_close_by = time.monotonic() + STORE_CLOSE_WAIT_S
+        self.conversations.begin_close()
+        self.lock_watch.begin_stop()
         self.stopping.set()
         self.timers.cancel.set()
         self._notify()
@@ -12850,7 +12854,7 @@ class Daemon:
             for conn in self._connections:
                 conn.close()
             self._connections.clear()
-        self.store.close()
+        self.store.close(deadline=store_close_by)
         (self.root / "daemon.sock").unlink(missing_ok=True)
         # While the lock is still this daemon's: the flag goes, then the handler.
         self._disable_stack_dumps()

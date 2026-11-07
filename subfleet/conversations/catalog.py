@@ -164,10 +164,38 @@ def _codex_record(path: Path, opener=transcripts.open_regular) -> dict:
             "excluded": bool(excluded), "originator": meta.get("originator")}
 
 
+def sweep_temps(root: Path) -> tuple[int, int]:
+    """Remove dead catalog runs' regular temps in this root, returning count and bytes.
+
+    The caller holds catalog.lock exclusively and has checked its Owner. Only
+    catalog runs use these exact tempfile names. Links and directories stay put;
+    one unreadable or vanished entry must not prevent the rest from being swept.
+    """
+    removed, size = 0, 0
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                if re.fullmatch(r"\.(?:catalog\.json|catalog-cache\.json)-[a-z0-9_]{8}", entry.name) is None:
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    if not stat.S_ISREG(info.st_mode):
+                        continue
+                    os.unlink(entry.path)
+                except OSError:
+                    continue
+                removed += 1
+                size += info.st_size
+    except OSError:
+        pass
+    return removed, size
+
+
 def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None, codex_app_home: Path | None = None,
           wall_s: float = WALL_S, clock=time.monotonic, may_write: Callable[[], bool] | None = None) -> dict:
     """One capped indexing run; returns the catalog it built. `may_write` is asked
-    before each file is published, and once it says no nothing more is (`Owner`)."""
+    before sweeping dead runs' temps and each publish. Once it says no nothing
+    more is removed or published (`Owner`)."""
     root = Path(root)
     cache_path = root / "catalog-cache.json"
     try:
@@ -260,6 +288,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     # resumed in a terminal is no catalog item but is still held (C-26.3).
     catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live),
                "native_records": native_records}
+    if may_write is not None and not may_write():
+        return catalog
+    sweep_temps(root)
     for path, value in ((root / "catalog.json", catalog), (cache_path, fresh if complete else {**cache, **fresh})):
         if may_write is not None and not may_write():
             break
@@ -394,12 +425,31 @@ def _utc() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+# Python dispatches signal handlers on the main thread even when another thread
+# receives the signal. Deferring in the handler therefore covers every thread,
+# unlike blocking SIGTERM only on the publishing thread.
+_atomic_depth = 0
+_termination_pending = False
+
+
 def _atomic(path: Path, value: Any) -> None:
     """Publish into the state root as it stands. Never create it: a run that outlived
     its owner recreated a root the owner had just removed (2026-09-25); now the
-    temporary file cannot be made and the run fails instead."""
+    temporary file cannot be made and the run fails instead. Defer SIGTERM until
+    the publisher has cleaned up: mkstemp returns before its try/finally begins,
+    so a handler raising SystemExit in that gap would otherwise leave a temp.
+    `_terminated` records a pending TERM while any nested publish is active;
+    the outermost publish raises once all its cleanup has finished."""
+    global _atomic_depth, _termination_pending
     from ..guardian import atomic_publish
-    atomic_publish(path, (json.dumps(value, separators=(",", ":")) + "\n").encode())
+    _atomic_depth += 1
+    try:
+        atomic_publish(path, (json.dumps(value, separators=(",", ":")) + "\n").encode())
+    finally:
+        _atomic_depth -= 1
+        if not _atomic_depth and _termination_pending:
+            _termination_pending = False
+            raise SystemExit(128 + signal.SIGTERM)
 
 
 class Owner:
@@ -407,7 +457,7 @@ class Owner:
     `<root>/catalog.lock`, so the root was neither removed nor replaced since the
     run took it. The service that started the run must still be open: it holds the
     only write end of a pipe whose read end the run inherits as `fence_fd`, and
-    closes it in `close()`; the kernel closes it if the daemon dies. End-of-file
+    closes it in `begin_close()`; the kernel closes it if the daemon dies. End-of-file
     there means the owner is gone. A run started by hand has no fence."""
 
     def __init__(self, root: Path, lock_fd: int, fence_fd: int | None = None):
@@ -583,10 +633,17 @@ def refresh_running(root: Path) -> bool | None:
     """Whether a catalog run holds the lock now; None when the lock cannot be read.
     A non-blocking probe: it never waits for a run. It takes the lock shared, so
     probes never exclude each other: one probe had read another (a list, and the
-    tick about to start a run) as a run, and no run started for an interval."""
+    tick about to start a run) as a run, and no run started for an interval.
+    Never create the lock: a missing lock in an existing root means no run;
+    a missing root means no owner and must not start a run."""
     lock = Path(root) / "catalog.lock"
     try:
-        fd = transcripts.lock_fd(lock)
+        fd = transcripts.regular_fd(lock)
+    except FileNotFoundError:
+        try:
+            return False if Path(root).is_dir() else None
+        except OSError:
+            return None
     except OSError:
         return None
     try:
@@ -750,8 +807,11 @@ def _lock_wait() -> None:
 
 
 def _terminated(signum, frame):
-    """A stop unwinds, so `atomic_publish` removes its temporary file on the way out
-    rather than leaving it in the state root."""
+    """Stop by unwinding; `_atomic` defers this until its temp cleanup has finished."""
+    global _termination_pending
+    if _atomic_depth:
+        _termination_pending = True
+        return
     raise SystemExit(128 + signum)
 
 

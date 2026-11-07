@@ -685,17 +685,21 @@ class Store:
         finally:
             self._checkin(conn, pooled, "snapshot")
 
-    def close(self) -> None:
+    def close(self, *, deadline: float | None = None) -> None:
         """Close the writer, then each read connection once no read is using it.
 
         C-3.7: a read already in progress when the store closes finishes on its
         connection; one still going after `CLOSE_WAIT_S` closes that connection
-        itself when it ends. A read that starts after `close` is refused."""
+        itself when it ends. A read that starts after `close` is refused.
+        A daemon drain supplies its earlier deadline to overlap this wait with
+        its pool drains; active reads still close their own connections safely.
+        """
         with self._lock:
             self._closed = True
             self.connection.close()
         with self._readers_lock:
-            self._returned.wait_for(lambda: not self._in_use, timeout=CLOSE_WAIT_S)
+            remaining = CLOSE_WAIT_S if deadline is None else min(CLOSE_WAIT_S, max(0.0, deadline - time.monotonic()))
+            self._returned.wait_for(lambda: not self._in_use, timeout=remaining)
             idle = []
             while True:
                 try:
