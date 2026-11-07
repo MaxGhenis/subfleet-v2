@@ -494,10 +494,10 @@ lose only the tests it was running:
 - the xdist controller appends each test's outcome to the shard's record as soon as the
   test's teardown report arrives, and a crashed worker's report at once;
 - each window deselects every test already recorded;
-- after a soft deadline (400 to 420 s) a worker starts no new test: it claims the test
+- after a soft deadline (380 to 420 s) a worker starts no new test: it claims the test
   without running it and reports nothing, so the window ends by itself and the next
   window runs that test;
-- at a hard deadline (450 to 510 s) the driver sends SIGINT to the run's process group,
+- at a hard deadline (440 to 510 s) the driver sends SIGINT to the run's process group,
   so pytest tears its fixtures down, and SIGKILL 30 s later if it is still running.
   The controller records no report that arrives after the hard deadline, so an
   interrupted test runs again rather than counting as a failure. After the two windows
@@ -532,8 +532,8 @@ took the suite lock: from 06:28Z to 07:10Z, fifteen of a3's eighteen waits for i
 cases of `test_zero_exit_cut_off_turn_cannot_publish_output` and
 `tests/e2e/test_stop_bound.py::test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock`
 each ran out a 10 s wait in the e2e harness (`E2E.until`: for the daemon to come up, for
-the job to fail, or for a hook's marker file) in the first window, at a load of 106 to 111; they took 22 to
-179 s each. This build changed neither file nor `tests/e2e/conftest.py`. At 06:07Z, at a
+the job to fail, or for a hook's marker file) in the first window, at a load of 106 to
+111; they took 22 to 179 s each. This build changed neither file nor `tests/e2e/conftest.py`. At 06:07Z, at a
 load of 26, a3 ran the four again (`-n 4 --timeout=540`): 4 passed in 10 s. They are the
 host's load, not this build.
 
@@ -559,8 +559,8 @@ host's load, not this build.
 
 - **From the design:** none that r3 found beyond the hub's ruling of 11/04, which the
   design now carries (`3d9823d2f`: the interface's argv and `env_add`, "How the key
-  arrives", invariants 1 and 6). Nothing can overwrite the key's Python strings in the daemon (step 1
-  of the key's path), unlike its `bytearray` copies; they live for the
+  arrives", invariants 1 and 6). Nothing can overwrite the key's Python strings in the
+  daemon (step 1 of the key's path), unlike its `bytearray` copies; they live for the
   `_launch` call.
 - **From r2's rules, the suite.**
   - a2 and a3 ran pytest from the worktree's own `.venv` with pytest-xdist 3.8.0
@@ -582,8 +582,8 @@ host's load, not this build.
 
 ## Open questions
 
-1. **D-CREDIT-MEM1's cause.** Not proven; "The cause: not proven" names the candidate and what r3 ruled out.
-   Does the bound, with the bounded readers, close it?
+1. **D-CREDIT-MEM1's cause.** Not proven; "The cause: not proven" names the candidate and
+   what r3 ruled out. Does the bound, with the bounded readers, close it?
 2. **Other lanes' credentials** still ride in their guardians' exec blocks (the harness
    report's item 1). The hub's ruling covers credit lanes; a ruling for the rest is open.
 3. **`Harness.request`'s `readline`** on the daemon's socket has no size bound (site #7).
