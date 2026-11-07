@@ -1,0 +1,155 @@
+{
+  "source_sha256": "a2d56e2efecb049a18780d8bb7cadb7f1877e181b48ecb7bf706955e17b52c07",
+  "tests_sha256": "83392331c4f8a754532838d30aabdefb99fc9a0c80c0859fb2b5d73c36e5158a",
+  "temp_root": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests",
+  "repository_template": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/tree-thrash-fixture-repo",
+  "fixture_sha256": "6c5ca9180f668b455c67b115af04701915d4249b5b1aec6edf17e6faad66b0e4",
+  "runs": [
+    {
+      "test": "baseline-controls",
+      "tests": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]",
+        "tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock",
+        "tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]",
+        "tests/fake/test_admission_tree_thrash.py::test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation"
+      ],
+      "exit_code": 0,
+      "seconds": 204.63,
+      "failed": [],
+      "selected_failed": false,
+      "timed_out": false,
+      "infrastructure_error": false,
+      "failure_evidence": [],
+      "mutation": "baseline",
+      "intended_failure": false,
+      "killed": false
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]",
+      "tests": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]"
+      ],
+      "exit_code": 1,
+      "seconds": 120.032,
+      "failed": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]"
+      ],
+      "selected_failed": true,
+      "timed_out": false,
+      "infrastructure_error": false,
+      "failure_evidence": [
+        ">       assert not cuts and not calls and not service.store.list_attempts(job)",
+        "E       AssertionError: assert (not ['20261106-100255-astra'])",
+        "FAILED tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]"
+      ],
+      "mutation": "eager-waiter-tree",
+      "intended_failure": true,
+      "killed": true
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock",
+      "tests": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
+      ],
+      "exit_code": 1,
+      "seconds": 157.622,
+      "failed": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
+      ],
+      "selected_failed": true,
+      "timed_out": false,
+      "infrastructure_error": false,
+      "failure_evidence": [
+        ">       assert service._holds[job].get(\"unprepared\")",
+        "E       AssertionError: assert None",
+        "E        +  where None = <built-in method get of dict object at 0x10d163a80>('unprepared')",
+        "E        +    where <built-in method get of dict object at 0x10d163a80> = {'reason': 'closed:account', 'for_good': ['closed:account:2099-12-31T00:00:00Z', 'desktop'], 'next_check_at': '2026-11-06T15:05:24Z'}.get",
+        "FAILED tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
+      ],
+      "mutation": "forget-racing-giveback",
+      "intended_failure": true,
+      "killed": true
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]",
+      "tests": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]"
+      ],
+      "exit_code": 1,
+      "seconds": 145.194,
+      "failed": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]"
+      ],
+      "selected_failed": true,
+      "timed_out": false,
+      "infrastructure_error": false,
+      "failure_evidence": [
+        ">           assert (row[\"state\"], row[\"rc\"]) == (\"failed\", 7)",
+        "E           AssertionError: assert ('waiting', None) == ('failed', 7)",
+        "E             ",
+        "E             At index 0 diff: 'waiting' != 'failed'",
+        "E             Use -v to get more diff",
+        "FAILED tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]"
+      ],
+      "mutation": "swallow-workspace-refusal",
+      "intended_failure": true,
+      "killed": true
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock",
+      "tests": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
+      ],
+      "exit_code": 1,
+      "seconds": 185.468,
+      "failed": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
+      ],
+      "selected_failed": true,
+      "timed_out": false,
+      "infrastructure_error": false,
+      "failure_evidence": [
+        ">       service._admit()",
+        ">       assert not service.store._holds_writer(), \"registry refresh under the store write lock\"",
+        "E       AssertionError: registry refresh under the store write lock",
+        "E       assert not True",
+        "E        +  where True = _holds_writer()",
+        "E        +    where _holds_writer = <subfleet.store.Store object at 0x108891bd0>._holds_writer",
+        "E        +      where <subfleet.store.Store object at 0x108891bd0> = <subfleet.daemon.Daemon object at 0x1088ccc20>.store",
+        "FAILED tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
+      ],
+      "mutation": "refresh-registry-under-store-lock",
+      "intended_failure": true,
+      "killed": true
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation",
+      "tests": [
+        "tests/fake/test_admission_tree_thrash.py::test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation"
+      ],
+      "exit_code": 1,
+      "seconds": 135.262,
+      "failed": [
+        "tests/fake/test_admission_tree_thrash.py::test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation"
+      ],
+      "selected_failed": true,
+      "timed_out": false,
+      "infrastructure_error": false,
+      "failure_evidence": [
+        ">       assert cuts == [job] and attempt[\"lane_id\"] == \"codex-1\"",
+        "E       AssertionError: assert (['20261106-101317-astra'] == ['20261106-101317-astra']",
+        "E         ",
+        "E         Use -v to get more diff and 'codex-2' == 'codex-1'",
+        "E         ",
+        "E         - codex-1",
+        "E         ?       ^",
+        "E         + codex-2",
+        "E         ?       ^)",
+        "FAILED tests/fake/test_admission_tree_thrash.py::test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation"
+      ],
+      "mutation": "reuse-standing-decision-with-old-basis",
+      "intended_failure": true,
+      "killed": true
+    }
+  ]
+}

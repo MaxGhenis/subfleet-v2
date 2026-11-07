@@ -492,6 +492,10 @@ class _ProbeLaneBusy(Exception):
     probe's reservation, which then holds nothing, so the job may look at another lane."""
 
 
+class _WorkspaceNeeded(Exception):
+    """C-6.20: placement passed; roll back before preparing a fresh tree off the lock."""
+
+
 class Unroutable(Exception):
     """C-6.12: evaluating this job's route raised `cause`; the pass settles the job and goes on."""
 
@@ -8067,6 +8071,13 @@ class Daemon:
                         wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                     holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                     continue
+            # C-6.20: the path is known without Git. Only a fresh, absent tree is
+            # deferred; an existing tree and every retry keep their old behavior.
+            # The route's own snapshot, rather than the pass's cached pin view,
+            # decides whether a tree may be cut, including after a mid-pass hold.
+            fresh_workspace = (not previous and _unrun_scope(job)
+                               and not os.path.lexists(self.root / "worktrees" / job["job_id"]))
+            deferred_workspace = fresh_workspace
             needs = self._needs(job)
             run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
             detached_answers = {}                  # filesystem answers for this admission look only
@@ -8152,8 +8163,12 @@ class Daemon:
                     # ownership snapshot keeps _workspace's direct-call fallback
                     # out of admission even if the directory disappears now.
                     job = {**job, "worktree": prepared}
-                workspace, head, baseline, skipped = self._workspace(job)
-                pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
+                if deferred_workspace:
+                    workspace = str(self.root / "worktrees" / job["job_id"])
+                    head, baseline, skipped, pinned = None, None, [], None
+                else:
+                    workspace, head, baseline, skipped = self._workspace(job)
+                    pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
                 if job["kind"] == "resume":
                     manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -8214,9 +8229,9 @@ class Daemon:
                 job_folders.extend(each for each in refreshed if each not in job_folders)
             if absent is None and run_absent is not None:
                 named, absent = run_folder, run_absent
-            if absent is None:
+            if absent is None and not deferred_workspace:
                 self._workspace_deferrals.pop(job["job_id"], None)
-            if job["wait_reason"] == "workspace" and absent is None:
+            if job["wait_reason"] == "workspace" and absent is None and not deferred_workspace:
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
@@ -8377,7 +8392,9 @@ class Daemon:
             route_exclusions = (*extra_exclusions, *rotation)
             rotated = (decision.chosen_lane, decision.chosen_model)
             status, route, last, probed = "moved", {"failed": False}, None, frozenset()
-            for tries in range(1, ROUTE_TRIES + 1):
+            tries = 0
+            while tries < ROUTE_TRIES:
+                tries += 1
                 # C-10.3: refreshed off the lock, at most `REGISTRY_READ_TTL_S` old; the
                 # check inside reads the answer without touching the registry. A
                 # change it places by is recorded (review of PR #72).
@@ -8386,6 +8403,7 @@ class Daemon:
                 output_claim = (resource_leases.OutputClaim.prepare(self.store.query, job["out_path"],
                                                                     identities=output_identities)
                                 if job["out_path"] else None)
+                evaluated_decision = decision
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
                     with self._isolated_route(job, holds) as route, \
@@ -8549,6 +8567,14 @@ class Daemon:
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            if fresh_workspace and not deferred_workspace and not decision.chosen_lane:
+                                # The lane may close while Git cuts the tree. This
+                                # is C-6.20's existing give-back case, using closures
+                                # read now, not the pin view from the pass's start.
+                                refused = scheduler.unadmittable(
+                                    self.policy, self._pin_view(desktop_account, refresh=False), decision_job, far_s=0)
+                                if refused:
+                                    hold.update(unprepared=True, refused_now=refused)
                             if label == "provider-cap" and provider_hold is None:
                                 provider_hold = next(row["provider_cap"] for evaluation in decision.evaluations
                                                      for row in evaluation["rejections"]
@@ -8805,6 +8831,12 @@ class Daemon:
                                 ramp_hold = holds[job["job_id"]] = hold
                                 status = "held"
                                 break
+                        if deferred_workspace:
+                            # All placement checks passed, including FIFO, leases,
+                            # retention and the ramp. Nothing is taken or recorded
+                            # until Git finishes outside this transaction. Reuse
+                            # this evaluation; _route_stands checks it again below.
+                            raise _WorkspaceNeeded
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
@@ -8834,6 +8866,36 @@ class Daemon:
                         with self._busy_lock:
                             self._busy.add(aid)
                         status = "placed"
+                except _WorkspaceNeeded:
+                    try:
+                        workspace, head, baseline, skipped = self._workspace(job)
+                        pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
+                    except AdapterError as exc:
+                        self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
+                        status = "settled"
+                        break
+                    except (OSError, subprocess.SubprocessError, SalvageError) as exc:
+                        if not self._workspace_failed(job, exc, holds):
+                            self._capacity_waits.pop(job["job_id"], None)
+                            holds[job["job_id"]] = {"reason": "workspace", **self._hold_error(exc)}
+                        status = "held"
+                        break
+                    deferred_workspace = False
+                    # A standing decision may have rejudged changed rows. Keep
+                    # the original evaluation paired with its basis: rows can
+                    # change back during Git, and the check reuses its unchanged
+                    # lanes from the decision it is given.
+                    decision = evaluated_decision
+                    write_target = self._write_target(job, workspace)
+                    run_folder = folders.canonical(workspace)
+                    self._workspace_deferrals.pop(job["job_id"], None)
+                    if job["wait_reason"] == "workspace":
+                        with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
+                            tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
+                                       "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
+                        job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
+                    tries -= 1                # preparation spends no route retry
+                    continue
                 except _RouteMoved as moved:
                     # C-6.3: rolled back, nothing written. Evaluated again off the
                     # lock, on a new snapshot, and checked again.
@@ -9114,8 +9176,8 @@ class Daemon:
     def _discard_fresh_worktree(self, job_id: str) -> None:
         """C-6.12: the worktree admission cut for a job it then refused.
 
-        `_workspace` allocates `worktrees/<job id>/` before the route is
-        evaluated; `jobs.worktree` is set only when an attempt is reserved, so
+        A route can be refused after preparation (or while rechecking it).
+        `jobs.worktree` is set only when an attempt is reserved, so
         retention collects one that no attempt used only when it retires the
         job (`rarch.owned_worktree`), which can be days later. Removed here at
         once; `_sweep_unrun_worktrees` gives back the others.
@@ -9136,9 +9198,9 @@ class Daemon:
     def _sweep_unrun_worktrees(self) -> int:
         """C-6.20, C-6.17: give back the worktrees admission cut for jobs no attempt used.
 
-        `_workspace` cuts `worktrees/<job id>/` on a job's first look, before the
-        job's route is evaluated, and a job that then waits keeps it. Three kinds of
-        such tree are given back here, by `_discard_worktree`, as a refused job's is:
+        A fresh job's look cuts `worktrees/<job id>/` only after placement checks
+        pass. A change during preparation can still leave it waiting with a tree.
+        Three kinds of tree are given back here, by `_discard_worktree`, as a refused job's is:
         - a job that ended with no attempt (cancelled while it waited, refused or
           failed at admission): retention would free its tree only when it retires
           the job (`rarch.owned_worktree`), which can be days later;

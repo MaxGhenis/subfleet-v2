@@ -1,0 +1,8 @@
+..........................                                               [100%]
+============================= slowest 5 durations ==============================
+14.00s setup    tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own
+2.66s call     tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own
+0.85s call     tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete
+0.40s setup    tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists
+0.38s setup    tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason
+26 passed in 54.93s

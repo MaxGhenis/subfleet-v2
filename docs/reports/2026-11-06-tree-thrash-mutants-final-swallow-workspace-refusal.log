@@ -1,0 +1,52 @@
+F
+=================================== FAILURES ===================================
+_ test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False] _
+
+fleet_factory = <function fleet_factory.<locals>.make at 0x108bedd20>
+repo = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests/tree-thrash-mutant-mxzqghv3/pytest/test_a_failing_workspace_reach0/repo')
+immutable_source = None, transient = False
+
+    @pytest.mark.parametrize("transient", [False, True])
+    def test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement(
+            fleet_factory, repo, immutable_source, transient):  # noqa: F811
+        """I6: workspace errors are postponed until placement, then retain C-6.8."""
+        service, harness, cuts = fleet_factory(slots=1, synthetic=True)
+        occupant = submit(service, harness, repo)
+        service._admit()
+        job = submit(service, harness, repo)
+        calls = []
+    
+        def fail(row):
+            calls.append(row["job_id"])
+            if transient:
+                raise subprocess.TimeoutExpired("git worktree add", 1)
+            raise AdapterError("cannot prepare tree", code=7, reason="workspace-prepare")
+    
+        service._workspace = fail
+        service._admit()
+        assert calls == [] and service.store.get_job(job)["wait_reason"] == "capacity"
+        finish(service)
+        service._admit()                    # freed lease brings the clock forward
+        assert calls == [job]
+        row = service.store.get_job(job)
+        if transient:
+            assert (row["state"], row["wait_reason"]) == ("waiting", "workspace")
+            assert service._workspace_deferrals[job] == 1
+        else:
+>           assert (row["state"], row["rc"]) == ("failed", 7)
+E           AssertionError: assert ('waiting', None) == ('failed', 7)
+E             
+E             At index 0 diff: 'waiting' != 'failed'
+E             Use -v to get more diff
+
+tests/fake/test_admission_tree_thrash.py:479: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4425926704:daemon.py:998 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4425926704:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4442786848:daemon.py:998 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4442786848:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 99.21s (0:01:39)
