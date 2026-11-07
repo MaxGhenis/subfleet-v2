@@ -85,7 +85,7 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import (Store, _pin_notice_key, cancel_info, job_flags, notice_fingerprint, notice_rows,
+from .store import (Store, _pin_notice_key, batch_submission_rows, cancel_info, job_flags, notice_fingerprint, notice_rows,
                     pin_notice_jobs, shell_flags)
 from . import uncommitted
 
@@ -3674,13 +3674,7 @@ class Daemon:
 
     def _batches(self, job_ids: list[str]) -> dict[str, dict]:
         """job id -> batch label, for the jobs that have one (C-17.7)."""
-        if not job_ids:
-            return {}
-        marks = ",".join("?" for _ in job_ids)
-        # `+kind`: look the jobs up by id (events_job). By kind, SQLite walked
-        # every job.submitted event ever written on each `list` (C-3.7).
-        rows = self.store.query(f"SELECT job_id,data_json FROM events WHERE +kind='job.submitted' "
-                                f"AND job_id IN ({marks}) AND data_json LIKE '%\"batch\"%'", job_ids)
+        rows = batch_submission_rows(self.store.query, job_ids)
         found = {row["job_id"]: json.loads(row["data_json"]).get("batch") for row in rows}
         return {job_id: batch for job_id, batch in found.items() if batch}
 
