@@ -525,8 +525,8 @@ harness and adapter units, the admission and enrollment tests and the stdio gate
 shard 7 `test_api_agent_process.py`; shard 12 `test_claude_api_adapter.py`; shard 2
 `test_memory_bound.py`; shard 1 the frame and containment tests. Every one of this
 build's named tests in those files passed there. Between a3's windows other sessions
-took the suite lock: from 06:28Z, twelve of a3's fifteen waits for it (30 to 90 s each)
-ran out, so the other six shards didn't run.
+took the suite lock: from 06:28Z to 07:10Z, fifteen of a3's eighteen waits for it (30 to
+120 s each) ran out, so the other six shards didn't run.
 
 **The four failures (shard 4).** `tests/e2e/test_codex_turn_completed_e2e.py`'s three
 cases of `test_zero_exit_cut_off_turn_cannot_publish_output` and
