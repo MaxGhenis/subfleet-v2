@@ -290,6 +290,9 @@ EXIT_SETTLE_S = 3
 # wall clock are still read every tick; a death verdict is never taken from a
 # shared table.
 INSPECT_INTERVAL_S = 1.0
+# C-5.12, D-WALL1: unchanged live membership needs a durable observation only
+# once per minute. Identity changes still carry their newest observation.
+LIVENESS_WRITE_S = 60
 # C-5.11: how often a probe's guardian re-records the group members it owns
 # (C-5.4); it runs inside the probe monitor's paced liveness check, which uses
 # `INSPECT_INTERVAL_S`, so at most that often too. A running attempt records its

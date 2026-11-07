@@ -1,0 +1,13 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_failed_liveness_commit_retries_the_same_table_and_observation ______
+/Users/maxghenis/.subfleet/worktrees/20261106-082944-daemon-quiet-build/tests/unit/test_liveness_write_pacing.py:176: in test_failed_liveness_commit_retries_the_same_table_and_observation
+    assert daemon._last_observed_alive_write == original_pace
+E   AssertionError: assert {'20260905-10...ettle/a1': 60} == {'20260905-10...ttle/a1': 0.0}
+E     
+E     Differing items:
+E     {'20260905-100000-settle/a1': 60} != {'20260905-100000-settle/a1': 0.0}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_liveness_write_pacing.py::test_failed_liveness_commit_retries_the_same_table_and_observation
+1 failed in 4.55s

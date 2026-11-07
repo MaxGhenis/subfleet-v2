@@ -1,0 +1,92 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it[first0-list] _
+
+status = False, first = {'batch': {'label': 'original'}}
+
+    @pytest.mark.parametrize("status", [False, True], ids=["list", "status"])
+    @pytest.mark.parametrize("first", [{"batch": {"label": "original"}}, {}])
+    def test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it(status, first):
+        """Only the original submission defines identity, as dependencies/_submitted do."""
+        with event_store() as store:
+            seed(store, [("j", "job.submitted", json.dumps(first)),
+                         ("j", "attempt.observed_alive", "{}"),
+                         ("j", "job.submitted", '{"batch": {"label": "replacement"}}')])
+            assert old_batches(store, ["j"], status=status) == {"j": {"label": "replacement"}}
+>           assert batches(store, ["j"], status=status) == ({"j": first["batch"]} if first else {})
+E           AssertionError: assert {'j': {'label...replacement'}} == {'j': {'label': 'original'}}
+E             
+E             Differing items:
+E             {'j': {'label': 'replacement'}} != {'j': {'label': 'original'}}
+E             Use -v to get more diff
+
+test_batch_submission_queries.py:98: AssertionError
+_ test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it[first0-status] _
+
+status = True, first = {'batch': {'label': 'original'}}
+
+    @pytest.mark.parametrize("status", [False, True], ids=["list", "status"])
+    @pytest.mark.parametrize("first", [{"batch": {"label": "original"}}, {}])
+    def test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it(status, first):
+        """Only the original submission defines identity, as dependencies/_submitted do."""
+        with event_store() as store:
+            seed(store, [("j", "job.submitted", json.dumps(first)),
+                         ("j", "attempt.observed_alive", "{}"),
+                         ("j", "job.submitted", '{"batch": {"label": "replacement"}}')])
+            assert old_batches(store, ["j"], status=status) == {"j": {"label": "replacement"}}
+>           assert batches(store, ["j"], status=status) == ({"j": first["batch"]} if first else {})
+E           AssertionError: assert {'j': {'label...replacement'}} == {'j': {'label': 'original'}}
+E             
+E             Differing items:
+E             {'j': {'label': 'replacement'}} != {'j': {'label': 'original'}}
+E             Use -v to get more diff
+
+test_batch_submission_queries.py:98: AssertionError
+_ test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it[first1-list] _
+
+status = False, first = {}
+
+    @pytest.mark.parametrize("status", [False, True], ids=["list", "status"])
+    @pytest.mark.parametrize("first", [{"batch": {"label": "original"}}, {}])
+    def test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it(status, first):
+        """Only the original submission defines identity, as dependencies/_submitted do."""
+        with event_store() as store:
+            seed(store, [("j", "job.submitted", json.dumps(first)),
+                         ("j", "attempt.observed_alive", "{}"),
+                         ("j", "job.submitted", '{"batch": {"label": "replacement"}}')])
+            assert old_batches(store, ["j"], status=status) == {"j": {"label": "replacement"}}
+>           assert batches(store, ["j"], status=status) == ({"j": first["batch"]} if first else {})
+E           AssertionError: assert {'j': {'label...replacement'}} == {}
+E             
+E             Left contains 1 more item:
+E             {'j': {'label': 'replacement'}}
+E             Use -v to get more diff
+
+test_batch_submission_queries.py:98: AssertionError
+_ test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it[first1-status] _
+
+status = True, first = {}
+
+    @pytest.mark.parametrize("status", [False, True], ids=["list", "status"])
+    @pytest.mark.parametrize("first", [{"batch": {"label": "original"}}, {}])
+    def test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it(status, first):
+        """Only the original submission defines identity, as dependencies/_submitted do."""
+        with event_store() as store:
+            seed(store, [("j", "job.submitted", json.dumps(first)),
+                         ("j", "attempt.observed_alive", "{}"),
+                         ("j", "job.submitted", '{"batch": {"label": "replacement"}}')])
+            assert old_batches(store, ["j"], status=status) == {"j": {"label": "replacement"}}
+>           assert batches(store, ["j"], status=status) == ({"j": first["batch"]} if first else {})
+E           AssertionError: assert {'j': {'label...replacement'}} == {}
+E             
+E             Left contains 1 more item:
+E             {'j': {'label': 'replacement'}}
+E             Use -v to get more diff
+
+test_batch_submission_queries.py:98: AssertionError
+=========================== short test summary info ============================
+FAILED test_batch_submission_queries.py::test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it[first0-list]
+FAILED test_batch_submission_queries.py::test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it[first0-status]
+FAILED test_batch_submission_queries.py::test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it[first1-list]
+FAILED test_batch_submission_queries.py::test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it[first1-status]
+4 failed, 46 deselected in 33.23s
