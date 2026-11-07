@@ -26,9 +26,9 @@ The queue's expiry does not erase the outcome: `archived_outcomes` reconstructs
 it from the job's existing archived notices and retirement event, on request
 through `subfleet retention outcomes --session ID`. It writes no store records, so a
 session returning after any length of time can still look up what happened
-without holding another notice or recreating one. A private locked snapshot
-avoids state-root files on a closed store; a busy-store fallback may create
-SQLite WAL/SHM coordination files, never a daemon lock or store records.
+without holding another notice or recreating one. The ordinary SQLite read-only
+connection may create or update WAL/SHM coordination files, never a daemon lock
+or store records, and does not copy the database or start a helper process.
 
 Timestamps: notices store `created_at` as `YYYY-MM-DDTHH:MM:SSZ`, while turn
 retention spells its cutoff with milliseconds and `+00:00`. Ages here are
@@ -171,7 +171,7 @@ def expire_outcomes(store: Any, keep_s: float, *, now: datetime | None = None) -
     old = [row for row in store.query(
         "SELECT notice_id, session_id, created_at, text FROM service_notices WHERE state IN ('pending','offered')")
         if (written := written_at(row["created_at"])) is not None and written < oldest]
-    named = pin_notice_jobs(store.query, old, kinds=(RETIRED_EVENT,), match_outcome_text=True) if old else {}
+    named = pin_notice_jobs(store.query, old, kinds=(RETIRED_EVENT,)) if old else {}
     due = [row for row in old if row["notice_id"] in named]
     if not due:
         return []
@@ -195,17 +195,16 @@ def archived_outcomes(root: Path, session_id: str) -> dict[str, Any]:
     notice. Only the given state root is read; an archive path recorded before
     that root moved is resolved by its name under this root's archive folder.
     No notice is marked, recreated or pinned, and no new records are written.
-    A closed checkpointed database is read from a locked private copy outside
-    the state root, creating nothing there. When the database is busy, has a
-    WAL, cannot be write-locked, or TMPDIR is inside the state root, SQLite's
-    read-only fallback may create/update only
-    state.sqlite3-wal and state.sqlite3-shm for coordination. It never takes
-    daemon.lock or deletes state-root files. `read_only` means store records;
-    `state_root_files` reports which filesystem promise applies to this read.
+    An ordinary read-only Store opens the original database, with SQLite WAL
+    coordination allowing a writer to open and commit during the lookup. It
+    may create/update only state.sqlite3-wal and state.sqlite3-shm, never takes
+    daemon.lock or deletes state-root files, and leaves the main database bytes
+    unchanged. It allocates no database copy and starts no helper process.
+    `read_only=true` and `read_only_scope=records` describe this record-only promise.
     An unavailable archive is reported explicitly rather than losing its outcome.
     """
     from . import retention_fs as rfs
-    from .retention_snapshot import lookup_store
+    from .store import Store
 
     root = Path(root).resolve()
     database = root / "state.sqlite3"
@@ -213,8 +212,7 @@ def archived_outcomes(root: Path, session_id: str) -> dict[str, Any]:
         raise ValueError("state.sqlite3 is outside the state root")
     report: dict[str, Any] = {"session_id": session_id, "read_only": True, "read_only_scope": "records",
                               "outcomes": [], "errors": []}
-    with lookup_store(database) as (store, file_policy):
-        report["state_root_files"] = file_policy
+    with Store(database, read_only=True) as store:
         events = store.query("SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id",
                              (RETIRED_EVENT,))
     for event in events:

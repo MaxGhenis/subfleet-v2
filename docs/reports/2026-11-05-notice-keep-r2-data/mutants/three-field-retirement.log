@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_retirement_association_requires_all_four_fields[text] __________
+
+field = 'text'
+
+    @pytest.mark.parametrize("field", [None, "notice_id", "session_id", "created_at", "text"])
+    def test_retirement_association_requires_all_four_fields(field):
+        original = notice()
+        row = {**original}
+        if field is not None:
+            row[field] = 2 if field == "notice_id" else f"different {field}"
+        found = pin_notice_jobs(query_for([event(1, original)]), [row])
+>       assert found == ({1: "job-1"} if field is None else {})
+E       AssertionError: assert {1: 'job-1'} == {}
+E         
+E         Left contains 1 more item:
+E         {1: 'job-1'}
+E         Use -v to get more diff
+
+tests/unit/test_pin_notice_identity.py:54: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_pin_notice_identity.py::test_retirement_association_requires_all_four_fields[text]
+1 failed in 44.42s

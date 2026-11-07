@@ -28,7 +28,7 @@ Changed files across the checkpoint and continuation:
 - `subfleet/retention_notices.py`, `retention_archive.py`: timestamp handling,
   transactional retirement outcomes, expiry and later archive lookup.
 - `subfleet/store.py`, `store_schema.sql`: identify outcome service notices by
-  their event's id/session/creation time, with an index; no new table.
+  their event's id/session/creation time/text SHA-256, with an index; no new table.
 - `subfleet/retention_cli.py`: read-only `retention outcomes --session ID [--json]`.
 - `tests/unit/test_notice_keep.py`, `test_retention_outcomes.py`, `test_policy.py`,
   `tests/fake/test_notice_keep_delivery.py`: boundaries, properties, parity,
@@ -337,36 +337,25 @@ separate repair. No real credential or live state was involved.
 
 ### Lookup filesystem promise
 
-`retention outcomes` writes no store records. Its JSON keeps `read_only=true`
-and explicitly narrows that to `read_only_scope=records`; `state_root_files`
-reports `unchanged` or `sqlite-coordination`.
+Updated by fix round 2: `retention outcomes` opens the original database with
+`Store(database, read_only=True)`, as the survey and prune-decision readers do.
+Its JSON keeps `read_only=true` and `read_only_scope=records`; the unshipped
+`state_root_files` key has been removed.
 
-- **Closed, checkpointed store without WAL/SHM:** a short-lived child acquires
-  SQLite's Unix byte-range locks without touching `daemon.lock`, verifies
-  there is no WAL/recovery journal, and copies the database into private
-  temporary storage. The lookup reads that copy and creates nothing in the
-  state root. The test compares all state-root file bytes and mtimes.
-- **Live WAL writer:** the exclusive copy lock cannot be acquired, so ordinary
-  SQLite read-only WAL coordination reads committed events, including events
-  still in the WAL. The test gets the correct archived outcome, creates no new
-  state-root files and leaves the ledger unchanged while `daemon.lock` is held.
-- **Writer opening during the read:** after the locked copy is complete, the
-  writer opens and changes the original while the lookup queries its private
-  snapshot. The lookup returns the correct pre-write outcome; a subsequent
-  lookup sees the writer's committed change.
-- **Narrower concurrent fallback:** if a busy writer closes between the copy
-  attempt and the SQLite read-only open, that open can create
-  `state.sqlite3-wal` and `state.sqlite3-shm`. An existing WAL or unavailable
-  write-lock permission also selects this safe fallback. If TMPDIR is inside
-  the state root, the lookup skips temporary allocation entirely and selects
-  the same fallback; a test pins that protection too. These are SQLite's
-  recovery/reader-coordination files, not new store records. A deterministic
-  race test pins this explicitly permitted exception. The lookup never
-  deletes state-root files, acquires `daemon.lock`, or uses immutable mode on
-  a potentially live database. The contract and docstring now say this rather
-  than promising unconditional filesystem purity. A separate process is
-  necessary because POSIX record locks belong to a process, and the caller
-  may already have a Store open.
+The lookup writes no records and leaves the main database's bytes unchanged.
+SQLite may create or update `state.sqlite3-wal` and `state.sqlite3-shm` for
+reader coordination, as C-8.4 permits. It creates no `daemon.lock`, allocates
+no database copy and starts no subprocess. A writable Store can open and
+commit while the lookup holds its read open, whether the store starts closed
+or already has a live WAL writer.
+
+The round-1 private-copy implementation ran only on a closed, checkpointed
+store. A small size cap would never copy the hub's reported 9.84 GB store;
+an uncapped copy could block daemon startup for minutes and require about
+10 GB of free disk. Removal avoids both the copy's locks and the orphaned
+helper/partial-copy lifecycle. The round-1 measurements and commands below
+are historical evidence for the implementation tested then; fix round 2's
+replacement checks and measurements appear at the end of this report.
 
 ### Verification and commands
 
@@ -476,3 +465,143 @@ three-hour allowance.
   was bypassed. All eight changed/new files, including this completed report,
   remain in the assigned workspace for the hub to collect. HEAD remains the
   supplied `d4b21a244c43`; nothing was pushed.
+
+## Fix round 2
+
+All three P2 findings are fixed. The final requested regression passed
+**1,046 tests, with no failures, in 1,385.48 s (23m05s)**. Work started at
+13:43 UTC on 2026-11-07 from reviewed head `6382a8abaf52` and finished within
+the three-hour limit. Only disposable test state was used; no live state was
+read or changed.
+
+- **P2-1/P2-2:** removed the private database copy and helper process. The
+  lookup opens the original `Store(database, read_only=True)`. It preserves
+  main database bytes and store records, permits SQLite WAL/SHM coordination
+  files, and no longer returns the unshipped `state_root_files` key. The hub's
+  reasons and current filesystem contract are also in “Lookup filesystem promise.”
+- **P2-3:** retirement association requires id, session, creation time and
+  text SHA-256 at every caller, with lazy cached hashing. Before editing,
+  source tracing confirmed that `NOTICE_COLUMNS`, daemon `SELECT *`, and
+  expiry's query all include text. No production code rewrites service-notice
+  text after recording its digest; insertion and digest recording share the
+  same transaction. `job.pin_noticed` and `_withdraw_pin_notice` retain their
+  existing three-field identity.
+
+The copy ran only on a closed, checkpointed store. A small cap would skip the
+hub's reported 9.84 GB store; an uncapped copy could block a starting daemon
+for minutes and need about 10 GB free. C-8.4 already permits SQLite WAL/SHM
+coordination. The helper is removed, with no cap or child lifecycle to tune.
+C-8.4, the changelog, lookup docstrings and filesystem-promise section now
+reflect this behavior.
+
+Full listing retains its existing `notice_fingerprint` hashes for
+ack/withdraw. The lazy-hashing rule concerns association in `pin_notice_jobs`;
+pings and pin notices incur no additional association digest.
+
+### Invariants and their tests
+
+| Invariant | Permanent test |
+| --- | --- |
+| 1. Lookup writes no store records and leaves main database bytes unchanged | `test_outcomes_closed_store_preserves_database_and_creates_only_sqlite_sidecars`; `test_outcomes_with_live_wal_writer_preserves_records_and_creates_no_files`; `test_outcomes_opens_store_read_only_and_sqlite_rejects_writes` |
+| 2. A writable Store opens and commits during lookup | `test_outcomes_writer_opens_and_commits_while_original_database_read_is_held[closed-store]` and `[live-writer]`; both establish a real read transaction and verify its snapshot survives the writer commit |
+| 3. Retirement association requires id, session, creation time and text SHA-256 | `test_retirement_association_requires_all_four_fields`; `test_retirement_event_without_digest_names_nothing`; `test_property_retirement_identity_matches_a_four_field_reference` (100 Hypothesis examples with collisions, matching and differing texts); `test_different_ping_does_not_name_retired_job` (both hooks); original outcome delivery remains covered by `test_the_outcome_reaches_the_session_on_its_next_delivery` |
+| 4. Association hashes at most once per row matching a retirement event on its first three fields, never for other rows | `test_retirement_hashes_only_matching_rows_and_each_at_most_once`; `test_a_newer_pin_event_needs_no_digest_or_hash` |
+| 5. Pin-notice associations retain the head's behavior | `test_pin_noticed_associations_match_the_previous_key_function`, a differential against the old key function; `test_newest_matching_event_wins_across_event_kinds`; `_withdraw_pin_notice` is unchanged |
+
+Lookup tests are in `tests/unit/test_retention_outcomes.py`, identity tests in
+`tests/unit/test_pin_notice_identity.py`, and hook tests in
+`tests/fake/test_notice_keep_delivery.py`. Additional lookup tests reject
+subprocesses and temporary copies, assert no helper source names remain, and
+permit only WAL/SHM files with no `daemon.lock`.
+
+### Timings
+
+Fixture construction is excluded. The listing has 2,000 unresolved service
+notices (1,600 pings, 200 pin notices, 200 outcomes; 2 KiB text). Expiry has
+10,000 due outcomes. Five-sample medians in seconds:
+
+| Probe | Before | After | Review r2 |
+| --- | ---: | ---: | ---: |
+| Listing | 0.079662 | 0.116516 | — |
+| Expiry total | 0.321152 | 1.281942 | 0.8024 |
+| Expiry write transaction | 0.092266 | 0.491370 | 0.2121 |
+| Expiry read queries | 21 | 21 | 21 |
+
+The first after-run was noisy. Five additional interleaved before/after pairs,
+using fresh subprocesses, a temporary original-head source copy and the
+current worktree source while the four-worker regression ran, measured medians **0.339192 / 0.460510 s** for
+listing, **3.288117 / 2.106077 s** for expiry, and **1.012126 / 0.224155 s** in
+its write transaction. Listing stayed at 10 reads; expiry stayed at 21 reads
+and one write transaction. These measurements do not establish a stable
+speed difference. Raw samples are retained in
+`2026-11-05-notice-keep-r2-data/{before,after,interleaved}.json`; commands and
+source hashes are recorded by the later interleaved and populated-lookup probes.
+
+The populated lookup fixture has **1,075,372,032 database bytes** (1 GiB of
+synthetic padding plus schema), one retirement event and valid archive rows.
+It returned the archived outcome in **0.904477 s**, beside the review's
+**124.19 s for 1,001,869,312 bytes**. A starting writer opened and committed in
+**0.107450 s while an explicit read transaction remained open**, without
+waiting for lookup close; the held-read lookup including that writer took
+0.227164 s. The earlier empty-result probe took 0.197504 s, with a 0.010595 s
+writer commit. Both are retained; neither measures a large retirement ledger
+or promises live-store latency. See `populated-lookup.json` and `after.json`.
+
+### Commands and verification
+
+All runs set `SUBFLEET_LIVE=0` and use Python 3.14.7. The initial default-cache
+sync failed with a sandbox permission error; `uv --cache-dir "$UV_CACHE_DIR"
+sync --group dev` succeeded with nine packages installed. The final environment
+is `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2"`
+and `UV_CACHE_DIR="$TMPDIR/uv-cache"`; each test invocation gets a fresh basetemp.
+
+- `uv run --no-sync pytest -q --basetemp "$TMPDIR/lookup-focused-1" tests/unit/test_retention_outcomes.py`: **16 passed in 35.11 s**.
+- Initial identity/delivery controls, `uv run --no-sync pytest -q --basetemp <task-temp>/identity-controls-1 tests/unit/test_pin_notice_identity.py tests/fake/test_notice_keep_delivery.py`: **17 passed, 2 failed in 89.15 s**. The new ordinary-ping expected text omitted its existing queued-time line; those assertions were corrected.
+- The corrected focused command added `tests/unit/test_notice_keep.py` and used `identity-controls-2`: **48 passed, 1 failed in 429.49 s**, then interrupted. All 12 identity and 8 delivery cases passed; an existing property failed to create a temporary directory directly under the sandbox-denied raw Darwin TMPDIR. The final regression uses its permitted child.
+- Benchmarks use `.venv/bin/python tools/notice_keep_round2_measure.py` with these arguments (`E=docs/reports/2026-11-05-notice-keep-r2-data`):
+  - `--phase before --samples 5 --output "$E/before.json"`
+  - `--phase after --samples 5 --lookup-mib 1024 --output "$E/after.json"`
+  - `--phase interleaved --compare-ref 6382a8abaf52 --samples 5 --output "$E/interleaved.json"`
+  - `--phase populated-lookup --lookup-only --lookup-mib 1024 --output "$E/populated-lookup.json"`
+- Final selection: `uv run --no-sync --with 'pytest-xdist>=3.6' pytest -q -n 4 --timeout=540 --durations=15 --basetemp "$TMPDIR/final-r2-1" --junitxml "$E/regression.xml"` with all 16 requested files plus `tests/unit/test_pin_notice_identity.py`: **1,046 passed in 1,385.48 s**, exit 0. The [exact command](2026-11-05-notice-keep-r2-data/regression-command.txt), [log](2026-11-05-notice-keep-r2-data/regression.log) and [JUnit receipt](2026-11-05-notice-keep-r2-data/regression.xml) are retained. The whole suite was left to CI.
+- `git diff --check` and explicit contract/source checks passed. Searches of tests for `state_root_files`, `read_only_scope` and `outcome_sha256` found only the relevant lookup/retention assertions; removed-key checks now assert absence. No event fields or new refusals were added. Handler refusals are in the final selection.
+
+### Mutation verification
+
+`.venv/bin/python tools/notice_keep_round2_mutants.py --output-dir "$E/mutants"`
+ran **6 passing controls and killed all 6 required mutants**, with **0
+survivors and 0 invalid kills**. Each fault changes an actual temporary copy
+of the source; receipts verify imports from that copy. Every kill is a single
+call-phase `AssertionError`, with no collection, setup or teardown failure.
+Original source hashes stayed unchanged; no mutant remains in the worktree.
+The runner exited 0 and removed its temporary copies. Per-case diffs, logs,
+phase receipts and provenance are saved under
+`2026-11-05-notice-keep-r2-data/mutants/`.
+
+| Mutant | Test that kills it |
+| --- | --- |
+| Restore three-field retirement match | `test_retirement_association_requires_all_four_fields[text]` |
+| Hash every row | `test_retirement_hashes_only_matching_rows_and_each_at_most_once` |
+| Let an event without a digest name its row | `test_retirement_event_without_digest_names_nothing` |
+| Require a digest on `job.pin_noticed` | `test_pin_noticed_associations_match_the_previous_key_function` |
+| Reintroduce a database copy | `test_outcomes_allocates_no_temporary_database_copy` |
+| Open lookup writable | `test_outcomes_opens_store_read_only_and_sqlite_rejects_writes` |
+
+The updated original runner also remains usable:
+`.venv/bin/python tools/notice_keep_mutants.py --mutants f m o --output-dir "$E/legacy-smoke"`
+passed **3 controls and killed 3 mutants**, with no invalid kills or changed
+source hashes. All three tool files passed `py_compile`.
+
+### Deviations and commits
+
+The only execution deviations were the sandbox-denied shared cache/raw temp
+root described above and Git's denied index lock. All requested final tests
+and six required mutants completed; all owned test, benchmark and mutation
+processes ended. No live state, push or history rewrite was involved.
+
+Git did **not** let this workspace commit. Named-file staging attempts for the
+lookup, identity and tooling steps were denied when Git tried to create
+`/Users/maxghenis/subfleet-v2/.git/worktrees/20261106-081758-nk-fix-r2/index.lock`
+(`Operation not permitted`). The final report/evidence staging attempt has
+the same restriction. No commit was created; all changes and receipts remain
+in the assigned workspace for the hub to collect.

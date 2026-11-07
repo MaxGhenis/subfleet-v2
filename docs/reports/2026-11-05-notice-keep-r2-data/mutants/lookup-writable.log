@@ -1,0 +1,44 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_outcomes_opens_store_read_only_and_sqlite_rejects_writes _________
+
+retired = (PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs...gone-one.md; out=/tmp/out.md', 'gone-two': 'gone-two: succeeded; rc=0; deliverable=/tmp/gone-two.md; out=/tmp/out.md'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107fd28b0>
+
+    def test_outcomes_opens_store_read_only_and_sqlite_rejects_writes(retired, monkeypatch):
+        root, _, headers = retired
+        real_query = Store.query
+        checked = []
+    
+        def query_read_only(reader, sql, params=()):
+            assert reader.read_only is True
+            assert reader.connection.execute("PRAGMA query_only").fetchone()[0] == 1
+            with pytest.raises(sqlite3.OperationalError, match="readonly|read-only"):
+                reader.connection.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                                          "VALUES('s-one','forbidden','pending','2026-11-05T00:00:00Z')")
+            checked.append(True)
+            return real_query(reader, sql, params)
+    
+        monkeypatch.setattr(Store, "query", query_read_only)
+>       report = rnotices.archived_outcomes(root, "s-one")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_retention_outcomes.py:158: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/retention_notices.py:216: in archived_outcomes
+    events = store.query("SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id",
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reader = <subfleet.store.Store object at 0x1080d8b90>
+sql = 'SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id'
+params = ('retention.notice_retired',)
+
+    def query_read_only(reader, sql, params=()):
+>       assert reader.read_only is True
+E       assert False is True
+E        +  where False = <subfleet.store.Store object at 0x1080d8b90>.read_only
+
+tests/unit/test_retention_outcomes.py:149: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_outcomes.py::test_outcomes_opens_store_read_only_and_sqlite_rejects_writes
+1 failed in 22.27s

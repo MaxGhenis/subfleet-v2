@@ -45,13 +45,13 @@ MUTANTS = {
     "j": ("expire an outcome at exactly the cutoff", TEST + "test_expiry_exact_cutoff_is_not_older"),
     "k": ("omit the delete's creation-time check", TEST + "test_row_replaced_between_expiry_read_and_delete_stays[creation-time]"),
     "l": ("omit the delete's text identity check", TEST + "test_row_replaced_between_expiry_read_and_delete_stays[text]"),
-    "m": ("open the outcome lookup the old way", "tests/unit/test_retention_outcomes.py::test_outcomes_does_not_create_sqlite_sidecars"),
+    "m": ("reintroduce a database copy in the outcome lookup", "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy"),
     "n": ("omit PR 294 from the change log", TEST + "test_changelog_names_pr_294"),
     "o": ("omit the retirement event's outcome digest check", TEST + "test_reused_same_second_ping_is_not_expired"),
 }
 SOURCE_FILES = (
     "subfleet/retention.py", "subfleet/retention_archive.py", "subfleet/retention_notices.py",
-    "subfleet/retention_survey.py", "subfleet/store.py", "subfleet/retention_snapshot.py",
+    "subfleet/retention_survey.py", "subfleet/store.py",
     "tests/unit/test_notice_keep.py", "tests/unit/test_retention_outcomes.py", "docs/acceptance-contract.md",
 )
 
@@ -92,7 +92,7 @@ def install_mutant(name: str):
 
         def pin_outcomes(store, *args, **kwargs):
             reasons = original(store, *args, **kwargs)
-            rows = store.query("SELECT notice_id, session_id, created_at FROM service_notices "
+            rows = store.query("SELECT notice_id, session_id, created_at, text FROM service_notices "
                                "WHERE state IN ('pending','offered')")
             for job_id in pin_notice_jobs(store.query, rows, kinds=(notices.RETIRED_EVENT,)).values():
                 reasons.setdefault(job_id, "retention-outcome")
@@ -116,14 +116,13 @@ def install_mutant(name: str):
         def first_header_only(first_lines, *args, **kwargs):
             return original(first_lines[:1], *args, **kwargs)
         patch.setattr(notices, "outcome_text", first_header_only)
-    elif name in ("j", "k", "l", "o"):
+    elif name in ("j", "k", "l"):
         source = inspect.getsource(notices.expire_outcomes)
         replacements = {
             "j": [("written < oldest", "written <= oldest")],
             "k": [("AND created_at=? AND text=? ", "AND text=? "),
                   ('row["session_id"], row["created_at"], row["text"]', 'row["session_id"], row["text"]')],
             "l": [("AND text=? ", ""), ('row["created_at"], row["text"]', 'row["created_at"]')],
-            "o": [("match_outcome_text=True", "match_outcome_text=False")],
         }
         for old, new in replacements[name]:
             if source.count(old) != 1:
@@ -132,16 +131,17 @@ def install_mutant(name: str):
         namespace = dict(notices.__dict__)
         exec(compile(source, f"<notice-keep-mutant-{name}>", "exec"), namespace)
         patch.setattr(notices, "expire_outcomes", namespace["expire_outcomes"])
-    elif name == "m":
-        from contextlib import contextmanager
-        from subfleet import retention_snapshot
-        from subfleet.store import Store
+    elif name in ("m", "o"):
+        from subfleet import store as store_module
+        from tools.notice_keep_round2_mutants import mutated_source
 
-        @contextmanager
-        def old_lookup(database):
-            with Store(database, read_only=True) as store:
-                yield store, "sqlite-coordination"
-        patch.setattr(retention_snapshot, "lookup_store", old_lookup)
+        module = notices if name == "m" else store_module
+        function = "archived_outcomes" if name == "m" else "pin_notice_jobs"
+        fault = "lookup-copies-database" if name == "m" else "three-field-retirement"
+        source = mutated_source(fault, inspect.getsource(getattr(module, function)))
+        namespace = dict(module.__dict__)
+        exec(compile(source, f"<notice-keep-mutant-{name}>", "exec"), namespace)
+        patch.setattr(module, function, namespace[function])
     elif name == "n":
         original = Path.read_text
 

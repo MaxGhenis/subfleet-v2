@@ -1,0 +1,11 @@
+--- subfleet/store.py
++++ subfleet/store.py
+@@ -245,7 +245,7 @@
+         row = wanted[identity]
+         if row["notice_id"] in found:
+             continue
+-        if retired:
++        if retired and False:
+             if not key[3]:
+                 continue
+             if identity not in digests:

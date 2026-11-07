@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from subfleet import daemon as daemon_module
 from subfleet import retention
 from subfleet import retention_notices as rnotices
 from tests.fake.test_notice_delivery import job_notice, no_wake, surface  # noqa: F401 - `no_wake` is a fixture
@@ -83,6 +84,37 @@ def test_a_fresh_notice_keeps_its_job_and_writes_nothing(state_daemon):
     result = retire(daemon)
     assert job_id not in result["pruned"] and result["pin_reasons"][job_id] == "unread-notice"
     assert daemon.store.query("SELECT * FROM service_notices") == []
+
+
+@pytest.mark.parametrize("event", ["SessionStart", "UserPromptSubmit"])
+def test_different_ping_does_not_name_retired_job(state_daemon, no_wake, monkeypatch, event):
+    """A same-second ping is an ordinary notice, including to a launched hook."""
+    daemon, harness = state_daemon
+    job_id, notice_id = job_notice(daemon, harness, "s-reused")
+    age_notice(daemon, notice_id, 8)
+    assert job_id in retire(daemon)["pruned"]
+    (original,) = daemon.store.query("SELECT * FROM service_notices WHERE session_id='s-reused'")
+    with daemon.store.transaction("test.replaced") as tx:
+        tx.execute("DELETE FROM service_notices WHERE notice_id=?", (original["notice_id"],))
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: original["created_at"])
+    ping = daemon.dispatch("ping", {"session_id": "s-reused", "text": "different ping"})
+    assert ping["notice_id"] == -original["notice_id"]
+
+    for op in ("notice.pending", "notice.list"):
+        (row,) = daemon.dispatch(op, {"session_id": "s-reused"})["notices"]
+        assert row["notice_id"] == ping["notice_id"] and row["job_id"] is None
+    assert surface(daemon, harness.root, "s-reused", event,
+                   env={"SUBFLEET_JOB": "20261105-000000-turn"}) == ""
+    (row,) = daemon.store.query("SELECT * FROM service_notices WHERE session_id='s-reused'")
+    assert row["state"] == "pending" and row["transport"] is None
+
+    # The ordinary session can still read and mark its ping, without a job association.
+    context = surface(daemon, harness.root, "s-reused", event)
+    assert context == ("subfleet: 1 message for this session:\n\n"
+                       f"queued {original['created_at']}:\ndifferent ping")
+    assert job_id not in context
+    (row,) = daemon.store.query("SELECT * FROM service_notices WHERE session_id='s-reused'")
+    assert row["state"] == "surfaced" and row["transport"] == f"hook:{event}"
 
 
 def test_the_daemon_withdraws_an_outcome_unread_for_notice_keep_days(state_daemon):

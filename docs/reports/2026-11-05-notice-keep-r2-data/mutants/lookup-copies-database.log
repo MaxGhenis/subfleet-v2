@@ -1,0 +1,47 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_outcomes_allocates_no_temporary_database_copy ______________
+
+retired = (PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs...gone-one.md; out=/tmp/out.md', 'gone-two': 'gone-two: succeeded; rc=0; deliverable=/tmp/gone-two.md; out=/tmp/out.md'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109f169e0>
+
+    def test_outcomes_allocates_no_temporary_database_copy(retired, monkeypatch):
+        root, store, headers = retired
+        store.close()
+        monkeypatch.setenv("TMPDIR", str(root))
+        real_query = Store.query
+    
+        def refuse_copy(*args, **kwargs):
+            raise AssertionError("lookup must not allocate a temporary database copy")
+    
+        for name in ("TemporaryDirectory", "TemporaryFile", "NamedTemporaryFile", "mkdtemp", "mkstemp"):
+            monkeypatch.setattr(tempfile, name, refuse_copy)
+        for name in ("copy", "copy2", "copyfile", "copyfileobj", "copytree"):
+            monkeypatch.setattr(shutil, name, refuse_copy)
+    
+        def query_original(reader, sql, params=()):
+            assert reader.path == root / "state.sqlite3", "lookup must read the original database"
+            return real_query(reader, sql, params)
+    
+        monkeypatch.setattr(Store, "query", query_original)
+        before = {str(path.relative_to(root)) for path in root.rglob("*")}
+>       report = rnotices.archived_outcomes(root, "s-one")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_retention_outcomes.py:136: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/retention_notices.py:217: in archived_outcomes
+    with tempfile.TemporaryDirectory(prefix='mutant-outcomes-copy-') as scratch:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (), kwargs = {'prefix': 'mutant-outcomes-copy-'}
+
+    def refuse_copy(*args, **kwargs):
+>       raise AssertionError("lookup must not allocate a temporary database copy")
+E       AssertionError: lookup must not allocate a temporary database copy
+
+tests/unit/test_retention_outcomes.py:123: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy
+1 failed in 23.04s

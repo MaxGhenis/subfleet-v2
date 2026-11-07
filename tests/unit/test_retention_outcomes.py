@@ -6,7 +6,11 @@ recreates no notice and pins no job. All state roots here are disposable.
 from __future__ import annotations
 
 import json
-import fcntl
+import shutil
+import sqlite3
+import subprocess
+import tempfile
+from pathlib import Path
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -18,8 +22,9 @@ from subfleet.store import Store
 DAY = 86400
 
 
-def test_outcomes_does_not_create_sqlite_sidecars(retired):
+def test_outcomes_closed_store_preserves_database_and_creates_only_sqlite_sidecars(retired):
     root, store, headers = retired
+    before_records = store.list_events()
     store.close()
     before = {str(path.relative_to(root)): (path.read_bytes(), path.stat().st_mtime_ns)
               for path in root.rglob("*") if path.is_file()}
@@ -28,96 +33,141 @@ def test_outcomes_does_not_create_sqlite_sidecars(retired):
     report = rnotices.archived_outcomes(root, "s-one")
     assert report["errors"] == []
     assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
-    after = {str(path.relative_to(root)): (path.read_bytes(), path.stat().st_mtime_ns)
-             for path in root.rglob("*") if path.is_file()}
-    assert after == before
-
-
-def test_outcomes_with_a_live_wal_writer_creates_no_files(retired):
-    root, store, headers = retired
-    assert (root / "state.sqlite3-wal").exists() and (root / "state.sqlite3-shm").exists()
-    before = {str(path.relative_to(root)) for path in root.rglob("*")}
-    events = store.list_events()
-    with (root / "daemon.lock").open("w") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        report = rnotices.archived_outcomes(root, "s-one")
-        assert report["errors"] == []
-        assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
-        assert report["read_only"] is True and report["read_only_scope"] == "records"
-        assert report["state_root_files"] == "sqlite-coordination"
-    assert {str(path.relative_to(root)) for path in root.rglob("*")} == before | {"daemon.lock"}
-    assert store.list_events() == events
-
-
-def test_outcomes_writer_opens_while_private_snapshot_is_read(retired, monkeypatch):
-    root, store, headers = retired
-    store.close()
-    real_query = Store.query
-    writers = []
-
-    def query_with_starting_writer(reader, sql, params=()):
-        if reader.path.parent != root and "FROM events WHERE kind=?" in sql:
-            writer = Store(root / "state.sqlite3")
-            writers.append(writer)
-            with writer.transaction("test.writer-started") as tx:
-                tx.execute("UPDATE events SET data_json=json_set(data_json,'$.session_id','changed') "
-                           "WHERE kind=?", (rnotices.RETIRED_EVENT,))
-        return real_query(reader, sql, params)
-
-    monkeypatch.setattr(Store, "query", query_with_starting_writer)
-    try:
-        report = rnotices.archived_outcomes(root, "s-one")
-        assert len(writers) == 1
-        assert report["errors"] == [] and report["state_root_files"] == "unchanged"
-        assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
-        assert rnotices.archived_outcomes(root, "s-one")["outcomes"] == []
-    finally:
-        for writer in writers:
-            writer.close()
-
-
-def test_outcomes_fallback_may_create_only_sqlite_coordination_files(retired, monkeypatch):
-    from subfleet import retention_snapshot
-    root, store, headers = retired
-    real_run = retention_snapshot.subprocess.run
-    before = {}
-
-    def close_writer_before_fallback(*args, **kwargs):
-        result = real_run(*args, **kwargs)
-        assert result.returncode == 1
-        store.close()
-        assert not (root / "state.sqlite3-wal").exists()
-        assert not (root / "state.sqlite3-shm").exists()
-        before.update({str(path.relative_to(root)): (path.read_bytes(), path.stat().st_mtime_ns)
-                       for path in root.rglob("*") if path.is_file()})
-        return result
-
-    monkeypatch.setattr(retention_snapshot.subprocess, "run", close_writer_before_fallback)
-    report = rnotices.archived_outcomes(root, "s-one")
-    assert report["errors"] == []
-    assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
     assert report["read_only"] is True and report["read_only_scope"] == "records"
-    assert report["state_root_files"] == "sqlite-coordination"
+    assert "state_root_files" not in report
     after = {str(path.relative_to(root)): (path.read_bytes(), path.stat().st_mtime_ns)
              for path in root.rglob("*") if path.is_file()}
     assert after.keys() - before.keys() <= {"state.sqlite3-wal", "state.sqlite3-shm"}
     assert all(after[name] == value for name, value in before.items())
+    assert not (root / "daemon.lock").exists()
+    with Store(root / "state.sqlite3", read_only=True) as reader:
+        assert reader.list_events() == before_records
+        assert reader.query("SELECT * FROM notices") == reader.query("SELECT * FROM service_notices") == []
+
+
+def test_outcomes_with_live_wal_writer_preserves_records_and_creates_no_files(retired):
+    root, store, headers = retired
     assert (root / "state.sqlite3-wal").exists() and (root / "state.sqlite3-shm").exists()
+    before = {str(path.relative_to(root)) for path in root.rglob("*")}
+    events = store.list_events()
+    main_bytes = (root / "state.sqlite3").read_bytes()
+    report = rnotices.archived_outcomes(root, "s-one")
+    assert report["errors"] == []
+    assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
+    assert report["read_only"] is True and report["read_only_scope"] == "records"
+    assert {str(path.relative_to(root)) for path in root.rglob("*")} == before
+    assert store.list_events() == events
+    assert (root / "state.sqlite3").read_bytes() == main_bytes
+    assert not (root / "daemon.lock").exists()
 
 
-def test_outcomes_never_allocates_temporary_files_in_the_state_root(retired, monkeypatch):
-    from subfleet import retention_snapshot
+@pytest.mark.parametrize("live_writer", [False, True], ids=["closed-store", "live-writer"])
+def test_outcomes_writer_opens_and_commits_while_original_database_read_is_held(retired, monkeypatch,
+                                                                             live_writer):
+    root, store, headers = retired
+    if not live_writer:
+        store.close()
+    real_query = Store.query
+    writer_commits = []
+
+    def query_with_starting_writer(reader, sql, params=()):
+        if reader.read_only and "FROM events WHERE kind=?" in sql:
+            assert reader.path == root / "state.sqlite3"
+            reader.connection.execute("BEGIN")
+            try:
+                # Establish a real SQLite read snapshot before the writer opens.
+                rows = real_query(reader, sql, params)
+                assert reader.connection.in_transaction
+                with Store(root / "state.sqlite3") as writer:
+                    with writer.transaction("test.writer-started") as tx:
+                        tx.execute("UPDATE events SET data_json=json_set(data_json,'$.session_id','changed') "
+                                   "WHERE kind=?", (rnotices.RETIRED_EVENT,))
+                    writer_commits.append(True)
+                    assert reader.connection.in_transaction
+                    assert real_query(reader, sql, params) == rows
+                return rows
+            finally:
+                reader.connection.rollback()
+        return real_query(reader, sql, params)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Store, "query", query_with_starting_writer)
+        report = rnotices.archived_outcomes(root, "s-one")
+    assert writer_commits == [True]
+    assert report["errors"] == []
+    assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
+    assert rnotices.archived_outcomes(root, "s-one")["outcomes"] == []
+
+
+def test_outcomes_starts_no_subprocess(retired, monkeypatch):
+    root, store, headers = retired
+    store.close()
+
+    def refuse_subprocess(*args, **kwargs):
+        raise AssertionError("lookup must not start a subprocess")
+
+    monkeypatch.setattr(subprocess, "run", refuse_subprocess)
+    monkeypatch.setattr(subprocess, "Popen", refuse_subprocess)
+    report = rnotices.archived_outcomes(root, "s-one")
+    assert report["errors"] == []
+    assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
+
+
+def test_outcomes_allocates_no_temporary_database_copy(retired, monkeypatch):
     root, store, headers = retired
     store.close()
     monkeypatch.setenv("TMPDIR", str(root))
+    real_query = Store.query
 
-    def refuse_temporary_directory(*args, **kwargs):
-        raise AssertionError("lookup must not allocate scratch inside its state root")
+    def refuse_copy(*args, **kwargs):
+        raise AssertionError("lookup must not allocate a temporary database copy")
 
-    monkeypatch.setattr(retention_snapshot.tempfile, "TemporaryDirectory", refuse_temporary_directory)
+    for name in ("TemporaryDirectory", "TemporaryFile", "NamedTemporaryFile", "mkdtemp", "mkstemp"):
+        monkeypatch.setattr(tempfile, name, refuse_copy)
+    for name in ("copy", "copy2", "copyfile", "copyfileobj", "copytree"):
+        monkeypatch.setattr(shutil, name, refuse_copy)
+
+    def query_original(reader, sql, params=()):
+        assert reader.path == root / "state.sqlite3", "lookup must read the original database"
+        return real_query(reader, sql, params)
+
+    monkeypatch.setattr(Store, "query", query_original)
+    before = {str(path.relative_to(root)) for path in root.rglob("*")}
     report = rnotices.archived_outcomes(root, "s-one")
-    assert report["errors"] == [] and report["state_root_files"] == "sqlite-coordination"
+    assert report["errors"] == []
     assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
+    assert {str(path.relative_to(root)) for path in root.rglob("*")} - before <= {
+        "state.sqlite3-wal", "state.sqlite3-shm"}
+
+
+def test_outcomes_opens_store_read_only_and_sqlite_rejects_writes(retired, monkeypatch):
+    root, _, headers = retired
+    real_query = Store.query
+    checked = []
+
+    def query_read_only(reader, sql, params=()):
+        assert reader.read_only is True
+        assert reader.connection.execute("PRAGMA query_only").fetchone()[0] == 1
+        with pytest.raises(sqlite3.OperationalError, match="readonly|read-only"):
+            reader.connection.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
+                                      "VALUES('s-one','forbidden','pending','2026-11-05T00:00:00Z')")
+        checked.append(True)
+        return real_query(reader, sql, params)
+
+    monkeypatch.setattr(Store, "query", query_read_only)
+    report = rnotices.archived_outcomes(root, "s-one")
+    assert checked == [True]
+    assert report["errors"] == []
+    assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
+
+
+def test_outcomes_source_has_no_snapshot_copy_helper():
+    source_root = Path(rnotices.__file__).parent
+    for source in source_root.rglob("*.py"):
+        text = source.read_text()
+        assert "retention_snapshot" not in text, source
+        assert "lookup_store" not in text, source
+    assert not (source_root / "retention_snapshot.py").exists()
 
 
 @pytest.fixture

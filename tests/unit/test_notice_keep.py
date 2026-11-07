@@ -101,6 +101,7 @@ def test_reused_same_second_ping_is_not_expired(retained, monkeypatch):
     instance = SimpleNamespace(store=store, policy={}, _notify=lambda: None)
     reply = daemon.Daemon.dispatch.__wrapped__(instance, "ping", {"session_id": "s1", "text": "different ping"})
     assert -reply["notice_id"] == outcome
+    assert pin_notice_jobs(store.query, outcomes(store)) == {}
     assert rnotices.expire_outcomes(store, 7 * DAY, now=NOW) == []
     assert [row["text"] for row in outcomes(store)] == ["different ping"]
 
