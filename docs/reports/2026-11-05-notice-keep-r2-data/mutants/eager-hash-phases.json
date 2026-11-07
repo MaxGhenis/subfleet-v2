@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_hashes_only_matching_rows_and_each_at_most_once",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_hashes_only_matching_rows_and_each_at_most_once",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c16f5c0>\n\n    def test_retirement_hashes_only_matching_rows_and_each_at_most_once(monkeypatch):\n        rows = [notice(number, text=f\"text {number}\") for number in range(1, 8)]\n        events = [event(1, rows[0], text=\"a different outcome\"), event(2, rows[0]),\n                  event(3, rows[0], text=\"another different outcome\"),\n                  event(4, rows[1], digest=False),\n                  event(5, rows[2], kind=\"job.pin_noticed\", digest=False),\n                  event(6, {**rows[3], \"session_id\": \"different\"}),\n                  event(7, {**rows[4], \"created_at\": \"different\"})]\n        hashes, real_hash = [], hashlib.sha256\n    \n        def hashing(value):\n            hashes.append(value)\n            return real_hash(value)\n    \n        monkeypatch.setattr(store_module.hashlib, \"sha256\", hashing)\n        assert pin_notice_jobs(query_for(events), rows) == {1: \"job-2\", 3: \"job-5\"}\n>       assert hashes == [b\"text 1\"]\nE       AssertionError: assert [b'text 1', b...'text 6', ...] == [b'text 1']\nE         \nE         Left contains 6 more items, first extra item: b'text 2'\nE         Use -v to get more diff\n\ntests/unit/test_pin_notice_identity.py:78: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_hashes_only_matching_rows_and_each_at_most_once",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/eager-hash/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/eager-hash/subfleet/retention_notices.py"
+  }
+}

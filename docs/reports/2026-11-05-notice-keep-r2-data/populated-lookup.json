@@ -1,0 +1,23 @@
+{
+  "phase": "populated-lookup",
+  "measured_at": "2026-11-07T13:58:15.920695+00:00",
+  "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+  "source_sha256": {
+    "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+    "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed"
+  },
+  "samples": 5,
+  "lookup": {
+    "database_bytes": 1075372032,
+    "fixture": "synthetic padding plus one retirement event and valid archived unread notice",
+    "outcomes_returned": 1,
+    "lookup_s": 0.9044771249900805,
+    "lookup_with_writer_s": 0.22716362499340903,
+    "writer": {
+      "committed": true,
+      "seconds": 0.10744983299809974
+    },
+    "review_1GB_lookup_s": 124.19,
+    "writer_waited_for_lookup_to_close": false
+  }
+}

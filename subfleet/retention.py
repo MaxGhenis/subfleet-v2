@@ -6,7 +6,10 @@ count and byte limits hold. A turn job is also kept for `turn_keep_days` after
 it ends, and while the conversation service still needs it (its message is not
 terminal, its conversation is blocked, or a live runner reads its attempt):
 the service answers that through `pins`, which is asked again inside each
-delete transaction, like every other pin.
+delete transaction, like every other pin. A job with an unread notice
+addressed to a session is kept for `notice_keep_days` after the notice was
+written (0: for ever); a job retired with its notice still unread leaves that
+session an outcome notice (`retention_notices`).
 
 Retiring a job archives it first (design d635, `retention_archive`): nothing is
 deleted that the archive does not hold byte for byte, or that a network remote
@@ -42,10 +45,11 @@ from typing import Any
 
 from . import retention_archive as rarch
 from . import retention_git as rgit
+from . import retention_notices as rnotices
 from . import retention_qos as rqos
 from .contracts import (
-    RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
-    TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
+    NOTICE_RETENTION_KEEP_DAYS, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES,
+    TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
 from . import dependencies, folders, procs
 from .attempt_tmp import cleared_tmpdirs, job_tmpdirs, probe_tmpdir_rows
@@ -191,9 +195,10 @@ _PIN_QUERIES = (
     ("quarantined", "SELECT DISTINCT job_id FROM attempts WHERE state='quarantined'"),
     # C-8.4, IR-17: an unread notice pins its job only when some session can
     # still read it; a notice with no session is never delivered, so it would
-    # pin its job for ever.
-    ("unread-notice", "SELECT DISTINCT job_id FROM notices WHERE state IN ('pending','offered') "
-                      "AND session_id IS NOT NULL AND session_id <> ''"),
+    # pin its job for ever. And only for `notice_keep_s` after it was written
+    # (`_pin_reasons` reads its `created_at`): a session that never runs again
+    # never reads it either (D-NOTICE-KEEP1).
+    ("unread-notice", f"SELECT job_id, created_at FROM notices WHERE {rnotices.UNREAD_TO_A_SESSION}"),
     ("parent", "SELECT DISTINCT parent_job_id AS job_id FROM jobs WHERE parent_job_id IS NOT NULL"),
     ("job-lease", "SELECT j.job_id FROM jobs j JOIN leases l ON l.holder=j.job_id"),
     ("attempt-lease", "SELECT a.job_id FROM attempts a JOIN leases l ON l.holder=a.attempt_id"),
@@ -206,14 +211,21 @@ _PIN_QUERIES = (
 
 def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | None, *,
                  pins: Callable[[], Iterable[str]] | None = None, turn_keep_s: float = 0,
-                 only: str | None = None, hosted: dict[str, set[str]] | None = None,
-                 root: Path | None = None, legacy: dict[str, list[str]] | None = None) -> dict[str, str]:
+                 notice_keep_s: float = 0, only: str | None = None, hosted: dict[str, set[str]] | None = None,
+                 root: Path | None = None, legacy: dict[str, list[str]] | None = None,
+                 now: datetime | None = None) -> dict[str, str]:
     """job id -> why retention must keep it. Reads only database evidence (and
     the conversation service's, and `hosted`, which `nested_hosts` read from the
     trees before the pass, and `legacy`, which `dependencies.legacy` read then),
     so it is as safe inside the delete transaction. With the state `root`, a
     tree allocated before its row recorded it counts for `worktree-in-use` like
     a recorded one.
+
+    The clock is read once (`now`, UTC; default: the time of the call): a turn
+    job ended less than `turn_keep_s` before it is kept (C-26.12), and an unread
+    notice addressed to a session keeps its job until `notice_keep_s` after it
+    was written, compared as times, not strings (`retention_notices.fresh`;
+    `notice_keep_s` 0: for ever, the rule before D-NOTICE-KEEP1).
 
     `landed_salvage` is the set of salvage artifact ids whose commit is (or, at
     selection, will be) in the job's verified archive bundle: C-8.4 pins a job
@@ -232,7 +244,9 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
     if pins is not None:
         for job_id in pins():
             add(job_id, "conversation")
-    kept_since = (datetime.now(UTC) - timedelta(seconds=turn_keep_s)).isoformat(timespec="milliseconds")
+    now = datetime.now(UTC) if now is None else now
+    kept_since = (now - timedelta(seconds=turn_keep_s)).isoformat(timespec="milliseconds")
+    notices_from = rnotices.cutoff(now, notice_keep_s)
     where, params = (" WHERE job_id=?", (only,)) if only else ("", ())
     jobs = store.query(f"SELECT job_id,kind,state,finished_at,worktree,sandbox,in_place FROM jobs{where}", params)
     for row in jobs:
@@ -257,6 +271,8 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
         add(row["job_id"], "probe-tmpdir")
     for reason, sql in _PIN_QUERIES:
         for row in store.query(sql):
+            if reason == "unread-notice" and not rnotices.fresh(row["created_at"], notices_from):
+                continue        # C-8.4: unread for `notice_keep_s`, it keeps its job no longer
             add(row["job_id"], reason)
     # A job not yet ended that needs a place in this job's allocated tree: its
     # folder or workdir is the tree or inside it (a job an agent submitted from
@@ -349,9 +365,11 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
 
 
 def _pins(store: Store, explicit: set[str], landed_salvage: set[int], *,
-          pins: Callable[[], Iterable[str]] | None = None, turn_keep_s: float = 0) -> set[str]:
+          pins: Callable[[], Iterable[str]] | None = None, turn_keep_s: float = 0,
+          notice_keep_s: float = 0) -> set[str]:
     """The pinned job ids (the set form of `_pin_reasons`, for callers of the old API)."""
-    return set(_pin_reasons(store, explicit, landed_salvage, pins=pins, turn_keep_s=turn_keep_s))
+    return set(_pin_reasons(store, explicit, landed_salvage, pins=pins, turn_keep_s=turn_keep_s,
+                            notice_keep_s=notice_keep_s))
 
 
 # --- state kept across passes ---------------------------------------------------
@@ -410,6 +428,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 max_bytes: int = RETENTION_MAX_BYTES, turn_max_jobs: int = TURN_RETENTION_MAX_JOBS,
                 turn_max_bytes: int = TURN_RETENTION_MAX_BYTES,
                 turn_keep_s: float = TURN_RETENTION_KEEP_DAYS * 86400,
+                notice_keep_s: float = NOTICE_RETENTION_KEEP_DAYS * 86400,
                 pins: Callable[[], Iterable[str]] | None = None, referenced_job_ids: Iterable[str] = (),
                 salvage_referenced_elsewhere: Callable[[dict[str, Any]], bool] | None = None,
                 cancel: threading.Event | None = None, deadline: float | None = None,
@@ -422,7 +441,10 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
 
     Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
     `turn_max_jobs`/`turn_max_bytes` (C-26.12); a pool over its budget never
-    prunes the other. `deadline` bounds when new work may start (a started
+    prunes the other. An unread notice addressed to a session keeps its job
+    for `notice_keep_s` after it was written (0: for ever); retiring a job with
+    such a notice still unread writes its session the outcome
+    (`retention_notices`). `deadline` bounds when new work may start (a started
     job finishes its slice); `cancel` stops at the next checkpoint and leaves
     every retirement in its journal for the next pass. `holders` lists the
     processes holding a batch's trees (default: `lsof`). `pins` is asked again
@@ -434,7 +456,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     None: no limit).
     """
     budgets = {"detached": (max_jobs, max_bytes), "turn": (turn_max_jobs, turn_max_bytes)}
-    if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:
+    if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0 \
+            or not notice_keep_s >= 0:
         raise ValueError("retention limits must be nonnegative")
     state = state if state is not None else RetentionState()
     clock = clock or time.monotonic
@@ -448,7 +471,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
         jobs = store.list_jobs()
         return {**progress, "protected": sorted(job["job_id"] for job in jobs), "jobs_after": len(jobs),
                 "interrupted": str(exc), "more": True}
-    run = _Pass(store, Path(state_root).resolve(), budgets=budgets, turn_keep_s=turn_keep_s, pins=pins,
+    run = _Pass(store, Path(state_root).resolve(), budgets=budgets, turn_keep_s=turn_keep_s,
+                notice_keep_s=notice_keep_s, pins=pins,
                 explicit=set(referenced_job_ids), salvage_referenced_elsewhere=salvage_referenced_elsewhere,
                 cancel=cancel, deadline=deadline, state=state, holders=holders or lsof_holders, clock=clock,
                 batch=batch, slice_s=slice_s, measure_s=measure_s, progress=progress,
@@ -465,11 +489,12 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
 class _Pass:
     def __init__(self, store, root, *, budgets, turn_keep_s, pins, explicit, salvage_referenced_elsewhere,
                  cancel, deadline, state, holders, clock, batch, slice_s, measure_s, progress,
-                 remote_less_history_bytes=RETENTION_REMOTE_LESS_HISTORY_BYTES):
+                 remote_less_history_bytes=RETENTION_REMOTE_LESS_HISTORY_BYTES, notice_keep_s=0):
         self.store = store
         self.root = root
         self.budgets = budgets
         self.turn_keep_s = turn_keep_s
+        self.notice_keep_s = notice_keep_s
         self.pins = pins
         self.explicit = explicit
         self.vouched = salvage_referenced_elsewhere
@@ -484,7 +509,8 @@ class _Pass:
         self.progress = progress
         self.errors: list[dict[str, str]] = progress["errors"]
         self.ctx = rarch.Context(root, store, cancel=cancel, clock=clock, pinned=self._pinned_at_commit,
-                                 remote_less_history_bytes=remote_less_history_bytes, deadline=deadline)
+                                 remote_less_history_bytes=remote_less_history_bytes, deadline=deadline,
+                                 notice_keep_s=notice_keep_s)
         self.sizes: dict[str, int] = {}
         #: Jobs whose size could not be measured: decided, size unknown (N2).
         self.unknown: set[str] = set()
@@ -513,12 +539,13 @@ class _Pass:
     def _reasons(self, only: str | None = None) -> dict[str, str]:
         vouched = self._vouched()
         reasons = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
-                               only=only, hosted=self.hosted, root=self.root, legacy=self.legacy)
+                               notice_keep_s=self.notice_keep_s, only=only, hosted=self.hosted, root=self.root,
+                               legacy=self.legacy)
         if vouched:
             # The caller vouches for these salvage artifacts; recompute those jobs.
             strict = _pin_reasons(self.store, self.explicit, vouched | self._owned_salvage(), pins=self.pins,
-                                  turn_keep_s=self.turn_keep_s, only=only, hosted=self.hosted, root=self.root,
-                                  legacy=self.legacy)
+                                  turn_keep_s=self.turn_keep_s, notice_keep_s=self.notice_keep_s, only=only,
+                                  hosted=self.hosted, root=self.root, legacy=self.legacy)
             reasons = {k: v for k, v in reasons.items() if k in strict}
         return reasons
 
@@ -529,8 +556,8 @@ class _Pass:
 
     def _pinned_at_commit(self, job_id: str, landed: set[int]) -> str | None:
         reasons = _pin_reasons(self.store, self.explicit, landed | self._vouched(), pins=self.pins,
-                               turn_keep_s=self.turn_keep_s, only=job_id, hosted=self.hosted, root=self.root,
-                               legacy=self.legacy)
+                               turn_keep_s=self.turn_keep_s, notice_keep_s=self.notice_keep_s, only=job_id,
+                               hosted=self.hosted, root=self.root, legacy=self.legacy)
         return reasons.get(job_id)
 
     # the pass ----------------------------------------------------------------------
@@ -868,7 +895,8 @@ class _Pass:
         with self.store.transaction("retention.selected", job_id=job_id) as conn:
             self.ctx.check()
             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
-                                  only=job_id, hosted=self.hosted, root=self.root, legacy=self.legacy).get(job_id)
+                                  notice_keep_s=self.notice_keep_s, only=job_id, hosted=self.hosted, root=self.root,
+                                  legacy=self.legacy).get(job_id)
             # A turn may register after selection. Read its rows, on the tree
             # and on any folder inside it (P3-1), and acquire the fence
             # atomically; daemon reservation checks this same fence before
