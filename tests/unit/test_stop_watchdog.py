@@ -697,7 +697,7 @@ def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_th
     daemon.lock_watch.clock = lambda: now[0]
     daemon.lock_watch._thread = join("lockwatch")
     daemon._control_thread = join("control")
-    daemon._readers = [join("reader")]
+    daemon._readers = [join("reader"), join("reader")]
     monkeypatch.setattr(daemon._waits_answered, "wait_for", lambda predicate, timeout: spend("answers", timeout))
     monkeypatch.setattr(daemon.store._returned, "wait_for", lambda predicate, timeout: spend("store-readers", timeout))
     monkeypatch.setattr(daemon.timers, "stop", timers_stop)
@@ -732,7 +732,7 @@ def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_th
     named_stop_bound = now[0] - 1000.0
     assert named_stop_bound == 28
     assert waits == [("answers", 2), ("control", 2), ("probe-containment", 15),
-                     ("reader", 2), ("handoff", 0), ("catalog", 0), ("catalog", 2),
+                     ("reader", 2), ("reader", 0), ("handoff", 0), ("catalog", 0), ("catalog", 2),
                      ("runner", 5), ("lockwatch", 0), ("store-readers", 0)]
     assert named_stop_bound <= STOP_GRACE_S - 2
     assert STOP_BACKSTOP_S >= 5
@@ -759,9 +759,10 @@ def test_begin_close_during_start_is_nonblocking(tmp_path, monkeypatch):
         fence.extend(service._catalog_fence)
         entered.set()
         assert release.wait(5)
-        for fd in fence:
-            import os
-            os.fstat(fd)
+        import os
+        os.fstat(fence[0])
+        with pytest.raises(OSError):
+            os.fstat(fence[1])
         return process
 
     def send(pid, sig):

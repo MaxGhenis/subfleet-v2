@@ -430,8 +430,9 @@ def test_close_at_each_catalog_start_boundary(svc, runs, monkeypatch, phase):
         if phase == "in-spawn":
             entered.set()
             assert release.wait(5)
-            for fd in fence:
-                os.fstat(fd)
+            os.fstat(fence[0])
+            with pytest.raises(OSError):
+                os.fstat(fence[1])
         process = original_spawn(*args, **kwargs)
         if process is not None:
             original_poll = process.poll
@@ -466,9 +467,11 @@ def test_close_at_each_catalog_start_boundary(svc, runs, monkeypatch, phase):
             closer.start()
             closer.join(0.25)
             assert not closer.is_alive()
-            assert closed_fds == []
-            for fd in fence:
-                os.fstat(fd)
+            assert closed_fds == [fence[1]]
+            assert svc._catalog_fence == (fence[0], None)
+            os.fstat(fence[0])
+            with pytest.raises(OSError):
+                os.fstat(fence[1])
             release.set()
         starter.join(5)
         assert not starter.is_alive() and not errors
@@ -516,8 +519,13 @@ def test_close_bounds_the_start_handoff_and_the_late_starter_reaps(svc, runs, mo
     try:
         starter.start()
         assert entered.wait(5)
+        fence_read, fence_write = svc._catalog_fence
         svc.begin_close()
         fence = svc._catalog_fence
+        assert fence == (fence_read, None)
+        os.fstat(fence_read)
+        with pytest.raises(OSError):
+            os.fstat(fence_write)
         svc.clock.now += elapsed
         waits = []
 
@@ -531,6 +539,9 @@ def test_close_bounds_the_start_handoff_and_the_late_starter_reaps(svc, runs, mo
             svc._stop_catalog()
         assert waits == [service_module.CATALOG_HANDOFF_WAIT_S - elapsed]
         assert svc._catalog_stop_abandoned and svc._catalog_fence == fence
+        os.fstat(fence_read)
+        with pytest.raises(OSError):
+            os.fstat(fence_write)
         release.set()
         starter.join(5)
         assert not starter.is_alive() and not errors

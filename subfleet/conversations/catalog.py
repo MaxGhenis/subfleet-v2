@@ -457,7 +457,7 @@ class Owner:
     `<root>/catalog.lock`, so the root was neither removed nor replaced since the
     run took it. The service that started the run must still be open: it holds the
     only write end of a pipe whose read end the run inherits as `fence_fd`, and
-    closes it in `close()`; the kernel closes it if the daemon dies. End-of-file
+    closes it in `begin_close()`; the kernel closes it if the daemon dies. End-of-file
     there means the owner is gone. A run started by hand has no fence."""
 
     def __init__(self, root: Path, lock_fd: int, fence_fd: int | None = None):
@@ -633,10 +633,17 @@ def refresh_running(root: Path) -> bool | None:
     """Whether a catalog run holds the lock now; None when the lock cannot be read.
     A non-blocking probe: it never waits for a run. It takes the lock shared, so
     probes never exclude each other: one probe had read another (a list, and the
-    tick about to start a run) as a run, and no run started for an interval."""
+    tick about to start a run) as a run, and no run started for an interval.
+    Never create the lock: a missing lock in an existing root means no run;
+    a missing root means no owner and must not start a run."""
     lock = Path(root) / "catalog.lock"
     try:
-        fd = transcripts.lock_fd(lock)
+        fd = transcripts.regular_fd(lock)
+    except FileNotFoundError:
+        try:
+            return False if Path(root).is_dir() else None
+        except OSError:
+            return None
     except OSError:
         return None
     try:

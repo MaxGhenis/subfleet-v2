@@ -288,6 +288,31 @@ def test_discovery_and_opening_agree_on_every_transcript(moves, copy):
 
 # --- catalog.lock: a reader's probe is not a run (C-30.1) -------------------------------------
 
+@pytest.mark.parametrize("root_state", ["existing", "missing", "recreated"])
+def test_parent_probes_create_nothing(tmp_path, root_state):
+    root = tmp_path / "state"
+    if root_state != "missing":
+        root.mkdir()
+    if root_state == "recreated":
+        root.rmdir()
+        root.mkdir()
+    for _ in range(3):
+        assert catalog.refresh_running(root) is (None if root_state == "missing" else False)
+        assert list(tmp_path.iterdir()) == ([] if root_state == "missing" else [root])
+        if root_state != "missing":
+            assert list(root.iterdir()) == []
+
+
+def test_a_parent_probe_of_a_missing_root_never_spawns(tmp_path, monkeypatch):
+    def unexpected_spawn(*args, **kwargs):
+        raise AssertionError("a missing root has no owner")
+
+    monkeypatch.setattr(catalog.subprocess, "Popen", unexpected_spawn)
+    root = tmp_path / "missing"
+    assert catalog.spawn_refresh(root) is None
+    assert not root.exists() and list(tmp_path.iterdir()) == []
+
+
 def _held(root: Path, how: int) -> int:
     import fcntl
     fd = os.open(root / "catalog.lock", os.O_WRONLY | os.O_CREAT, 0o600)
