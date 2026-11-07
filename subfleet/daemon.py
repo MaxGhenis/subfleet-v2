@@ -59,7 +59,7 @@ from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
     CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
-    OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_MAX_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
+    LIVENESS_WRITE_S, OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_MAX_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
@@ -862,6 +862,9 @@ class Daemon:
         self._cwd_settle: dict[str, float] = {}
         self._cwd_recheck_next: dict[str, float] = {}
         self._counted_tables: dict[str, procs.ProcessTable] = {}
+        # C-5.12: monotonic time of each attempt's last committed observation.
+        # A restart forgets this pace, so its first fresh observation writes.
+        self._last_observed_alive_write: dict[str, float] = {}
         # C-26.14: attempt id -> transient failures of its end snapshot so far.
         self._tree_failures: dict[str, int] = {}
         # C-13.1: attempt id -> transient failures of its salvage so far.
@@ -5625,7 +5628,7 @@ class Daemon:
         for pacing in (self._inspect_next,):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
-        for name in ('_counted_tables', '_cwd_settle', '_cwd_wait_next', '_containment_rounds'):
+        for name in ('_counted_tables', '_last_observed_alive_write', '_cwd_settle', '_cwd_wait_next', '_containment_rounds'):
             pacing = self.__dict__.get(name, {})
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
@@ -9939,6 +9942,7 @@ class Daemon:
         if not a or a["state"] not in LIVE:
             self._inspect_next.pop(aid, None)
             self._inspect_retry.discard(aid)
+            self.__dict__.get('_last_observed_alive_write', {}).pop(aid, None)
             return None
         if imported_external(a):
             return None                     # v1 still owns it (principle 3): the loop's check, again
@@ -10699,16 +10703,18 @@ class Daemon:
         # Two distinct shared tables must prove absence/reuse. An unreadable
         # birth is no such proof. Persist the first miss beside its birth so
         # a restart cannot turn repeated short inspections into growing memory.
-        # Only table deduplication is in memory; a restart reads a new table.
+        # Counted first-miss state survives restart; table deduplication does not.
         history = getattr(self, '_counted_tables', None)
         if history is None:
             history = self._counted_tables = {}
         previous = evidence.get('counted_absent', {})
         previous_table = history.get(a['attempt_id'])
-        # D-WALL1 needs a durable liveness bound for every fresh observation.
+        # D-WALL1 needs a durable liveness bound, paced separately from inspection.
         # Retrying the same shared table must neither move that bound nor age
         # a counted identity twice, even if the clock has advanced meanwhile.
         observed = utcnow_ms() if previous_table is not table else None
+        observed_at = time.monotonic()
+        writes = self.__dict__.setdefault('_last_observed_alive_write', {})
         wrote = False
         absent = {}
         expired = {}
@@ -10740,26 +10746,36 @@ class Daemon:
                 current[key] = {pid: value for pid, value in current.get(key, {}).items()
                                 if dropping.get(pid) != value}
                 current[key].update(found)
-                if observed is not None:
+                if observed is not None and (not current.get('last_observed_alive_at')
+                                            or _earlier(current['last_observed_alive_at'], observed)):
                     current['last_observed_alive_at'] = observed
                 if key == 'counted_identities' and previous_table is not table:
                     current['counted_absent'] = {pid: value for pid, value in absent.items()
                                                 if current[key].get(pid) == value and pid not in found}
                     if not current['counted_absent']:
                         current.pop('counted_absent')
-                a["evidence_json"] = json.dumps(current)
+                encoded = json.dumps(current)
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
-                           (a["evidence_json"], a["attempt_id"]))
+                           (encoded, a["attempt_id"]))
+            a["evidence_json"] = encoded
+            if observed is not None:
+                writes[a['attempt_id']] = time.monotonic()
             wrote = True
-        if not wrote and observed is not None and evidence.get('last_observed_alive_at') != observed:
+        if (not wrote and observed is not None
+                and (a['attempt_id'] not in writes
+                     or observed_at - writes[a['attempt_id']] >= LIVENESS_WRITE_S)):
             with self.store.transaction('attempt.observed_alive', job_id=a['job_id'],
                                         attempt_id=a['attempt_id']) as tx:
                 actual = self.store.get_attempt(a['attempt_id']) or a
                 current = json.loads(actual.get('evidence_json') or '{}')
-                current['last_observed_alive_at'] = observed
-                a['evidence_json'] = json.dumps(current)
+                if (not current.get('last_observed_alive_at')
+                        or _earlier(current['last_observed_alive_at'], observed)):
+                    current['last_observed_alive_at'] = observed
+                encoded = json.dumps(current)
                 tx.execute('UPDATE attempts SET evidence_json=? WHERE attempt_id=?',
-                           (a['evidence_json'], a['attempt_id']))
+                           (encoded, a['attempt_id']))
+            a['evidence_json'] = encoded
+            writes[a['attempt_id']] = time.monotonic()
         # A failed write must repeat this observation, rather than publishing
         # a table whose first-miss state never reached the store.
         history[a['attempt_id']] = table
@@ -10817,6 +10833,7 @@ class Daemon:
                 # C-13.1, C-15.1: a retry that never launched names the attempt before it.
                 earlier = self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier + retained)
+        self.__dict__.get('_last_observed_alive_write', {}).pop(a['attempt_id'], None)
         self._cleanup_attempt_tmpdir(a, census)
         self._notify()
 
@@ -11247,6 +11264,7 @@ class Daemon:
             self._notice(tx, job, (f"attempt a{a['seq']} " if earlier else "") + "quarantined: " + detail + earlier)
         # Terminal attempts are no longer polled. Dropping a running Spawned
         # hands it to procs._abandoned, which a later spawn polls and reaps.
+        self.__dict__.get('_last_observed_alive_write', {}).pop(a['attempt_id'], None)
         self._children.pop(a["attempt_id"], None)
         self._notify()
 
@@ -11289,6 +11307,7 @@ class Daemon:
                              + self._cwd_notice(census), again=True)
             tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
             self._cascade_final_wall(a, wall_exited)
+        self.__dict__.get('_last_observed_alive_write', {}).pop(a['attempt_id'], None)
         self._cleanup_attempt_tmpdir(a, census)
         self._notify()
 
@@ -12005,6 +12024,7 @@ class Daemon:
                     # no notice).
                     summary += self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, summary)
+        self.__dict__.get('_last_observed_alive_write', {}).pop(a['attempt_id'], None)
         self._cleanup_attempt_tmpdir(a, census)
         if stream_failure:
             self.log.warning("attempt %s stream capture failed (%s): %s", a["attempt_id"],

@@ -398,7 +398,8 @@ def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_
     assert owned == {"4242": {"pid": 4242, "boot_id": "boot", "proc_start": STARTED},
                      "4243": {"pid": 4243, "boot_id": "boot", "proc_start": STARTED}}
     assert [row["kind"] for row in daemon.store.list_events(JOB)].count("attempt.processes_recorded") == 1
-    observed[0] = daemon_module._later(observed[0], 1)
+    observed[0] = daemon_module._later(observed[0], 60)
+    daemon._last_observed_alive_write[ATTEMPT] -= 60
     daemon._inspect_next[ATTEMPT] = 0                     # the interval ends
     # A fresh ps read creates a distinct snapshot even when its rows match.
     # Reusing the old snapshot must not advance either liveness or absence age.

@@ -1,0 +1,14 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_liveness_writes_at_the_minute_boundary_and_keeps_writing _________
+/Users/maxghenis/.subfleet/worktrees/20261106-082944-daemon-quiet-build/tests/unit/test_liveness_write_pacing.py:61: in test_liveness_writes_at_the_minute_boundary_and_keeps_writing
+    assert evidence(daemon)["last_observed_alive_at"] == initial
+E   AssertionError: assert '2026-10-22T11:00:01.000Z' == '2026-10-22T11:00:00.000Z'
+E     
+E     - 2026-10-22T11:00:00.000Z
+E     ?                   ^
+E     + 2026-10-22T11:00:01.000Z
+E     ?                   ^
+=========================== short test summary info ============================
+FAILED tests/unit/test_liveness_write_pacing.py::test_liveness_writes_at_the_minute_boundary_and_keeps_writing
+1 failed in 26.97s
