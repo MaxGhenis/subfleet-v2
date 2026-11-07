@@ -330,6 +330,68 @@ def no_process_listing(request, monkeypatch):
         monkeypatch.setattr(procs, "worktree_cwd_pids", lambda *a, **k: frozenset(), raising=False)
 
 
+def _merged_passes(first: dict, later: dict) -> dict:
+    """Two consecutive retention results as one call's: what each pass did is
+    added up, where things stand is the later pass's."""
+    merged = {**later}
+    for key in ("pruned", "errors", "reclaimed", "conflicts", "tmpdir_left"):
+        merged[key] = [*(first.get(key) or []), *(later.get(key) or [])]
+    merged["deferred"] = {**(first.get("deferred") or {}), **(later.get("deferred") or {})}
+    for key in ("listings", "listing_s", "freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes"):
+        merged[key] = (first.get(key) or 0) + (later.get(key) or 0)
+    for key in ("progressed", "holder_scan_failed"):
+        merged[key] = bool(first.get(key) or later.get(key))
+    merged["bytes_before"] = first.get("bytes_before")
+    pools = {name: dict(pool) for name, pool in (later.get("pools") or {}).items()}
+    for name, pool in (first.get("pools") or {}).items():
+        if name in pools:
+            pools[name].update({k: pool[k] for k in ("jobs_before", "bytes_before") if k in pool})
+            for k in ("freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes"):
+                pools[name][k] = pool.get(k, 0) + pools[name].get(k, 0)
+    if pools:
+        merged["pools"] = pools
+    return merged
+
+
+def catch_up(real):
+    """`real` (retention's `maintenance`) as the daemon's catch-up runs it.
+
+    One listing a pass (D-HOLDERS-LSOF1) means a job archived in a pass takes
+    its holder check 2 and finishes in the next pass, which the daemon starts
+    `RETENTION_CATCH_UP_S` later because the pass reports the job waiting. A
+    test written when one pass did both calls `maintenance` once and expects
+    the retirement: under `retention_catch_up`, that call runs the follow-up
+    passes too (at most three), with one `RetentionState` between them, while
+    a job waits for its check 2 and no pass was interrupted or failed its
+    listing, and returns the passes' results merged."""
+    from subfleet import retention
+
+    def maintenance(*args, **kwargs):
+        if kwargs.get("state") is None:
+            kwargs["state"] = retention.RetentionState()
+        result = real(*args, **kwargs)
+        for _ in range(3):
+            if not result.get("awaiting_check2") or result.get("interrupted") or result.get("holder_scan_failed"):
+                break
+            result = _merged_passes(result, real(*args, **kwargs))
+        return result
+    maintenance.real = real          # one pass, for a test about what a single pass leaves
+    return maintenance
+
+
+@pytest.fixture(autouse=True)
+def retention_catch_up(request, monkeypatch):
+    """A module or test marked `retention_catch_up` gets `catch_up` as retention's
+    `maintenance`, wherever it is called from (the daemon imports it by name)."""
+    if not request.node.get_closest_marker("retention_catch_up"):
+        return
+    from subfleet import daemon as daemon_module, retention
+    real = retention.maintenance
+    for module in (retention, daemon_module, request.module):
+        if getattr(module, "maintenance", None) is real:      # a test module that imported it by name too
+            monkeypatch.setattr(module, "maintenance", catch_up(real))
+
+
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     """The profile endpoint (C-10.6) is the one network call subfleet makes, and

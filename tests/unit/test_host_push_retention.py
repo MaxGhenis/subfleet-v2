@@ -11,6 +11,11 @@ from pathlib import Path
 from subfleet import retention
 from subfleet import retention_archive as rarch
 from test_host_push import accept, git, remote_heads, submit, worlds  # noqa: F401
+import pytest
+
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
 
 
 def test_retention_retires_an_accepted_push_job_whose_checkout_has_a_git_directory(worlds):

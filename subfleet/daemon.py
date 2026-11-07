@@ -231,7 +231,8 @@ PROBE_RECORD = (
 #: most `store.READ_WAIT_S` (1 s), then opens one of its own, and says so.
 READ_CONNECTIONS = 6
 #: d635: seconds a retention pass may start new work; a started job gets its
-#: archive slice (`retention.SLICE_S`) and the batch's two holder listings.
+#: archive slice (`retention.SLICE_S`), and the pass its one holder listing
+#: (D-HOLDERS-LSOF1).
 RETENTION_PASS_S = 180
 #: C-8.4: an idle, cancelled or non-advancing pass waits an hour from its end.
 RETENTION_INTERVAL_S = 3600
@@ -5872,7 +5873,8 @@ class Daemon:
                                  pins=self._retention_pins,
                                  cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                                  state=self._retention_state,
-                                 remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+                                 remote_less_history_bytes=int(budget["remote_less_history_bytes"]),
+                                 log=self.log)
         if self._unrun_dirty:
             # C-6.20: a sweep offered while this pass ran found the lock taken.
             self._sweep_unrun_worktrees()

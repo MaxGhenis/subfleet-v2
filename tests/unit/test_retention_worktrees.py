@@ -19,6 +19,10 @@ from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.salvage import salvage
 from subfleet.store import Store
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def git(cwd, *args):
     result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True)

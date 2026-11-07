@@ -10,6 +10,10 @@ from tests.fake.test_admission_liveness import CODEX, _checkout, _end, _live
 from tests.fake.test_turn_wait_reasons import SETTINGS, message_in
 from tests.unit.test_retention_shared_folders import retiring_tree
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.mark.parametrize("ending", ["commit", "holder-rollback"])
 @pytest.mark.parametrize("location", ["nested-worktree", "worktree", "job-directory"])
