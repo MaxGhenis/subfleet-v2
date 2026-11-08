@@ -1158,6 +1158,7 @@ class Daemon:
         # as clearing the deadline. No due-job clock is a wake.
         self._admission_pace_lock = threading.Lock()
         self._admission_wake_seq = 0
+        self._admission_capacity_revision = 0
         self._admission_rest_until = 0.0
         self._admission_closure_due = float("inf")
         self._admission_policy_seen = None
@@ -1195,6 +1196,12 @@ class Daemon:
         # C-6.4a, C-6.10: quarantine can retain a provider slot after its lane
         # lease is gone. Each pool must notice that count freeing independently.
         self._provider_quarantines_seen: dict[str, frozenset[str]] = {}
+        # C-6.10: each pool observes closure endings, lane enrollment/enabling
+        # and policy changes even while its jobs' capacity clocks run.
+        self._capacity_changes_seen: dict[str, tuple[frozenset, frozenset, str, int]] = {}
+        # A failed pass may have consumed census news before reaching every
+        # waiter. Keep that news until a whole pass of this pool succeeds.
+        self._capacity_change_retry: set[str] = set()
         # C-6.12, C-24.5: turn job id -> the error type its conversation check last
         # raised, so the log says so once per change rather than once a pass.
         self._turn_check_errors: dict[str, str] = {}
@@ -7315,6 +7322,8 @@ class Daemon:
             return
         with self._admission_pace_lock:
             self._admission_wake_seq += 1
+            if source in ("closure", "lane"):
+                self._admission_capacity_revision += 1
             self._admission_rest_until = 0.0
 
     def _admission_ready(self) -> bool:
@@ -7386,8 +7395,14 @@ class Daemon:
             # A pass that raises leaves both as the last whole pass left them: half
             # a hold set would read as "nothing left pending" and end the idle
             # stretch with the queue untouched. C-5.10 logs and paces the failure.
-            self._admit_pass(holds, tally, kind=kind)
+            try:
+                self._admit_pass(holds, tally, kind=kind)
+            except BaseException:
+                with self._admission_lock:
+                    self._capacity_change_retry.add(kind)
+                raise
             with self._admission_lock:
+                self._capacity_change_retry.discard(kind)
                 self._holds_by_kind = {**self._holds_by_kind, kind: holds}
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
@@ -7640,6 +7655,34 @@ class Daemon:
         finally:
             self._admission = state
 
+    def _capacity_change_news(self, kind: str) -> bool:
+        """C-6.10: capacity changes that bring this pool's backed-off waits forward.
+
+        Read once per pass, never by the control tick. A closure gone from the
+        in-force set was released or expired; changing its scope, cause or end
+        also retires its old condition. Each pool keeps its own last census.
+        """
+        # Capture before the snapshot: a condition added during this pass may
+        # be seen by a later route, then released before the next census. The
+        # revision still brings that wait forward when both sets look unchanged.
+        with self._admission_pace_lock:
+            revision = self._admission_capacity_revision
+        with self.store.snapshot():
+            closures = frozenset((row["closure_id"], row["lane_id"], row["scope"], row["until_at"], row["reason"])
+                                 for row in self.store.list_closures(active_at=utcnow()))
+            lanes = frozenset((row["lane_id"], row["enabled"], row["credential_epoch"], row["owner"],
+                               row["desktop"], row["credential_ref"])
+                              for row in self.store.lane_rows())
+        current = (closures, lanes, self.policy_digest, revision)
+        with self._admission_lock:
+            previous = self._capacity_changes_seen.get(kind)
+            self._capacity_changes_seen = {**self._capacity_changes_seen, kind: current}
+            retry = kind in self._capacity_change_retry
+        if retry:
+            return True
+        return bool(previous and (previous[0] - closures or previous[1] != lanes
+                                  or previous[2] != current[2] or previous[3] != revision))
+
     def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detached") -> None:
         """One pass over the queued jobs of one kind: `turn` or `detached` (C-26.9)."""
         output_identities: dict[str, str] = {}
@@ -7715,6 +7758,7 @@ class Daemon:
                          or self._provider_quarantines_seen.get(kind, frozenset()) - quarantines_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
             self._provider_quarantines_seen = {**self._provider_quarantines_seen, kind: quarantines_now}
+        freed = self._capacity_change_news(kind) or freed
         if kind == "detached" and self._take_answer_news():
             freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
@@ -8131,12 +8175,24 @@ class Daemon:
                 refused = unadmittable_now(far_s=0)[0]          # None too for a route not evaluated
                 if refused:
                     for_good = unadmittable_now()[0]
+                    try:
+                        # Standing refusals omit reading/slot reasons. Judge the
+                        # whole verdict before granting the event-only ceiling,
+                        # and retain every known reset without preparing a tree.
+                        waiting_decision = self._route(routed_job, extra_exclusions=extra_exclusions,
+                                                       desktop=desktop_account)
+                    except Unroutable as exc:
+                        self._unroutable(job, exc, holds)
+                        continue
                     hold = {"reason": scheduler.refusal_label(refused), "refused_now": refused, "unprepared": True,
                             **({"for_good": for_good} if for_good else {})}
                     # No lane would take it: C-23.16's demand, as the look it skipped would have found.
-                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + "|".join(refused), hold,
+                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + scheduler.verdict_signature(waiting_decision), hold,
                                                    lane_wait=True)
-                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    next_check = scheduler.waiting_metadata(
+                        waiting_decision, rechecks=rechecks,
+                        ceiling_s=scheduler.capacity_recheck_ceiling(waiting_decision),
+                        capacity_steer=routed_job.get("capacity_steer"))["next_check_at"]
                     with self.store.transaction("job.unprepared_wait", job_id=job["job_id"]) as tx:
                         taken = self._task_held_at_write(tx, job, holds)            # C-11.10 (R3-1)
                         if taken is None:
@@ -8657,7 +8713,8 @@ class Daemon:
                             rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
                                                            lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(
-                                decision, rechecks=rechecks, capacity_steer=decision_job.get("capacity_steer"))
+                                decision, rechecks=rechecks, ceiling_s=scheduler.capacity_recheck_ceiling(decision),
+                                capacity_steer=decision_job.get("capacity_steer"))
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",

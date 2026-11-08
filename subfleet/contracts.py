@@ -251,6 +251,7 @@ WORKSPACE_RETRY_CEILING_S = 300
 #: consecutive recheck that reaches the same verdict, to the ceiling.
 CAPACITY_RECHECK_BASE_S = 1
 CAPACITY_RECHECK_CEILING_S = 30
+CAPACITY_RECHECK_EVENT_CEILING_S = 600
 #: C-6.10: one job's admission probes are reserved at least this far apart. The
 #: clock runs from the reservation, so a probe that ran this long (its deadline
 #: stopped it) leaves its vehicle due at once, and one that failed in a second

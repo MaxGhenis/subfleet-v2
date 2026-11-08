@@ -996,7 +996,9 @@ class AdmissionMachine(RuleBasedStateMachine):
             if wait["rechecks"]:
                 assert counts[job_id] == decisions[job_id], \
                     f"C-6.10: {job_id} repeated its verdict ({wait['rechecks']} rechecks) and added a decision row"
-            ceiling = 60 if wait["signature"].startswith("probe-wait:") else scheduler.capacity_recheck_delay(wait["rechecks"])
+            verdict_ceiling = scheduler.capacity_recheck_ceiling(decision) if decision is not None else 30
+            ceiling = (60 if wait["signature"].startswith("probe-wait:") else
+                       scheduler.capacity_recheck_delay(wait["rechecks"], verdict_ceiling))
             assert (parse(job["next_check_at"]) - now).total_seconds() <= ceiling, \
                 f"C-6.10: {job_id}'s recheck is {job['next_check_at']}, later than {ceiling} s after its look"
 

@@ -191,9 +191,11 @@ def test_probe_the_notice_is_never_surfaced_to_a_caller_subfleet_launched(fleet)
 # --- what `why` says on the clock ---------------------------------------------------------------------
 
 def test_probe_a_stale_for_good_outlives_the_lanes_recovery_on_the_clock(fleet):
-    """The clock branch builds the hold as `{**known["hold"], **({"for_good": ...} if for_good else {})}`:
-    a `for_good` a look recorded stays in the hold after a fresh check finds a lane that could
-    take the job, so `why` says "it holds no other job back" of a job that is a waiter again."""
+    """A lane enabled again ends the wait before its clock, leaving no stale hold.
+
+    The earlier disabled-lane verdict must not survive in admission or `why`
+    after C-6.10's event look places the job on the recovered lane.
+    """
     from tests.caps import capped
     service, harness = fleet
     capped(service.policy)
@@ -203,8 +205,11 @@ def test_probe_a_stale_for_good_outlives_the_lanes_recovery_on_the_clock(fleet):
     service._admit()
     assert service._holds[older].get("for_good") == ["disabled"]            # the look's finding
     service.store.update_lane("claude-7", enabled=1)                        # a lane could take it again
-    service.store.update_job(older, next_check_at=after(30))                # still on its clock
+    service.store.update_job(older, next_check_at=after(30))                # event comes before its clock
     assert scheduler.unadmittable(service.policy, service._pin_view(service._desktop_identity()),
                                   service.store.get_job(older)) is None
     service._admit()
-    assert "for_good" not in service._holds[older], service._holds[older]
+    assert older not in service._holds
+    assert service.store.get_job(older)["state"] == "running"
+    assert service.store.list_attempts(older)[-1]["lane_id"] == "claude-7"
+    assert service.dispatch("why", {"job_id": older})["job"]["hold"] is None
