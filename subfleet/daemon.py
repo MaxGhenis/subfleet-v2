@@ -90,6 +90,9 @@ from .store import (Store, _pin_notice_key, cancel_info, job_flags, notice_finge
 from . import uncommitted
 
 
+ADMISSION_IDLE_PACE_S = 2
+
+
 def guardian_qos_args(qos: str) -> list[str]:
     """C-5.1, D-QOS-BOOKED1: the guardian's `--provider-qos` for one attempt's launch.
 
@@ -1003,12 +1006,14 @@ class Daemon:
             atomic_publish(policy_path, Path(__file__).with_name("default_policy.json").read_bytes())
         self.policy = load_policy(policy_path)
         self.policy_digest = policy_hash(policy_path)
+        self._admission_policy_seen = self.policy_digest
         # D-ENV1: every launch withholds the lanes' credential references, read
         # from the store at each launch; a lane gets only its own, resolved.
         self._provider_environment = ProviderEnvironment(self.policy, log=self.log,
                                                          references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self.store.watch_admission(self._wake_admission)
         self._attempt_temp = AttemptTemp(self.root, log=self.log)
         # C-12.10: holders whose census found members, with the state it was
         # taken in. No census is taken again until that state changes.
@@ -1148,6 +1153,15 @@ class Daemon:
         self._attempt_answers: dict[str, float] = {}
         self._answer_reads: dict[str, dict] = {}
         self._answer_news = False
+        # D-ADMIT-IDLE1: only the detached worker rests. A wake during a pass
+        # must survive that pass finishing, so it carries a generation as well
+        # as clearing the deadline. No due-job clock is a wake.
+        self._admission_pace_lock = threading.Lock()
+        self._admission_wake_seq = 0
+        self._admission_rest_until = 0.0
+        self._admission_closure_due = float("inf")
+        self._admission_policy_seen = None
+        self._admission_thread = threading.local()
         # C-6.10: job id -> the verdict a capacity wait keeps reaching, and how
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
@@ -2278,6 +2292,7 @@ class Daemon:
             self.log.warning("lane %s answered (%s) but the record could not be written: %s",
                              lane_id, source, type(exc).__name__)
         if freed:
+            self._wake_admission()
             self._notify()
 
     def _take_answer_news(self) -> bool:
@@ -2322,6 +2337,7 @@ class Daemon:
                                      aid, a["lane_id"], wait)
                     with self._answer_lock:                # the lane is free: the jobs held for it look now
                         self._answer_news = True
+                    self._wake_admission()
                     self._notify()
             with open_regular(state["path"]) as stream:
                 size = os.fstat(stream.fileno()).st_size
@@ -5426,6 +5442,8 @@ class Daemon:
         nothing would offer it again, so holding it back would drop it after the
         caller was told it was accepted.
         """
+        if key == "admission" and not self._admission_ready():
+            return
         with self._busy_lock:
             if (key in self._busy or self.stopping.is_set()
                     or (paced and time.monotonic() < self._worker_retry_at.get(key, 0))):
@@ -5441,6 +5459,8 @@ class Daemon:
                         self._worker_failures.pop(key, None)
                     self._worker_retry_at.pop(key, None)
             except Exception as exc:
+                if key == "admission":
+                    self._wake_admission()          # C-5.10 alone paces failures
                 # Provider/keychain errors can contain secrets; log the error
                 # type only. Safe details belong in structured outcome rows.
                 if not paced:
@@ -7284,7 +7304,68 @@ class Daemon:
         """C-26.9: the turn pass alone, on its own worker: a person is waiting."""
         self._admit_kind("turn", wait=False)
 
+    def _wake_admission(self, source: str = "wake") -> None:
+        """End the detached rest after a committed change, never a due look.
+
+        The daemon's store observes row changes, including the SQL lease deletes
+        made by workers and timers. Admission's own queue transitions are not
+        external arrivals; they must not keep an idle pass running forever.
+        """
+        if source == "jobs" and getattr(self._admission_thread, "active", False):
+            return
+        with self._admission_pace_lock:
+            self._admission_wake_seq += 1
+            self._admission_rest_until = 0.0
+
+    def _admission_ready(self) -> bool:
+        """A per-tick memory check; closure expiry was read by the last pass."""
+        with self._admission_pace_lock:
+            digest = getattr(self, "policy_digest", None)
+            if digest != self._admission_policy_seen:
+                self._admission_policy_seen = digest
+                self._admission_wake_seq += 1
+                self._admission_rest_until = 0.0
+            return time.monotonic() >= min(self._admission_rest_until, self._admission_closure_due)
+
     def _admit_kind(self, kind: str, *, wait: bool = True) -> None:
+        if kind != "detached":
+            self._admit_kind_once(kind, wait=wait)
+            return
+        started = time.monotonic()
+        started_at = utcnow()
+        with self._admission_pace_lock:
+            wake_seq = self._admission_wake_seq
+        active = getattr(self._admission_thread, "active", False)
+        self._admission_thread.active = True
+        try:
+            placed = self._admit_kind_once(kind, wait=wait)
+            if placed is None:                     # another pass holds the lock
+                return
+            # Include a closure that expired during this pass, even the first
+            # pass: its route snapshot may still have seen the hold in force.
+            expiry = self.store.one("SELECT min(until_at) AS due FROM closures "
+                                    "WHERE released_at IS NULL AND until_at>?", (started_at,))["due"]
+            expiry_at = _epoch(expiry)
+            if expiry and expiry_at is None:
+                # C-6.12: a corrupt closure is its route's error, never the
+                # detached worker's. It must not hide another closure's wake.
+                expiry_at = min((value for row in self.store.query(
+                    "SELECT DISTINCT until_at FROM closures WHERE released_at IS NULL AND until_at>?",
+                    (started_at,)) if (value := _epoch(row["until_at"])) is not None), default=None)
+            ended = time.monotonic()
+            with self._admission_pace_lock:
+                self._admission_closure_due = (ended + max(0, expiry_at - time.time())
+                                               if expiry_at is not None else float("inf"))
+                self._admission_rest_until = (ended + max(ADMISSION_IDLE_PACE_S, 4 * (ended - started))
+                                              if not placed and wake_seq == self._admission_wake_seq
+                                              and self._admission_closure_due > ended else 0.0)
+        except BaseException:
+            self._wake_admission()                 # an error gets only C-5.10's rest
+            raise
+        finally:
+            self._admission_thread.active = active
+
+    def _admit_kind_once(self, kind: str, *, wait: bool = True) -> int | None:
         """One admission pass over one kind of job, then the record of what it left unplaced (C-6.11)."""
         if kind == "turn" and not self._holds_by_kind["turn"] and not self.store.one(
                 "SELECT 1 FROM jobs WHERE state IN ('queued','waiting') AND kind='turn' "
@@ -7343,6 +7424,7 @@ class Daemon:
                 self._note_admission({"placed": placed}, holds)
             finally:
                 self._note_lock.release()
+        return tally["placed"]
 
     def _count_route(self, **counts: int) -> None:
         """C-6.3: add to `daemon.status`'s `route_evaluations`; both passes count."""
