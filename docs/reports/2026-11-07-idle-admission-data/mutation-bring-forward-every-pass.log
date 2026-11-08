@@ -1,0 +1,26 @@
+F
+=================================== FAILURES ===================================
+_______________ test_c6_10_no_change_never_brings_waits_forward ________________
+tests/fake/test_idle_capacity_events.py:161: in test_c6_10_no_change_never_brings_waits_forward
+    service._admit()
+subfleet/daemon.py:7308: in _admit
+    self._admit_kind("detached")
+subfleet/daemon.py:7350: in _admit_kind
+    placed = self._admit_kind_once(kind, wait=wait)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:7399: in _admit_kind_once
+    self._admit_pass(holds, tally, kind=kind)
+subfleet/daemon.py:8293: in _admit_pass
+    workspace, head, baseline, skipped = self._workspace(job)
+                                         ^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_idle_capacity_events.py:160: in <lambda>
+    monkeypatch.setattr(service, "_workspace", lambda job: pytest.fail("unchanged capacity was looked at"))
+                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: unchanged capacity was looked at
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4501662288:daemon.py:997 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501662288:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_events.py::test_c6_10_no_change_never_brings_waits_forward
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 9.08s

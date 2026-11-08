@@ -1,0 +1,218 @@
+{
+  "baseline": {
+    "name": "baseline",
+    "returncode": 0,
+    "tests_run": 79,
+    "failed_tests": [],
+    "errors": [],
+    "elapsed_s": 24.654,
+    "killed": false,
+    "log": "docs/reports/2026-11-07-idle-admission-data/mutation-baseline.log",
+    "command": [
+      "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/.venv/bin/python3",
+      "-m",
+      "pytest",
+      "-q",
+      "-x",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--basetemp=/private/tmp/idle-admission-mutations/run-cxo5twom/baseline/pytest",
+      "--junitxml=/private/tmp/idle-admission-mutations/run-cxo5twom/baseline/junit.xml",
+      "tests/fake/test_idle_admission_pacing.py",
+      "tests/fake/test_idle_capacity_events.py"
+    ]
+  },
+  "mutations": [
+    {
+      "name": "no-rest",
+      "returncode": 1,
+      "tests_run": 1,
+      "failed_tests": [
+        "tests.fake.test_idle_admission_pacing::test_idle_pass_rests_from_its_end_for_at_least_four_durations[0.01]"
+      ],
+      "errors": [],
+      "elapsed_s": 7.575,
+      "killed": true,
+      "log": "docs/reports/2026-11-07-idle-admission-data/mutation-no-rest.log",
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/idle-admission-mutations/run-cxo5twom/no-rest-test/pytest",
+        "--junitxml=/private/tmp/idle-admission-mutations/run-cxo5twom/no-rest-test/junit.xml",
+        "tests/fake/test_idle_admission_pacing.py::test_idle_pass_rests_from_its_end_for_at_least_four_durations"
+      ],
+      "mutated_file_sha256": "b91d6acaeb6db2535cbef33a6595f9644551a490dcb6308a9ff7b43a137b351f"
+    },
+    {
+      "name": "no-submit-wake",
+      "returncode": 1,
+      "tests_run": 1,
+      "failed_tests": [
+        "tests.fake.test_idle_admission_pacing::test_each_semantic_wake_starts_detached_on_the_next_tick[submit]"
+      ],
+      "errors": [],
+      "elapsed_s": 9.136,
+      "killed": true,
+      "log": "docs/reports/2026-11-07-idle-admission-data/mutation-no-submit-wake.log",
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/idle-admission-mutations/run-cxo5twom/no-submit-wake-test/pytest",
+        "--junitxml=/private/tmp/idle-admission-mutations/run-cxo5twom/no-submit-wake-test/junit.xml",
+        "tests/fake/test_idle_admission_pacing.py::test_each_semantic_wake_starts_detached_on_the_next_tick[submit]"
+      ],
+      "mutated_file_sha256": "2caa94cee7c654acc85ed71522cbea76376d92d8d1ccf24f97b51cd29939539d"
+    },
+    {
+      "name": "no-released-closure-wake",
+      "returncode": 1,
+      "tests_run": 1,
+      "failed_tests": [
+        "tests.fake.test_idle_admission_pacing::test_each_semantic_wake_starts_detached_on_the_next_tick[closure-release]"
+      ],
+      "errors": [],
+      "elapsed_s": 9.403,
+      "killed": true,
+      "log": "docs/reports/2026-11-07-idle-admission-data/mutation-no-released-closure-wake.log",
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/idle-admission-mutations/run-cxo5twom/no-released-closure-wake-test/pytest",
+        "--junitxml=/private/tmp/idle-admission-mutations/run-cxo5twom/no-released-closure-wake-test/junit.xml",
+        "tests/fake/test_idle_admission_pacing.py::test_each_semantic_wake_starts_detached_on_the_next_tick[closure-release]"
+      ],
+      "mutated_file_sha256": "85645cd138b768dd93229c2fa01cecfb66a39e96018ed7f97238796052618210"
+    },
+    {
+      "name": "600-seconds-for-every-verdict",
+      "returncode": 1,
+      "tests_run": 1,
+      "failed_tests": [
+        "tests.fake.test_idle_capacity_events::test_c6_10_reading_or_time_verdicts_keep_the_30_second_ceiling[provider-limit]"
+      ],
+      "errors": [],
+      "elapsed_s": 6.989,
+      "killed": true,
+      "log": "docs/reports/2026-11-07-idle-admission-data/mutation-600-seconds-for-every-verdict.log",
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/idle-admission-mutations/run-cxo5twom/600-seconds-for-every-verdict-test/pytest",
+        "--junitxml=/private/tmp/idle-admission-mutations/run-cxo5twom/600-seconds-for-every-verdict-test/junit.xml",
+        "tests/fake/test_idle_capacity_events.py::test_c6_10_reading_or_time_verdicts_keep_the_30_second_ceiling"
+      ],
+      "mutated_file_sha256": "f1fee34a4f1eb6a89060104e85bad3f77e463d232bdc8c33ac2ed899a1d2895a"
+    },
+    {
+      "name": "no-released-closure-bring-forward",
+      "returncode": 1,
+      "tests_run": 1,
+      "failed_tests": [
+        "tests.fake.test_idle_capacity_events::test_c6_10_capacity_events_bring_every_eligible_wait_forward[released]"
+      ],
+      "errors": [],
+      "elapsed_s": 13.069,
+      "killed": true,
+      "log": "docs/reports/2026-11-07-idle-admission-data/mutation-no-released-closure-bring-forward.log",
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/idle-admission-mutations/run-cxo5twom/no-released-closure-bring-forward-test/pytest",
+        "--junitxml=/private/tmp/idle-admission-mutations/run-cxo5twom/no-released-closure-bring-forward-test/junit.xml",
+        "tests/fake/test_idle_capacity_events.py::test_c6_10_capacity_events_bring_every_eligible_wait_forward[released]"
+      ],
+      "mutated_file_sha256": "641d1ba6ca9b97049cb88df1ba682e03902ad52f3673d0a40346aa13f7dd2490"
+    },
+    {
+      "name": "bring-forward-every-pass",
+      "returncode": 1,
+      "tests_run": 1,
+      "failed_tests": [
+        "tests.fake.test_idle_capacity_events::test_c6_10_no_change_never_brings_waits_forward"
+      ],
+      "errors": [],
+      "elapsed_s": 12.775,
+      "killed": true,
+      "log": "docs/reports/2026-11-07-idle-admission-data/mutation-bring-forward-every-pass.log",
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/idle-admission-mutations/run-cxo5twom/bring-forward-every-pass-test/pytest",
+        "--junitxml=/private/tmp/idle-admission-mutations/run-cxo5twom/bring-forward-every-pass-test/junit.xml",
+        "tests/fake/test_idle_capacity_events.py::test_c6_10_no_change_never_brings_waits_forward"
+      ],
+      "mutated_file_sha256": "5ccca9e733db0733a743e31f1a54b80c85d9733580a59ee65b86373d7bd7e912"
+    },
+    {
+      "name": "unknown-reason-event-only",
+      "returncode": 1,
+      "tests_run": 1,
+      "failed_tests": [
+        "tests.fake.test_idle_capacity_events::test_c6_10_every_rejection_reason_has_a_conservative_classification[future-rejection-False]"
+      ],
+      "errors": [],
+      "elapsed_s": 12.69,
+      "killed": true,
+      "log": "docs/reports/2026-11-07-idle-admission-data/mutation-unknown-reason-event-only.log",
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/idle-admission-mutations/run-cxo5twom/unknown-reason-event-only-test/pytest",
+        "--junitxml=/private/tmp/idle-admission-mutations/run-cxo5twom/unknown-reason-event-only-test/junit.xml",
+        "tests/fake/test_idle_capacity_events.py::test_c6_10_every_rejection_reason_has_a_conservative_classification[future-rejection-False]"
+      ],
+      "mutated_file_sha256": "7bed2e5ca6f4c09665a396786b14d75dbdaa04a22dae26769fe5c824baa45e14"
+    }
+  ],
+  "sources_sha256": {
+    "subfleet/daemon.py": "c41debc72cab730ceb42dc059749f4a231888a4e06b74cb53289eb64f25e7196",
+    "subfleet/store.py": "1c05efe3da25fbfbb096662e0a7650849631286124d829caac094c09accac9c8",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28",
+    "tests/fake/test_idle_admission_pacing.py": "0c32e8c14fa381a52745e9a56c6982d70b4f48d4070a393bd5bd26ac8d791f32",
+    "tests/fake/test_idle_capacity_events.py": "40497c3fc65aac0c794fea30cc83c11e7be09cb30ddeb3ed91fd5c479f304f74"
+  }
+}
