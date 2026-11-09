@@ -6,7 +6,8 @@
 
 ## The ask
 
-Each Max plan comes with a monthly Claude API credit ($200 on Max 20x). The credit
+Max and Ultra plans come with a monthly Claude API credit (Anthropic's docs page listed
+$100 for Max and $200 for Ultra on 2026-11-09). The credit
 expires at the end of the billing cycle and never rolls over. The `claude-credits` tool
 (public README: github.com/MaxGhenis/claude-credits) stores one API key per plan and
 spends the soonest-expiring credit first. Max approved asking the hub for a Subfleet
@@ -18,8 +19,8 @@ lane kind that:
 
 ## One plan
 
-Max ruled on 2026-11-03 that Subfleet spends one plan's credit, on its holder's own work,
-rather than pooling many plans. So Subfleet runs at most one credit lane:
+Max ruled on 2026-11-03 that Subfleet spends one plan's credit rather than pooling many
+plans. So Subfleet runs at most one credit lane:
 
 - Enrollment refuses a second `claude-api` account with `api-lane-limit`. It accepts the
   same account again; to replace the account, the operator removes the old lane first.
@@ -27,7 +28,7 @@ rather than pooling many plans. So Subfleet runs at most one credit lane:
   `claude-api` lane, so a lane that reaches the roster some other way can't spend a
   second organization's credit.
 - The plan and its organization stay out of this public repository. The operator
-  enrolls the one Max named.
+  enrolls the one Max chose.
 
 An earlier draft of this design pooled every plan's credit and ranked lanes by expiry.
 This revision drops both.
@@ -115,8 +116,9 @@ organization with no purchased credit and no auto-reload: one that pays for usag
 serving past the plan credit and bills for it. So Subfleet keeps its own ledger and
 never relies on the error alone.
 
-- **Budget.** The lane carries `credit_usd`, which the operator sets at enrollment: $200
-  for a Max 20x plan, or $100 for a Max 5x plan.
+- **Budget.** The lane carries `credit_usd`, which the operator sets at enrollment to the
+  amount its organization's Billing page shows. Without `--credit-usd` a new lane takes
+  $200 today, so the operator passes it for any other amount.
 - **Cycle.** A cycle runs from the plan's last renewal to its next one, by the same
   rule as `claude_credits.days_left`. With no renewal day known, the ledger counts the
   trailing 31 days instead. No cycle is longer, so that can only shrink a grant.
@@ -346,10 +348,12 @@ exemption, the harness and its records. It merges contract conflicts with the hu
 
 1. **Build** on a lane pinned to Opus, since it handles credentials and process
    isolation, on `feat/credit-lane-217`, as a draft PR against `release/217`.
-2. **Review** on an independent Opus lane, then merge on the usual gates.
+2. **Review** on an independent lane pinned to Opus, for the same reason (GPT-6.1 Sol, the
+   default reviewer, has ended hands-on reviews of this kind with a content-filter refusal),
+   then merge on the usual gates.
 3. **Install** in the next release slot, with a daemon restart through the install kit.
    The hub coordinates the slot with Fleet ops.
-4. **Enroll** the one plan Max named, with `credit_usd` at its plan's monthly credit,
+4. **Enroll** the one plan Max chose, with `credit_usd` at its plan's monthly credit,
    once its organization can't bill past the credit (see "Cycle spend cap", Scope). Max
    confirmed on 2026-11-03 that the organization has no card on file and no auto-reload.
 5. **Smoke test:**
@@ -365,7 +369,7 @@ exemption, the harness and its records. It merges contract conflicts with the hu
 
 ## Timing
 
-The lane spends one plan's credit: $200 a cycle on Max 20x. A standard key can't read how
+The lane spends one plan's monthly credit. A standard key can't read how
 much of the current cycle's credit remains. Until the lane ships, work that already calls
 the plain Messages API can spend it by running under `claude-credits exec`.
 
