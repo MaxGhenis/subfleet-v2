@@ -347,6 +347,15 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "login-busy": ("lane still has live work or an execution lease", None),
     "cards-target": ("cards: the only target is 'refresh'", None),
     "operations-command": ("unknown operator command", None),
+    # Retention's delete path (C-8.7, d2660).
+    "retention-delete-action": ("retention delete: action must be dry-run, apply, status or stop", None),
+    "retention-delete-dormant": ("retention delete: retention is dormant (SUBFLEET_RETENTION_DORMANT=1)", None),
+    "retention-delete-limit": ("retention delete: --limit must be a positive integer", None),
+    "retention-delete-request": ("retention delete: the request is invalid",
+                                 "check it with subfleet retention delete --request FILE --dry-run, "
+                                 "which names the field"),
+    "retention-delete-busy": ("retention delete: a request is already running",
+                              "wait for it, or stop it with subfleet retention delete --stop"),
     # Notices, pings and sessions (C-15.8, C-23.39).
     "notice-ack-fingerprints": ("notice.ack: give one fingerprint per id, or none", None),
     "notice-ack-fingerprint-type": ("notice.ack: every fingerprint is a string, as the listing gives it", None),
