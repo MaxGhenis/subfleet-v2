@@ -313,6 +313,7 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "task-hold-note": ("tasks hold: --note is required: one line of printable characters, at most 160, "
                        "and no credential", None),
     "task-hold-until": ("tasks hold: --until must be a later ISO 8601 instant", None),
+    "task-hold-condition": ("tasks: hold note does not match --if-note-prefix", None),
     "tasks-action": ("tasks: the action is list, hold or release", None),
     "transfer-lane": ("lanes transfer: name a lane", None),
     "transfer-owner": ("lanes transfer: --to must be v1 or v2", None),
@@ -513,6 +514,39 @@ def checked(name: str, value: Any) -> bool:
     return not ids.holds_credential(value)
 
 
+def task_hold_condition_details(details: Any) -> dict[str, Any] | None:
+    """The sole structured handler detail admitted on the wire (C-11.10).
+
+    A blocking hold has the same four keys and types as a hold reply. This is
+    deliberately apart from the generic template values: no free-text value is
+    added to that vocabulary. Notes pass the hold's shape checks and its whole
+    credential scrubber; supported notes therefore stay as status shows them.
+    """
+    from . import task_holds
+    from .sessions.handoff import scrub_secrets
+
+    if type(details) is not dict or set(details) != {"task_hold"}:
+        return None
+    hold = details["task_hold"]
+    if type(hold) is not dict or set(hold) != {"task", "until", "note", "since"}:
+        return None
+    task, until, note, since = (hold[name] for name in ("task", "until", "note", "since"))
+    if (type(task) is not str or not task or not task.isprintable() or ids.holds_credential(task)
+            or type(until) is not str or (since is not None and type(since) is not str)
+            or type(note) is not str or len(note) > task_holds.NOTE_MAX or not note.isprintable()):
+        return None
+    try:
+        task_holds.instant(until)
+        if since is not None:
+            task_holds.instant(since)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    clean, _ = scrub_secrets(note, strip_reminders=True, whole=True)
+    if ids.holds_credential(clean):
+        return None
+    return {"task_hold": {"task": task, "until": until, "note": clean, "since": since}}
+
+
 def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
     """The public message and fix for a handler refusal's reason and details."""
     if type(reason) is not str or reason not in HANDLER_MESSAGES:
@@ -526,6 +560,12 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
             break
     else:                                   # unreachable while the last forms name no value
         return FALLBACK
+    if reason == "task-hold-condition":
+        checked_hold = task_hold_condition_details(details)
+        if checked_hold is not None:
+            hold = checked_hold["task_hold"]
+            message += (f": task {hold['task']}, until {hold['until']}, "
+                        f"note {hold['note']!r}, since {hold['since']}")
     if reason == "guard-preflight" and checked("guard_kind", details.get("guard_kind")):
         kind = details["guard_kind"]
         if kind == "trust":
