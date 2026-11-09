@@ -5755,8 +5755,7 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S \
-                        or self._retention_delete_ready():
+                if self._retention_due():
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -5845,6 +5844,11 @@ class Daemon:
             since = ""
         return set(pins) | {row["job_id"] for row in self._ramp_rows(since)
                             if _seconds_between(row["reserved_at"], now) < cfg["window_s"]}
+
+    def _retention_due(self) -> bool:
+        """The retention worker has a turn: the hourly pass is due, or the
+        operator's delete path has a step due (C-8.7)."""
+        return time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S or self._retention_delete_ready()
 
     def _retention_delete_ready(self) -> bool:
         """C-8.7: the delete path has a job or a journal due, and retention is not dormant."""

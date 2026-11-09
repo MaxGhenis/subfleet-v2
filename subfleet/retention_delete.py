@@ -105,6 +105,8 @@ RECORD = ".request.json"
 KEPT_NAMESPACE = "refs/subfleet-kept"
 #: The tombstone's name in the job's journal folder.
 TOMBSTONE = "tree"
+#: The one event a deleted tree's job gets; its data is the marker.
+EVENT = "retention.tree_deleted"
 #: Decimal gigabytes, as the request's `min_free_gb` counts them.
 GB = 10 ** 9
 #: Symlinks followed while resolving one path before it counts as unresolvable.
@@ -293,10 +295,11 @@ class Excluder:
             try:
                 st = os.lstat(candidate)
             except FileNotFoundError:
-                path = candidate
-                for rest in reversed(pending):
-                    path = os.path.dirname(path) if rest == ".." else os.path.join(path, rest)
-                return (None, "excluded") if self.covers(path) else (path, None)
+                # As `os.path.realpath` does: a missing part is no link, and
+                # what follows it is resolved part by part, so a `..` back out
+                # of it and on through a link is still checked before it is read.
+                current = candidate
+                continue
             except OSError as exc:
                 return None, f"unresolvable: {candidate}: {exc.strerror or exc}"
             if stat.S_ISLNK(st.st_mode):
@@ -740,6 +743,13 @@ def _typed_commits(git_dir: Path, tokens: set[str], cancel: threading.Event | No
     if typed["tag"]:
         commits |= rgit.peel_tags(git_dir, typed["tag"], cancel=cancel)["commit"]
     return commits
+
+
+def _ref_folders(common: Path, ref: str) -> list[Path]:
+    """The folders a loose `ref` sits in below `refs/`, shallowest first: for
+    `refs/subfleet-kept/<job>/<n>/<m>`, the namespace, the job's and the root's."""
+    parts = ref.split("/")[1:-1]
+    return [common.joinpath("refs", *parts[:i]) for i in range(1, len(parts) + 1)]
 
 
 def admin_commits(admin: Path, fmt: str, cancel: threading.Event | None = None) -> set[str]:
@@ -1627,11 +1637,6 @@ class DeletePath:
                 pass
             except OSError as exc:
                 notes.append(f"{path} stays ({_why(exc)})")
-        for folder in journal.get("made_folders") or ():
-            try:
-                os.rmdir(folder)
-            except OSError:
-                pass
         for ref in journal.get("refs_written") or ():
             repository = Path(ref["repository"])
             try:
@@ -1644,6 +1649,13 @@ class DeletePath:
                                  "it stays")
             except (rgit.GitError, OSError) as exc:
                 notes.append(f"{ref['ref']} in {ref['repository']} stays ({type(exc).__name__})")
+        # After the refs and bundles in them, deepest first: git prunes a ref's
+        # empty folders when it deletes the ref, but never `refs/<namespace>`.
+        for folder in reversed(journal.get("made_folders") or ()):
+            try:
+                os.rmdir(folder)
+            except OSError:
+                pass
         self._release(list(journal.get("keys") or ()), str(journal.get("holder") or f"retention:{job_id}"), job_id)
         self._drop(journal)
         return {"notes": notes}
@@ -1725,6 +1737,9 @@ class DeletePath:
                 m += 1
                 if not late:
                     created.append({"repository": str(common), "ref": ref, "commit": tip})
+                    # The folders the loose ref will make, so a rollback takes them away too.
+                    made = journal.setdefault("made_folders", [])
+                    made += [str(f) for f in _ref_folders(common, ref) if str(f) not in made and not os.path.lexists(f)]
                     self._saved(journal, journal["state"], refs_written=created)
                 rgit.create_ref(common, ref, tip, cancel=self.cancel)
             if rgit.resolve(common, ref, cancel=self.cancel) != tip:
@@ -1835,8 +1850,7 @@ class DeletePath:
             marker = self._marker(journal)
             rfs.write_atomic(marks.marker_path(self.root, job_id), _canonical(marker))
             self._hook(job_id, "marker-written")
-            if not self.store.one("SELECT 1 FROM events WHERE kind='retention.tree_deleted' AND job_id=?", (job_id,)):
-                self.store.add_event("retention.tree_deleted", job_id=job_id, data=marker)
+            self._record_event(job_id, marker)
             self._saved(journal, "marked", ended_at=marker["ended_at"], free_after=marker["free_after"])
             state = "marked"
         if state == "marked":
@@ -1851,6 +1865,21 @@ class DeletePath:
                    admins=journal.get("admin_report") or {})
         out.setdefault("class", journal.get("class"))
         return out
+
+    def _record_event(self, job_id: str, marker: dict[str, Any]) -> None:
+        """The job's one `retention.tree_deleted` event, carrying the marker.
+        The look for an earlier one and the write share a transaction, so a
+        restart that finishes the deletion again never writes a second. The
+        block writes its own row and turns the transaction's audit row off, as
+        the daemon's hold writes do: `Store.add_event` would add an empty audit
+        row of the same kind after it."""
+        with self.store.transaction(EVENT, job_id=job_id) as tx:
+            self.store.audit_as(None)
+            if tx.execute("SELECT 1 FROM events WHERE kind=? AND job_id=? LIMIT 1", (EVENT, job_id)).fetchone():
+                return
+            tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
+                       (_utc(self.now()), EVENT, job_id, None, None,
+                        json.dumps(marker, sort_keys=True, separators=(",", ":"), ensure_ascii=False)))
 
     def _marker(self, journal: dict[str, Any]) -> dict[str, Any]:
         kept = journal.get("kept") or {}
@@ -1908,8 +1937,10 @@ class DeletePath:
                 continue
             common = Path(item["common"])
             root = plan.get(item["n"]) or {}
+            # Only what a written ref holds counts as kept, never what the plan
+            # meant to keep: a commit the keep step missed gets a late ref here,
+            # and the registration stays.
             tips = {r["commit"] for r in kept_refs if r["repository"] == item["common"] and r.get("n") == item["n"]}
-            tips |= set(root.get("tips") or ())
             try:
                 fmt = root.get("fmt") or rgit.object_format(common, cancel=self.cancel)
                 fresh = admin_commits(Path(admin), fmt, cancel=self.cancel) - tips

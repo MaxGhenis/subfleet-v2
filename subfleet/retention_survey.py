@@ -199,6 +199,11 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         r = rows[job["job_id"]]
         pool = r["pool"]
         over = counts[pool] > budgets[pool][0] or totals[pool] > budgets[pool][1]
+        if job["job_id"] in kept:
+            # C-8.7: kept for good whatever the budget says, so it reads as
+            # deleted (or being deleted) even in a pool within its budget.
+            r["kept"] = kept[job["job_id"]]
+            continue
         if not over:
             r["kept"] = "within budget"
             continue
