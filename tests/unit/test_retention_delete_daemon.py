@@ -192,7 +192,9 @@ def test_the_op_reaches_the_path_and_the_worker_runs_a_dry_run_to_its_end(real, 
         turns += 1
     dry = real.status()["dry_run"]
     assert dry["status"] == "done" and turns == 2 and no_pass == []
-    assert {line["job_id"]: line["gate"] for line in dry["results"]} == {"job-a": "listed", "job-b": "listed"}
+    # Neither job has a row in this store, so each stops at gate 2 and nothing is touched.
+    assert {line["job_id"]: (line["gate"], line["reason"]) for line in dry["results"]} == {
+        "job-a": ("finished", "no job row"), "job-b": ("finished", "no job row")}
     assert d._last_maintenance == clock and not (real.root / "retention-delete").exists()
 
 
