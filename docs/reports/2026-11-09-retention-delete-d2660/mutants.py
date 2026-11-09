@@ -1,5 +1,6 @@
-"""The d2660 brief's 15 mutants of the retention delete path, and four more for
-the defects its tests found, each applied alone and killed by a named test.
+"""The d2660 brief's 15 mutants of the retention delete path, four more for the
+defects its tests found, each applied alone and killed by a named test, and one
+(20) that must survive: it drops only checks another function repeats.
 
 Each lane is a copy of the committed tree (`git archive HEAD`: `subfleet/`,
 `tests/`, `pyproject.toml`) in a folder named `sf-d2660-b1.mut.*` under the
@@ -41,13 +42,42 @@ def lines(*parts: str) -> str:
     return "\n".join(parts)
 
 
+#: The whole owned-path gate of `DeletePath._first_gates` (gate 4), as committed.
+OWNED_PATH_GATE = lines('        if job.get("in_place"):',
+           '            raise _Gate("owned-path", "an in-place job: its folder is not the daemon\'s")',
+           '        if job.get("sandbox") != "workspace-write":',
+           '            raise _Gate("owned-path", f"sandbox {job.get(\'sandbox\')}: no allocated worktree")',
+           '        try:',
+           '            tree = ret._owned_worktree(job, self.root)',
+           '        except ValueError as exc:',
+           '            raise _Gate("owned-path", str(exc))',
+           '        if tree is None:',
+           '            raise _Gate("owned-path", "no allocated worktree")',
+           '        allocated = self.root / "worktrees"',
+           '        if tree == allocated or allocated not in tree.parents:',
+           '            raise _Gate("owned-path", f"{tree} is not strictly below {allocated}")',
+           '        try:',
+           '            st = os.lstat(tree)',
+           '        except FileNotFoundError:',
+           '            raise _Gate("owned-path", f"{tree} is not there")',
+           '        if not stat.S_ISDIR(st.st_mode):',
+           '            raise _Gate("owned-path", f"{tree} is not a directory")',
+           '        if st.st_dev != os.lstat(self.root).st_dev:',
+           '            raise _Gate("owned-path", f"{tree} is on another volume than the state root")',
+           '        try:',
+           '            folder = folders.canonical(tree)',
+           '        except OSError as exc:',
+           '            raise _Gate("owned-path", f"{tree}: {type(exc).__name__}")',
+           '        if not _inside(folder, str(allocated)) or _key(folder) == _key(str(allocated)):',
+           '            raise _Gate("owned-path", f"{folder} is not strictly below {allocated}")') + "\n"
+
+
 MUTANTS = [
     {"id": 1, "name": "Skip the owned-path gate", "file": RD,
-     "edits": [('        if job.get("in_place"):', '        if False:'),
-               ('        if job.get("sandbox") != "workspace-write":', '        if False:'),
-               ("        if tree == allocated or allocated not in tree.parents:", "        if False:"),
-               ("        if not _inside(folder, str(allocated)) or _key(folder) == _key(str(allocated)):",
-                "        if False:")],
+     # Every owned-path check in `_first_gates`: the tree is whatever the row names.
+     "edits": [(OWNED_PATH_GATE,
+                lines('        tree = Path(job.get("worktree") or self.root / "worktrees" / job_id)',
+                      "        folder = folders.canonical(tree)\n"))],
      "killer": f"{APPLY}::test_gates_one_to_four_keep_their_jobs_whole"},
     {"id": 2, "name": "Skip the top-level excluded-repository check", "file": RD,
      "edits": [(lines('            if why == "excluded":',
@@ -145,6 +175,17 @@ MUTANTS = [
     {"id": 19, "name": "Label a deleted job by the budget (survey)", "file": "subfleet/retention_survey.py",
      "edits": [('        if job["job_id"] in kept:', "        if False:")],
      "killer": f"{APPLY}::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left"},
+    {"id": 20, "name": "Drop only the path's own copies of four owned-path checks", "file": RD,
+     "expect": "survived",
+     "why": ("equivalent under the tests, kept as defense in depth: `rarch.owned_worktree` already returns None "
+             "for an in-place job or another sandbox, and resolves the path and refuses one at or outside "
+             "<state>/worktrees, so these four copies change no outcome a test can reach (the first run's mutant 1)"),
+     "edits": [('        if job.get("in_place"):', '        if False:'),
+               ('        if job.get("sandbox") != "workspace-write":', '        if False:'),
+               ("        if tree == allocated or allocated not in tree.parents:", "        if False:"),
+               ("        if not _inside(folder, str(allocated)) or _key(folder) == _key(str(allocated)):",
+                "        if False:")],
+     "killer": f"{APPLY}::test_gates_one_to_four_keep_their_jobs_whole"},
 ]
 
 
@@ -170,7 +211,8 @@ def run_one(mutant: dict, lane: Path, python: str, timeout: float) -> dict:
     pristine = target.read_bytes()
     digest = sha(pristine)
     text = pristine.decode()
-    out = {"id": mutant["id"], "name": mutant["name"], "file": mutant["file"], "killer": mutant["killer"]}
+    out = {"id": mutant["id"], "name": mutant["name"], "file": mutant["file"], "killer": mutant["killer"],
+           "expect": mutant.get("expect", "killed"), **({"why": mutant["why"]} if "why" in mutant else {})}
     for old, new in mutant["edits"]:
         count = text.count(old)
         if count != 1:
@@ -240,7 +282,8 @@ def main() -> int:
             result = run_one(mutant, lane, sys.executable, args.timeout)
         finally:
             free.put(lane)
-        print(f"M{result['id']:>2} {result['verdict']:<8} {result.get('seconds', '-'):>7} s  {result['name']}",
+        mark = "" if result["verdict"] == result["expect"] else f" (expected {result['expect']})"
+        print(f"M{result['id']:>2} {result['verdict']:<8} {result.get('seconds', '-'):>7} s  {result['name']}{mark}",
               flush=True)
         return result
 
@@ -261,8 +304,9 @@ def main() -> int:
         record["partial_runs"] = previous.get("partial_runs", []) + [{"head": head, "ids": sorted(wanted)}]
     path.write_text(json.dumps(record, indent=1) + "\n")
     killed = sum(r["verdict"] == "killed" for r in results)
-    print(f"{killed}/{len(results)} killed at {head[:12]}; {path}")
-    return 0 if killed == len(results) else 1
+    expected = sum(r["verdict"] == r.get("expect", "killed") for r in results)
+    print(f"{killed}/{len(results)} killed, {expected}/{len(results)} as expected, at {head[:12]}; {path}")
+    return 0 if expected == len(results) else 1
 
 
 if __name__ == "__main__":
