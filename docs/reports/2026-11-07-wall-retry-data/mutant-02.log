@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_wall_retry_tick_projection_agrees_with_exact_sum _____________
+tests/unit/test_wall_retry_properties.py:208: in test_wall_retry_tick_projection_agrees_with_exact_sum
+    @example(priors=[completed(outcome_class=None)], own_us=2_000_000)
+                   ^^^^^^^^^
+.venv/lib/python3.15/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+tests/unit/test_wall_retry_properties.py:232: in test_wall_retry_tick_projection_agrees_with_exact_sum
+    assert projected - exact <= counted * .001 + 1e-6
+E   assert (5.0009999999999994 - 2.0) <= ((0 * 0.001) + 1e-06)
+E   Failing explicit example: test_wall_retry_tick_projection_agrees_with_exact_sum(
+E       ledger=(<subfleet.daemon.Daemon object at 0x10aca5010>,
+E        test_wall_retry_properties.ledger.<locals>.Clock),
+E       priors=[{'state': 'failed',
+E         'outcome_class': 'limited',
+E         'killed_by': None,
+E         'started_at': '2026-11-07T11:59:57+00:00',
+E         'finished_at': '2026-11-07T12:00:00+00:00'}],
+E       own_us=2000000,
+E   )
+=========================== short test summary info ============================
+FAILED tests/unit/test_wall_retry_properties.py::test_wall_retry_tick_projection_agrees_with_exact_sum
+1 failed in 151.82s (0:02:31)

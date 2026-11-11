@@ -1,0 +1,229 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_transient_overrun_counts_its_own_time_after_classification ________
+tests/fake/test_wall_retry.py:152: in test_transient_overrun_counts_its_own_time_after_classification
+    assert json.loads(attempt['evidence_json'])['wall_overrun'] == {
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'wall_overrun'
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4437713520:daemon.py:1001 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4437713520:daemon.py:1089 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4437713520:daemon.py:1074 store lock released after 3.1 s by MainThread (8272273792). Where it was held:
+  File "<frozen runpy>", line 201, in _run_module_as_main
+  File "<frozen runpy>", line 87, in _run_code
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 139, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 184, in pytest_runtest_call
+    item.runtest()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/python.py", line 1707, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/python.py", line 167, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/tests/fake/test_wall_retry.py", line 144, in test_transient_overrun_counts_its_own_time_after_classification
+    finish(service, first, Limited)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/tests/fake/test_wall_retry.py", line 70, in finish
+    service._finalize(finalizing)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/daemon.py", line 11870, in _finalize
+    with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py", line 210, in __exit__
+    next(self.gen)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/store.py", line 425, in transaction
+    with self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+---------------------------- Captured log teardown -----------------------------
+WARNING  subfleet.daemon.4437713520:daemon.py:1074 conversations lock released after 3.9 s by MainThread (8272273792). Where it was held:
+  File "<frozen runpy>", line 201, in _run_module_as_main
+  File "<frozen runpy>", line 87, in _run_code
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/tests/fake/test_state_contract.py", line 59, in state_daemon
+    daemon.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/daemon.py", line 12859, in close
+    self.conversations.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+
+WARNING  subfleet.daemon.4437713520:daemon.py:1074 conversation-files lock released after 7.8 s by MainThread (8272273792). Where it was held:
+  File "<frozen runpy>", line 201, in _run_module_as_main
+  File "<frozen runpy>", line 87, in _run_code
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/lib/python3.15/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/tests/fake/test_state_contract.py", line 59, in state_daemon
+    daemon.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/daemon.py", line 12859, in close
+    self.conversations.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+=========================== short test summary info ============================
+FAILED tests/fake/test_wall_retry.py::test_transient_overrun_counts_its_own_time_after_classification
+1 failed in 214.76s (0:03:34)

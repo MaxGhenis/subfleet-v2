@@ -1,0 +1,28 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_wall_retry_live_attempt_keeps_its_own_time ________________
+tests/unit/test_wall_retry_properties.py:175: in test_wall_retry_live_attempt_keeps_its_own_time
+    @example(row=running(outcome_class="limited"))
+                   ^^^^^^^^^
+.venv/lib/python3.15/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+tests/unit/test_wall_retry_properties.py:184: in test_wall_retry_live_attempt_keeps_its_own_time
+    assert service._running_s("wall-property") == pytest.approx(old_running_s([row]), abs=1e-9)
+E   assert 0.0 == 2.0 ± 1.0e-09
+E     
+E     comparison failed
+E     Obtained: 0.0
+E     Expected: 2.0 ± 1.0e-09
+E   (note: 2 other explicit examples also failed with this error; use Verbosity.verbose to view)
+E   Failing explicit example: test_wall_retry_live_attempt_keeps_its_own_time(
+E       ledger=(<subfleet.daemon.Daemon object at 0x10c7cd010>,
+E        test_wall_retry_properties.ledger.<locals>.Clock),
+E       row={'state': 'running',
+E        'outcome_class': 'limited',
+E        'killed_by': None,
+E        'started_at': '2026-11-07T11:59:58+00:00',
+E        'finished_at': None},
+E   )
+=========================== short test summary info ============================
+FAILED tests/unit/test_wall_retry_properties.py::test_wall_retry_live_attempt_keeps_its_own_time
+1 failed in 253.25s (0:04:13)

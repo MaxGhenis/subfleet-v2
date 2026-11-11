@@ -1,0 +1,121 @@
+[
+  {
+    "mutant": "python_no_exclusion",
+    "test": "tests/unit/test_wall_retry_properties.py::test_wall_retry_exclusion_matches_reference",
+    "command": [
+      "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/bin/python3",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/unit/test_wall_retry_properties.py::test_wall_retry_exclusion_matches_reference",
+      "--tb=short",
+      "--basetemp",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-104158-wall-retry-build-a1-i_0whm_8/wall-retry/mutant-01"
+    ],
+    "exit_code": 1,
+    "killed": true,
+    "restored_sha256": "5b9b19c6cdbcf8634a1aeb80002eb0a998fbaef37c87b5e211d6755e443bfe50"
+  },
+  {
+    "mutant": "sql_no_exclusion",
+    "test": "tests/unit/test_wall_retry_properties.py::test_wall_retry_tick_projection_agrees_with_exact_sum",
+    "command": [
+      "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/bin/python3",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/unit/test_wall_retry_properties.py::test_wall_retry_tick_projection_agrees_with_exact_sum",
+      "--tb=short",
+      "--basetemp",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-104158-wall-retry-build-a1-i_0whm_8/wall-retry/mutant-02"
+    ],
+    "exit_code": 1,
+    "killed": true,
+    "restored_sha256": "5b9b19c6cdbcf8634a1aeb80002eb0a998fbaef37c87b5e211d6755e443bfe50"
+  },
+  {
+    "mutant": "sql_plain_not_in",
+    "test": "tests/unit/test_wall_retry_properties.py::test_wall_retry_tick_projection_agrees_with_exact_sum",
+    "command": [
+      "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/bin/python3",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/unit/test_wall_retry_properties.py::test_wall_retry_tick_projection_agrees_with_exact_sum",
+      "--tb=short",
+      "--basetemp",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-104158-wall-retry-build-a1-i_0whm_8/wall-retry/mutant-03"
+    ],
+    "exit_code": 1,
+    "killed": true,
+    "restored_sha256": "5b9b19c6cdbcf8634a1aeb80002eb0a998fbaef37c87b5e211d6755e443bfe50"
+  },
+  {
+    "mutant": "live_interim_excluded",
+    "test": "tests/unit/test_wall_retry_properties.py::test_wall_retry_live_attempt_keeps_its_own_time",
+    "command": [
+      "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/bin/python3",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/unit/test_wall_retry_properties.py::test_wall_retry_live_attempt_keeps_its_own_time",
+      "--tb=short",
+      "--basetemp",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-104158-wall-retry-build-a1-i_0whm_8/wall-retry/mutant-04"
+    ],
+    "exit_code": 1,
+    "killed": true,
+    "restored_sha256": "5b9b19c6cdbcf8634a1aeb80002eb0a998fbaef37c87b5e211d6755e443bfe50"
+  },
+  {
+    "mutant": "stopped_excluded",
+    "test": "tests/unit/test_wall_retry_properties.py::test_wall_retry_exclusion_matches_reference",
+    "command": [
+      "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/bin/python3",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/unit/test_wall_retry_properties.py::test_wall_retry_exclusion_matches_reference",
+      "--tb=short",
+      "--basetemp",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-104158-wall-retry-build-a1-i_0whm_8/wall-retry/mutant-05"
+    ],
+    "exit_code": 1,
+    "killed": true,
+    "restored_sha256": "5b9b19c6cdbcf8634a1aeb80002eb0a998fbaef37c87b5e211d6755e443bfe50"
+  },
+  {
+    "mutant": "lost_unknown_excluded",
+    "test": "tests/unit/test_wall_retry_properties.py::test_wall_retry_exclusion_matches_reference",
+    "command": [
+      "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/bin/python3",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/unit/test_wall_retry_properties.py::test_wall_retry_exclusion_matches_reference",
+      "--tb=short",
+      "--basetemp",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-104158-wall-retry-build-a1-i_0whm_8/wall-retry/mutant-06"
+    ],
+    "exit_code": 1,
+    "killed": true,
+    "restored_sha256": "5b9b19c6cdbcf8634a1aeb80002eb0a998fbaef37c87b5e211d6755e443bfe50"
+  },
+  {
+    "mutant": "finishing_time_excluded",
+    "test": "tests/fake/test_wall_retry.py::test_transient_overrun_counts_its_own_time_after_classification",
+    "command": [
+      "/Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/bin/python3",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/fake/test_wall_retry.py::test_transient_overrun_counts_its_own_time_after_classification",
+      "--tb=short",
+      "--basetemp",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-104158-wall-retry-build-a1-i_0whm_8/wall-retry/mutant-07"
+    ],
+    "exit_code": 1,
+    "killed": true,
+    "restored_sha256": "5b9b19c6cdbcf8634a1aeb80002eb0a998fbaef37c87b5e211d6755e443bfe50"
+  }
+]
