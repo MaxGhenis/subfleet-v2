@@ -1,0 +1,909 @@
+{
+  "archives": {
+    "a8624a489": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5",
+    "e9e557b15": "e9e557b151902140530f0d9c8eea97fa4bd63e9f"
+  },
+  "new_cli": [
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "foreign",
+      "json": false,
+      "exit": 6,
+      "stdout": "",
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "foreign",
+      "json": true,
+      "exit": 6,
+      "stdout": {
+        "capability": "tasks.if_note_prefix.v2",
+        "refused": "task-hold-capability"
+      },
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "own",
+      "json": false,
+      "exit": 6,
+      "stdout": "",
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "own",
+      "json": true,
+      "exit": 6,
+      "stdout": {
+        "capability": "tasks.if_note_prefix.v2",
+        "refused": "task-hold-capability"
+      },
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "absent",
+      "json": false,
+      "exit": 6,
+      "stdout": "",
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "absent",
+      "json": true,
+      "exit": 6,
+      "stdout": {
+        "capability": "tasks.if_note_prefix.v2",
+        "refused": "task-hold-capability"
+      },
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "foreign",
+      "json": false,
+      "exit": 6,
+      "stdout": "",
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "foreign",
+      "json": true,
+      "exit": 6,
+      "stdout": {
+        "capability": "tasks.if_note_prefix.v2",
+        "refused": "task-hold-capability"
+      },
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "own",
+      "json": false,
+      "exit": 6,
+      "stdout": "",
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "own",
+      "json": true,
+      "exit": 6,
+      "stdout": {
+        "capability": "tasks.if_note_prefix.v2",
+        "refused": "task-hold-capability"
+      },
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "absent",
+      "json": false,
+      "exit": 6,
+      "stdout": "",
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "absent",
+      "json": true,
+      "exit": 6,
+      "stdout": {
+        "capability": "tasks.if_note_prefix.v2",
+        "refused": "task-hold-capability"
+      },
+      "stderr": "subfleet: task-hold-capability: tasks --if-note-prefix needs daemon capability `tasks.if_note_prefix.v2`; this daemon refused the conditional action\n  fix: subfleet daemon stop && subfleet daemon start\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        },
+        {
+          "op": "capabilities",
+          "args": {}
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "foreign",
+      "json": false,
+      "exit": 7,
+      "stdout": "",
+      "stderr": "subfleet: task-hold-condition: tasks: hold note does not match --if-note-prefix: task build, until 2026-10-09T16:41:20Z, note 'booking: operator', since 2026-10-09T16:34:00Z\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "foreign",
+      "json": true,
+      "exit": 7,
+      "stdout": {
+        "refused": "task-hold-condition",
+        "task_hold": {
+          "note": "booking: operator",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        }
+      },
+      "stderr": "subfleet: task-hold-condition: tasks: hold note does not match --if-note-prefix: task build, until 2026-10-09T16:41:20Z, note 'booking: operator', since 2026-10-09T16:34:00Z\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "own",
+      "json": false,
+      "exit": 0,
+      "stdout": "held: build until 2026-10-09T16:43:00Z (battery-backoff: hot)\nreplaced: the hold until 2026-10-09T16:41:20Z (battery-backoff: previous)\n",
+      "stderr": "",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "own",
+      "json": true,
+      "exit": 0,
+      "stdout": {
+        "held": "build",
+        "replaced": {
+          "note": "battery-backoff: previous",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        },
+        "task_hold": {
+          "note": "battery-backoff: hot",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:43:00Z"
+        },
+        "task_holds": [
+          {
+            "note": "battery-backoff: hot",
+            "since": "2026-10-09T16:34:00Z",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z"
+          }
+        ]
+      },
+      "stderr": "",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "absent",
+      "json": false,
+      "exit": 0,
+      "stdout": "held: build until 2026-10-09T16:43:00Z (battery-backoff: hot)\n",
+      "stderr": "",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "absent",
+      "json": true,
+      "exit": 0,
+      "stdout": {
+        "held": "build",
+        "replaced": null,
+        "task_hold": {
+          "note": "battery-backoff: hot",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:43:00Z"
+        },
+        "task_holds": [
+          {
+            "note": "battery-backoff: hot",
+            "since": "2026-10-09T16:34:00Z",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z"
+          }
+        ]
+      },
+      "stderr": "",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "hold-if",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z",
+            "note": "battery-backoff: hot",
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "foreign",
+      "json": false,
+      "exit": 7,
+      "stdout": "",
+      "stderr": "subfleet: task-hold-condition: tasks: hold note does not match --if-note-prefix: task build, until 2026-10-09T16:41:20Z, note 'booking: operator', since 2026-10-09T16:34:00Z\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "foreign",
+      "json": true,
+      "exit": 7,
+      "stdout": {
+        "refused": "task-hold-condition",
+        "task_hold": {
+          "note": "booking: operator",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        }
+      },
+      "stderr": "subfleet: task-hold-condition: tasks: hold note does not match --if-note-prefix: task build, until 2026-10-09T16:41:20Z, note 'booking: operator', since 2026-10-09T16:34:00Z\n",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "own",
+      "json": false,
+      "exit": 0,
+      "stdout": "released: build; 0 waiting jobs queued again\n",
+      "stderr": "",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "own",
+      "json": true,
+      "exit": 0,
+      "stdout": {
+        "released": "build",
+        "task_holds": [],
+        "was_held": true,
+        "woken": 0
+      },
+      "stderr": "",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "absent",
+      "json": false,
+      "exit": 0,
+      "stdout": "released: build (no hold was in force); 0 waiting jobs queued again\n",
+      "stderr": "",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "absent",
+      "json": true,
+      "exit": 0,
+      "stdout": {
+        "released": "build",
+        "task_holds": [],
+        "was_held": false,
+        "woken": 0
+      },
+      "stderr": "",
+      "requests": [
+        {
+          "op": "tasks",
+          "args": {
+            "action": "release-if",
+            "task": "build",
+            "until": null,
+            "note": null,
+            "if_note_prefix": "battery-backoff:"
+          }
+        }
+      ],
+      "unchanged": true
+    }
+  ],
+  "old_cli": [
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "foreign",
+      "exit": 7,
+      "stdout": {
+        "refused": "task-hold-condition",
+        "task_hold": {
+          "note": "booking: operator",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        }
+      },
+      "stderr": "subfleet: task-hold-condition: tasks: hold note does not match --if-note-prefix: task build, until 2026-10-09T16:41:20Z, note 'booking: operator', since 2026-10-09T16:34:00Z\n",
+      "same": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "own",
+      "exit": 0,
+      "stdout": {
+        "held": "build",
+        "replaced": {
+          "note": "battery-backoff: previous",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        },
+        "task_hold": {
+          "note": "battery-backoff: hot",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:43:00Z"
+        },
+        "task_holds": [
+          {
+            "note": "battery-backoff: hot",
+            "since": "2026-10-09T16:34:00Z",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z"
+          }
+        ]
+      },
+      "stderr": "",
+      "same": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "hold",
+      "owner": "absent",
+      "exit": 0,
+      "stdout": {
+        "held": "build",
+        "replaced": null,
+        "task_hold": {
+          "note": "battery-backoff: hot",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:43:00Z"
+        },
+        "task_holds": [
+          {
+            "note": "battery-backoff: hot",
+            "since": "2026-10-09T16:34:00Z",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z"
+          }
+        ]
+      },
+      "stderr": "",
+      "same": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "foreign",
+      "exit": 7,
+      "stdout": {
+        "refused": "task-hold-condition",
+        "task_hold": {
+          "note": "booking: operator",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        }
+      },
+      "stderr": "subfleet: task-hold-condition: tasks: hold note does not match --if-note-prefix: task build, until 2026-10-09T16:41:20Z, note 'booking: operator', since 2026-10-09T16:34:00Z\n",
+      "same": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "own",
+      "exit": 0,
+      "stdout": {
+        "released": "build",
+        "task_holds": [],
+        "was_held": true,
+        "woken": 0
+      },
+      "stderr": "",
+      "same": true
+    },
+    {
+      "daemon": "e9e557b15",
+      "action": "release",
+      "owner": "absent",
+      "exit": 0,
+      "stdout": {
+        "released": "build",
+        "task_holds": [],
+        "was_held": false,
+        "woken": 0
+      },
+      "stderr": "",
+      "same": true
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "foreign",
+      "exit": 7,
+      "stdout": {
+        "refused": "task-hold-condition",
+        "task_hold": {
+          "note": "booking: operator",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        }
+      },
+      "stderr": "subfleet: task-hold-condition: tasks: hold note does not match --if-note-prefix: task build, until 2026-10-09T16:41:20Z, note 'booking: operator', since 2026-10-09T16:34:00Z\n",
+      "same": true
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "own",
+      "exit": 0,
+      "stdout": {
+        "held": "build",
+        "replaced": {
+          "note": "battery-backoff: previous",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        },
+        "task_hold": {
+          "note": "battery-backoff: hot",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:43:00Z"
+        },
+        "task_holds": [
+          {
+            "note": "battery-backoff: hot",
+            "since": "2026-10-09T16:34:00Z",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z"
+          }
+        ]
+      },
+      "stderr": "",
+      "same": true
+    },
+    {
+      "daemon": "head",
+      "action": "hold",
+      "owner": "absent",
+      "exit": 0,
+      "stdout": {
+        "held": "build",
+        "replaced": null,
+        "task_hold": {
+          "note": "battery-backoff: hot",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:43:00Z"
+        },
+        "task_holds": [
+          {
+            "note": "battery-backoff: hot",
+            "since": "2026-10-09T16:34:00Z",
+            "task": "build",
+            "until": "2026-10-09T16:43:00Z"
+          }
+        ]
+      },
+      "stderr": "",
+      "same": true
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "foreign",
+      "exit": 7,
+      "stdout": {
+        "refused": "task-hold-condition",
+        "task_hold": {
+          "note": "booking: operator",
+          "since": "2026-10-09T16:34:00Z",
+          "task": "build",
+          "until": "2026-10-09T16:41:20Z"
+        }
+      },
+      "stderr": "subfleet: task-hold-condition: tasks: hold note does not match --if-note-prefix: task build, until 2026-10-09T16:41:20Z, note 'booking: operator', since 2026-10-09T16:34:00Z\n",
+      "same": true
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "own",
+      "exit": 0,
+      "stdout": {
+        "released": "build",
+        "task_holds": [],
+        "was_held": true,
+        "woken": 0
+      },
+      "stderr": "",
+      "same": true
+    },
+    {
+      "daemon": "head",
+      "action": "release",
+      "owner": "absent",
+      "exit": 0,
+      "stdout": {
+        "released": "build",
+        "task_holds": [],
+        "was_held": false,
+        "woken": 0
+      },
+      "stderr": "",
+      "same": true
+    }
+  ],
+  "base_evidence": "2026-11-07-task-hold-cas-p3-skew-validation-2.txt",
+  "head": "e9e557b151902140530f0d9c8eea97fa4bd63e9f"
+}

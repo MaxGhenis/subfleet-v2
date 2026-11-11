@@ -1,0 +1,32 @@
+Reusing archive a8624a489
+Reusing archive e9e557b15
+New CLI -> e9e557b15 daemon
+  hold/foreign/text: 6
+  hold/foreign/json: 6
+  hold/own/text: 6
+  hold/own/json: 6
+  hold/absent/text: 6
+  hold/absent/json: 6
+  release/foreign/text: 6
+  release/foreign/json: 6
+  release/own/text: 6
+  release/own/json: 6
+  release/absent/text: 6
+  release/absent/json: 6
+New CLI -> head daemon
+  hold/foreign/text: 7
+  hold/foreign/json: 7
+  hold/own/text: 0
+  hold/own/json: 0
+  hold/absent/text: 0
+  hold/absent/json: 0
+  release/foreign/text: 7
+  release/foreign/json: 7
+  release/own/text: 0
+  release/own/json: 0
+  release/absent/text: 0
+  release/absent/json: 0
+Old CLI -> e9e557b15 daemon
+Worker stopped and joined after grace period: previous
+Old CLI -> head daemon
+PASS: 24 new-CLI probes; 12 old-CLI probes, 6 matching comparisons

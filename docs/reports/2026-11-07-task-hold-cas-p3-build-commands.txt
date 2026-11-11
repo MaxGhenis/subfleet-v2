@@ -1,0 +1,75 @@
+Review-r1 follow-up command ledger
+
+This ledger groups repeated read-only inspections; the validation log records exact test argv and exit status. Driver commands are listed individually in 2026-11-07-task-hold-cas-p3-driver-commands.txt. Python/apply_patch file-edit payloads are in the session transcript; all edits succeeded. No test group was run before its predecessor completed.
+
+Main preparation/inspection:
+- pwd; git status --short; git branch --show-current: assigned cwd, clean initial store of files, detached HEAD. Subsequent git status --short shows only intended source/tests/docs and new follow-up evidence files.
+- cat /Users/maxghenis/reviews/subfleet-hub/task-hold-cas-2026-11-07/review-r1.md; cat docs/reports/2026-11-07-task-hold-cas.md; cat /Users/maxghenis/reviews/subfleet-hub/task-hold-cas-2026-11-07/brief-build.md: all three read in full, rc0.
+- rg --files -g AGENTS.md -g '*INVARIANT*' -g '*CONTRACT*' -g '*CHANGELOG*' -g '*task_hold_cas*': located task-hold test files, no local AGENTS, rc0.
+- cat /Users/maxghenis/.agents/skills/gitnexus-debugging/SKILL.md: read rc0; no GitNexus tools available, skill workflow not applied.
+- getconf DARWIN_USER_TEMP_DIR: rc0, selected the instructed initial TMPDIR.
+- rg -n 'C-11.10|if_note_prefix|if-note-prefix|Change log|2026-11-07|task-hold-condition' docs/acceptance-contract.md: rc0.
+- ls -la .git pyproject.toml uv.lock: rc0.
+- cat tests/conftest.py: rc0, checked isolation.
+- git symbolic-ref --short -q HEAD: rc1/no output (detached).
+- git switch -c fix/task-hold-cas-p3-217: rc128, branch already exists.
+- git switch fix/task-hold-cas-p3-217: rc128, branch already in caller worktree; caller left untouched.
+- sed -n '1,14p' docs/acceptance-contract.md; sed -n '604,617p' docs/acceptance-contract.md; ls -l .git pyproject.toml uv.lock: rc0.
+- TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" UV_CACHE_DIR="$(getconf DARWIN_USER_TEMP_DIR)uv-cache" uv sync --group dev: rc2, default cache CACHEDIR.TAG denied.
+- mkdir -p R; TMPDIR=R UV_CACHE_DIR=R/uv-cache uv --cache-dir R/uv-cache sync --group dev: rc0, created .venv and installed nine packages. R is the permitted root recorded in the report and validation log.
+- sed -n '542,549p' docs/acceptance-contract.md: rc0.
+- python3 inline pathlib read to isolate C-11.10: rc0.
+- python3 inline pathlib edits to C-11.10/change log and appended report draft: rc0; later wording/report updates also rc0.
+- rg -n 'lock|pytest|timeout|requires-python' pyproject.toml tests/conftest.py .agents .codex: rc2 only because .agents/.codex are absent; relevant existing files read.
+- sed -n '2400,2515p' subfleet/cli.py; sed -n '1938,2075p' subfleet/daemon.py; sed -n '500,574p' subfleet/refusals.py; sed -n '572,600p' subfleet/protocol.py: rc0.
+- rg -n 'if_note_prefix|task_holds.*==|tasks-action|task-hold-condition' tests/unit/test_protocol_registry.py tests/unit/test_handler_refusals.py tests/unit/test_conversation_steer_service.py tests/unit/test_protocol_secrecy.py tests/fake/test_state_contract.py: rc1/no matches.
+- git diff --stat; rg -n 'tasks.if_note_prefix|TASKS_IF_NOTE_PREFIX|task_hold_condition_details|since None|with_trimmed_prefix' tests subfleet/conversations/service.py: rc0.
+- git add docs/acceptance-contract.md docs/reports/2026-11-07-task-hold-cas.md: rc128, denied index.lock.
+- Scoped git diff reads of all six production files, four changed test files and contract: rc0.
+- rg -n 'capability_and_op_order|CAPABILITIES|if_note_prefix|pytest_session|lock' tests/unit/test_conversation_steer_service.py tests/unit/test_protocol_registry.py tests/unit/test_task_hold_cas_integration.py pyproject.toml: rc0.
+- git diff --check: repeatedly rc0.
+- git add (six production files, four tests, acceptance-contract.md); git commit -m 'Close conditional task hold version-skew window and handle refusal edges' -- (same named files): both rc128, denied index.lock. No commit created.
+- sed -n '1,220p' and '220,320p' docs/reports/2026-11-07-task-hold-cas-p3-skew.py; sed -n '1,255p' docs/reports/2026-11-07-task-hold-cas-p3-mutants.py: rc0.
+- sed -n '1,150p' tests/task_hold_support.py; sed -n '215,315p' tests/fake/test_task_hold_cas.py; sed -n '1,100p' tests/fake/test_task_hold_cas_properties.py; sed -n '45,72p' pyproject.toml: rc0.
+- rg -n -A 17 '^def _daemon_capabilities' subfleet/cli.py; rg -n '^def test_' tests/fake/test_task_hold_cas.py tests/unit/test_task_hold_cas_cli.py tests/unit/test_task_hold_cas_wire.py tests/unit/test_task_hold_cas_integration.py: rc0.
+- git add (skew.py, mutants.py, driver-commands.txt by full relative paths): rc128/index.lock denied. git commit -m 'Add isolated conditional hold skew and mutation checks' -- (same three paths): rc1/pathspec unknown because staging was denied.
+- git rev-parse HEAD: rc0/e9e557b151902140530f0d9c8eea97fa4bd63e9f.
+- rg -n 'CAS-legacy|if_note_prefix|task_hold' tests/unit/test_handler_refusals.py tests/unit/test_protocol_registry.py tests/unit/test_protocol_secrecy.py tests/unit/test_task_holds.py: rc0.
+- tail -n 12/14/18/20/25 of follow-up validation logs: repeated rc0 progress checks. All tool sessions for completed finite reads were drained; these checks start no daemon.
+
+CLI implementation agent (all commands rc0):
+1. pwd && rg --files -g AGENTS.md -g test_task_hold_cas_cli.py -g test_task_hold_cas_integration.py -g cli.py
+2. cat review-r1.md at the exact review path above
+3. for f in AGENTS.md .agents/AGENTS.md; do if test -f "$f"; then cat "$f"; fi; done (neither exists)
+4. sed -n '2370,2530p' subfleet/cli.py && cat tests/unit/test_task_hold_cas_cli.py && cat tests/unit/test_task_hold_cas_integration.py
+5. rg -n 'TASKS_IF_NOTE_PREFIX|if-note-prefix|_daemon_capabilities|class DaemonError|tasks-action' subfleet/cli.py subfleet/client.py subfleet/protocol.py subfleet/refusals.py tests/conftest.py tests/unit/conftest.py tests/task_hold_support.py; sed -n '135,170p' subfleet/client.py; sed -n '1220,1255p' subfleet/cli.py; sed -n '1,180p' tests/task_hold_support.py
+6. sed -n '1638,1665p' and '3780,3835p' subfleet/cli.py; rg -n 'booking-sk-|not-an-instant|INSERT.*leases|UPDATE leases SET' tests/unit/test_task_hold_cas_wire.py tests/fake/test_task_hold_cas.py tests/unit/conftest.py; sed -n '1,130p' tests/unit/test_task_hold_cas_wire.py
+7. sed -n '135,170p' tests/fake/test_task_hold_cas.py; rg -n 'def task_hold|HOLD|holder|lease_key' subfleet/task_holds.py | head -50; sed -n '1,140p' subfleet/task_holds.py
+8. python3 inline edit of CLI tests; apply_patch edits to CLI/client/integration succeeded
+9. git diff --stat for four owned files; sed -n '20,160p' tests/unit/test_task_hold_cas_cli.py; sed -n '2450,2500p' subfleet/cli.py
+10. cat required existing report and build brief in full
+11. git diff --check -- subfleet/cli.py subfleet/client.py tests/unit/test_task_hold_cas_cli.py tests/unit/test_task_hold_cas_integration.py (passed)
+12. git diff -- (same four files), inspected
+
+Daemon implementation/review agent (all completed commands rc0):
+- pwd; rg --files discovery for AGENTS, task-hold files, daemon/protocol/refusals.
+- Conditional cat of AGENTS.md in workspace, subfleet, tests, tests/fake, tests/unit: none present.
+- cat required review, brief and report in full.
+- Repeated cat/sed/rg of daemon handlers, protocol/refusals, client errors, CLI, capabilities, helpers and CAS tests.
+- rg exact-comparison audit in tests/unit, tests/fake, tests/frontend for capabilities, task actions, error shapes, structured refusals.
+- cat/sed review of handler-refusal, protocol registry/secrecy, contract diff and skew driver.
+- git diff --check: passed. git diff --stat; git diff --numstat -- subfleet; scoped production/test/contract diffs: inspected.
+- Two apply_patch calls for daemon/protocol/service/refusals and fake/wire tests succeeded. No tests run by either implementation agent.
+
+Final verification and report:
+- Python ast.parse of both checked-in proof drivers: rc0.
+- Python JSON assertion of six killed mutants and SHA-256 comparison of restored CLI/daemon to workspace pristine bytes: rc0.
+- sed -n follow-up section and tail validation/build-command logs: rc0.
+- Python pathlib final report update: rc0, recorded 764 passing guards and explicit legacy-regression omission.
+- git status --short: rc0, intended changed/new files only.
+- Final git diff --check: rc0.
+- Final git add explicitly named all 25 intended files (six production, four tests, acceptance contract, main report, 13 proof/evidence artifacts): rc128, index.lock creation denied.
+- git commit -m 'Document conditional task hold P3 follow-up and verification': rc128, index.lock creation denied.
+- git rev-parse HEAD: checked again; unchanged e9e557b151902140530f0d9c8eea97fa4bd63e9f.
+- Python pathlib final report completion: rc0; recorded final staging/commit failures and removed all pending placeholders.
+- Final read of follow-up section and AST syntax checks for both drivers: rc0.

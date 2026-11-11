@@ -1,0 +1,170 @@
+Review-r1 P3 skew and mutant driver command ledger
+
+All commands ran in the assigned worktree. Read-only source discovery preceded
+driver construction. No pytest, skew, or mutation run occurred during preparation.
+Semicolon-separated commands below reproduce their original invocation text.
+
+Preparation commands and results:
+
+1. pwd; rg --files -g AGENTS.md -g '*task_hold_cas*' -g '*task-hold-cas*' -g 'pyproject.toml' -g 'Makefile'
+   rc 0; assigned worktree confirmed; CAS source/tests/reports discovered.
+2. cat /Users/maxghenis/reviews/subfleet-hub/task-hold-cas-2026-11-07/review-r1.md
+   rc 0; entire review read.
+3. cat docs/reports/2026-11-07-task-hold-cas.md
+   rc 0; entire prior build report read.
+4. cat /Users/maxghenis/reviews/subfleet-hub/task-hold-cas-2026-11-07/brief-build.md
+   rc 0; entire original brief read.
+5. find . -name AGENTS.md -print; cat docs/reports/2026-11-07-task-hold-cas-mutants.py; cat tests/unit/test_task_hold_cas_integration.py
+   rc 0; no AGENTS.md found; existing mutation runner and socket integration read.
+6. cat tests/task_hold_support.py; sed -n '1,260p' tests/conftest.py
+   rc 0; fresh_daemon and test isolation inspected.
+7. sed -n '2385,2505p' subfleet/cli.py; sed -n '1920,2085p' subfleet/daemon.py; cat pyproject.toml
+   rc 0; CLI/daemon handlers and development dependencies inspected.
+8. rg -n 'def daemon|class FakeDaemon|SUBFLEET|STATE_ROOT|def _daemon_capabilities|def tasks|TASKS_IF' tests/conftest.py tests subfleet/config.py subfleet/paths.py subfleet/client.py subfleet/cli.py subfleet/protocol.py
+   rc 2; broad test matches returned, with absent config.py/paths.py reported;
+   discovery narrowed in subsequent reads. No paths above the worktree searched.
+9. rg -n '^def daemon|^class .*Daemon|^def .*socket|class DaemonServer' tests/conftest.py; sed -n '2420,2495p' subfleet/cli.py; sed -n '1949,2005p' subfleet/daemon.py; sed -n '1,95p' tests/fake/conftest.py
+   rc 0; relevant dispatch and harness setup inspected.
+10. cat pyproject.toml; rg -n '^SAFE_HOME_PATHS|PYTEST_SESSION|def home|def root|SUBFLEET_HOME' subfleet/home_paths.py subfleet/config.py subfleet/cli.py subfleet/client.py
+    rc 2; useful safe-path matches returned; config.py absent.
+11. sed -n '1,165p' subfleet/client.py; sed -n '1,100p' tests/fake/test_task_hold_cas.py; rg -n 'class Server|class FakeDaemon|def daemon\(' tests -g '*conftest*'; rg -n 'def _client|root.*:' subfleet/cli.py subfleet/client.py | head -30; sed -n '32,69p' subfleet/home_paths.py; sed -n '1,130p' tests/fake/run_daemon.py
+    rc 0; explicit state roots, current CAS tests and socket fixture located.
+12. sed -n '1,145p' tests/unit/conftest.py; sed -n '510,545p' subfleet/client.py; sed -n '605,620p' subfleet/cli.py; sed -n '155,190p' subfleet/home_paths.py; sed -n '240,275p' subfleet/home_paths.py
+    rc 0; real socket fixture, client paths and safety guards inspected.
+13. sed -n '9,20p' subfleet/home_paths.py; sed -n '1,210p' tests/unit/test_task_hold_cas_cli.py; git status --short; git rev-parse HEAD
+    rc 0; marker and existing tests inspected; concurrent authorized changes
+    observed and preserved; initial head e9e557b151902140530f0d9c8eea97fa4bd63e9f.
+14. rg -n 'CREATE TABLE.*events|CREATE TABLE.*leases|def add_event' subfleet/store_schema.sql subfleet/store.py; rg -n 'def stamp' tests/disk_floor_model.py; rg -n '^def test_' tests/unit/test_task_hold_cas_cli.py tests/fake/test_task_hold_cas.py
+    rc 0; deterministic clock, table definitions and final test names located.
+15. sed -n '253,292p' subfleet/store_schema.sql; sed -n '1,25p' tests/disk_floor_model.py; sed -n '2420,2515p' subfleet/cli.py; sed -n '1949,1982p' subfleet/daemon.py; sed -n '1,86p' tests/unit/test_task_hold_cas_cli.py
+    rc 0; task rows/events and new CLI encoding inspected.
+16. sed -n '1977,2000p' subfleet/daemon.py; sed -n '2035,2088p' subfleet/daemon.py; sed -n '220,245p' tests/unit/test_task_hold_cas_cli.py; rg -n '^def test_.*space|^def test_.*prefix' tests/fake/test_task_hold_cas.py
+    rc 0; final mutation anchors and regression names inspected.
+17. sed -n '1,180p' tests/fake/test_task_hold_cas.py; rg -n 'class TasksArgs|from dataclasses' subfleet/protocol.py subfleet/daemon.py
+    rc 0; hold-if daemon test path confirmed.
+18. python3 -c 'import ast, pathlib; paths = [pathlib.Path("docs/reports/2026-11-07-task-hold-cas-p3-skew.py"), pathlib.Path("docs/reports/2026-11-07-task-hold-cas-p3-mutants.py")]; [ast.parse(path.read_text()) for path in paths]; print("two driver scripts parse")'
+    rc 0; both drivers parsed successfully.
+19. git diff --check -- docs/reports/2026-11-07-task-hold-cas-p3-skew.py docs/reports/2026-11-07-task-hold-cas-p3-mutants.py
+    rc 0; no whitespace errors reported (drivers were then untracked).
+20. git ls-tree -r a8624a489 | rg '^120000'; git ls-tree -r e9e557b15 | rg '^120000'
+    rc 1; no tracked symlinks found in either archive revision.
+21. git cat-file -e a8624a489:tests/task_hold_support.py
+    rc 0; base helper exists.
+22. git cat-file -e a8624a489:tests/unit/conftest.py
+    rc 0; base socket fixture exists.
+23. git cat-file -e e9e557b15:tests/task_hold_support.py
+    rc 0; previous-head helper exists.
+24. git show a8624a489:subfleet/home_paths.py | rg -n '^SAFE_HOME_PATHS|^PYTEST_MARKER'
+    rc 0; archived safe-path registry and test marker match the driver seam.
+25. git diff --stat a8624a489 e9e557b15 -- tests/task_hold_support.py tests/unit/conftest.py
+    rc 0, empty; archived helper and socket fixture unchanged between revisions.
+
+apply_patch created the skew driver, mutation driver, and this ledger; a later
+patch removed an unused driver import. These operations touched named new files
+only. The root agent owns staging and commits.
+
+Execution and additional diagnostic commands:
+
+26. export TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+    export TMPDIR="/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3"
+    export UV_CACHE_DIR="$TMPDIR/uv-cache"
+    uv --cache-dir "$UV_CACHE_DIR" run --no-sync python docs/reports/2026-11-07-task-hold-cas-p3-skew.py > docs/reports/2026-11-07-task-hold-cas-p3-skew-validation.txt 2>&1
+    rc 1; both historical trees archived/extracted, then first daemon worker's
+    cold helper import exceeded 120s readiness. Worker terminated and joined.
+    No functional probe ran. Traceback preserved in the named log.
+27. tail -40 docs/reports/2026-11-07-task-hold-cas-p3-skew-validation.txt
+    rc 0, initially empty. Later repeated tail -60 reads also rc 0, empty while
+    archives/extraction were running.
+28. rg --files --hidden /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3 -g worker.log -g '*skew-results*'
+    rc 1; no worker or result files yet during first archive extraction.
+29. python3 -c 'from pathlib import Path; root = Path("/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3"); print([(p.name, sorted(c.name for c in p.iterdir())) for p in root.iterdir() if p.name.startswith("sf-cas-p3-skew-")])'
+    rc 0; first scratch contained base/ and a8624a489.tar.
+30. Scoped Python Path.iterdir/stat inspections of the own first-run scratch
+    sf-cas-p3-skew-o1q_0bsv (no process inspection): rc 0 each. First archive
+    207042560 bytes; second 207339520 bytes; both extractions completed. Later
+    glob('*/worker.log') returned no logs while failed-run cleanup was removing
+    the archived copies. These inspections printed names/sizes only.
+31. cat docs/reports/2026-11-07-task-hold-cas-p3-skew-validation.txt
+    rc 0; read the worker-readiness timeout and teardown traceback.
+32. Same TMPDIR/cache exports as command 26, then:
+    uv --cache-dir "$UV_CACHE_DIR" run --no-sync python docs/reports/2026-11-07-task-hold-cas-p3-skew.py --source-cache "$TMPDIR/p3-skew-sources" > docs/reports/2026-11-07-task-hold-cas-p3-skew-validation-2.txt 2>&1
+    rc 1 after all 12 base probes passed: worker exceeded the original 20s
+    normal-teardown grace. It was terminated and joined. No functional assertion
+    failed. Log preserves all 12 hold/release, foreign/own/absent, text/JSON
+    probes, each exit 6 with full-store equality asserted before its PASS line.
+    This retry extracted only 932/938 source/config files and retained verified
+    archive caches for subsequent retries.
+33. Repeated tail -40 and tail -60 reads of skew-validation-2.txt: rc 0;
+    first archive/import phases, then the twelve passing base probes and the
+    teardown failure. Scoped Python glob('sf-cas-p3-skew-*/new-*/worker.log')
+    reads: rc 0; showed import, construction and daemon-ready checkpoints.
+34. cat tests/__init__.py; rg -n 'lock|wait|acquire|sleep' tests/caps.py tests/fake/test_admission_ramp.py tests/fake/test_admission_latency.py tests/fake/test_routing_end_to_end.py tests/unit/test_disk_admission.py tests/fake/test_state_contract.py tests/unit/test_scheduler.py tests/fake/conftest.py tests/conftest.py | head -100
+    rc 0; no shared startup lock found; test bodies' locks were not invoked.
+35. sed -n '35,72p' tests/fake/test_admission_ramp.py; rg -n '^from .*utcnow|^def utcnow' subfleet/daemon.py subfleet/store.py
+    rc 0; independently reconstructed the fixture's fixed datetime behavior.
+36. Same TMPDIR/cache exports as command 26, then:
+    uv --cache-dir "$UV_CACHE_DIR" run --no-sync python docs/reports/2026-11-07-task-hold-cas-p3-skew.py --source-cache "$TMPDIR/p3-skew-sources" --skip-base > docs/reports/2026-11-07-task-hold-cas-p3-skew-validation-3.txt 2>&1
+    rc 0; 24 new-CLI probes passed for e9e557b15/head, plus the prior log's
+    twelve passing base probes (36 total). All 12 old-CLI probes passed, including
+    six exact response/lease/task-event comparisons between own/head daemons.
+    Every worker was joined before the process exited 0. New workers use the
+    real archived Daemon/Store and protocol with synthetic policy, empty lanes,
+    fixed clock and process/launch stubs; Hypothesis helper imports are removed.
+    Graceful teardown allows 120s, then intentionally terminates and joins
+    state-only workers if necessary, recording that cleanup without changing
+    completed functional assertions. Results are checkpointed after every probe.
+    Future CLI workers bind only cli._client to the actual source's
+    Client(explicit synthetic root, verify_lock=False), as the socket fixture
+    has no process-identity lock. Parsing, cmd_tasks and real client wire/error
+    handling remain unchanged; no process-identity lookup is performed.
+
+37. python3 -c 'import ast, pathlib; paths = [pathlib.Path("docs/reports/2026-11-07-task-hold-cas-p3-skew.py"), pathlib.Path("docs/reports/2026-11-07-task-hold-cas-p3-mutants.py")]; [ast.parse(path.read_text()) for path in paths]; print("two final driver scripts parse")'
+    rc 0; both final driver scripts parse after retry/readiness improvements.
+38. Repeated scoped Python JSON inspections of skew-results.json: rc 0;
+    checkpoint counts advanced from new_cli=24, old_cli=6 through old_cli=8
+    to old_cli=12, all six head compatibility comparisons passing.
+    Repeated tail -25/-30/-40 reads of skew-validation-3.txt: rc 0, passed
+    phase/probe lines only, no functional error.
+
+Isolated mutation-agent commands/results (same TMPDIR/cache exports as 26):
+
+39. uv --cache-dir "$UV_CACHE_DIR" run --no-sync python docs/reports/2026-11-07-task-hold-cas-p3-mutants.py > docs/reports/2026-11-07-task-hold-cas-p3-mutants-validation.txt 2>&1
+    rc 1; default full source copy completed, then the first CLI test exceeded
+    its original 300s cold-start bound. No kill counted; pristine source bytes
+    were restored before cleanup. Original traceback log retained.
+40. rg -n 'lock|flock|SUBFLEET|pytest_configure|sessionstart' tests/conftest.py pyproject.toml tests/unit/conftest.py tests/fake/conftest.py
+    rc 0; no shared startup lock found in these files.
+41. sed -n '1,140p' tests/conftest.py
+    rc 0; test-home and keychain stand-in isolation reviewed.
+42. Scoped Python Path glob of permitted TMPDIR/sf-cas-p3-mutants-*: rc 0;
+    confirmed source preparation still copying subfleet/tests before pyproject.
+    Multiple tail -n20 reads of original mutant log: rc 0, initially empty.
+    cat of original mutant log: rc 0, read TimeoutExpired300 traceback.
+    sed reads of the runner's m6 block: rc 0, confirmed both replacements.
+43. uv --cache-dir "$UV_CACHE_DIR" run --no-sync python docs/reports/2026-11-07-task-hold-cas-p3-mutants.py --prepare-only "$TMPDIR/p3-mutant-source" > docs/reports/2026-11-07-task-hold-cas-p3-mutants-prepare-validation.txt 2>&1
+    rc 0; prepared reusable source/config and Python test helpers, excluding
+    unused binary/e2e fixture trees. Bytecode caches enabled for cold imports.
+44. uv --cache-dir "$UV_CACHE_DIR" run --no-sync python docs/reports/2026-11-07-task-hold-cas-p3-mutants.py --prepared-source "$TMPDIR/p3-mutant-source" --stop-at-utc 19:55 > docs/reports/2026-11-07-task-hold-cas-p3-mutants-validation-2.txt 2>&1
+    rc 0; all 6 mutants killed, each exit 1 with the intended assertion failure
+    and no collection/setup error. All pristine/workspace byte checks passed.
+    Results checkpointed after every mutant; no subprocess left running.
+45. Final mutation JSON inspection: rc 0; confirmed six exit1/killed=true
+    rows and intended failures: old hold wire action, missing ProtocolError
+    for foreign hold-if, empty JSON stdout, missing spaced-prefix refusal,
+    missing review listing, and exit6 instead of original exit2 with v2.
+    Each restored cli.py SHA256 was
+    9c1ea1cdd8328590269d396aa3465d2fdf1df12e79f6b4508cfe3cb100132e42;
+    daemon.py was
+    93b7d4615305f71e43f9ac0da1baea13c908c5508036a656b0fefdafab5907bb.
+46. tail -8 docs/reports/2026-11-07-task-hold-cas-p3-skew-validation-3.txt
+    rc 0; final log ends with PASS: 24 new-CLI probes; 12 old-CLI probes,
+    6 matching comparisons. The additional twelve base probes are referenced
+    explicitly by base_evidence in the result JSON.
+47. Final scoped Python JSON inspection of skew-results.json: rc 0;
+    archived revisions and final counts confirmed. The checkout's head remained
+    e9e557b151902140530f0d9c8eea97fa4bd63e9f; head worker loaded the current
+    working-tree implementation, while historical workers loaded git archives.
+
+All process polling used the tools' own session handles, never live-process
+enumeration. apply_patch changes during these runs affected only the named new
+drivers/ledger; production source remained unchanged after the 137-test CAS pass.
