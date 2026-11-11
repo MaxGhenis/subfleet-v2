@@ -97,6 +97,18 @@ CLOSE_WAIT_S = 5.0
 #: reader, only stop short of the oldest snapshot still open.
 WAL_SIZE_LIMIT = 64 * 1024 * 1024
 
+#: C-3.8: one maintenance transaction reclaims at most 128 freelist pages
+#: (512 KiB at 4 KiB, plus any removable bookkeeping pages) per probe cycle.
+#: Leave a 4 MiB reserve so small free lists do
+#: not turn ordinary churn into extra writes. See the D-STORE-FREE1 report
+#: for the 16/64/128/256-page measurements that selected these limits.
+INCREMENTAL_VACUUM_PAGES = 128
+INCREMENTAL_VACUUM_THRESHOLD = 1024
+#: A cooperative SQLite VM deadline, checked every 64 instructions. SQLite's
+#: commit sync and individual filesystem operations cannot be preempted by a
+#: progress handler; this is a work budget, not a real-time I/O guarantee.
+INCREMENTAL_VACUUM_BUDGET_S = 0.05
+
 #: C-3.1: migrations are additive and numbered. Each entry is the statements that
 #: carry a database from `n - 1` to `n`; `store_schema.sql` always describes the
 #: newest version, so a fresh database never runs one.
@@ -304,6 +316,7 @@ class Store:
         self.pool_waits = {"waits": 0, "own_connections": 0, "longest_wait_s": 0.0}
         self._local = threading.local()
         self._closed = False
+        self._closing = threading.Event()
         # C-3.6: an RLock that remembers its holder, so the daemon can say who
         # held it, for how long, and what they were doing.
         self._lock = WatchedLock("store")
@@ -367,6 +380,10 @@ class Store:
                                             (utc_now(), "schema.applied", _json({"version": SCHEMA_VERSION})))
                 self.connection.commit()
                 os.chmod(self.path, 0o600)
+            # The offline pass changes this only while the daemon is stopped.
+            # Cache it once: NONE stores issue no maintenance SQL at all.
+            self.incremental_auto_vacuum = (not self.read_only and
+                                           self.connection.execute("PRAGMA auto_vacuum").fetchone()[0] == 2)
         except BaseException:
             self.connection.close()
             raise
@@ -461,6 +478,86 @@ class Store:
             if not self._audits:
                 raise RuntimeError("audit_as: no transaction is open on this thread")
             self._audits[-1][:] = [kind, data]
+
+    def incremental_vacuum(self, *, cancel: threading.Event | None = None) -> int:
+        """C-3.8: reclaim a bounded batch without waiting behind any writer.
+
+        NONE/read-only stores and an already closing store execute no SQL.
+        A busy writer, cancellation or the VM deadline skips/rolls back this
+        step. No row changes, audit event or generation change is needed for
+        moving free pages. After releasing the store lock, a separate
+        connection tries a PASSIVE checkpoint: this returns the main file's
+        freed tail even if the step wrote too few WAL frames to trigger the
+        normal automatic checkpoint. A live reader can delay that shrink.
+        """
+        if (not self.incremental_auto_vacuum or self._closing.is_set()
+                or cancel is not None and cancel.is_set()):
+            return 0
+        if not self._lock.acquire(False):
+            return 0
+        try:
+            if self._closed or self._closing.is_set() or self._depth or self.connection.in_transaction:
+                return 0
+            conn = self.connection
+            before = conn.execute("PRAGMA freelist_count").fetchone()[0]
+            if before <= INCREMENTAL_VACUUM_THRESHOLD:
+                return 0
+            deadline = time.monotonic() + INCREMENTAL_VACUUM_BUDGET_S
+
+            def interrupted() -> bool:
+                return (self._closing.is_set() or cancel is not None and cancel.is_set()
+                        or time.monotonic() >= deadline)
+
+            # Do not wait the ordinary five-second busy timeout for another
+            # process. Keep the usual automatic PASSIVE checkpoint policy:
+            # without it a quiet store's vacuum-only WAL would never shrink
+            # the main file. Readers may still postpone that checkpoint.
+            conn.execute("PRAGMA busy_timeout=0")
+            conn.set_progress_handler(interrupted, 64)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                # Drain the cursor: each SQLite step may return after moving
+                # one page, so execute() alone does not finish an N-page pass.
+                conn.execute(f"PRAGMA incremental_vacuum({INCREMENTAL_VACUUM_PAGES})").fetchall()
+                conn.execute("COMMIT")
+            except sqlite3.OperationalError as exc:
+                if (getattr(exc, "sqlite_errorcode", 0) & 0xff) not in (
+                        sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_INTERRUPT):
+                    raise
+                return 0
+            finally:
+                # An interrupted statement can roll its transaction back
+                # itself. Remove the handler before explicit rollback/settings.
+                conn.set_progress_handler(None, 0)
+                if conn.in_transaction:
+                    conn.rollback()
+                conn.execute("PRAGMA busy_timeout=5000")
+            reclaimed = before - conn.execute("PRAGMA freelist_count").fetchone()[0]
+        finally:
+            self._lock.release()
+        if reclaimed:
+            self._checkpoint_incremental_vacuum()
+        return reclaimed
+
+    def _checkpoint_incremental_vacuum(self) -> None:
+        """Try a checkpoint without holding the daemon's writer connection.
+
+        PASSIVE waits for neither readers nor a writer. A checkpoint's own
+        filesystem I/O is outside the store lock and the write transaction;
+        it must not stall an admission transaction behind that I/O.
+        """
+        if self._closing.is_set():
+            return
+        checkpoint = sqlite3.connect(self.path.resolve().as_uri() + "?mode=rw", uri=True,
+                                     isolation_level=None, timeout=0)
+        try:
+            checkpoint.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchall()
+        except sqlite3.OperationalError as exc:
+            if (getattr(exc, "sqlite_errorcode", 0) & 0xff) not in (
+                    sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_INTERRUPT):
+                raise
+        finally:
+            checkpoint.close()
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         if self._reads_elsewhere():
@@ -694,6 +791,7 @@ class Store:
         A daemon drain supplies its earlier deadline to overlap this wait with
         its pool drains; active reads still close their own connections safely.
         """
+        self._closing.set()              # cancel maintenance before waiting for its lock
         with self._lock:
             self._closed = True
             self.connection.close()
