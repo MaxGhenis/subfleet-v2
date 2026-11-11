@@ -938,6 +938,31 @@ def test_a_new_root_denial_is_logged_like_any_other(hooks, tmp_path):
     assert (cwd, logged) == (SCOPED_CWD, command)
 
 
+# ---------------------------------------------------------------- the guard sync (2026-11-11)
+
+def _rule_block(text: str, name: str) -> str:
+    """The overlay header's sync-contract cut: ``# --- <name>:`` up to the next ``# --- `` or ``# >>>``."""
+    lines = text.splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if line.startswith(f"# --- {name}:")]
+    assert len(starts) == 1, name
+    end = next(i for i in range(starts[0] + 1, len(lines))
+               if lines[i].startswith("# --- ") or lines[i].startswith("# >>>"))
+    return "".join(lines[starts[0]:end])
+
+
+def test_gs_the_pinned_claude_keychain_block_is_the_reviewed_hooks(hooks):
+    """The guard sync's pinned Claude block (tests/fixtures/guard/claude-blocks/keychain-dump.before.sh,
+    checked byte for byte in tests/unit/test_guard_sync.py) is the block of the original reviewed hook
+    (a60d1c51..., the 2026-09-05 byte-for-byte copy of the Claude hook's blocks), and the overlay's block
+    is that block with GS_KEYCHAIN_OLD replaced by GS_KEYCHAIN_NEW and nothing else."""
+    pinned = (REPO / "tests/fixtures/guard/claude-blocks/keychain-dump.before.sh").read_text(encoding="utf-8")
+    old = _rule_block(hooks["old"].read_text(encoding="utf-8"), "keychain-dump")
+    new = _rule_block(HOOK.read_text(encoding="utf-8"), "keychain-dump")
+    assert old == pinned
+    assert old.count(GS_KEYCHAIN_OLD) == 1 and new == old.replace(GS_KEYCHAIN_OLD, GS_KEYCHAIN_NEW)
+    assert _rule_block(hooks["r2"].read_text(encoding="utf-8"), "keychain-dump") == pinned
+
+
 # ---------------------------------------------------------------- TRUST
 
 def test_trust_pins_the_new_hook_bytes():
