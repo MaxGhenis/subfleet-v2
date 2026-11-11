@@ -61,7 +61,8 @@ from .contracts import (
     CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_MAX_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
-    AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
+    AttestationResult, AttemptState, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
+    WALL_EXEMPT_OUTCOME_CLASSES,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
 from .status_json import closure_row, closure_rows, decision_rows, timestamp
@@ -130,6 +131,9 @@ PUSH_WORKSPACE_STORE_RETRY_WINDOW_S = 600.0
 
 LIVE_ATTEMPTS = ("SELECT * FROM attempts WHERE state IN "
                  "('reserved','starting','running','finalizing')")
+# Quarantined survivors may still run. Derive terminal states from the contract
+# so both wall readers apply exactly the same state and outcome boundary.
+_WALL_EXEMPT_STATES = tuple(s.value for s in AttemptState if s.terminal and s != AttemptState.QUARANTINED)
 #: C-5.11: what a tick reads of every live attempt, in one statement: where its
 #: receipts are, its state, and its job's cancel request and wall limit. It
 #: names no column SQLite keeps on overflow pages: `evidence_json` averaged
@@ -140,7 +144,10 @@ LIVE_TICK = ("SELECT a.attempt_id,a.job_id,a.seq,a.state,j.cancel_requested_at,"
              "COALESCE((SELECT SUM(MAX(0,unixepoch(p.finished_at,'subsec')-"
              "unixepoch(p.started_at,'subsec')+0.001)) FROM attempts p WHERE p.job_id=a.job_id "
              "AND p.attempt_id<>a.attempt_id AND p.state NOT IN "
-             "('reserved','starting','running','finalizing')),0.0) AS prior_running_s "
+             "('reserved','starting','running','finalizing') AND NOT ("
+             f"p.state IN ({','.join(repr(s) for s in _WALL_EXEMPT_STATES)}) AND "
+             f"COALESCE(p.outcome_class IN ({','.join(repr(c) for c in WALL_EXEMPT_OUTCOME_CLASSES)}),0) "
+             "AND p.killed_by IS NULL)),0.0) AS prior_running_s "
              "FROM attempts a LEFT JOIN jobs j USING(job_id) "
              "WHERE a.state IN ('reserved','starting','running','finalizing')")
 #: C-11, C-6.4: what a route evaluation reads of attempts and jobs. Only an
@@ -4923,18 +4930,24 @@ class Daemon:
                 job["notices"] = self.store.query("SELECT * FROM notices WHERE job_id=? ORDER BY notice_id", (job["job_id"],))
         return {"jobs": jobs, "timeout": False}
 
-    def _running_s(self, job_id: str) -> float:
-        """D-WALL1: provider execution across attempts, ending at a known exit.
+    def _running_s(self, job_id: str, *, finishing_attempt_id: str | None = None) -> float:
+        """D-WALL1: counted provider execution, ending at a known exit.
 
         Finalization preserves the provider's finished_at; settlement and
         export spend no budget. Only a provider that may still be running is
         charged to now. Legacy and unlaunched rows without a start spend none.
+        Terminal outside faults give back their time unless stopped or quarantined.
+        The finishing attempt still counts for its own overrun comparison.
         """
         now = datetime.now(timezone.utc).isoformat()
         total = 0.0
-        for row in self.store.query("SELECT state,started_at,finished_at FROM attempts WHERE job_id=?",
+        for row in self.store.query("SELECT attempt_id,state,started_at,finished_at,outcome_class,killed_by "
+                                    "FROM attempts WHERE job_id=?",
                                     (job_id,)):
             if row["state"] == "reserved":
+                continue
+            if (row["attempt_id"] != finishing_attempt_id and row["state"] in _WALL_EXEMPT_STATES
+                    and row["outcome_class"] in WALL_EXEMPT_OUTCOME_CLASSES and row["killed_by"] is None):
                 continue
             start = row["started_at"]
             end = row["finished_at"] or (now if row["state"] in ("starting", "running") else None)
@@ -11950,7 +11963,10 @@ class Daemon:
             # A provider that exited on its own keeps its result, even when a
             # down or delayed daemon missed the deadline. Keep the overrun for
             # online/offline runs show without turning it into a cancellation.
-            running_s = self._running_s(job["job_id"])
+            # query() shares this transaction's writer connection, so it already
+            # sees the terminal class above. Charge this attempt as it ran live;
+            # only earlier attempts can give their time back for this comparison.
+            running_s = self._running_s(job["job_id"], finishing_attempt_id=a["attempt_id"])
             if not lost and not actual.get("killed_by") and running_s > job["max_wall_s"]:
                 evidence["wall_overrun"] = {
                     "running_s": running_s, "max_wall_s": job["max_wall_s"],
