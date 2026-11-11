@@ -1,0 +1,4 @@
+cwd: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive
+daemon: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/daemon.py
+cat-file exit: 128
+fatal: not a git repository (or any of the parent directories): .git

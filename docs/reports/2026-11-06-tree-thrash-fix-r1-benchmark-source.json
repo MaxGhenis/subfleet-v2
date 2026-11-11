@@ -1,0 +1,7 @@
+{
+  "benchmark_daemon_sha256": "7e36c69d8431af1d56bcee8db9f2382c0b6835d82750bb35e88ae7ee07cd9e72",
+  "final_daemon_sha256": "176f8c848fc0c36629d6c8518c65d4c436b5dc02358fbf7e904bc5eec1074774",
+  "measured_admit_pass_unchanged": true,
+  "admit_pass_sha256": "7589ddc6d76e7b8fd21e739f31c4924407d50ada3e4b99818679b4924712fe65",
+  "revision_note": "Final sweep-only revision refreshes authoritative desktop identity/pin view outside store transaction; measured _admit_pass remains byte-exact and sweep is not benchmarked."
+}

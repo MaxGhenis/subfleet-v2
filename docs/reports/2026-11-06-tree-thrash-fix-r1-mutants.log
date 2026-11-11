@@ -1,0 +1,4 @@
+RUN	baseline	tests/fake/test_admission_tree_thrash.py::test_a_reopened_lane_before_the_sweep_keeps_its_unused_tree tests/fake/test_admission_tree_thrash.py::test_the_contract_no_git_for_a_waiter_covers_a_lease_arriving_during_preparation tests/fake/test_admission_tree_thrash.py::test_i1_two_pinned_lanes_can_each_lose_a_prepared_tree_in_one_pass tests/fake/test_admission_tree_thrash.py::test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head
+
+ERROR: baseline: baseline or infrastructure failure, exit 124
+0/0 mutants killed

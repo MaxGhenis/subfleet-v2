@@ -1,0 +1,28 @@
+{
+  "waiting_started": "2026-11-11T18:37:57.863989+00:00",
+  "start_cutoff": "2026-11-11T19:00:00+00:00",
+  "started": "2026-11-11T18:40:50.855278+00:00",
+  "command": [
+    "/opt/homebrew/bin/uv",
+    "run",
+    "--no-sync",
+    "python",
+    "tools/benchmark_tree_thrash.py",
+    "--samples",
+    "1",
+    "--jobs",
+    "300",
+    "--scenarios",
+    "closed",
+    "--head-overlay",
+    "subfleet/daemon.py",
+    "--temp-root",
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor",
+    "--output",
+    "/Users/maxghenis/.subfleet/worktrees/20261107-112016-tt-fix-r1/docs/reports/2026-11-06-tree-thrash-fix-r1-closed-repeat.json"
+  ],
+  "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d",
+  "head_daemon_sha256": "02f1ea4c17d2252192fb4dedfa9b67080c0084deb671b0e72569129174f01583",
+  "ended": "2026-11-11T19:04:16.650557+00:00",
+  "exit_code": 0
+}

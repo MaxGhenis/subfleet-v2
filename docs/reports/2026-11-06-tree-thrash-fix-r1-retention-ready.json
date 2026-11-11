@@ -1,0 +1,22 @@
+{
+  "status": "incomplete",
+  "completed_utc": "2026-11-11T18:58:19Z",
+  "interpreter": "Python 3.15.2",
+  "reproduction": {
+    "command": "uv --cache-dir $UV_CACHE_DIR run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -q tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases --timeout=1200 --basetemp $TMPDIR/retention-r1-reproduce --junitxml=docs/reports/2026-11-06-tree-thrash-fix-r1-retention-reproduce.xml --durations=10",
+    "exit_code": 2,
+    "result": "KeyboardInterrupt; no tests ran in 1206.26 seconds; setup 11.28 seconds; no local product assertion reproduced",
+    "log": "docs/reports/2026-11-06-tree-thrash-fix-r1-retention-reproduce.log"
+  },
+  "module": {
+    "command": "PYTHONPATH=$PWD/.venv/lib/python3.15/site-packages:$PWD $UV_CACHE_DIR/archive-v0/P-oNqJsk9JlUfkqO/bin/python -m pytest -q -n 4 tests/fake/test_detached_retention_fence.py --timeout=1200 --basetemp $TMPDIR/retention-r1-full-dev --junitxml=docs/reports/2026-11-06-tree-thrash-fix-r1-retention.xml --durations=20",
+    "exit_code": 1,
+    "result": "Interrupted during xdist worker startup by the requested time bound; traceback shows Hypothesis import and assertion-rewritten bytecode reads; no completed test cases or JUnit summary",
+    "log": "docs/reports/2026-11-06-tree-thrash-fix-r1-retention.log",
+    "preceding_attempt": "Direct cached Python without workspace dev-site PYTHONPATH exited 4 before collection: --timeout=1200 was unrecognized"
+  },
+  "change": "The CI explicit example fences the future worktree parent. Provisional placement now detects that fence before _workspace; the former oracle required one eager preparation. Changed the preparation expectation to zero and strengthened assertions: every foreign lease holder unchanged, no attempt, no job-held lease, no allocated tree. Exact hold reason, retiring keys and folder comparisons remain. No daemon correction or reservation outcome change is needed for this assertion.",
+  "contract": "C-8.4 still prevents reservation while retention fences the target. C-6.5 still takes no exclusive source-folder lease for read-only or allocated writers and uses the writer's own output tree as its write target. Neither clause promises eager preparation before a target-fence wait.",
+  "git": "git diff --check -- tests/fake/test_detached_retention_fence.py passed. Named git add failed exit 128 because the assigned worktree index.lock is outside the writable sandbox; conditional commit did not run.",
+  "cleanup": "All known reproduction and full-module tool sessions have closed; no test process started by this agent remains attached to an active tool session. Exact-command pkill attempt failed because sandbox cannot enumerate processes; an lsof lookup restricted to the reproduction log exited 1."
+}

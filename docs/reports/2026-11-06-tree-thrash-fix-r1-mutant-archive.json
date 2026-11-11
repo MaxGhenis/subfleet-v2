@@ -1,0 +1,13 @@
+{
+  "archive": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/fix-r1-mutations/archive",
+  "overlay_sha256": {
+    "subfleet/daemon.py": "176f8c848fc0c36629d6c8518c65d4c436b5dc02358fbf7e904bc5eec1074774",
+    "tests/fake/test_admission_tree_thrash.py": "5503f2cf143601a893e66f5441239a05d21921ab85e968710902d8fca2c1d269",
+    "tests/fixtures/tree_thrash_a8624a4899a2.py": "574f47cbeac8ba343791cafa34e75ac1b28cd6b3b16f068ab5b3dac82996ab09",
+    "tools/tree_thrash_mutations.py": "cd579bef055e06d1e18beee0e6521d9123b27d3c38345144795ac766d1347748"
+  },
+  "prep_seconds": 223.546,
+  "update_note": "Refreshed daemon, probes and mutant after sweep switched to cached desktop identity; no pytest started.",
+  "launch_refresh_utc": "2026-11-11T19:28:59.494066+00:00",
+  "final_revision_note": "Authoritative sweep-time pin view refresh outside store transaction; canonical APFS output-lease test key. Old control infrastructure timed out with no completed coverage; final controls run separately."
+}
