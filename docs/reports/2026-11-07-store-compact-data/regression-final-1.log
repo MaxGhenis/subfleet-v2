@@ -1,0 +1,716 @@
+Installed 7 packages in 4.60s
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  8%]
+F..................................................F.................... [ 16%]
+....................................................................F... [ 25%]
+.................F.....................................F................ [ 33%]
+........................................................................ [ 42%]
+........................................................................ [ 50%]
+.................................F.F.................................... [ 59%]
+........................................................................ [ 67%]
+........................................................................ [ 76%]
+..........................F.......................................F..... [ 84%]
+..........................................F...................F.F....... [ 93%]
+...............F.........................F..F..............              [100%]
+=================================== FAILURES ===================================
+__________________ test_each_step_reclaims_at_most_128_pages ___________________
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_store_incremental_vacuum.py:90: in test_each_step_reclaims_at_most_128_pages
+    before_digest = digest(store)
+                    ^^^^^^^^^^^^^
+tests/unit/test_store_incremental_vacuum.py:51: in digest
+    result.update(str(row[0]).encode())
+                  ^^^^^^^^^^^
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6152351744) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+_______ test_further_deletes_shrink_the_file_through_passive_checkpoints _______
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_store_incremental_vacuum.py:120: in test_further_deletes_shrink_the_file_through_passive_checkpoints
+    assert digest(store) == expected
+           ^^^^^^^^^^^^^
+tests/unit/test_store_incremental_vacuum.py:51: in digest
+    result.update(str(row[0]).encode())
+                  ^^^^^^^^^^^
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6152351744) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+_____________ test_a_snapshot_proceeds_while_a_transaction_is_open _____________
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_store_readers.py:117: in test_a_snapshot_proceeds_while_a_transaction_is_open
+    assert time.monotonic() - started < 2
+E   assert (464041.497432833 - 464038.565488333) < 2
+E    +  where 464041.497432833 = <built-in function monotonic>()
+E    +    where <built-in function monotonic> = time.monotonic
+_ test_more_snapshots_than_connections_leave_one_statement_reads_a_connection __
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_store_readers.py:325: in test_more_snapshots_than_connections_leave_one_statement_reads_a_connection
+    assert time.monotonic() - started < .25                 # well under read_wait_s: no wait at all
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   assert (464105.540079208 - 464105.274788625) < 0.25
+E    +  where 464105.540079208 = <built-in function monotonic>()
+E    +    where <built-in function monotonic> = time.monotonic
+_ test_a_long_snapshot_holds_the_wal_back_without_holding_a_commit_and_it_shrinks_after _
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_store_readers.py:553: in test_a_long_snapshot_holds_the_wal_back_without_holding_a_commit_and_it_shrinks_after
+    with handle.transaction("test.grow") as tx:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py:148: in __exit__
+    next(self.gen)
+subfleet/store.py:455: in transaction
+    self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6152351744) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+__________ test_every_refusal_the_daemon_builds_names_a_known_reason ___________
+[gw2] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_handler_refusals.py:90: in test_every_refusal_the_daemon_builds_names_a_known_reason
+    for where, call in constructions():
+                       ^^^^^^^^^^^^^^^
+tests/unit/test_handler_refusals.py:58: in constructions
+    for node in ast.walk(ast.parse(path.read_text())):
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/lib/python3.13/ast.py:50: in parse
+    return compile(source, filename, mode, flags,
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6116700160) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+_ test_a_refusal_reads_its_most_specific_checked_form_and_never_its_exception __
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_handler_refusals.py:173: in test_a_refusal_reads_its_most_specific_checked_form_and_never_its_exception
+    kind=st.sampled_from((protocol.ProtocolError, AdapterError, TransferError)))
+            ^^^
+.venv/lib/python3.13/site-packages/hypothesis/core.py:769: in process_arguments_to_given
+    s.validate()
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:552: in validate
+    self.do_validate()
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:1004: in do_validate
+    for e in self.element_strategies:
+             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:932: in element_strategies
+    if not arg.is_empty:
+           ^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:295: in is_empty
+    return recursive_property(self, "is_empty", True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:176: in recursive_property
+    recur(strategy)
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:172: in recur
+    mapping[strat] = getattr(strat, calculation)(recur)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:99: in calc_is_empty
+    return recur(self.wrapped_strategy)
+                 ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in wrapped_strategy
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in <genexpr>
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                           ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:52: in unwrap_strategies
+    result = unwrap_strategies(s.wrapped_strategy)
+                               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:124: in wrapped_strategy
+    base = self.function(*self.__args, **self.__kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/core.py:834: in characters
+    return OneCharStringStrategy.from_characters_args(
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strings.py:114: in from_characters_args
+    encodable, non_roundtrip = charmap.intervals_from_codec(codec)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/internal/charmap.py:179: in intervals_from_codec
+    res = res.union(res)
+          ^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/internal/intervalsets.py:150: in union
+    intervals = sorted(x + y, reverse=True)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6152351744) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+________ test_constant_refusal_text_and_its_template_say_the_same_thing ________
+[gw2] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_handler_refusals.py:110: in test_constant_refusal_text_and_its_template_say_the_same_thing
+    for where, call in constructions():
+                       ^^^^^^^^^^^^^^^
+tests/unit/test_handler_refusals.py:58: in constructions
+    for node in ast.walk(ast.parse(path.read_text())):
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/lib/python3.13/ast.py:50: in parse
+    return compile(source, filename, mode, flags,
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6116700160) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+_____________ test_a_checked_value_has_its_shape_and_no_free_text ______________
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+.venv/lib/python3.13/site-packages/hypothesis/internal/charmap.py:154: in intervals_from_codec
+    with gzip.GzipFile(fname) as gzf:
+         ^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/lib/python3.13/gzip.py:205: in __init__
+    fileobj = self.myfileobj = builtins.open(filename, mode or 'rb')
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.hypothesis/unicode_data/15.1.0/codec-v2-utf-8.json.gz'
+
+During handling of the above exception, another exception occurred:
+tests/unit/test_handler_refusals.py:199: in test_a_checked_value_has_its_shape_and_no_free_text
+    value=st.one_of(st.text(max_size=50), st.integers(-5, 10 ** 10), st.booleans(), st.none(),
+            ^^^
+.venv/lib/python3.13/site-packages/hypothesis/core.py:769: in process_arguments_to_given
+    s.validate()
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:552: in validate
+    self.do_validate()
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:1004: in do_validate
+    for e in self.element_strategies:
+             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:932: in element_strategies
+    if not arg.is_empty:
+           ^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:295: in is_empty
+    return recursive_property(self, "is_empty", True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:176: in recursive_property
+    recur(strategy)
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:172: in recur
+    mapping[strat] = getattr(strat, calculation)(recur)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:99: in calc_is_empty
+    return recur(self.wrapped_strategy)
+                 ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in wrapped_strategy
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in <genexpr>
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                           ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:52: in unwrap_strategies
+    result = unwrap_strategies(s.wrapped_strategy)
+                               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:124: in wrapped_strategy
+    base = self.function(*self.__args, **self.__kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/core.py:834: in characters
+    return OneCharStringStrategy.from_characters_args(
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strings.py:114: in from_characters_args
+    encodable, non_roundtrip = charmap.intervals_from_codec(codec)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/internal/charmap.py:172: in intervals_from_codec
+    roundtrips = encoded.decode(codec_name) == char
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6152351744) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+_____________________ test_the_wire_shows_what_render_says _____________________
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+  + Exception Group Traceback (most recent call last):
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/tests/unit/test_handler_refusals.py", line 219, in test_the_wire_shows_what_render_says
+  |     @settings(max_examples=200, deadline=None)
+  |                    ^^^
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 2295, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | hypothesis.errors.FlakyFailure: Inconsistent results: A test case failed on the first run but now succeeds (or fails with another error, or is for some reason not runnable). (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 1223, in _execute_once_for_engine
+    |     result = self.execute_once(data)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 1161, in execute_once
+    |     result = self.test_runner(data, run)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 828, in default_executor
+    |     return function(data)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/core.py", line 1063, in run
+    |     kw, arglabels = context.prep_args_kwargs_from_strategies(
+    |                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+    |         self.stuff.given_kwargs
+    |         ^^^^^^^^^^^^^^^^^^^^^^^
+    |     )
+    |     ^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/control.py", line 206, in prep_args_kwargs_from_strategies
+    |     kwargs[k] = self.data.draw(s, observe_as=f"generate:{k}")
+    |                 ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/internal/conjecture/data.py", line 1330, in draw
+    |     v = unwrapped.do_draw(self)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/collections.py", line 530, in do_draw
+    |     remaining = [k for k, v in self.optional.items() if not v.is_empty]
+    |                                                             ^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py", line 295, in is_empty
+    |     return recursive_property(self, "is_empty", True)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py", line 176, in recursive_property
+    |     recur(strategy)
+    |     ~~~~~^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py", line 172, in recur
+    |     mapping[strat] = getattr(strat, calculation)(recur)
+    |                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py", line 99, in calc_is_empty
+    |     return recur(self.wrapped_strategy)
+    |                  ^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py", line 119, in wrapped_strategy
+    |     unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py", line 119, in <genexpr>
+    |     unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+    |                            ~~~~~~~~~~~~~~~~~^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py", line 52, in unwrap_strategies
+    |     result = unwrap_strategies(s.wrapped_strategy)
+    |                                ^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py", line 124, in wrapped_strategy
+    |     base = self.function(*self.__args, **self.__kwargs)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/core.py", line 834, in characters
+    |     return OneCharStringStrategy.from_characters_args(
+    |            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+    |         categories=categories,
+    |         ^^^^^^^^^^^^^^^^^^^^^^
+    |     ...<4 lines>...
+    |         codec=codec,
+    |         ^^^^^^^^^^^^
+    |     )
+    |     ^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strings.py", line 114, in from_characters_args
+    |     encodable, non_roundtrip = charmap.intervals_from_codec(codec)
+    |                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/internal/charmap.py", line 178, in intervals_from_codec
+    |     res = IntervalSet(encodable_intervals)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/internal/intervalsets.py", line 48, in __init__
+    |     IntervalsT, tuple(tuple(v) for v in intervals)
+    |                 ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/internal/intervalsets.py", line 48, in <genexpr>
+    |     IntervalsT, tuple(tuple(v) for v in intervals)
+    |                       ~~~~~^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/pytest_timeout.py", line 317, in handler
+    |     timeout_sigalrm(item, settings)
+    |     ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/pytest_timeout.py", line 502, in timeout_sigalrm
+    |     pytest.fail(PYTEST_FAILURE_MESSAGE % settings.timeout)
+    |     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/outcomes.py", line 162, in __call__
+    |     raise Failed(msg=reason, pytrace=pytrace)
+    | Failed: Timeout (>120.0s) from pytest-timeout.
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | hypothesis.errors._WrappedBaseException
+    +------------------------------------
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6152351744) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+________ test_c16_1_state_socket_handler_recovers_after_malformed_line _________
+[gw1] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/fake/test_state_contract.py:245: in test_c16_1_state_socket_handler_recovers_after_malformed_line
+    reply = json.loads(stream.readline())
+                       ^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/lib/python3.13/socket.py:723: in readinto
+    return self._sock.recv_into(b)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+E   TimeoutError: timed out
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4508399120:daemon.py:994 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4508399120:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+---------------------------- Captured log teardown -----------------------------
+WARNING  subfleet.daemon.4508399120:daemon.py:1067 conversations lock released after 3.2 s by MainThread (8272273792). Where it was held:
+  File "<string>", line 1, in <module>
+    import sys;exec(eval(sys.stdin.readline()))
+  File "<string>", line 8, in <module>
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1806, in serve
+    WorkerGateway(io=io, id=id, _startcount=2).serve()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1273, in serve
+    self._execpool.integrate_as_primary_thread()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 389, in integrate_as_primary_thread
+    self._perform_spawn(reply)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1291, in executetask
+    exec(co, loc)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/xdist/remote.py", line 427, in <module>
+    config.hook.pytest_cmdline_main(config=config)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/xdist/remote.py", line 206, in pytest_runtestloop
+    self.run_one_test()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/xdist/remote.py", line 227, in run_one_test
+    self.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/tests/fake/test_state_contract.py", line 59, in state_daemon
+    daemon.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/subfleet/daemon.py", line 12847, in close
+    self.conversations.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/subfleet/conversations/service.py", line 273, in close
+    self.store.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/subfleet/lockwatch.py", line 140, in __exit__
+    self.release()
+
+WARNING  subfleet.daemon.4508399120:daemon.py:1067 conversation-files lock released after 15.1 s by MainThread (8272273792). Where it was held:
+  File "<string>", line 1, in <module>
+    import sys;exec(eval(sys.stdin.readline()))
+  File "<string>", line 8, in <module>
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1806, in serve
+    WorkerGateway(io=io, id=id, _startcount=2).serve()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1273, in serve
+    self._execpool.integrate_as_primary_thread()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 389, in integrate_as_primary_thread
+    self._perform_spawn(reply)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1291, in executetask
+    exec(co, loc)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/xdist/remote.py", line 427, in <module>
+    config.hook.pytest_cmdline_main(config=config)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/xdist/remote.py", line 206, in pytest_runtestloop
+    self.run_one_test()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/xdist/remote.py", line 227, in run_one_test
+    self.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/tests/fake/test_state_contract.py", line 59, in state_daemon
+    daemon.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/subfleet/daemon.py", line 12847, in close
+    self.conversations.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/subfleet/conversations/service.py", line 273, in close
+    self.store.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/subfleet/lockwatch.py", line 140, in __exit__
+    self.release()
+___________ test_restore_recipe_preserves_backup_and_displaced_files ___________
+[gw2] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_prune_restore.py:237: in test_restore_recipe_preserves_backup_and_displaced_files
+    @given(
+            
+.venv/lib/python3.13/site-packages/hypothesis/core.py:769: in process_arguments_to_given
+    s.validate()
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:552: in validate
+    self.do_validate()
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:159: in do_validate
+    w = self.wrapped_strategy
+        ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in wrapped_strategy
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in <genexpr>
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                           ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:52: in unwrap_strategies
+    result = unwrap_strategies(s.wrapped_strategy)
+                               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in wrapped_strategy
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in <genexpr>
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                           ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:52: in unwrap_strategies
+    result = unwrap_strategies(s.wrapped_strategy)
+                               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in wrapped_strategy
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in <genexpr>
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                           ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:52: in unwrap_strategies
+    result = unwrap_strategies(s.wrapped_strategy)
+                               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:124: in wrapped_strategy
+    base = self.function(*self.__args, **self.__kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/core.py:834: in characters
+    return OneCharStringStrategy.from_characters_args(
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strings.py:114: in from_characters_args
+    encodable, non_roundtrip = charmap.intervals_from_codec(codec)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/internal/charmap.py:178: in intervals_from_codec
+    res = IntervalSet(encodable_intervals)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/internal/intervalsets.py:56: in __init__
+    self.offsets.append(self.offsets[-1] + v - u + 1)
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6116700160) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+______ test_a_report_that_cannot_be_saved_changes_nothing_but_where_it_is ______
+[gw3] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_prune_decisions.py:1124: in test_a_report_that_cannot_be_saved_changes_nothing_but_where_it_is
+    @given(outcome=st.sampled_from(FINISHES + STOPS),
+                   ^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/core.py:769: in process_arguments_to_given
+    s.validate()
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:552: in validate
+    self.do_validate()
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:1004: in do_validate
+    for e in self.element_strategies:
+             ^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:932: in element_strategies
+    if not arg.is_empty:
+           ^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:295: in is_empty
+    return recursive_property(self, "is_empty", True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:176: in recursive_property
+    recur(strategy)
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strategies.py:172: in recur
+    mapping[strat] = getattr(strat, calculation)(recur)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:99: in calc_is_empty
+    return recur(self.wrapped_strategy)
+                 ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in wrapped_strategy
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in <genexpr>
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                           ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:52: in unwrap_strategies
+    result = unwrap_strategies(s.wrapped_strategy)
+                               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in wrapped_strategy
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:119: in <genexpr>
+    unwrapped_args = tuple(unwrap_strategies(s) for s in self.__args)
+                           ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:52: in unwrap_strategies
+    result = unwrap_strategies(s.wrapped_strategy)
+                               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/lazy.py:124: in wrapped_strategy
+    base = self.function(*self.__args, **self.__kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/core.py:834: in characters
+    return OneCharStringStrategy.from_characters_args(
+.venv/lib/python3.13/site-packages/hypothesis/strategies/_internal/strings.py:114: in from_characters_args
+    encodable, non_roundtrip = charmap.intervals_from_codec(codec)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/internal/charmap.py:178: in intervals_from_codec
+    res = IntervalSet(encodable_intervals)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/internal/intervalsets.py:52: in __init__
+    assert all(len(v) == 2 for v in self.intervals)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/hypothesis/internal/intervalsets.py:52: in <genexpr>
+    assert all(len(v) == 2 for v in self.intervals)
+               ^^^^^^^^^^^
+E   Failed: Timeout (>120.0s) from pytest-timeout.
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6145290240) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+_____________ test_usage_timeout_does_not_block_cycle_or_shutdown ______________
+[gw0] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_timers_probe.py:399: in test_usage_timeout_does_not_block_cycle_or_shutdown
+    assert time.monotonic() - before < .4
+E   assert (465302.0775825 - 465299.011388208) < 0.4
+E    +  where 465302.0775825 = <built-in function monotonic>()
+E    +    where <built-in function monotonic> = time.monotonic
+___________ test_tick_is_nonblocking_and_does_not_overlap_one_cycle ____________
+[gw2] darwin -- Python 3.13.15 /private/tmp/store-compact-217/uv-cache/builds-v0/.tmpkvFT4D/bin/python
+tests/unit/test_timers_probe.py:258: in test_tick_is_nonblocking_and_does_not_overlap_one_cycle
+    assert time.monotonic() - before < .2
+E   assert (465255.392107125 - 465254.248383083) < 0.2
+E    +  where 465255.392107125 = <built-in function monotonic>()
+E    +    where <built-in function monotonic> = time.monotonic
+=========================== short test summary info ============================
+FAILED tests/unit/test_store_incremental_vacuum.py::test_each_step_reclaims_at_most_128_pages
+FAILED tests/unit/test_store_incremental_vacuum.py::test_further_deletes_shrink_the_file_through_passive_checkpoints
+FAILED tests/unit/test_store_readers.py::test_a_snapshot_proceeds_while_a_transaction_is_open
+FAILED tests/unit/test_store_readers.py::test_more_snapshots_than_connections_leave_one_statement_reads_a_connection
+FAILED tests/unit/test_store_readers.py::test_a_long_snapshot_holds_the_wal_back_without_holding_a_commit_and_it_shrinks_after
+FAILED tests/unit/test_handler_refusals.py::test_every_refusal_the_daemon_builds_names_a_known_reason
+FAILED tests/unit/test_handler_refusals.py::test_a_refusal_reads_its_most_specific_checked_form_and_never_its_exception
+FAILED tests/unit/test_handler_refusals.py::test_constant_refusal_text_and_its_template_say_the_same_thing
+FAILED tests/unit/test_handler_refusals.py::test_a_checked_value_has_its_shape_and_no_free_text
+FAILED tests/unit/test_handler_refusals.py::test_the_wire_shows_what_render_says
+FAILED tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line
+FAILED tests/unit/test_prune_restore.py::test_restore_recipe_preserves_backup_and_displaced_files
+FAILED tests/unit/test_prune_decisions.py::test_a_report_that_cannot_be_saved_changes_nothing_but_where_it_is
+FAILED tests/unit/test_timers_probe.py::test_usage_timeout_does_not_block_cycle_or_shutdown
+FAILED tests/unit/test_timers_probe.py::test_tick_is_nonblocking_and_does_not_overlap_one_cycle
+15 failed, 836 passed in 2623.49s (0:43:43)
