@@ -158,20 +158,23 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     snapshot-5, and its r3c (2026-10-26) closed the hub's review r2's
     walk-arounds (globs matching every entry, /Volumes/<entry> paths,
     braces, links before .., searcher names, escapes, nesting), and its r4
-    to r8 (2026-10-26 to 2026-10-29) closed the hub's reviews r3 to r7;
+    to r8 (2026-10-26 to 2026-10-29) closed the hub's reviews r3 to r7. The
+    guard sync (2026-11-11) replaced the [keychain-dump] block's last
+    sentence, which advised the bare `security find-generic-password` read
+    the agent-secrets skill bars (tests/unit/test_guard_sync.py);
     TRUST pins those bytes. That TRUST is the installed one of
     2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with hook a60d1c51… it
-    is the rollback) with the new hook hash and four dated provenance
-    additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one
-    and r3b's one, whose mount clause r3c corrected).
+    is the rollback) with the new hook hash and five dated provenance
+    additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
+    r3b's one, whose mount clause r3c corrected, and the guard sync's one).
     The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
     staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
     rebuilds the original from this one."""
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed",
-        "TRUST": "36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0",
+        "never-rules-hook.sh": "34682488eea6a6ef8049407e1c2ecc24fbef3e9eb399236f072f4f7e9e0f3983",
+        "TRUST": "680f864e8eea198099b89570914af8348203d53663d5c7b2f80ad193f86b12d9",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

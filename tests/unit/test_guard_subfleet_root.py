@@ -46,10 +46,12 @@ S2 (scoped stays allowed) Depth-bounded searches and searches two or more
    levels under ~/.subfleet are allowed, by the old hook and by the new.
 S3 (no other rule moves) For every corpus command the old hook denies under a
    rule other than unscoped-search, the new hook's output is byte-identical and
-   its denial-log line identical but for the timestamp. One case is intended
+   its denial-log line identical but for the timestamp. Two cases are intended
    and labelled: a Bash command carrying an apply_patch body (judged by the
    hf-dest heredoc scan, which runs after the unscoped-search region) and a
-   new-root search is denied by both hooks, the new one as [unscoped-search].
+   new-root search is denied by both hooks, the new one as [unscoped-search];
+   and the [keychain-dump] denial's last sentence, which the guard sync
+   (2026-11-11) replaced (``GS_TEXT``; the rule's decisions did not move).
 S4 (the Claude half agrees) The patched Claude analyzer (``unscoped_search.py``;
    it lives in the operator's home, not here, so name it with
    SUBFLEET_CLAUDE_UNSCOPED_SEARCH or these tests skip) gives the Codex hook's
@@ -175,8 +177,10 @@ R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7
 R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
 #: The overlay's hook after r3c (review r2's walk-arounds closed), which r4 replaces.
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
-#: The overlay's hook after r12d (the xargs door charged; e5b387c4... at r12's end): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed"
+#: The overlay's hook after r12d (the xargs door charged; e5b387c4... at r12's end), which the guard sync replaces.
+R12D_HOOK_SHA256 = "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed"
+#: The overlay's hook after the guard sync (2026-11-11: the keychain-dump block's last sentence): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "34682488eea6a6ef8049407e1c2ecc24fbef3e9eb399236f072f4f7e9e0f3983"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -497,6 +501,15 @@ R6_TEXT = [
 """),
 ]
 R3_TEXT = R6_TEXT + R3_TEXT
+#: The guard sync (2026-11-11, the hub's instruction audit): the keychain-dump block's last sentence, the
+#: block's only edit, as (guard-sync text, r12d text). The agent-secrets skill bars the bare
+#: `security find-generic-password` read the old sentence advised. Undone before R6_TEXT.
+GS_KEYCHAIN_OLD = "Use 'agent-secret' / 'security find-generic-password -s <item>' for specific secrets."
+GS_KEYCHAIN_NEW = ("Read one secret with 'agent-secret get <service>'; 'agent-secret search <query>' finds its "
+                   "name. A bare 'security find-generic-password' on the agent-secrets keychain raises a "
+                   "password dialog while that keychain stays locked.")
+GS_TEXT = [(GS_KEYCHAIN_NEW + '"\n', GS_KEYCHAIN_OLD + '"\n')]
+R3_TEXT = GS_TEXT + R3_TEXT
 
 
 def rebuild_r2(text: str) -> str:
@@ -1466,6 +1479,10 @@ def test_s3_other_rules_give_identical_output(hooks, repos, tmp_path):
                 # Intended: the hf-dest heredoc scan runs after the unscoped-search region.
                 assert rule(outs["new"]) == "unscoped-search", text
                 continue
+            if expected == "keychain-dump":
+                # Intended (the guard sync, 2026-11-11): the denial's last sentence, and only it, changed.
+                assert GS_KEYCHAIN_OLD in outs["old"] and GS_KEYCHAIN_NEW not in outs["old"], text
+                outs["old"] = outs["old"].replace(GS_KEYCHAIN_OLD, GS_KEYCHAIN_NEW)
             assert outs["new"] == outs["old"], text
             lines = {w: [line.split("\t", 1)[1] for line in p.read_text().splitlines()] for w, p in logs.items()}
             assert lines["new"] == lines["old"], text
