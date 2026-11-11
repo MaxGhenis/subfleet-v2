@@ -1,8 +1,8 @@
 """D-TASKHOLD-CAS1: ownership conditions survive the CLI and daemon boundary.
 
-The condition is never sent without the daemon's capability. Refusals keep their
-structured hold on stdout in JSON mode, with prose confined to stderr, and the
-two new outcomes have codes distinct from all pre-existing tasks outcomes.
+The condition travels in actions that old daemons refuse before a write. Refusals
+keep their structured hold on stdout in JSON mode, with prose confined to stderr,
+and the two new outcomes have codes distinct from all pre-existing tasks outcomes.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from subfleet.client import DaemonError, DaemonUnavailable
 from subfleet.contracts import Exit
 
 
-CAPABILITY = "tasks.if_note_prefix.v1"
+CAPABILITY = "tasks.if_note_prefix.v2"
 HOLD = {"task": "build", "until": "2026-11-07T12:10:00Z", "note": "booking: operator",
         "since": "2026-11-07T12:00:00Z"}
 HOLD_ARGV = ["tasks", "hold", "build", "--until", HOLD["until"], "--note", "battery-backoff: hot"]
@@ -33,36 +33,56 @@ def refusal(request):
         "private diagnostic", Exit.REFUSED, reason="task-hold-condition", details={"task_hold": HOLD}))
 
 
+def invalid_action(request):
+    return protocol.refuse(request.id, protocol.ProtocolError("ignored", Exit.INVALID_INPUT, reason="tasks-action"))
+
+
 @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
-@pytest.mark.parametrize("advertised", [None, [], [protocol.PUSH_CAPABILITY], "tasks.if_note_prefix.v1",
-                                         [0, None, {}]], ids=["absent", "empty", "unrelated", "string", "invalid"])
-def test_condition_is_never_sent_without_advertised_capability(daemon, capsys, argv, advertised):
-    server = daemon({"capabilities": lambda request: {"capabilities": advertised},
-                     "tasks": lambda request: {"task_holds": []}})
+@pytest.mark.parametrize("advertised", [None, [], [protocol.PUSH_CAPABILITY], ["tasks.if_note_prefix.v1"],
+                                         "tasks.if_note_prefix.v2", [0, None, {}]],
+                         ids=["absent", "empty", "unrelated", "v1-only", "string", "invalid"])
+def test_refused_conditional_action_queries_capability_before_exit_6(daemon, capsys, argv, advertised):
+    server = daemon({"capabilities": lambda request: {"capabilities": advertised}, "tasks": invalid_action})
     assert cli.main([*argv, *CONDITION, "--json"]) == 6
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {"refused": "task-hold-capability", "capability": CAPABILITY}
     assert CAPABILITY in captured.err and "task-hold-capability" in captured.err
     assert "fix: subfleet daemon stop && subfleet daemon start" in captured.err
-    assert server.ops() == ["capabilities"]
+    assert server.ops() == ["tasks", "capabilities"]
+    assert server.args("tasks")["action"] == f"{argv[1]}-if"
+    assert server.args("tasks")["if_note_prefix"] == "battery-backoff:"
 
 
 @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
-def test_daemon_predating_capabilities_receives_no_tasks_request(daemon, capsys, argv):
-    server = daemon({"tasks": lambda request: {"task_holds": []}})
+def test_daemon_predating_capabilities_refuses_conditional_action_first(daemon, capsys, argv):
+    server = daemon({"tasks": invalid_action})
     assert cli.main([*argv, *CONDITION]) == 6
     captured = capsys.readouterr()
     assert captured.out == "" and CAPABILITY in captured.err
-    assert server.ops() == ["capabilities"]
+    assert server.ops() == ["tasks", "capabilities"]
 
 
 @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
-def test_advertised_capability_allows_condition_with_normalized_prefix(daemon, capsys, argv):
-    server = daemon({"capabilities": capabilities, "tasks": lambda request: {"task_hold": HOLD}})
-    assert cli.main([*argv, "--if-note-prefix", " battery-backoff: ", "--json"]) == 0
-    assert server.ops() == ["capabilities", "tasks"]
+def test_condition_uses_refusable_action_without_capability_preflight(daemon, capsys, argv):
+    server = daemon({"tasks": lambda request: {"task_hold": HOLD}})
+    assert cli.main([*argv, *CONDITION, "--json"]) == 0
+    assert server.ops() == ["tasks"]
+    assert server.args("tasks")["action"] == f"{argv[1]}-if"
     assert server.args("tasks")["if_note_prefix"] == "battery-backoff:"
     assert json.loads(capsys.readouterr().out) == {"task_hold": HOLD}
+
+
+@pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
+@pytest.mark.parametrize("reason", ["tasks-action", "task-hold-note", "unknown-task"])
+def test_invalid_conditional_request_keeps_original_refusal_when_v2_is_advertised(daemon, capsys, argv, reason):
+    def invalid_request(request):
+        return protocol.refuse(request.id, protocol.ProtocolError("ignored", Exit.INVALID_INPUT, reason=reason))
+
+    server = daemon({"capabilities": capabilities, "tasks": invalid_request})
+    assert cli.main([*argv, *CONDITION, "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "task-hold-capability" not in captured.err
+    assert server.ops() == ["tasks", "capabilities"]
 
 
 @pytest.mark.parametrize("argv,expected", [
@@ -81,7 +101,8 @@ def test_unconditional_requests_keep_old_payload_without_capability_query(daemon
 
 @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
 @pytest.mark.parametrize("prefix", ["", "   ", "x\ny", "\nbattery-backoff:\n", "a\tb", "\x7f", "\u2028",
-                                     "x" * 161, "sk-ant-oat01-" + "Q" * 40])
+                                     "x" * 161, "sk-ant-oat01-" + "Q" * 40,
+                                     " battery-backoff:", "battery-backoff: ", "  battery-backoff:  "])
 def test_bad_prefix_is_task_hold_note_before_any_request(daemon, capsys, argv, prefix):
     server = daemon({"capabilities": capabilities, "tasks": lambda request: {}})
     assert cli.main([*argv, "--if-note-prefix", prefix]) == 2
@@ -106,7 +127,7 @@ def test_new_hold_note_must_start_with_prefix_before_any_request(daemon, capsys,
 def test_new_hold_note_is_checked_after_note_trimming(daemon, capsys):
     server = daemon({"capabilities": capabilities, "tasks": lambda request: {"task_hold": HOLD}})
     argv = ["tasks", "hold", "build", "--until", HOLD["until"], "--note", " battery-backoff: hot ",
-            "--if-note-prefix", " battery-backoff: ", "--json"]
+            "--if-note-prefix", "battery-backoff:", "--json"]
     assert cli.main(argv) == 0
     assert server.args("tasks")["if_note_prefix"] == "battery-backoff:"
     capsys.readouterr()
@@ -129,7 +150,7 @@ def test_condition_refusal_names_all_blocking_hold_fields_and_exit_7(daemon, cap
             key: type(value) for key, value in HOLD.items()}
     else:
         assert captured.out == ""
-    assert server.ops() == ["capabilities", "tasks"]
+    assert server.ops() == ["tasks"]
 
 
 def test_json_refusal_uses_structured_details_instead_of_message_parsing(daemon, capsys):
@@ -172,7 +193,7 @@ def test_tasks_outcome_codes_are_distinct_by_outcome_category(monkeypatch, capsy
         ("daemon-predates-tasks", RELEASE_ARGV, DaemonError(2, protocol.UNKNOWN_OP), 69),
         ("condition-failed", [*RELEASE_ARGV, *CONDITION],
          DaemonError(7, "task-hold-condition", reason="task-hold-condition", details={"task_hold": HOLD}), 7),
-        ("capability-missing", [*RELEASE_ARGV, *CONDITION], {}, 6),
+        ("capability-missing", [*RELEASE_ARGV, *CONDITION], DaemonError(2, "invalid tasks action"), 6),
     ]
     observed = {}
     for name, argv, answer, expected in outcomes:
@@ -202,3 +223,18 @@ def test_tasks_help_names_condition_exit_codes_and_json_contract(capsys, argv):
     assert "--if-note-prefix" in text
     assert "Exit 7" in text and "exit 6" in text
     assert CAPABILITY in text and "stdout" in text and "stderr" in text
+    assert "surrounding spaces" in text
+
+
+@pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
+def test_json_condition_refusal_without_details_prints_null(daemon, capsys, argv):
+    def no_details(request):
+        return protocol.refuse(request.id, protocol.ProtocolError(
+            "private diagnostic", Exit.REFUSED, reason="task-hold-condition"))
+
+    server = daemon({"tasks": no_details})
+    assert cli.main([*argv, *CONDITION, "--json"]) == 7
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"refused": "task-hold-condition", "task_hold": None}
+    assert "task-hold-condition" in captured.err and "private diagnostic" not in captured.err
+    assert server.ops() == ["tasks"]
