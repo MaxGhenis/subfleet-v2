@@ -234,9 +234,9 @@ def test_finalization_time_is_not_charged_to_later_attempts(wall):
     service.store.update_job(jid, state='running')
     service.store.add_attempt(attempt_id=f'{jid}/a2', job_id=jid, seq=2, lane_id='codex-1',
                               model_requested='astra', state='running', started_at=stamp(-1))
-    assert service._running_s(jid) == 3
+    assert service._running_s(jid) == 1
     row = next(row for row in service.store.query(LIVE_TICK) if row['attempt_id'] == f'{jid}/a2')
-    assert row['prior_running_s'] == pytest.approx(2, abs=.002)
+    assert row['prior_running_s'] == 0
 
 
 def test_reserved_time_and_unstarted_attempts_do_not_spend_the_wall(wall, monkeypatch):
