@@ -813,9 +813,9 @@ def test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases(tmp_
     - the job is held before its workspace is prepared exactly when retention holds a
       lease above its folder or a recorded dependency (`folders.within`, whole names);
       its hold names all those keys once, and its folder or first needed place;
-    - a worktree writer not so held is held in its reserving transaction exactly when
-      retention holds a lease above the worktree cut for it (the writer's check on its
-      write target), naming those;
+    - a fresh worktree writer not so held is held by the provisional placement check
+      before preparation exactly when retention holds a lease above its future
+      worktree (the writer's check on its write target), naming those;
     - otherwise it is placed, holding no lease on its folder (C-8.4, C-6.5)."""
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         measured(daemon, harness)
@@ -875,6 +875,14 @@ def test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases(tmp_
                               if holder.startswith("retention:") and folders.within(allocated, place)
                               } if shape == "worktree" else set()
                 hold = look(daemon, job_id)
+                # The earlier check changes preparation order, not any lease or
+                # reservation outcome promised by C-8.4 and C-6.5.
+                for place, holder in held:
+                    assert lease(daemon, folders.exclusive_key(place)) == holder, (shape, where, held, hold)
+                if early or above_tree:
+                    assert daemon.store.one("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)) is None
+                    assert daemon.store.one("SELECT 1 FROM leases WHERE holder=?", (job_id,)) is None
+                    assert not os.path.lexists(allocated), (shape, where, held, hold)
                 if early:
                     assert not _live(daemon, job_id) and workspaces.calls == [], (shape, where, held, hold)
                     role, named = (None, folder) if fenced else needed[0][:2]
@@ -883,7 +891,7 @@ def test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases(tmp_
                     assert sorted(hold["leases"]) == sorted(hold["retiring"]) == sorted(early), (shape, where, held, hold)
                     assert len(hold["leases"]) == len(set(hold["leases"])), hold
                 elif above_tree:
-                    assert not _live(daemon, job_id) and workspaces.calls == [job_id], (shape, where, held, hold)
+                    assert not _live(daemon, job_id) and workspaces.calls == [], (shape, where, held, hold)
                     assert sorted(hold["retiring"]) == sorted(hold["leases"]) == sorted(above_tree), hold
                     assert hold["folder"] == str(daemon.root / "worktrees" / job_id), hold
                 else:

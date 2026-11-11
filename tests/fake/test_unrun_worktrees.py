@@ -406,6 +406,10 @@ def check_rule(daemon, harness, f, tmp_path_factory):
         daemon.dispatch("submit", harness.submit_args(workdir=str(inside)))
     daemon._holds_by_kind = {**daemon._holds_by_kind,
                              "detached": {job_id: dict(HOLDS[f["hold"]])} if f["hold"] else {}}
+    # The saved unprepared hold describes a standing refusal, which the sweep
+    # now verifies afresh. Supply that refusal rather than only its old label.
+    with daemon.store.transaction("test.sweep_lane_state") as tx:
+        tx.execute("UPDATE lanes SET enabled=?", (int(f["hold"] != "unprepared"),))
     why = expected(f)
     assert daemon._give_back_unrun(job_id) is (why is not None), f
     assert os.path.lexists(tree) is (why is None), f

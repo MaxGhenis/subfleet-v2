@@ -14,8 +14,10 @@ TMPDIR must be the Darwin user temporary directory, as for the main suite.
 Use ``--temp-root`` for a writable child when its parent is sandboxed; every
 test's TMPDIR, pytest basetemp and Hypothesis database stay beneath that child.
 ``--output`` saves machine-readable timings, the intended failing assertions,
-and full failing-run logs. Healthy controls batch only the selected mutants'
-regressions into one collection. On a loaded host an archive-only repository
+and full failing-run logs. Healthy controls batch the selected mutants'
+regressions and explicit ``--control-test`` additions into one collection.
+``--junit-dir`` preserves individual testcase timings for each collection.
+On a loaded host an archive-only repository
 fixture overlay is preserved in
 ``docs/reports/2026-11-06-tree-thrash-fixture-template.patch``; apply that patch
 inside the archive and set ``SUBFLEET_TREE_THRASH_REPO_TEMPLATE`` to a clean,
@@ -44,6 +46,7 @@ RACE = TESTS + "test_the_one_cut_whose_lane_closes_between_evaluation_and_reserv
 FAILURE = TESTS + "test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]"
 DESKTOP = TESTS + "test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
 REOPEN = TESTS + "test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation"
+SWEEP_REOPEN = TESTS + "test_a_reopened_lane_before_the_sweep_keeps_its_unused_tree"
 
 DEFER = "            deferred_workspace = fresh_workspace\n"
 PREPARE_GATE = (
@@ -65,6 +68,11 @@ FAILED = (
 )
 RACE_HOLD = "                            if fresh_workspace and not deferred_workspace and not decision.chosen_lane:\n"
 READY = "                    deferred_workspace = False\n"
+SWEEP_ELIGIBILITY = (
+    '            if hold.get("reason") != "disk" and not scheduler.unadmittable(\n'
+    '                    self.policy, self._pin_view(self._desktop_identity()), job, far_s=0):\n'
+    "                return False\n"
+)
 
 # name -> (the new rule removed, its replacement, selected regression).
 MUTATIONS = {
@@ -86,6 +94,7 @@ MUTATIONS = {
         "self._pin_view(desktop_account, refresh=False), decision_job, far_s=0)",
         "self._pin_view(desktop_account, refresh=True), decision_job, far_s=0)", DESKTOP),
     "reuse-standing-decision-with-old-basis": ("                    decision = evaluated_decision\n", "", REOPEN),
+    "forget-sweep-eligibility-recheck": (SWEEP_ELIGIBILITY, "", SWEEP_REOPEN),
 }
 
 
@@ -100,16 +109,19 @@ KILL_EVIDENCE = {
     "evaluate-again-after-git": "assert cuts == [job] and evaluations == [job]",
     "refresh-registry-under-store-lock": "registry refresh under the store write lock",
     "reuse-standing-decision-with-old-basis": 'assert cuts == [job] and attempt["lane_id"] == "codex-1"',
+    "forget-sweep-eligibility-recheck": "assert swept(service) == 0",
 }
 
 
-def pytest(tests: list[str], *, timeout: float, temp_root: Path) -> dict:
+def pytest(tests: list[str], *, timeout: float, temp_root: Path, junit: Path | None = None) -> dict:
     """Infrastructure failures cannot masquerade as a killed mutant."""
     with tempfile.TemporaryDirectory(prefix="tree-thrash-mutant-", dir=temp_root) as directory:
         env = {**os.environ, "TMPDIR": directory, "PYTHONDONTWRITEBYTECODE": "1", "HYPOTHESIS_PROFILE": "ci",
                "HYPOTHESIS_STORAGE_DIRECTORY": str(Path(directory) / "hypothesis")}
         command = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
                    "--basetemp", str(Path(directory) / "pytest"), *tests]
+        if junit:
+            command.extend(["--junitxml", str(junit)])
         started = time.monotonic()
         try:
             run = subprocess.run(command, capture_output=True, text=True, env=env, timeout=timeout)
@@ -139,6 +151,9 @@ def main() -> int:
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument("--control-timeout", type=float, help="timeout for the batched healthy controls")
+    parser.add_argument("--control-test", action="append", default=[], metavar="NODE_ID",
+                        help="additional healthy control; repeat to prepend several controls")
+    parser.add_argument("--junit-dir", type=Path, help="save each control/mutant collection's testcase timings")
     parser.add_argument("--temp-root", type=Path,
                         default=Path(os.environ["TMPDIR"]) if os.environ.get("TMPDIR") else Path(tempfile.gettempdir()),
                         help="writable directory under the Darwin user temporary directory")
@@ -155,6 +170,9 @@ def main() -> int:
     if "tmp" in args.temp_root.resolve().parts:
         parser.error("--temp-root must be under Darwin user temp, with no literal /tmp path component")
     args.temp_root.mkdir(parents=True, exist_ok=True)
+    if args.junit_dir:
+        args.junit_dir = args.junit_dir.resolve()
+        args.junit_dir.mkdir(parents=True, exist_ok=True)
     original = DAEMON.read_text()
     results = {"source_sha256": hashlib.sha256(original.encode()).hexdigest(),
                "tests_sha256": hashlib.sha256(Path(TESTS.split("::")[0]).read_bytes()).hexdigest(),
@@ -171,7 +189,7 @@ def main() -> int:
             if name == "baseline":
                 # A healthy control is necessary before interpreting a failure.
                 selected = [mutation for mutation in names if mutation != "baseline"] or list(MUTATIONS)
-                tests = list(dict.fromkeys(MUTATIONS[mutation][2] for mutation in selected))
+                tests = list(dict.fromkeys([*args.control_test, *(MUTATIONS[mutation][2] for mutation in selected)]))
                 old = new = ""
             else:
                 old, new, test = MUTATIONS[name]
@@ -182,7 +200,9 @@ def main() -> int:
             try:
                 print(f"RUN\t{name}\t{' '.join(tests)}", flush=True)
                 timeout = args.control_timeout if name == "baseline" and args.control_timeout else args.timeout
-                result = pytest(tests, timeout=timeout, temp_root=args.temp_root)
+                junit = (args.junit_dir / f"{args.output.stem if args.output else 'tree-thrash-mutants'}-{name}.xml"
+                         if args.junit_dir else None)
+                result = pytest(tests, timeout=timeout, temp_root=args.temp_root, junit=junit)
                 result["mutation"] = name
                 expected = KILL_EVIDENCE.get(name)
                 intended_failure = bool(expected and any(expected in line for line in result["failure_evidence"]))

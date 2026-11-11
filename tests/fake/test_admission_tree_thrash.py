@@ -1,13 +1,15 @@
 """D-TREE-THRASH1: a fresh detached tree is cut for placement, not for waiting.
 
-The differential oracle is the actual `_admit_pass` at a8624a489, compiled into
-the current daemon's namespace. It exercises the old scheduling code rather than
-reimplementing its answers in the test. Every daemon and repository is isolated.
+The differential oracle is the frozen actual `_admit_pass` at a8624a489,
+hash-checked and compiled into the current daemon's namespace. It exercises the
+old scheduling code without requiring Git history. Every daemon and repository
+is isolated.
 """
 from __future__ import annotations
 
 import ast
 import functools
+import hashlib
 from datetime import datetime, timedelta
 import json
 import os
@@ -33,20 +35,20 @@ def submit(service, harness, repository, **changes):
 
 
 BASE = "a8624a4899a2"
+BASE_METHOD_SHA256 = "a894326e79493fd6dc79b8fea75fd392add53d8283f123f4e49e328ee4afbcf5"
 FUTURE = "2099-12-31T00:00:00Z"
 WAITING_METADATA = scheduler.waiting_metadata
 
 
 @functools.lru_cache
 def base_admit_pass():
-    """Load only the base method; an archive runner may supply the saved source."""
-    saved = os.environ.get("SUBFLEET_TREE_THRASH_BASE_SOURCE")
-    source = (Path(saved).read_text() if saved else subprocess.run(
-        ["git", "show", f"{BASE}:subfleet/daemon.py"], capture_output=True, text=True, check=True,
-        cwd=Path(__file__).resolve().parents[2]).stdout)
+    """Load the byte-for-byte base method, including in shallow/archive checkouts."""
+    source = (Path(__file__).parents[1] / "fixtures" / f"tree_thrash_{BASE}.py").read_bytes()
     tree = ast.parse(source)
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Daemon")
     method = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == "_admit_pass")
+    original_lines = b"".join(source.splitlines(keepends=True)[method.lineno - 1:method.end_lineno])
+    assert hashlib.sha256(original_lines).hexdigest() == BASE_METHOD_SHA256
     module = ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]))
     namespace = dict(vars(daemon_module))
     exec(compile(module, f"{BASE}/subfleet/daemon.py", "exec"), namespace)
@@ -301,6 +303,78 @@ def test_the_one_cut_whose_lane_closes_between_evaluation_and_reservation_is_giv
     assert len(events) == 1 and json.loads(events[0]["data_json"])["why"] == "no lane"
 
 
+def test_a_reopened_lane_before_the_sweep_keeps_its_unused_tree(
+        fleet_factory, repo, immutable_source):  # noqa: F811
+    """A stale `unprepared` hold cannot discard a tree its lane can now use."""
+    service, harness, cuts = fleet_factory()
+    job = submit(service, harness, repo)
+    workspace = service._workspace
+
+    def close_while_preparing(row):
+        result = workspace(row)
+        close(service)
+        return result
+
+    service._workspace = close_while_preparing
+    service._admit()
+    tree = service.root / "worktrees" / job
+    assert cuts == [job] and (tree / ".git").is_file()
+    assert not service.store.list_attempts(job)
+    assert service._holds[job].get("unprepared")
+    open_lanes(service)
+    # No intervening admission pass may clear the stale hold for the sweep.
+    assert service._holds[job].get("unprepared")
+    assert swept(service) == 0
+    assert tree.is_dir() and (tree / ".git").is_file()
+    assert not service.store.query("SELECT 1 FROM events WHERE job_id=? AND kind='job.worktree_given_back'", (job,))
+
+
+def test_the_contract_no_git_for_a_waiter_covers_a_lease_arriving_during_preparation(
+        fleet_factory, repo, immutable_source):  # noqa: F811
+    """I4 covers provisional rejection: a later lease can leave a prepared tree."""
+    service, harness, cuts = fleet_factory()
+    output = service.root / "answer.md"
+    job = submit(service, harness, repo, out_path=str(output))
+    workspace = service._workspace
+
+    def lease_while_preparing(row):
+        result = workspace(row)
+        assert (Path(result[0]) / ".git").is_file()
+        assert service.store.acquire_lease(f"out:{output}", "arrived-during-git")
+        return result
+
+    service._workspace = lease_while_preparing
+    service._admit()
+    assert cuts == [job] and not service.store.list_attempts(job)
+    assert (service.root / "worktrees" / job / ".git").is_file()
+    assert service._holds[job]["reason"] == "lease-held"
+    assert service._holds[job]["leases"] == [f"out:{folders.identity(str(output))}"]
+    row = service.store.get_job(job)
+    assert (row["state"], row["wait_reason"], row["worktree"]) == ("waiting", "capacity", None)
+
+
+def test_i1_two_pinned_lanes_can_each_lose_a_prepared_tree_in_one_pass(
+        fleet_factory, repo, immutable_source):  # noqa: F811
+    """I1 counts racing looks: two pinned lanes can each close during preparation."""
+    service, harness, cuts = fleet_factory(lanes=2, slots=None, synthetic=True)
+    jobs = [submit(service, harness, repo, pinned_lane=f"codex-{index}") for index in (1, 2)]
+    workspace = service._workspace
+    racing_looks = []
+
+    def close_while_preparing(row):
+        result = workspace(row)
+        close(service, row["pinned_lane"])
+        racing_looks.append(row["job_id"])
+        return result
+
+    service._workspace = close_while_preparing
+    service._admit()
+    assert cuts == racing_looks == jobs
+    assert not service.store.list_attempts()
+    assert len(cuts) == len(service.store.list_attempts()) + len(racing_looks) == 2
+    assert all(cuts.count(job) == 1 and service._holds[job].get("unprepared") for job in jobs)
+
+
 def test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation(
         fleet_factory, repo, immutable_source):  # noqa: F811
     """The basis stays paired with its original decision across both checks (I2)."""
@@ -430,10 +504,22 @@ def test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head(fleet_f
         return pick(row, **kwargs)
 
     service._pick = picked
+    slot_lease = service._slot_lease
+    slot_selections = []
+
+    def select_prepared_slot(tx, lane_id, turn):
+        # Provisional checks verify capacity without selecting a slot number.
+        # Only the final reservation, after the real tree exists, searches it.
+        assert cuts == [job] and (service.root / "worktrees" / job / ".git").is_file()
+        slot_selections.append((lane_id, turn))
+        return slot_lease(tx, lane_id, turn)
+
+    service._slot_lease = select_prepared_slot
     service._admit()
     (attempt,) = service.store.list_attempts(job)
     tree = service.store.get_job(job)["worktree"]
     assert cuts == [job] and evaluations == [job]
+    assert slot_selections == [("codex-1", False)]
     assert git(tree, "rev-parse", "HEAD").strip() == submitted_head
     assert (Path(tree) / "tracked.txt").read_text() == "baseline\n"
     assert attempt["baseline_tree"] == git(repo, "rev-parse", f"{submitted_head}^{{tree}}").strip()

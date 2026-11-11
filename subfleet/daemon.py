@@ -8630,7 +8630,11 @@ class Daemon:
                         seq = len(previous) + 1
                         aid = ids.attempt_id(job["job_id"], seq)
                         lane_id = decision.chosen_lane
-                        leases = [(self._slot_lease(tx, lane_id, pool == "turn"), aid)]
+                        # _route_stands checked that this pool has room. Only
+                        # reservation needs a slot number: scanning for one in
+                        # the provisional check repeats the search after Git.
+                        leases = ([] if deferred_workspace else
+                                  [(self._slot_lease(tx, lane_id, pool == "turn"), aid)])
                         if native_session:
                             # C-12.3/4, C-12.6: filesystem read-only permissions do not
                             # isolate a provider transcript. Resume and revive share
@@ -9281,6 +9285,14 @@ class Daemon:
         else:
             hold = self._holds_by_kind["detached"].get(job_id) or {}
             if job["state"] not in ("queued", "waiting") or job["cancel_requested_at"] or not _gives_back(hold):
+                return False
+            # A lane can reopen after preparation marked this tree unprepared,
+            # without another admission pass replacing the saved hold. Only a
+            # standing refusal that still applies lets the sweep return it.
+            # As at admission, refresh desktop eligibility outside the store lock;
+            # advisory cached hints alone cannot justify discarding this tree.
+            if hold.get("reason") != "disk" and not scheduler.unadmittable(
+                    self.policy, self._pin_view(self._desktop_identity()), job, far_s=0):
                 return False
             why = "disk hold" if hold.get("reason") == "disk" else "no lane"
         # Retention's own: a fence on the job, or a retirement it has begun.
