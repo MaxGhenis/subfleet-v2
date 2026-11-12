@@ -1328,7 +1328,9 @@ tree alone holds gets a home outside it:
   by every available commit object (including unreachable/dangling commits),
   its refs (`refs/stash` included), HEAD, every entry of multi-value pseudo-refs,
   reflogs and registrations into
-  `<state>/jobs/<job>/kept-commits/<n>.bundle`. Verification restores it into an
+  `<state>/jobs/<job>/kept-commits/<attempt>/<n>.bundle`. Each attempt creates
+  its own folder and publishes without replacing existing output files.
+  Verification restores it into an
   empty repository without alternates, checks the bundle and its heads, then
   fetches with object checking and reads every restored tip back. Local
   remote-tracking refs do not prove that a server holds those commits.

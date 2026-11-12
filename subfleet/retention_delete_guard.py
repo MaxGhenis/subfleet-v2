@@ -190,6 +190,9 @@ class GitReadGuard:
             self._metadata(common)
         self._config(common / "config", git_dir)
         self._config(git_dir / "config.worktree", git_dir)
+        grafts = self._regular(common / "info" / "grafts")
+        if grafts is not None and grafts.strip():
+            self.refuse(f"local grafts change the source ancestry: {common}")
         self._objects(common / "objects", set())
 
     def legacy(self, read: Any) -> dependencies.Places:

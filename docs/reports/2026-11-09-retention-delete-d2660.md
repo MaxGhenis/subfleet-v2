@@ -33,6 +33,14 @@ The commands, counts and mutant results below are the **original build's
 evidence**, at the heads each row names. They do not validate these later
 fixes. The mechanism sections describe the current working-tree code.
 
+The final review also added root-level bare stores to the census, checked
+raw object stores borrowed from removable registrations, rechecked surviving
+preservation refs, and separated new bundles from existing output files.
+The apply record now shares a bounded reader/writer policy and discloses
+compacted status details. Restart reconciles new marker/event evidence
+against the run's saved baseline, and a limited apply waits for outstanding
+journals before selecting another tree.
+
 ## Summary
 
 - `subfleet/retention_delete.py` (new, about 2,100 lines) holds the path:
@@ -163,7 +171,11 @@ it (`_plan_keep`, `_keep`):
   `_verify_bundle` restores the bundle into an empty repository without
   alternates, checks its heads, fetches with object checking and reads every
   tip back before the bundle moves to
-  `<state>/jobs/<job>/kept-commits/<n>.bundle` and the journal records `kept`.
+  `<state>/jobs/<job>/kept-commits/<attempt>/<n>.bundle` and the journal records
+  `kept`. Each attempt creates a new folder and leaves existing output files
+  untouched. Verification requires every census commit to remain reachable
+  from the restored bundle's refs, even if source ancestry reduction omitted
+  a necessary tip. The read guard refuses nonempty local grafts.
 
 A removable linked admin containing another Git root, or object storage
 outside the tree but below that admin, keeps the whole job when preservation

@@ -184,8 +184,7 @@ def still_kept(w: World, job_id: str, roots: dict[str, dict[str, Any]], before: 
         bundle = [b for b in marker["bundles"] if os.path.normpath(b["repository"]) == common]
         assert len(bundle) == 1, (rel, marker["bundles"])
         path = Path(bundle[0]["path"])
-        assert path.parent == w.root / "jobs" / job_id / "kept-commits" or \
-            os.path.realpath(path.parent) == os.path.realpath(w.root / "jobs" / job_id / "kept-commits")
+        assert os.path.realpath(path.parent.parent) == os.path.realpath(w.root / "jobs" / job_id / "kept-commits")
         check = w.base / "checks" / f"{job_id}-{rel.replace('/', '-')}"
         check.parent.mkdir(exist_ok=True)
         if root.get("held"):

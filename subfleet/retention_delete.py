@@ -91,6 +91,7 @@ import math
 import os
 import sqlite3
 import stat
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -113,6 +114,7 @@ from .retention_holders import ScanFailed, Watch, lsof_holders
 
 SCHEMA = 1
 JOURNAL_LIMIT = marks.RECORD_LIMIT
+APPLY_RECORD_LIMIT = marks.RECORD_LIMIT
 #: A request names at most this many jobs (the CLI and the daemon refuse more).
 MAX_JOBS = 100
 #: The persisted apply request, beside the per-job journal folders. Its leading
@@ -496,8 +498,9 @@ def scan_tree(tree: Path, check: Callable[[], None] | None = None) -> TreeScan:
     if identity is None:
         raise rfs.TreeError("changed", "the walk did not start at the tree")
     for rel, names in parts.items():
-        if rel and rel not in roots and {"HEAD", "objects", "refs"} <= names:
-            roots[rel] = GitRoot(rel, "gitdir")
+        root_rel = rel or "."
+        if root_rel not in roots and {"HEAD", "objects", "refs"} <= names:
+            roots[root_rel] = GitRoot(root_rel, "gitdir")
     ordered = sorted(roots.values(), key=lambda root: os.fsencode(root.rel))
     return TreeScan(identity, ordered, logical, allocated, entries)
 
@@ -952,7 +955,7 @@ class DeletePath:
 
     def _load(self) -> dict[str, Any] | None:
         try:
-            data = json.loads(rfs.read_regular(self.base / RECORD, limit=16 << 20))
+            data = json.loads(rfs.read_regular(self.base / RECORD, limit=APPLY_RECORD_LIMIT))
         except FileNotFoundError:
             return None
         except (OSError, ValueError) as exc:
@@ -961,13 +964,148 @@ class DeletePath:
             return None
         if not isinstance(data, dict) or data.get("schema") != SCHEMA or data.get("status") not in STATUSES:
             return None
+        self._reconcile_record(data)
         return data
 
-    def _save(self) -> None:
-        assert self.apply is not None
-        self.apply["updated_at"] = _utc(self.now())
+    @staticmethod
+    def _keep_summary(result: dict[str, Any]) -> dict[str, int]:
+        if "keep" not in result:
+            return dict(result.get("keep_summary") or {"refs": 0, "bundles": 0, "bundle_bytes": 0})
+        keep = result.get("keep") or {}
+        return {"refs": len(keep.get("refs") or ()), "bundles": len(keep.get("bundles") or ()),
+                "bundle_bytes": sum(int(b.get("bytes") or 0) for b in keep.get("bundles") or ())}
+
+    @staticmethod
+    def _bounded_record(record: dict[str, Any]) -> bytes | None:
+        """Encode at most the reader's bound, without first copying a huge JSON document."""
+        chunks: list[bytes] = []
+        size = 0
+        encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        for chunk in encoder.iterencode(record):
+            encoded = chunk.encode("ascii")
+            size += len(encoded)
+            if size > APPLY_RECORD_LIMIT:
+                return None
+            chunks.append(encoded)
+        return b"".join(chunks)
+
+    def _record_payload(self, record: dict[str, Any]) -> bytes:
+        payload = self._bounded_record(record)
+        if payload is not None:
+            return payload
+        # Only disk presentation is compacted. Live result details remain
+        # available until restart; preservation facts remain in each marker.
+        disk = {**record, "details_compacted": True, "results": {}}
+        for job_id, result in (record.get("results") or {}).items():
+            if not isinstance(result, dict):
+                disk["results"][job_id] = result
+                continue
+            fields = {"job_id", "run", "disposition", "gate", "reason", "class", "started_at", "ended_at",
+                      "bytes", "free_before", "free_after", "error", "resumed", "marker", "keep_summary",
+                      "details_compacted", "rollback_notes_count", "omitted_detail_fields"}
+            compact = {k: v for k, v in result.items() if k in fields}
+            compact["omitted_detail_fields"] = sorted(set(result) - fields)
+            if "rollback_notes" in result:
+                compact["rollback_notes_count"] = len(result["rollback_notes"])
+            compact.update(details_compacted=True, keep_summary=self._keep_summary(result))
+            if result.get("disposition") == "deleted":
+                compact["marker"] = str(marks.marker_path(self.root, job_id))
+            disk["results"][job_id] = compact
+        payload = self._bounded_record(disk)
+        if payload is None and len(disk.get("runs") or ()) > 32:
+            disk["runs_omitted"] = int(disk.get("runs_omitted") or 0) + len(disk["runs"]) - 32
+            disk["runs"] = disk["runs"][-32:]
+            payload = self._bounded_record(disk)
+        if payload is None:
+            raise OSError(errno.EFBIG, "the deletion request's core record exceeds its readable bound", str(self.base / RECORD))
+        return payload
+
+    def _save(self, record: dict[str, Any] | None = None) -> None:
+        record = self.apply if record is None else record
+        assert record is not None
+        updated = {**record, "updated_at": _utc(self.now())}
+        payload = self._record_payload(updated)
         self._ensure_base()
-        rfs.write_atomic(self.base / RECORD, _canonical(self.apply))
+        rfs.write_atomic(self.base / RECORD, payload)
+        record["updated_at"] = updated["updated_at"]
+
+    def _deletion_baseline(self, request: Request) -> list[str]:
+        """Deletion evidence already present before this run can never count as its work."""
+        excluder = Excluder(request.exclude_repositories)
+        before: list[str] = []
+        for job_id in request.jobs:
+            exists = False
+            for path in (marks.marker_path(self.root, job_id), self._journal_dir(job_id) / marks.JOURNAL):
+                self._checked_path(path, excluder)
+                try:
+                    os.lstat(path)
+                except FileNotFoundError:
+                    continue
+                exists = True
+            if exists or self.store.one("SELECT event_id FROM events WHERE kind=? AND job_id=? LIMIT 1", (EVENT, job_id)):
+                before.append(job_id)
+        return before
+
+    def _reconcile_record(self, record: dict[str, Any]) -> None:
+        """Recover the marker/event -> request-save crash gap before any limit check.
+
+        No timestamps identify a run: a digest may recur after another request.
+        New applies durably capture their preexisting evidence instead. Legacy
+        active records without that proof stop rather than guessing a count.
+        Constructor calls this before self.apply/self.journals exist.
+        """
+        if record.get("status") not in ("running", "stopping"):
+            return
+        try:
+            request = parse_request(record["request"])
+            if record.get("digest") != request.digest or record.get("mode") != "apply":
+                raise ValueError("the active request identity is invalid")
+            baseline = record.get("deletions_before_run")
+            if not isinstance(baseline, list) or any(job not in request.jobs for job in baseline):
+                raise ValueError("the active record has no proved pre-run deletion baseline")
+            before = set(baseline)
+            results = record["results"]
+            excluder = Excluder(request.exclude_repositories)
+            for job_id in request.jobs:
+                previous = results.get(job_id)
+                if job_id in before or isinstance(previous, dict) and previous.get("disposition") == "deleted":
+                    continue
+                marker_path = marks.marker_path(self.root, job_id)
+                self._checked_path(marker_path, excluder)
+                try:
+                    marker = json.loads(rfs.read_regular(marker_path, limit=marks.RECORD_LIMIT))
+                except FileNotFoundError:
+                    continue
+                if not isinstance(marker, dict) or (marker.get("schema"), marker.get("job_id")) != (SCHEMA, job_id):
+                    raise ValueError("new deletion evidence is unreadable or has an invalid identity")
+                if marker.get("request_digest") != request.digest:
+                    continue
+                if marker.get("ruling") != request.ruling:
+                    raise ValueError("new deletion evidence has a different ruling")
+                event = self.store.one("SELECT data_json FROM events WHERE kind=? AND job_id=? ORDER BY event_id LIMIT 1",
+                                       (EVENT, job_id))
+                if event is None:
+                    journal_path = self._journal_dir(job_id) / marks.JOURNAL
+                    self._checked_path(journal_path, excluder)
+                    if os.path.lexists(journal_path):
+                        continue  # Its journal is resumed before the running request.
+                    raise ValueError("new deletion marker has no matching event or journal")
+                if len(event["data_json"].encode("utf-8")) > marks.RECORD_LIMIT or json.loads(event["data_json"]) != marker:
+                    raise ValueError("new deletion marker and event have different facts")
+                results[job_id] = {"job_id": job_id, "run": record["run"], "disposition": "deleted", "gate": None,
+                                   "reason": None, "class": marker.get("class"), "started_at": marker.get("started_at"),
+                                   "ended_at": marker.get("ended_at"), "free_before": marker.get("free_before"),
+                                   "free_after": marker.get("free_after"), "bytes": {k: marker.get(k) for k in
+                                       ("logical_bytes", "allocated_bytes", "entries")}, "resumed": True,
+                                   "details_compacted": True, "marker": str(marker_path), "keep_summary": {
+                                       "refs": len(marker.get("refs") or ()), "bundles": len(marker.get("bundles") or ()),
+                                       "bundle_bytes": sum(int(b.get("bytes") or 0) for b in marker.get("bundles") or ())}}
+            counted = sum(isinstance(result, dict) and result.get("disposition") == "deleted"
+                          and result.get("run") == record.get("run") and job_id not in before
+                          for job_id, result in results.items())
+            record["deleted_this_run"] = max(int(record.get("deleted_this_run") or 0), counted)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            record.update(status="failed", error=f"restart reconciliation refused: {exc}"[:300], ended_at=_utc(self.now()))
 
     def _ensure_base(self) -> None:
         self.base.mkdir(mode=0o700, exist_ok=True)
@@ -1003,7 +1141,7 @@ class DeletePath:
             else:
                 previous = self.apply
                 if previous is not None and previous.get("digest") == request.digest:
-                    record = previous
+                    record = {**previous, "results": dict(previous["results"]), "runs": list(previous.get("runs") or ())}
                     record["run"] = int(record.get("run") or 0) + 1
                     for job, result in list(record["results"].items()):
                         if not (isinstance(result, dict) and result.get("disposition") == "deleted"):
@@ -1017,15 +1155,16 @@ class DeletePath:
             if mode == "dry-run":
                 self.dry = record
             else:
+                record["deletions_before_run"] = self._deletion_baseline(request)
+                self._save(record)
                 self.apply = record
-                self._save()
             return self._view(record)
 
     def _archive_record(self, record: dict[str, Any]) -> None:
         name = f".request-{str(record.get('digest') or 'unknown')[:12]}-{int(self.clock())}.json"
         try:
             self._ensure_base()
-            rfs.write_atomic(self.base / name, _canonical(record))
+            rfs.write_atomic(self.base / name, self._record_payload(record))
         except OSError as exc:
             if self.log is not None:
                 self.log.warning("retention delete: the previous request record was not kept: %s",
@@ -1065,12 +1204,11 @@ class DeletePath:
             if result["disposition"] in ("deleted", "would-delete"):
                 for key in ("logical_bytes", "allocated_bytes"):
                     totals[key] += int((result.get("bytes") or {}).get(key) or 0)
-                keep = result.get("keep") or {}
-                totals["refs"] += len(keep.get("refs") or ())
-                totals["bundles"] += len(keep.get("bundles") or ())
-                totals["bundle_bytes"] += sum(int(b.get("bytes") or 0) for b in keep.get("bundles") or ())
+                for key, value in self._keep_summary(result).items():
+                    totals[key] += value
         view = {key: record.get(key) for key in ("mode", "status", "digest", "run", "limit", "started_at",
-                                                 "ended_at", "deleted_this_run", "error", "runs")}
+                                                 "ended_at", "deleted_this_run", "error", "runs",
+                                                 "details_compacted", "runs_omitted")}
         return {**view, "request": request, "results": json.loads(_canonical(lines)), "totals": totals}
 
     def pending(self) -> bool:
@@ -1122,6 +1260,12 @@ class DeletePath:
             return report
         if self._limit_reached(record):
             self._finish(record, "done-limit")
+            return report
+        if record.get("mode") == "apply" and record.get("limit") is not None and self.journals:
+            # A failed destructive step still owns a deletion that recovery
+            # must finish. Do not spend another canary slot while that work
+            # (or an unprovable journal) remains in flight, even during backoff.
+            report["waiting_for_journals"] = sorted(self.journals)
             return report
         waiting = [job for job in record["request"]["jobs"] if record["results"].get(job) is None]
         if not waiting:
@@ -1625,6 +1769,22 @@ class DeletePath:
 
     # what is kept -------------------------------------------------------------------
 
+    def _admin_borrower(self, repositories: Iterable[str], admins: Iterable[str],
+                        excluder: Excluder) -> str | None:
+        """A surviving repository must not lose borrowed objects with an admin."""
+        admins = tuple(admins)
+        for common in sorted(set(repositories)):
+            self._check()
+            rgit.check_read(git_dir=Path(common))
+            problems: list[str] = []
+            stores = borrowed(common, excluder, "keep", problems)
+            if problems:
+                raise rgit.GitError(problems[0])
+            for objects in stores:
+                if any(_inside(objects, admin) or _inside(admin, objects) for admin in admins):
+                    return f"{common} borrows objects from a registration that removal would reclaim: {objects}"
+        return None
+
     def _plan_keep(self, plan: Layout) -> dict[str, Any]:
         admins = [root.git_dir for root in plan.outside if root.linked]
         for root in plan.outside:
@@ -1640,6 +1800,12 @@ class DeletePath:
             if scan_tree(Path(admin), self._check).roots:
                 raise _Gate("keep", "a registration contains nested Git storage whose commits are not kept",
                             disposition="failed")
+        repositories = sorted({root.common for root in plan.outside})
+        active = rgit.active_command_guard()
+        excluder = active.excluder if isinstance(active, GitReadGuard) else Excluder(())
+        borrower = self._admin_borrower(repositories, admins, excluder)
+        if borrower is not None:
+            raise _Gate("keep", borrower, disposition="failed")
         outside = []
         for root in plan.outside:
             if not root.linked:
@@ -1664,7 +1830,7 @@ class DeletePath:
             inside.append({"n": repo.n, "rels": repo.rels, "common": repo.common, "fmt": fmt,
                            "commits_digest": _digest(commits), "commits": sorted(commits), "tips": tips, "unheld": tips,
                            "held": [], "remotes": []})
-        return {"outside": outside, "inside": inside}
+        return {"outside": outside, "inside": inside, "borrower_repositories": repositories}
 
     # the deletion --------------------------------------------------------------------
 
@@ -1803,7 +1969,8 @@ class DeletePath:
                     plan={"outside": [{k: o[k] for k in ("n", "rel", "common", "git_dir", "fmt", "tips", "commits")}
                                       for o in plan["keep"]["outside"]],
                           "inside": [{k: b[k] for k in ("n", "rels", "common", "fmt", "commits_digest", "commits")}
-                                     for b in plan["keep"]["inside"]]})
+                                     for b in plan["keep"]["inside"]],
+                          "borrower_repositories": plan["keep"]["borrower_repositories"]})
         result["keep"] = kept
         self._check()
         why = self._pinned(job_id, folder, plan["hosted"])
@@ -1919,22 +2086,39 @@ class DeletePath:
             rgit.run(["update-ref", "--stdin"], git_dir=scratch, stdin="".join(updates).encode(), timeout=600,
                      cancel=self.cancel)
             folder = self.root / "jobs" / job_id / "kept-commits"
-            if not folder.exists():
+            self._checked_path(folder, self._journal_excluder(journal))
+            try:
+                folder_stat = os.lstat(folder)
+            except FileNotFoundError:
+                folder.mkdir(mode=0o700)
                 journal.setdefault("made_folders", []).append(str(folder))
                 self._saved(journal, journal["state"])
-                folder.mkdir(mode=0o700)
-            final = folder / f"{n}.bundle"
-            temporary = folder / f".{n}.bundle.tmp"
-            journal.setdefault("tmp_bundles", []).append(str(temporary))
-            journal.setdefault("bundle_paths", []).append(str(final))
+            else:
+                if not stat.S_ISDIR(folder_stat.st_mode):
+                    raise rgit.GitError("the kept-commits destination is not a plain directory")
+            # Existing accepted exports may use any old filename here. Give
+            # this attempt a new private generation instead of claiming or
+            # replacing a predetermined file in that existing directory.
+            generation = Path(tempfile.mkdtemp(prefix=f"{n}-", dir=folder))
+            journal.setdefault("made_folders", []).append(str(generation))
             self._saved(journal, journal["state"])
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
+            final = generation / f"{n}.bundle"
+            temporary = generation / f".{n}.bundle.tmp"
+            journal.setdefault("tmp_bundles", []).append(str(temporary))
+            self._saved(journal, journal["state"])
             rgit.create_bundle(scratch, temporary, sorted(expected), [], cancel=self.cancel)
             self._verify_bundle(temporary, expected, repo["fmt"], verify)
-            os.replace(temporary, final)
+            restored = _split(rgit.run(["rev-list", "--all"], git_dir=verify, timeout=3600,
+                                       cancel=self.cancel).stdout)
+            if set(repo["commits"]) - restored:
+                raise rgit.GitError("the restored bundle does not reach every saved census commit")
+            # Create-only publication also protects a destination created
+            # after this generation was allocated. Claim it only on success.
+            os.link(temporary, final, follow_symlinks=False)
+            journal.setdefault("bundle_paths", []).append(str(final))
+            self._saved(journal, journal["state"])
+            temporary.unlink()
+            rfs.sync_path(generation)
             rfs.sync_path(folder)
             journal["tmp_bundles"].remove(str(temporary))
             digest = hashlib.sha256()
@@ -1986,6 +2170,11 @@ class DeletePath:
         scan = scan_tree(tombstone, self._check)
         if list(scan.identity) != journal.get("identity"):
             raise OSError(errno.ESTALE, "the tombstone is not the directory this journal names", str(tombstone))
+        for kept in (journal.get("kept") or {}).get("refs") or ():
+            self._check()
+            if rgit.resolve(Path(kept["repository"]), kept["ref"], cancel=self.cancel) != kept["commit"]:
+                raise _Gate("keep", "a surviving preservation ref no longer holds its saved commit",
+                            disposition="failed")
         expected = journal.get("git_roots")
         if not isinstance(expected, list):
             raise OSError(errno.EINVAL, "the journal has no saved Git-root census", str(tombstone))
@@ -2172,8 +2361,10 @@ class DeletePath:
             # Only what a written ref holds counts as kept, never what the plan
             # meant to keep: a commit the keep step missed gets a late ref here,
             # and the registration stays.
-            tips = {r["commit"] for r in kept_refs if r["repository"] == item["common"] and r.get("n") == item["n"]}
             try:
+                tips = {r["commit"] for r in kept_refs if r["repository"] == item["common"] and
+                        r.get("n") == item["n"] and
+                        rgit.resolve(common, r["ref"], cancel=self.cancel) == r["commit"]}
                 fmt = root.get("fmt") or rgit.object_format(common, cancel=self.cancel)
                 fresh = admin_commits(Path(admin), fmt, cancel=self.cancel) - tips
                 new = sorted(set(independent(common, fresh | tips, cancel=self.cancel)) - tips) if fresh else []
@@ -2193,6 +2384,18 @@ class DeletePath:
                 continue
             if nested:
                 kept.append({"admin": admin, "why": "it contains nested Git storage"})
+                continue
+            repositories = (journal.get("plan") or {}).get("borrower_repositories")
+            if repositories is None:
+                repositories = [*(root["common"] for root in plan.values()),
+                                *(entry["common"] for entry in journal.get("admins") or ())]
+            try:
+                borrower = self._admin_borrower(repositories, (admin,), excluder)
+            except (OSError, rgit.GitError, _Gate) as exc:
+                kept.append({"admin": admin, "why": f"its object borrowers could not be checked ({type(exc).__name__})"})
+                continue
+            if borrower is not None:
+                kept.append({"admin": admin, "why": borrower})
                 continue
             try:
                 remove_tree(Path(admin), identity=(inspected.st_dev, inspected.st_ino))
@@ -2298,7 +2501,7 @@ class DeletePath:
         except (OSError, rgit.GitError, rfs.TreeError, _Gate) as exc:
             self.retry_at[job_id] = self.clock() + RETRY_S
             return {"error": f"finish: {type(exc).__name__}: {exc}"[:300], "state": journal.get("state")}
-        self._resumed(job_id, result)
+        self._resumed(job_id, result, digest=journal.get("digest"))
         return {"finished": state}
 
     def _interrupted(self, job_id: str, state: str, notes: list[str]) -> None:
@@ -2315,17 +2518,19 @@ class DeletePath:
                                          **({"rollback_notes": notes} if notes else {})}
             self._save()
 
-    def _resumed(self, job_id: str, result: dict[str, Any]) -> None:
+    def _resumed(self, job_id: str, result: dict[str, Any], *, digest: str | None) -> None:
         with self.lock:
             record = self.apply
-            if record is None or job_id not in (record.get("results") or {}):
+            if record is None or record.get("digest") != digest or job_id not in (record.get("results") or {}):
                 return
             previous = record["results"].get(job_id)
             if isinstance(previous, dict) and previous.get("disposition") == "deleted":
                 return
+            current = record.get("status") in ("running", "stopping") \
+                and job_id not in (record.get("deletions_before_run") or ())
             record["results"][job_id] = {**(previous if isinstance(previous, dict) else {}), **result,
-                                         "run": record.get("run"), "resumed": True}
-            if record.get("status") in ("running", "stopping"):
+                                         "run": record.get("run") if current else result.get("run"), "resumed": True}
+            if current:
                 record["deleted_this_run"] = int(record.get("deleted_this_run") or 0) + 1
             self._save()
 
