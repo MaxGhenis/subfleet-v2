@@ -114,7 +114,8 @@ def test_credits_rejection_closes_model_and_retry_explains_exclusion(e2e):
         assert attempt["outcome_class"] == "limited"
         assert attempt["rc"] == want["rc"]
         closure, = e2e.rows("SELECT * FROM closures WHERE lane_id=?", (attempt["lane_id"],))
-        assert closure["scope"] == want["closure"]["scope"] == "claude-fable-5-1"
+        # The attempt uses today's shipped model; the replay's recorded scope stays historical.
+        assert closure["scope"] == attempt["model_requested"] == "claude-fable-5-2"
         assert closure["reason"] == "credits"
         assert closure["clock_source"] == "reported"
         assert closure["until_at"] == iso_epoch(want["closure"]["until_at_epoch"])
@@ -122,7 +123,7 @@ def test_credits_rejection_closes_model_and_retry_explains_exclusion(e2e):
         reading, = e2e.rows("SELECT * FROM readings WHERE attempt_id=?", (attempt["attempt_id"],))
         assert reading["label"] == "admission-observed"
         assert reading["window"] == "admission"
-        assert reading["scope"] == "claude-fable-5-1"
+        assert reading["scope"] == "claude-fable-5-2"
         assert reading["utilization"] is None
         assert reading["resets_at"] == closure["until_at"]
         evidence = json.loads(attempt["evidence_json"])["classification"]

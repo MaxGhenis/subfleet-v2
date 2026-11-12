@@ -77,8 +77,8 @@ def catalog_entry(models: Any, value: str, model_ref: str | None = None) -> dict
     conversation names the model itself (a policy id such as `claude-opus-5-5`,
     which `--model` accepts but the catalog lists as `opus[1m]` or `default`),
     the first entry resolving to the model admission routed the turn to. None
-    when this account's catalog offers neither (observed 2026-09-24: values
-    `default`, `opus[1m]`, `claude-fable-5-1[1m]`, `sonnet`, `haiku`)."""
+    when this account's catalog offers neither (for example, values
+    `default`, `opus[1m]`, `claude-fable-5-2[1m]`, `sonnet`, `haiku`)."""
     entries = [e for e in (models if isinstance(models, list) else ()) if isinstance(e, dict) and e.get("resolvedModel")]
     for entry in entries:
         if entry.get("value") == value:

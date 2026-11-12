@@ -68,11 +68,11 @@ def test_c9_9_windows_become_provider_readings_with_the_fable_week_scoped_to_its
     result = adapter(ok_opener).probe_usage(lane(), {"CLAUDE_CODE_OAUTH_TOKEN": "secret-token"})
     assert result.status == "ok" and result.limit_reached is False
     rows = {(r.scope, r.window): r for r in result.readings}
-    assert set(rows) == {("account", "five_hour"), ("account", "seven_day"), ("claude-fable-5-1", "seven_day")}
+    assert set(rows) == {("account", "five_hour"), ("account", "seven_day"), ("claude-fable-5-2", "seven_day")}
     assert rows[("account", "five_hour")].utilization == pytest.approx(.94)
     assert rows[("account", "seven_day")].utilization == pytest.approx(.88)
     assert rows[("account", "seven_day")].resets_at == "2026-09-10T16:00:00Z"
-    fable = rows[("claude-fable-5-1", "seven_day")]
+    fable = rows[("claude-fable-5-2", "seven_day")]
     assert fable.utilization == pytest.approx(.24) and fable.label is ReadingLabel.PROVIDER
     assert fable.source == SOURCE_OAUTH_USAGE and fable.observed_at == "2026-09-06T12:05:00Z"
     assert all(r.lane_id == "claude-3" and r.attempt_id is None for r in result.readings)

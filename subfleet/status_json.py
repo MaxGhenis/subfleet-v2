@@ -228,7 +228,7 @@ def scoped_windows(lane: Mapping[str, Any], model_names: Mapping[str, str] | Non
     """C-9.1, C-29.6: every window a provider reported for this lane, keyed by (scope, window).
 
     A reading's scope is `account` or a model id (C-9.8, C-9.9: the Fable weekly
-    window is scope `claude-fable-5-1`, window `seven_day`), so a model-scoped
+    window is scope `claude-fable-5-2`, window `seven_day`), so a model-scoped
     window and the account window of the same name are two rows and neither can
     replace the other. Only `provider` and `stale-provider` readings with a
     fraction in [0, 1] become rows; `admission-observed` evidence (window
