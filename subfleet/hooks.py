@@ -493,9 +493,23 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         # C-15.6: no lock check. C-16.7: a busy daemon is read offline below at
         # once; waiting out busy answers would only delay the prompt or the start.
         client = Client(root, verify_lock=False, retry_busy=False) if client is None else client
-        rows = _pending(client, session)
+        result = client.call("notice.pending", {"session_id": session, "surface": event,
+                                               "jobs_only": launched, "source": payload.get("source")})
+        rows = result.get("notices")
+        rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-        rows, marked = _offline_pending(root, session), False
+        from .notice_claims import delivery_lock, reserve_offline
+        rows, marked = [], False
+        try:
+            with delivery_lock(root, session) as held:
+                if held:
+                    pending = _offline_pending(root, session)
+                    if launched:
+                        pending = [row for row in pending if names_a_job(row)]
+                    rows = reserve_offline(root, session, pending, event=event,
+                                           source=payload.get("source"))
+        except (OSError, ValueError, KeyError):
+            pass  # without a durable claim, printing could race a restart wake
     if launched:
         rows = [row for row in rows if names_a_job(row)]
     notices = render_pending(rows) if rows else ""

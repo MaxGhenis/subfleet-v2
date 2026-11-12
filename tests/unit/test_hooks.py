@@ -45,7 +45,7 @@ def payload(event: str, **extra) -> dict:
 def notice(notice_id: int, job_id: str = JOB, state: str = "pending",
            text: str = "run finished") -> dict:
     return {"notice_id": notice_id, "session_id": SESSION, "job_id": job_id,
-            "state": state, "text": text}
+            "state": state, "text": text, "created_at": "2026-09-05T12:00:00Z"}
 
 
 # --- SessionStart hands the wake to the sessions kit (C-23.34) ----------------
@@ -1062,3 +1062,23 @@ def test_idle_hook_backoff_preserves_delivery_reserve(root):
     assert hooks._wait_and_deliver(SimpleNamespace(call=call), SESSION, JOB, 1.0,
                                    stderr=io.StringIO(), now=lambda: clock[0], sleep=sleep) == 0
     assert clock[0] <= .5 and sum(sleeps) <= .4
+
+
+
+@pytest.mark.parametrize("notices", [None, "malformed", 17, [None, "malformed", 17]],
+                         ids=["none", "string", "integer", "scalar-list"])
+def test_c15_9_hook_ignores_malformed_notice_replies_without_marks(root, notices):
+    """The hook retains its old list-of-dictionaries reply filtering."""
+    called = []
+
+    class ReplyClient:
+        def call(self, op, args=None, **kwargs):
+            called.append(op)
+            assert op == "notice.pending", "an empty hook reply must not mark any notice"
+            return {"notices": notices}
+
+    stdout = io.StringIO()
+    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
+                               client=ReplyClient(), stdout=stdout, env={}) == 0
+    assert stdout.getvalue() == ""
+    assert called == ["notice.pending"]

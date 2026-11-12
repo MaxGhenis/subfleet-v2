@@ -43,7 +43,8 @@ from .lockwatch import WatchedLock, thread_name
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
 PROVIDER_QOS_MIGRATION = 10
-SCHEMA_VERSION = PROVIDER_QOS_MIGRATION
+NOTICE_WAKE_MIGRATION = 11
+SCHEMA_VERSION = NOTICE_WAKE_MIGRATION
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -128,6 +129,19 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     PROVIDER_QOS_MIGRATION: (
         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
+    ),
+    # C-15.1, D-WAKE-CALLER1: keep delivery claims and retry clocks beside the
+    # notice, and the caller's activity and wake bounds across daemon restarts.
+    NOTICE_WAKE_MIGRATION: (
+        "ALTER TABLE notices ADD COLUMN wake_state TEXT "
+        "CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable'))",
+        "ALTER TABLE notices ADD COLUMN wake_attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE notices ADD COLUMN wake_next_at REAL",
+        "ALTER TABLE notices ADD COLUMN wake_at REAL",
+        "ALTER TABLE notices ADD COLUMN wake_reason TEXT",
+        "CREATE TABLE IF NOT EXISTS caller_wake_sessions ("
+        "session_id TEXT PRIMARY KEY, active_at REAL NOT NULL DEFAULT 0, source TEXT, "
+        "wake_streak INTEGER NOT NULL DEFAULT 0, last_wake_at REAL)",
     ),
 }
 

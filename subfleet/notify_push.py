@@ -33,6 +33,7 @@ Two rules this module keeps from v1 and one it adds:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import socket
@@ -55,6 +56,10 @@ _ENVELOPE_CLOSE = "</cross-session-message>"
 #: a headless lane has no inbox socket, and the daemon knows its own lane
 #: sessions. `refuse_session` lets the caller supply that set.
 DEFAULT_TIMEOUT_S = 5.0
+
+
+class BeforeSendError(OSError):
+    """The inbox connection failed before any message bytes were attempted."""
 
 
 def claude_dir() -> Path:
@@ -97,6 +102,15 @@ def _load_json(path: Path) -> Any:
         return None
 
 
+def _activity_time(value: Any) -> float | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        return float(value) if math.isfinite(value) and value >= 0 else None
+    except OverflowError:
+        return None
+
+
 def find_session(session_id: str) -> dict[str, Any] | None:
     """The registry row for `session_id` — the LIVE one when several exist.
 
@@ -109,6 +123,7 @@ def find_session(session_id: str) -> dict[str, Any] | None:
     if not session_id:
         return None
     best: tuple[tuple, dict[str, Any]] | None = None
+    live = []
     try:
         entries = list(sessions_dir().glob("*.json"))
     except OSError:
@@ -120,6 +135,9 @@ def find_session(session_id: str) -> dict[str, Any] | None:
         pid = data.get("pid") if isinstance(data.get("pid"), int) else None
         sock = data.get("messagingSocketPath")
         started = data.get("startedAt")
+        activity = {key: data.get(key) for key in ("statusUpdatedAt", "updatedAt")}
+        invalid_activity = any(value is not None and _activity_time(value) is None
+                               for value in activity.values())
         candidate = {
             "session_id": session_id,
             "pid": pid,
@@ -130,12 +148,29 @@ def find_session(session_id: str) -> dict[str, Any] | None:
             "alive": _pid_alive(pid),
             "socket_present": _is_socket(sock if isinstance(sock, str) else None),
             "registry_path": str(entry),
+            "status": data.get("status"),
+            "status_updated_at": None if invalid_activity else _activity_time(activity["statusUpdatedAt"]),
+            "updated_at": None if invalid_activity else _activity_time(activity["updatedAt"]),
+            "activity_invalid": invalid_activity,
         }
         key = (candidate["alive"], candidate["socket_present"],
                candidate["started_at"] or 0)
         if best is None or key > best[0]:
             best = (key, candidate)
-    return best[1] if best else None
+        if candidate["alive"]:
+            live.append(candidate)
+    if best is None:
+        return None
+    chosen = best[1]
+    if live:
+        # An older live instance can still be working. Pick one address, but
+        # gate delivery against every live instance's activity.
+        chosen["activity_invalid"] = any(row["activity_invalid"] for row in live)
+        if any(row["status"] == "busy" for row in live):
+            chosen["status"] = "busy"
+        for key in ("status_updated_at", "updated_at"):
+            chosen[key] = max((row[key] or 0 for row in live), default=0) or None
+    return chosen
 
 
 def peer_token(pid: int | None) -> str | None:
@@ -263,7 +298,10 @@ def send_to_socket(socket_path: str, token: str | None, content: str, *,
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(timeout)
     try:
-        client.connect(socket_path)
+        try:
+            client.connect(socket_path)
+        except OSError as exc:
+            raise BeforeSendError(*exc.args) from exc
         client.sendall(payload)
         try:
             client.shutdown(socket.SHUT_WR)
@@ -322,6 +360,11 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
         send_to_socket(entry["socket"], token,
                        envelope(body, from_name=from_name, mode_class=declared),
                        timeout=timeout)
+    except BeforeSendError as exc:
+        cause = exc.__cause__ or exc
+        result["reason"] = f"send-failed: {cause.__class__.__name__}: {cause}"
+        result["retryable"] = True
+        return result
     except (OSError, ValueError) as exc:
         result["reason"] = f"send-failed: {exc.__class__.__name__}: {exc}"
         return result
