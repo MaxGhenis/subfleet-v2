@@ -1,0 +1,10 @@
+--- subfleet/caller_wakes.py
++++ subfleet/caller_wakes.py
+@@ -208,6 +208,7 @@
+                 # attempts' output and deliverable file contents never enter it.
+                 headers = [render.notice_header(self.store.get_job(row["job_id"]), self.daemon.root)
+                            for row in claimed]
++                headers += [row["text"] for row in claimed]
+                 result["sessions"] += 1
+                 try:
+                     outcome = notify_push.push_to_session(session, "\n".join(headers),

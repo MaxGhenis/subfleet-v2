@@ -1,0 +1,38 @@
+........................................................................ [ 16%]
+........................................................................ [ 33%]
+........................................................................ [ 50%]
+..................F..................................................... [ 67%]
+........................................................................ [ 84%]
+.................................................................        [100%]
+=================================== FAILURES ===================================
+________ test_constant_refusal_text_and_its_template_say_the_same_thing ________
+
+    def test_constant_refusal_text_and_its_template_say_the_same_thing():
+        """Differential: where a raise site's message or fix is a constant, the wire says it."""
+        checked, differ_at = 0, []
+        for where, call in constructions():
+            reason = keyword(call, "reason")
+            if not (isinstance(reason, ast.Constant) and reason.value in refusals.HANDLER_MESSAGES):
+                continue
+            details = keyword(call, "details")
+            try:
+                details = ast.literal_eval(details) if details is not None else None
+            except ValueError:
+                continue                            # a computed value: the property tests cover it
+            message, fix = refusals.render(reason.value, details)
+            for raised, shown in ((keyword(call, "message", 0), message), (keyword(call, "fix", 2), fix)):
+                if isinstance(raised, ast.Constant) and isinstance(raised.value, str):
+                    checked += 1
+                    if raised.value != shown:
+                        differ_at.append((where, raised.value, shown))
+>       assert checked > 100 and differ_at == [], differ_at
+E       AssertionError: [('subfleet/caller_wakes.py:35', 'unknown notice state for hook', 'unknown notice state')]
+E       assert (163 > 100 and [('subfleet/c...otice state')] == []
+E         
+E         Left contains one more item: ('subfleet/caller_wakes.py:35', 'unknown notice state for hook', 'unknown notice state')
+E         Use -v to get more diff)
+
+tests/unit/test_handler_refusals.py:125: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_handler_refusals.py::test_constant_refusal_text_and_its_template_say_the_same_thing
+1 failed, 424 passed in 126.96s (0:02:06)

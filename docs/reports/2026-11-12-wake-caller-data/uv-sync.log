@@ -1,0 +1,4 @@
+Using CPython 3.15.2
+Creating virtual environment at: /private/tmp/sf-wc-b1/venv
+Resolved 10 packages in 1.24s
+error: Extra `api` is not defined in the `optional-dependencies` table for `subfleet`

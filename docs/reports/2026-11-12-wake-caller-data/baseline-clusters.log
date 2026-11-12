@@ -1,0 +1,275 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+____________ test_a_revive_records_the_requested_model_substitution ____________
+
+world = (<subfleet.daemon.Daemon object at 0x10a78b770>, <tests.fake.test_sessions_end_to_end.Client object at 0x10aa1b0e0>, P... 'sonnet', 'opus', 'astra'], 'build': ['haiku', 'sonnet', 'opus', 'astra'], ...}, 'fallback': 'upward-only', ...}, ...)
+
+    def test_a_revive_records_the_requested_model_substitution(world):
+        """C-23.39: the daemon durably records an explicit model substitution."""
+        service, client, home, store_dir, root, policy, base = world
+        repo = workdir(base)
+        cold_desktop_session(home, store_dir, repo)
+>       result = revive_module.revive(client, policy, ALICE, stage_prompt=stage(root),
+                                     opt_in=True, model="astra", now=fx.NOW)
+
+tests/fake/test_sessions_end_to_end.py:452: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/private/tmp/sf-wc-b1/baseline/subfleet/sessions/revive.py:422: in revive
+    result = sessions.submit(args, minted=request_id is None if minted is None else minted)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_sessions_end_to_end.py:107: in submit
+    return self.service.dispatch("submit", dataclasses.asdict(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/private/tmp/sf-wc-b1/baseline/subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/private/tmp/sf-wc-b1/baseline/subfleet/daemon.py:4242: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <subfleet.daemon.Daemon object at 0x10a78b770>
+args = SubmitArgs(request_id='6a847d6e-a3cf-4442-b1df-84e4bdfe6031', kind='revive', workdir='/private/tmp/sf-wc-b1/pytest-bas...e_reason=None, mcp_servers=[], pinned_provider=None, batch=None, push_branch=None, needs_shell=None, provider_qos=None)
+turn = None
+
+    def submit(self, args: protocol.SubmitArgs, *, turn: dict | None = None) -> dict:
+        # Called on a filesystem worker, never on the socket reader pool.
+        # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
+        if (args.kind == "turn") != (turn is not None):
+            raise AdapterError("a turn job needs its conversation's turn block", code=7, reason="turn-block")
+        if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
+            raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch", reason="review-publish")
+        if args.push_branch is not None and args.kind != "dispatch":
+            raise AdapterError("host push is supported for dispatch jobs", code=7,
+                               fix="submit a dispatch with --push-branch", reason="push-dispatch-only")
+        with self._submit_lock:
+            reason = args.unmeasured_reserve_reason
+            if reason is not None:
+                if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+                    raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence", reason="reserve-reason")
+                if args.kind != "dispatch" or not args.pinned_lane or not args.pinned_model:
+                    raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model", reason="reserve-dispatch")
+            batch = self._batch_label(args.batch)
+            resume = None
+            # C-26.13: a resume or revive continues a native session, and a
+            # conversation's session is continued only by its conversation, so
+            # the twin the `native:` lease would merely serialize is refused
+            # here. A resume's session is its source attempt's; a revive's is
+            # `caller_session`.
+            fence: tuple[str | None, str] | None = None
+            resume_workspace = None
+            retire_fence = None
+            if args.kind == "resume":
+                # d635: while the resume reads its source's job directory, and
+                # until its own row pins the source (C-8.4 `parent`), retention
+                # may not start retiring the source (review Astra 9). Not
+                # `fence`, which is C-26.13's session fence just above.
+                retire_fence = self._fence_resume(args)
+                args, resume = self._resume_submission(args)
+                # Where the resume starts is the source's, not the request's: it
+                # stays out of the digest, so a resume retried across an upgrade
+                # that began recording it is still the same request (C-6.2).
+                resume_workspace = resume.pop("workspace", None)
+                fence = (resume["native_session_id"], "resume")
+            elif args.kind == "revive":
+                fence = (args.caller_session, "revive")
+            # C-6.2 before C-26.13: a session can become a conversation's after
+            # its resume or revive was accepted (`conversation.open` with
+            # `native` binds it at once), so a retry of that request is
+            # answered from its job below, as C-6.2 answers every retry, and
+            # admission fails the job if it has not launched. Only a request
+            # the daemon has not accepted is refused here, before the rest of
+            # validation, so the refusal is what a new request hears.
+            accepted = bool(fence) and self._accepted_request(args.request_id)
+            if fence and not accepted:
+                self._refuse_conversation_session(*fence)
+            # An empty task or tier is none: `evaluate` would reject '' on every
+            # pass of a job submit had accepted (C-6.12).
+            args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
+            from_policy = args.sandbox == protocol.POLICY_SANDBOX
+            try:
+                ids.request_id(args.request_id)
+                if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
+                    # C-6.12: admission merges these with lane ids, so each must be a name.
+                    raise ValueError("exclusions must be a list of lane names")
+                workdir = Path(args.workdir).expanduser().resolve(strict=True)
+                if not workdir.is_dir():
+                    raise ValueError("workdir must be a directory")
+                if from_policy:
+                    args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
+                sandbox = Sandbox(args.sandbox)
+                review_root = None
+                if args.isolated_review:
+                    from .adapters.isolation import validate_isolated_review
+                    validate_isolated_review(sandbox, args.review_root)
+                    review_root = str(Path(args.review_root).expanduser().resolve(strict=True))
+                    if not Path(review_root).is_dir():
+                        raise ValueError("review_root must be a directory")
+                elif args.review_root:
+                    raise ValueError("review_root requires isolated_review (-I)")
+                if args.kind == "gate-review":
+                    import re
+                    if not args.pinned_model or not args.isolated_review:
+                        raise ValueError("gate-review requires a pinned model and isolated_review")
+                    if not isinstance(args.round_lease, str) or not re.fullmatch(
+                            r"gate:[A-Za-z0-9][A-Za-z0-9._-]{0,127}:round:[1-9][0-9]*", args.round_lease):
+                        raise ValueError("gate-review requires gate:<gate id>:round:<n> round_lease")
+                    if self.root not in workdir.parents or git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None:
+                        raise AdapterError("gate review cwd must be a neutral directory under the state root",
+                                           fix="allocate the peer cwd under SUBFLEET_HOME outside any repository", reason="gate-review-cwd")
+                elif args.round_lease:
+                    raise ValueError("round_lease is reserved for gate-review jobs")
+                if any(workdir == p or p in workdir.parents for p in (Path("/tmp"), Path("/private/tmp"))) and not args.allow_tmp:
+>                   raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir", reason="workdir-tmp")
+E                   subfleet.adapters.base.AdapterError: workdir is under /tmp
+
+/private/tmp/sf-wc-b1/baseline/subfleet/daemon.py:3071: AdapterError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4470650736:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470650736:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+____________ test_codex_exec_and_resume_commands_see_neither_dummy _____________
+
+world = {'lane': Lane(lane_id='codex-1', provider='codex', account_key='codex:fake', credential=Credential(provider='codex', r... PosixPath('/private/tmp/sf-wc-b1/pytest-baseline-clusters-ea72cee205/test_codex_exec_and_resume_com0/prompt.md'), ...}
+model = <http.server.ThreadingHTTPServer object at 0x10aa1b770>
+
+    @needs_codex
+    def test_codex_exec_and_resume_commands_see_neither_dummy(world, model):
+        adapter = CodexAdapter(codex_bin=CODEX)
+        launch = adapter.build_launch(world["job"], "shell/a1", world["tmp"] / "a1", world["lane"],
+                                      world["credential"], "mock-model", None, world["prompt"], None)
+        env = world["daemon"]._launch_environment(world["lane"], launch)
+    
+        control, _ = _exec(world, model, _without_shell_config(launch.argv), launch)
+>       assert _seen(control), "the control's command never ran"
+E       AssertionError: the control's command never ran
+E       assert set()
+E        +  where set() = _seen(['Chunk ID: b5a938\nWall time: 0.0000 seconds\nProcess exited with code 71\nOriginal token count: 14\nOutput:\nsandbox-exec: sandbox_apply: Operation not permitted\n'])
+
+tests/process/test_provider_shell_environment.py:192: AssertionError
+__________ test_two_legacy_alias_holders_oldest_exports_and_releases ___________
+
+tmp_path = PosixPath('/private/tmp/sf-wc-b1/pytest-baseline-clusters-ea72cee205/test_two_legacy_alias_holders_0')
+
+    def test_two_legacy_alias_holders_oldest_exports_and_releases(tmp_path):
+        require_case_aliases(tmp_path)
+        with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+            configure(service, patch)
+            left, right = tmp_path / "Result.md", tmp_path / "result.md"
+            job = submit(service, harness, out_path=str(left), caller_session=None)
+            service._admit()
+            accept_for_export(service, job, b"OLDER\n")
+            service.store.acquire_lease(f"out:{right}", "newer-job")
+            right.write_bytes(b"NEWER\n")
+            service._export(job)
+            assert right.read_bytes() == b"OLDER\n"
+            assert not service.store.list_leases(job)
+>           assert {holder for _, holder in resource_leases.OutputClaim.prepare(service.store.query, str(left)).holds(service.store.query)} == {"newer-job"}
+E           AssertionError: assert set() == {'newer-job'}
+E             
+E             Extra items in the right set:
+E             'newer-job'
+E             Use -v to get more diff
+
+tests/fake/test_canonical_identity.py:331: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4478388608:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4478388608:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+_______ test_terminal_messages_become_history_of_one_legacy_conversation _______
+
+v1 = {'home': PosixPath('/private/tmp/sf-wc-b1/pytest-baseline-clusters-ea72cee205/test_terminal_messages_become_0/home'), ... PosixPath('/private/tmp/sf-wc-b1/pytest-baseline-clusters-ea72cee205/test_terminal_messages_become_0/v1-roster'), ...}
+
+    def test_terminal_messages_become_history_of_one_legacy_conversation(v1):
+        """C-30.4, C-24.1, design D-9: one `legacy` conversation per session whose
+        transcript is found, bound to its native id, in the transcript's cwd with the
+        settings `conversation.open` would give it; its messages are terminal history
+        rows under their legacy ids, in legacy order, with their text published 0600."""
+        report = run_legacy(v1)
+        found = conversations(v1["root"], "SELECT * FROM conversations")
+>       assert len(found) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/unit/test_importer.py:1097: AssertionError
+___ test_each_spelling_is_refused_in_each_providers_real_shell[codex-zsh -c] ___
+
+tmp_path = PosixPath('/private/tmp/sf-wc-b1/pytest-baseline-clusters-ea72cee205/test_each_spelling_is_refused_0')
+provider = 'codex', shell = 'zsh -c'
+
+    @pytest.mark.parametrize('provider,shell', PROVIDER_SHELLS, ids=lambda value: str(value))
+    def test_each_spelling_is_refused_in_each_providers_real_shell(tmp_path, provider, shell):
+        launch, env, log, snapshot, world = round7_world(tmp_path, provider)
+        for name, template, reach in SPELLINGS:
+            command = fill(template, world)
+            assert hooks_deny(launch, provider, command, env), (provider, shell, name)
+            if reach is None or shell not in reach:
+                continue
+            tool = command.split()[1] if command.startswith('UV_OFFLINE') else None
+            if tool and not shell_has(shell, env, snapshot, 'uv'):
+                continue
+            # The harness reproduces the finding: past the hooks, this shell runs gh.
+            before = len(recorded(log))
+            # 180 s (#221 review r6, P3-1): a login zsh's `uv run` took over 60 s at load ~124.
+            subprocess.run(SHELLS[shell](command, snapshot), cwd=launch.cwd, env=env, capture_output=True,
+                           text=True, timeout=180)
+>           assert len(recorded(log)) > before, (shell, name)
+E           AssertionError: ('zsh -c', 'taskpolicy')
+E           assert 10 > 10
+E            +  where 10 = len(['pr comment 7 --body published', 'pr comment 7 --body published', 'pr comment 7 --body published', 'pr comment 7 --body published', 'pr comment 7 --body published', 'pr comment 7 --body published', ...])
+E            +    where ['pr comment 7 --body published', 'pr comment 7 --body published', 'pr comment 7 --body published', 'pr comment 7 --body published', 'pr comment 7 --body published', 'pr comment 7 --body published', ...] = recorded(PosixPath('/private/tmp/sf-wc-b1/pytest-baseline-clusters-ea72cee205/test_each_spelling_is_refused_0/recorded-gh.log'))
+
+tests/unit/test_publish_rule_round7.py:153: AssertionError
+___ test_a_message_the_hold_withheld_can_still_be_withdrawn[turn.interrupt] ____
+
+world = <test_legacy_hold.World object at 0x10aeed6a0>
+tmp_path = PosixPath('/private/tmp/sf-wc-b1/pytest-baseline-clusters-ea72cee205/test_a_message_the_hold_withhe0')
+op = 'turn.interrupt'
+
+    @pytest.mark.parametrize("op", ["message.cancel", "turn.interrupt"])
+    def test_a_message_the_hold_withheld_can_still_be_withdrawn(world, tmp_path, op):
+        """C-24.7, IR-2, C-30.4 (second review, finding 2): a message waiting to be
+        re-admitted with no turn job yet never reached the provider, so a person
+        may withdraw it, by cancelling or stopping it; it is not dispatched when the
+        hold lifts."""
+        world.run_pass()
+>       cid = world.conversation_id()
+              ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_legacy_hold.py:1113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <test_legacy_hold.World object at 0x10aeed6a0>
+
+    def conversation_id(self) -> str:
+        store = ConversationStore(self.root)
+        try:
+>           (row,) = store.query("SELECT conversation_id FROM conversations")
+            ^^^^^^
+E           ValueError: not enough values to unpack (expected 1, got 0)
+
+tests/unit/test_legacy_hold.py:77: ValueError
+_________ test_borrowed_or_shallow_object_store_is_scratch[alternates] _________
+
+world = World(base=PosixPath('/private/tmp/sf-wc-b1/pytest-baseline-clusters-ea72cee205/test_borrowed_or_shallow_objec0'), tru...seline-clusters-ea72cee205/test_borrowed_or_shallow_objec0/state'), store=<subfleet.store.Store object at 0x10aa3aea0>)
+marker = 'alternates'
+
+    @pytest.mark.parametrize("marker", ["alternates", "shallow"])
+    def test_borrowed_or_shallow_object_store_is_scratch(world, marker):
+        w = world
+        if marker == "alternates":
+            (w.repo / ".git" / "objects" / "info" / "alternates").write_text(str(w.remote / "objects") + "\n")
+        else:
+            (w.repo / ".git" / "shallow").write_text(w.head() + "\n")
+        reason = rgit.scratch_reason(w.repo / ".git", w.root, rgit.network_remotes(w.repo / ".git"))
+>       assert reason in ("borrows objects (alternates)", "shallow clone")
+E       AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')
+
+tests/unit/test_retention_archive.py:257: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_records_the_requested_model_substitution
+FAILED tests/process/test_provider_shell_environment.py::test_codex_exec_and_resume_commands_see_neither_dummy
+FAILED tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases
+FAILED tests/unit/test_importer.py::test_terminal_messages_become_history_of_one_legacy_conversation
+FAILED tests/unit/test_publish_rule_round7.py::test_each_spelling_is_refused_in_each_providers_real_shell[codex-zsh -c]
+FAILED tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[turn.interrupt]
+FAILED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]
+7 failed in 6.63s

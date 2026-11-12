@@ -1,0 +1,54 @@
+.............F.....s.................................................... [ 88%]
+.........                                                                [100%]
+=================================== FAILURES ===================================
+______ test_inside_a_launch_the_offline_fallback_is_filtered_the_same_way ______
+
+root = PosixPath('/tmp/sf-ef9sw6st')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c0b16d0>
+
+    def test_inside_a_launch_the_offline_fallback_is_filtered_the_same_way(root, monkeypatch):
+        """C-26.13 with C-17.5's read-only fallback: with no daemon listening, the
+        rows read from the store are filtered as the daemon's are, and nothing is
+        marked (the hook cannot write the store)."""
+        for name, value in turn_markers(root).items():
+            monkeypatch.setenv(name, value)
+        monkeypatch.setattr(hooks, "_offline_pending",
+                            lambda path, session: [notice(1, text="job done offline"),
+                                                   continuation(2)])
+        stdout = io.StringIO()
+        assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
+                                   stdout=stdout) == 0
+>       context = json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"]
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_hooks.py:231: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/json/__init__.py:371: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/json/decoder.py:358: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x10b2dcec0>, s = '', idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/json/decoder.py:376: JSONDecodeError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks.py::test_inside_a_launch_the_offline_fallback_is_filtered_the_same_way
+1 failed, 79 passed, 1 skipped in 20.40s

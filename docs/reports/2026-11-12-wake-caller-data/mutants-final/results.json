@@ -1,0 +1,128 @@
+[
+  {
+    "name": "wake_twice",
+    "path": "subfleet/caller_wakes.py",
+    "killer": "test_c15_9_delivered_notice_survives_restart_without_replay",
+    "pristine_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "mutant_sha256": "77ba8c1596576e373f7d76e942baa6832cb2b591d69aab4a749a7c3fe6ff3c74",
+    "patch": "/private/tmp/sf-wc-b1/mutants-final/wake_twice.patch",
+    "command": [
+      "python3",
+      "/private/tmp/sf-wc-b1/run.py",
+      "mutant-final-wake_twice",
+      "pytest",
+      "-q",
+      "tests/fake/test_caller_notice_wakes.py::test_c15_9_delivered_notice_survives_restart_without_replay"
+    ],
+    "rc": 1,
+    "log": "/private/tmp/sf-wc-b1/mutant-final-wake_twice.log",
+    "killed": true,
+    "restored_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "all_pristine_restored": true
+  },
+  {
+    "name": "hook_shown",
+    "path": "subfleet/caller_wakes.py",
+    "killer": "test_c15_9_hook_shown_notice_never_wakes",
+    "pristine_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "mutant_sha256": "acdc2e1b88574f091fdd230b03a7f518eb34a0b870905115d405bad85ef7ed8e",
+    "patch": "/private/tmp/sf-wc-b1/mutants-final/hook_shown.patch",
+    "command": [
+      "python3",
+      "/private/tmp/sf-wc-b1/run.py",
+      "mutant-final-hook_shown",
+      "pytest",
+      "-q",
+      "tests/fake/test_caller_notice_wakes.py::test_c15_9_hook_shown_notice_never_wakes"
+    ],
+    "rc": 1,
+    "log": "/private/tmp/sf-wc-b1/mutant-final-hook_shown.log",
+    "killed": true,
+    "restored_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "all_pristine_restored": true
+  },
+  {
+    "name": "drop_quiet_gate",
+    "path": "subfleet/sessions/nudge.py",
+    "killer": "test_c15_9_quiet_only_never_wakes_a_recently_active_session",
+    "pristine_sha256": "af4f0b1e1683d7befcf1fbaeeeb52064fb48b26ff501bc0d95cb009a8c7c70f9",
+    "mutant_sha256": "f09129f5ba25fdc612bd3ef3ed3e55c3f64cf9a157ca4214ecf8721fac892831",
+    "patch": "/private/tmp/sf-wc-b1/mutants-final/drop_quiet_gate.patch",
+    "command": [
+      "python3",
+      "/private/tmp/sf-wc-b1/run.py",
+      "mutant-final-drop_quiet_gate",
+      "pytest",
+      "-q",
+      "tests/fake/test_caller_notice_wakes.py::test_c15_9_quiet_only_never_wakes_a_recently_active_session"
+    ],
+    "rc": 1,
+    "log": "/private/tmp/sf-wc-b1/mutant-final-drop_quiet_gate.log",
+    "killed": true,
+    "restored_sha256": "af4f0b1e1683d7befcf1fbaeeeb52064fb48b26ff501bc0d95cb009a8c7c70f9",
+    "all_pristine_restored": true
+  },
+  {
+    "name": "lose_record_restart",
+    "path": "subfleet/caller_wakes.py",
+    "killer": "test_c15_9_delivered_notice_survives_restart_without_replay",
+    "pristine_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "mutant_sha256": "5f87a74b3d827840c931b66ab7ddfc47db4ffafa44baf79c1cc779348dd53427",
+    "patch": "/private/tmp/sf-wc-b1/mutants-final/lose_record_restart.patch",
+    "command": [
+      "python3",
+      "/private/tmp/sf-wc-b1/run.py",
+      "mutant-final-lose_record_restart",
+      "pytest",
+      "-q",
+      "tests/fake/test_caller_notice_wakes.py::test_c15_9_delivered_notice_survives_restart_without_replay"
+    ],
+    "rc": 1,
+    "log": "/private/tmp/sf-wc-b1/mutant-final-lose_record_restart.log",
+    "killed": true,
+    "restored_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "all_pristine_restored": true
+  },
+  {
+    "name": "output_text",
+    "path": "subfleet/caller_wakes.py",
+    "killer": "test_c15_9_scrubbed_wake_uses_header_fields_never_notice_or_output_text",
+    "pristine_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "mutant_sha256": "ec1652741d6d25ddef806f23fc4779195c8e3754f6b71eff11ad66de97e52dbd",
+    "patch": "/private/tmp/sf-wc-b1/mutants-final/output_text.patch",
+    "command": [
+      "python3",
+      "/private/tmp/sf-wc-b1/run.py",
+      "mutant-final-output_text",
+      "pytest",
+      "-q",
+      "tests/fake/test_caller_notice_wakes.py::test_c15_9_scrubbed_wake_uses_header_fields_never_notice_or_output_text"
+    ],
+    "rc": 1,
+    "log": "/private/tmp/sf-wc-b1/mutant-final-output_text.log",
+    "killed": true,
+    "restored_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "all_pristine_restored": true
+  },
+  {
+    "name": "conversation",
+    "path": "subfleet/caller_wakes.py",
+    "killer": "test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine",
+    "pristine_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "mutant_sha256": "9ca786148f0630d9c565043d1ede55550ddaacb0e61a1efaee9313a2231ce386",
+    "patch": "/private/tmp/sf-wc-b1/mutants-final/conversation.patch",
+    "command": [
+      "python3",
+      "/private/tmp/sf-wc-b1/run.py",
+      "mutant-final-conversation",
+      "pytest",
+      "-q",
+      "tests/fake/test_caller_notice_wakes.py::test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine"
+    ],
+    "rc": 1,
+    "log": "/private/tmp/sf-wc-b1/mutant-final-conversation.log",
+    "killed": true,
+    "restored_sha256": "310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2",
+    "all_pristine_restored": true
+  }
+]

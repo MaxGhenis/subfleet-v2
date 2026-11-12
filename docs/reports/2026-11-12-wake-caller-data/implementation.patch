@@ -1,0 +1,2317 @@
+diff --git a/docs/acceptance-contract.md b/docs/acceptance-contract.md
+index 83131d2cb..0b5d415b6 100644
+--- a/docs/acceptance-contract.md
++++ b/docs/acceptance-contract.md
+@@ -604,6 +604,8 @@ D-WALL1: `max_wall_s` counts summed provider running time across attempts, from
+ - **C-15.6** A hook costs one connection per question and no inspection. Its client does not check `daemon.lock` before connecting (`Client(verify_lock=False)`): that check costs a `ps` and a `sysctl` per process, and the PostToolUse hook runs on every Bash call of every session, while a hook exits 0 silently whichever way the daemon is down, which a refused connection already says. Its reads (`list`, `notice.pending`) are C-16.5's lookups.
+ - **C-15.8** (a notice has a reader) A service notice is written only for a session named: the one a `ping` names, else the one `alerts.operator_session` names; in either, a blank or non-string value names none, and a name is used without the spaces around it. There is no default inbox. Text that is only whitespace is no text, and text that is not a string is refused with exit 2. A `ping` with text that names no session, when no operator session is set, is refused with exit 2 and writes nothing; a `ping` without text is a liveness question and writes nothing, whatever it names (`doctor --live` sends one with no text and no session, and `subfleet ping` with no text, or at a prompt with none piped in, prints `pong`); `subfleet ping` names the session given, else the Claude session it runs in, else none, and leaves the rest of this rule to the daemon; and a timer alert, when no operator session is set, is delivered by being shown (C-18.4) and writes no notice. `notices [--session ID] [--all] [--ack|--withdraw [--reason TEXT]] [--json]`, v1's spelling (C-17.1), lists every session's unresolved (`pending` or `offered`) notices, job and service, or one session's, a service notice under its negated id as `notice.pending` returns it; `--all` adds the `surfaced` and `acknowledged` rows retention still keeps. Listing (op `notice.list`) reads only and marks nothing, so a session's own hooks still surface what was listed, and with no daemon it reads the store (C-17.5). Every listed row carries its `fingerprint` (`store.notice_fingerprint`: its creation time and a digest of its text). An action names one session (`--session`; without it, exit 2) and acts on exactly the unresolved notices the listing returned for it, each only while it is still the row listed: a notice's id is reused once the newest row of its table is deleted (neither table has AUTOINCREMENT), so the action sends each row's fingerprint with its id and the daemon acts on a row only while both match, and a notice written after the listing is untouched; two rows alike in id, session, creation second and text are one notice to the session that reads it. `--ack` acknowledges them (`notice.ack` with fingerprints; without them, as `runs show` and the hooks send it, it acts on ids alone, as before): the operator's acknowledgement, for notices the operator has read. Its answer names the rows it acknowledged and the rows it kept (acknowledged already, or no longer the row listed), and the CLI reports those, not the ids it asked about. `--withdraw` deletes the service notices among them (`notice.withdraw`) and leaves the job notices, naming how many: a job's notice is its terminal record and is acknowledged, never withdrawn, and a `notice.withdraw` that names one is refused with exit 2 and changes nothing. A withdrawal deletes only the rows it names that are that session's, still `pending` or `offered`, and, when the call gives fingerprints (the CLI always does), still the row listed. A row a hook printed (`surfaced`, C-15.3), a session acknowledged or another took the id of since the listing is kept and reported as kept. Fingerprints, when given, are strings, one per id, or the call is refused with exit 2; an id named twice is acted on once, with its first fingerprint, by either action. The deletion happens in one transaction with one `notice.withdrawn` event naming the session, the reason (`--reason`, which needs `--withdraw`, even when empty), each id, the creation span, and how many of each subject went. It claims no delivery, and loses no record of what was withdrawn (incident: 2026-10-03, `alerts.operator_session` had never been set, so from 2026-09-19 every timer alert, about 120 a day, was parked for the literal session `operator`, which no Claude session holds, no hook surfaces, no verb listed and C-23.26 never prunes: 1,637 rows, none read, among them each `claude credentials: ... is auth-dead. Run: ...` line C-23.52 exists to put in front of the operator; every `doctor --live` parked a `doctor` row there too, seven in all).
+ 
++- **C-15.9** (a finished job wakes its quiet caller) After startup recovery and on periodic passes, the daemon scans unread job notices (`pending` or `offered`, excluding `turn`) for ordinary callers. Policy `sessions.notice_wake_enabled` disables delivery; `sessions.notice_wake_quiet_s` defaults to 300 seconds, measured precisely from the latest real transcript turn, recorded hook activity and app registry activity. Busy, stopped, unknown, retired or disallowed-source sessions are not woken; `nudge.enabled` and `source_allows` still apply. A pass wakes at most `nudge.caps`'s `max_sessions` (`sessions.nudge_max_sessions`, default 8), grouping due notices for each session into one message and honoring the existing nudge cooldown. Unattended streaks also use C-24.10's `MAX_STREAK` and `COOLDOWN_S`; personal input resets them. A reachable quiet notice whose retry is due and whose session is within these bounds is delivered in that pass. Its message contains only `render.notice_header` fields (job id, state, rc, deliverable and `-o` path), never a notice summary or output text. A conversation-bound session, including one recorded by a turn attempt, is left entirely to C-24.10; this path never starts a session. A missing/dead session is recorded undeliverable. A temporary missing inbox or peer token, or a socket connection failure proved to precede all sends, retries on durable exponential backoff (2 seconds through 300 seconds) until 24 hours after notice creation, then records undeliverable; raw connection exception text is never persisted. Notice-local `wake_state`, `wake_attempts`, `wake_next_at`, `wake_at` and `wake_reason` persist the claim, result and retry clock; `caller_wake_sessions` persists activity, source and bounds. A wake claims the notice as `surfaced` before socket I/O and records `delivered` afterward, so it is never sent twice or shown again as new. Post-I/O updates match the claim timestamp and full notice identity, so an older send cannot alter a reused notice id. An interrupted or ambiguous send becomes `undeliverable` and remains consumed: the inbox has no acknowledgement or deduplication id, so retrying it could duplicate an accepted message. Only a proved pre-send failure returns a claim to unread state. SessionStart and UserPromptSubmit opt into an atomic `notice.pending` surface claim before printing; plain reads keep their old behavior. With no daemon, a hook reserves ids and fingerprints in durable receipt files, and separately records its latest activity time, SessionStart source and latest personal-input time, even when there are no new notices to print. Both use a per-session file lock shared with delivery. The daemon reconciles these records before claiming notices: older activity cannot replace newer recorded activity or source, and personal input resets unattended bounds only when no newer wake followed that input. A corrupt record fences only its own caller. A hook that cannot record a claim prints nothing; a crash after a hook claims but before it prints can lose that display. These reservations ensure a notice a hook has claimed is never woken, and a woken notice is never shown as new. No other C-15 clauses are renumbered. [milestone 4; owner fake; module `subfleet/caller_wakes.py`, `subfleet/notice_claims.py`, `subfleet/sessions/nudge.py`, `subfleet/daemon.py`, `subfleet/hooks.py`]
++
+ ## 16. Socket protocol
+ 
+ - **C-16.1** Unix domain socket at `daemon.sock`, mode 0600. Newline-delimited JSON, one request then one response per line. Request: `{"v": 1, "id": "<client string>", "op": "<op>", "args": {...}}`. Response: `{"v": 1, "id": "<same>", "ok": true, "result": {...}}` or `{"v": 1, "id": "<same>", "ok": false, "error": {"code": <exit code>, "message": "...", "fix": "..."}}`. The open-file limit, the connection cap and the busy answer are C-16.6 and C-16.7; which pool runs each op is C-16.5.
+@@ -611,7 +613,7 @@ D-WALL1: `max_wall_s` counts summed provider running time across attempts, from
+   `daemon.status` is a current-capacity snapshot, not a full ledger (D-ST2). Its `attempts` contains only `reserved`, `starting`, `running`, `finalizing` and `quarantined` rows, ordered by `reserved_at,seq`, with fields `attempt_id`, `job_id`, `seq`, `lane_id`, `model_requested`, `state`, `reserved_at`; no `evidence_json` or other attempt columns. Neither renderer needs finished-attempt history, so there is no recent window. Its `jobs` contains every `queued`, `waiting` and `running` job plus the jobs of those attempts (even if terminal), with the existing job columns and `created_at,rowid` order. The daemon reads these through `attempts_live`, `attempts_quarantined`, `jobs_state` and the job primary key, so retained finished attempts and jobs do not grow this read or reply. All other status keys, capacity counts and rendering remain available. `route=True` reads keep their existing shapes and predicates. `status.json` uses the timer's separate snapshot and retains its recent-finished-job menu (C-18.2).
+ - **C-16.3** `submit` returns `{job_id, request_id, created: bool}` where `created: false` means an existing job matched the request id. `wait` returns the terminal states of the requested jobs or `{"timeout": true}` after the deadline. A client that connected and sent a request but read no complete, decodable response line (a timeout while sending or reading, a reset or broken pipe, a close with no line, a line past the size cap or one that does not decode) does not know the request's outcome and never reports it as not done: the daemon may have committed it and answered after the client stopped reading, and even a failed send may have delivered the whole line. A refused connection is the one failure that proves nothing was sent (exit 69, C-17.3). `submit` and `kill` are idempotent (C-6.2, C-7.1), so the CLI and the sessions kit send the identical request once more, the same arguments under the same request id, with a 60 s deadline, and its answer is the outcome: `created: false` there is the job the first, unanswered request created, which a request id the CLI minted makes this invocation's own (`created: true` in its output), and a kill answered "already finished" is followed by `show`, because the first kill may be what finished the job, and the CLI prints the job's state and rc. Only if the re-send is also unanswered is the outcome reported as unknown (exit 1, C-17.3), naming the request id and the command that settles it: the same command with `--request-id <id>`, which never creates a second job, or `subfleet kill <job>` again, which is safe; stdout then carries no job id, and a job whose kill is unknown is not waited on. A re-sent submit that is refused does not prove the first created nothing, because submit validates before it looks up the request id and a moved HEAD is a different payload (C-6.2), so the client looks the request id up: `list` accepts `request_id`, and the client filters the rows itself as well, for a daemon that ignores the field (C-16.2). A job found is the answer when the CLI minted the id and is named in the refusal otherwise; none found, the refusal stands; a lookup that fails leaves the outcome unknown. The different-payload refusal names the job that holds the request id. A daemon gone before the re-send leaves a submit's outcome unknown and sends a kill to offline mode (C-17.5). A re-send answered only `busy` (exit 69, C-16.7) was never read and settles nothing, since the first request may still be committing: a submit is still looked up by request id, and a job found is the answer when the CLI minted the id; otherwise, and for a kill, and when no job is found, the outcome is reported as unknown, never as busy (exit 69 would read as nothing sent) and never as refused (merge review 2026-09-25). The message also names `subfleet runs --request-id <id>`, which finds the job whoever its caller session is (a revive's job belongs to the session it continues, so `runs --mine` would miss it); every id in a printed command is shell-quoted, so pasting it cannot change the id. A quarantine resolution (`--confirm-dead`, `--force-release`) whose outcome is unknown is to be repeated with its own flag and note, not as a plain `kill`, which would answer "already finished" and resolve nothing. `revive` and `handoff` tell the settle whether their request id was minted for the call, as `run` does; the CLI mints it before calling them, because the staged prompt is named after it, so it says so explicitly, and only `handoff --request-id` is the operator's. A handoff's brief is rebuilt from a transcript that keeps growing, so for it the lookup is named first and a re-run is said to risk a refusal as a different payload, which names the job and creates none. The unknown entry of a batch names the lookup as well. A dry run creates nothing and is not re-sent (incident: 2026-09-24, a `subfleet run --batch` entry printed "no response from the daemon within 15s" and "NOT submitted" while the daemon had committed it at 11:47:04Z, about a second before the client's 15 s deadline (event 581051); a manual `subfleet run` retry minted a fresh request id and created a duplicate job at 11:50:38Z (event 581065); a kill reported failed three times, with "no response from the daemon within 15s" and then "daemon closed the connection without a response", had committed its cancel at 11:59:01Z (event 581283)).
+ - **C-16.4** The daemon serves requests on a thread pool; a request handler never blocks on a provider process, a probe, or `ps`. Long-running work is queued to workers with deadlines.
+-- **C-16.5** A liveness question and a hook's reads never queue behind slow requests. `ping` without `text` (none, or only whitespace, C-15.8) reads nothing and is answered on the connection's own thread. `list`, `show` and `notice.pending` (`LOOKUP_OPS`) run on their own 8-thread pool, `subfleet-read`; `wait` on the waiters' pool; `submit` and `gate.*` on the workers; conversation ops on the conversation pools (the long polls `conversation.events` and `conversation.watch` on their own, `subfleet-poll`, C-29.9; the file work on `subfleet-files`, C-25.3); every other op on the 16-thread request pool, where view builds and writes that wait for the store lock stay. With C-3.7 none of the lookups waits for a transaction either, nor longer than `READ_WAIT_S` for a read connection, and snapshots cannot take the connections kept for them. `wait` and the two conversation long polls, which hold a thread for up to 60 s and 50 s, have a thread for every connection the daemon may hold (C-16.7), so, when every held connection carries one request at a time, as the CLI's, the hooks' and the app's do, no long poll queues behind the others past its deadline. Pipelining breaks that for everyone: one client that sends more waits than the cap on its connections can hold every waiter's thread, and another client's wait, however well behaved, then queues behind them (reviews of 3c8fe55 and 02c6320). Incident: 2026-09-25, all 16 request threads were busy and a `ping` took up to 90 s.
++- **C-16.5** A liveness question and a hook's reads never queue behind slow requests. `ping` without `text` (none, or only whitespace, C-15.8) reads nothing and is answered on the connection's own thread. `list`, `show` and plain `notice.pending` (`LOOKUP_OPS`) run on their own 8-thread pool, `subfleet-read`; a C-15.9 `notice.pending` surface claim writes and runs on the request pool; `wait` on the waiters' pool; `submit` and `gate.*` on the workers; conversation ops on the conversation pools (the long polls `conversation.events` and `conversation.watch` on their own, `subfleet-poll`, C-29.9; the file work on `subfleet-files`, C-25.3); every other op on the 16-thread request pool, where view builds and writes that wait for the store lock stay. With C-3.7 none of the lookups waits for a transaction either, nor longer than `READ_WAIT_S` for a read connection, and snapshots cannot take the connections kept for them. `wait` and the two conversation long polls, which hold a thread for up to 60 s and 50 s, have a thread for every connection the daemon may hold (C-16.7), so, when every held connection carries one request at a time, as the CLI's, the hooks' and the app's do, no long poll queues behind the others past its deadline. Pipelining breaks that for everyone: one client that sends more waits than the cap on its connections can hold every waiter's thread, and another client's wait, however well behaved, then queues behind them (reviews of 3c8fe55 and 02c6320). Incident: 2026-09-25, all 16 request threads were busy and a `ping` took up to 90 s.
+ - **C-16.6** The daemon does not exit because `accept` failed for want of a resource. `EMFILE`, `ENFILE`, `ENOBUFS`, `ENOMEM`, `ECONNABORTED`, `EINTR` and `EAGAIN` are waited out (50 ms, doubling to 2 s, reset by the next connection accepted; by sleeping, never by waiting on the stop event, whose lock the signal handler that sets it would meet held on the same thread) and logged on the 1st, 2nd, 4th, 8th consecutive failure with the count of open connections and descriptors; any other `accept` error still ends `serve_forever`. A stop is at most one pause late (review of the descriptor hotfix, F5). Failing without a break for 300 s (`ACCEPT_GIVE_UP_S`), the daemon ends `serve_forever` and exits, so launchd starts a fresh one: with client connections capped (C-16.7), a run that long is a leak outside them, and a daemon alive but deaf would keep the lock. On macOS the kernel drops the connection whose `accept` failed, so its client reads end of stream ("closed the connection without a response"): waiting out protects the process and the next client, and C-16.7 is what keeps a client from meeting `EMFILE` at all. At start, before anything else, the daemon raises its soft `RLIMIT_NOFILE` to 65536 (`subfleet/descriptors.py`), never above the hard limit and never lowering it, trying 32768, 16384 ... 1024 in turn if `setrlimit` refuses, and logs the effective soft and hard limits and what the raise achieved. `daemon install` writes `SoftResourceLimits.NumberOfFiles` (65536, or `kern.maxfilesperproc` if lower) into the launchd plist, so even a daemon that cannot raise its own limit does not start at launchd's 256. `daemon.status` reports `descriptors`: the soft and hard limits (`null` is unlimited), the descriptors open now, and the C-16.7 connection counts. (Incident: `~/.subfleet/daemon.log` holds 14 tracebacks of `OSError: [Errno 24] Too many open files` from `self._socket.accept()` in `serve_forever`, 2 on 2026-09-24 and 12 on 2026-09-25, some a few log lines apart as launchd restarted a daemon that failed again at once. Each ended the process, and every client waiting on a reply lost it. launchd had started the daemon at a soft limit of 256, and every client connection held a descriptor.)
+ - **C-16.7** Client connections are bounded and never wait for a reader. The daemon holds at most `max(4, min(512, (soft limit - 64 - 2 × turns) // 2))` client connections at once, derived at each `accept`: 64 descriptors stay reserved for its own work, including the store, the log, the lock, the listener and its children's pipes; each conversation turn runner still going holds two more of its own, its relay connection to the guardian, open for the turn's whole life (C-26.4), and its stdout while it reads a chunk; and each connection is allowed two. A cap that falls as turns start closes no connection already held. Each connection it holds has a reader thread of its own, started at `accept`, so no connection waits for a reader; requests can still wait for a thread of the request pools, and when every held connection carries one request at a time those waits are bounded by the cap; one client that pipelines can make every other client's requests wait too. A request whose pool cannot start a thread is counted (`unscheduled`, as on main) and its reader goes on: the standard pool has queued the call before it tried, so it may still run and answer. `close()` waits at most 2 s in all for readers to return, then closes every connection it still holds. One accepted past the cap, or one for which no reader thread can start, gets `{"ok": false, "error": {"code": 69, "message": "the daemon is busy: ...", "fix": "try again shortly; ..."}}` at once, before its request is read, and is closed; nothing else the daemon sends over the socket carries 69. The client reads that answer even if its request met the closed socket, and because nothing was read, `Client.call` sends the same request again after 50 ms doubling to 1 s (less up to half at random), but only while less than half its deadline has passed, so a retry the daemon does read still has at least half the deadline to answer and a clean busy never becomes an unknown outcome (C-16.3); after that it reports busy. A retry whose connect is then refused (ECONNREFUSED: the busy daemon's full listen backlog) while `daemon.lock` names a living daemon reports busy as well, so no caller falls back to offline mode behind a busy one; a socket gone (a stopped daemon unlinks it), a lock holder that is dead, or any other failure is an absent daemon (`client.refused_while_busy`); a lock that cannot say whether its holder lives (no lock, no usable pid, `ps` blocked by a sandbox) counts as busy inside a call and in the hook, both bounded by their deadlines, and for at most 60 s (`REFUSED_UNVERIFIED_MAX_S`) in a CLI wait loop with no `--timeout`, which has none. A long poll that loops (`subfleet wait`, `kill --wait`, `run --wait`, the PostToolUse hook) does not retry inside the call: it takes busy as an empty poll and asks again, so each poll has its whole deadline, and it takes a connect refused after a busy answer as busy too, by the same rule, so a daemon that stops or dies after a busy answer ends the loop instead of holding it for ever. The first try has the whole deadline, and a lost answer's message names the caller's deadline. A caller with a faster answer than waiting takes busy at once (`Client(retry_busy=False)`): the prompt hooks read the store offline instead. So a re-sent `submit` or `kill` answered only busy settles as C-16.3 says; `subfleet gate`'s poll is one call with a 180 s deadline; and `subfleet wait`, `kill --wait` and `run --wait` go on asking a busy daemon, backing off, until `--timeout`. `subfleet daemon status` reports a daemon that answered, busy or not, as running (exit 0). Reads time out: a connection with no request outstanding that has sent nothing and received no reply for 60 s is closed at its next read timeout (so after 60 to 120 s of silence), and the same 60 s bounds sending one reply, so a client that stops reading frees its thread; after a reply that failed part way nothing more is sent on that connection: the daemon shuts it down while it still holds the connection's write lock, so a reply waiting for the lock meets the closed stream instead of joining the broken line (review of 3c8fe55). A request line (newline included) over 1 MiB is answered once with exit 2 and the rest of that line is discarded, and one that nests too deeply to parse or to describe, carries an integer past Python's digit limit, or is not UTF-8 is answered exit 2 too; framing does not depend on how the bytes arrive. A read-only request (`list`, `show`, `wait`, `readings`, `why`, `pick`, `daemon.status`, `notice.pending`, `ping` without text, and `lanes` listing, with no action or `list`; and the conversation ops that only read: `capabilities`, `models.list`, `conversation.list`, `conversation.open` naming a conversation (opened by native session it may create one), `conversation.history`, `conversation.events`, `conversation.watch`, `conversation.runs`, `message.status`, `approval.list`, `approval.get`, `turn.diff`, `conversation.diff` and `workspace.check` (create's folder checks as a preview, making no folder); they may record observations such as the desktop identity or a diff's tree objects, nothing a caller relies on) whose client has closed its whole socket is not run: when the reader sees the client leave, such requests not yet started are cancelled, so the connection and its place under the cap go at once, and one a thread reaches later is dropped. A stream the daemon ended itself after a reply that failed part way is treated the same way, without being counted as a client leaving. A long poll whose client leaves ends at its next look, its answer unsent and counted as dropped: a `wait` within 0.25 s, a `conversation.events` or `conversation.watch` within 0.5 s (their store's wait looks that often); the conversation polls also end when the daemon stops. The app sends one request per connection and a long poll waits at most 50 s, so its pending poll keeps the connection from the idle close, which the reply then ends. The conversation ops' replies are written as the others are: after one that failed part way nothing more is sent. On macOS `getpeername` tells a closed client apart from one that shut down only its write half, which still gets its reply. A request that writes still runs after its client leaves, because a client disconnect cannot cancel its durable job (C-5.2). The listen backlog is `socket.SOMAXCONN` (128, macOS's default `kern.ipc.somaxconn`), since a connect refused on a full backlog reads to the CLI as no daemon at all. `daemon.status` `descriptors` also reports `live_turns`, the `reserve` they make and `unscheduled`. Refusals, idle closes and dropped requests are counted in `daemon.status` and logged on the 1st, 2nd, 4th, 8th occurrence; accept failures are counted there too and logged per consecutive run as C-16.6 says. (Before this clause every connection held one of 32 reader threads for its whole life, so 40 clients in `wait` left no reader for anyone else; `tests/unit/test_daemon_connections.py` holds that load and requires a ping answered within 2 s.)
+ 
+diff --git a/docs/reports/2026-11-12-wake-caller.md b/docs/reports/2026-11-12-wake-caller.md
+new file mode 100644
+index 000000000..93c0374b9
+--- /dev/null
++++ b/docs/reports/2026-11-12-wake-caller.md
+@@ -0,0 +1,20 @@
++# Wake quiet callers (D-WAKE-CALLER1, package 7)
++
++Started 2026-11-12T05:49:38Z (`date -u`, first command). Base: b51f08f961e1b1dcfb93347eb080f9ddd9a9260d. All work is in the assigned workspace. No live state, live inbox or live process was inspected.
++
++## Step 0 (recorded before implementation)
++
++- `hooks.session_event` reads `pending`/`offered` rows, prints them, then calls `notice.mark` with `surfaced` and `hook:SessionStart`/`hook:UserPromptSubmit` (`hooks.py:482–515`). The daemon advances the monotone ladder `pending → offered → surfaced → acknowledged`; only pending/offered rows are returned to hooks (`daemon.py:4383–4407`). The read/print/mark gap needs fencing against a concurrent wake.
++- `nudge.decide` checks turn classification, retirement, restart source, maximum age, interruption dedupe and cooldown (`sessions/nudge.py:176–232`). Quietness is checked in `sweep`, by comparing transcript fingerprints before/after sampling and applying the manual quiet window (`:355–381`). `TurnState.age_s` rounds seconds; a precise gate must use its timestamp. Registry busy/idle timestamps can supplement transcript activity.
++- The task's description of `spawn` is stale in this branch: it launches a detached CLI worker (`sessions/nudge.py:145`); `sweep`/`wake` call `sessions.ping`, which parks a service notice. No daemon call currently invokes `notify_push`. The usable inbox transport is `notify_push.push_to_session` (`notify_push.py:284–332`). It resolves the stable session id afresh, needs a live registry pid, Unix inbox socket and published peer token, and never starts a session. Missing/dead sessions fail safely; closed sessions cannot be reached and will be recorded undeliverable. Temporary missing inbox/token failures can be retried.
++- `conversation.wake` / `op_conversation_wake` refuses `no-conversation` unless the caller is bound to an app conversation or names a conversation turn (`conversations/service.py:977–986`). It cannot serve an ordinary unbound Claude Code caller. `WakeEngine` persists requests in `wake_requests`, uses `MAX_STREAK=8` and `COOLDOWN_S=1800`, and resets unattended streak on personal input. This change will reuse those bounds and exclude `_conversation_binding` matches (including turn attempts and canonical UUID spellings).
++- `nudge.caps` currently contains time bounds but no session-count cap; one must be added for bounded passes. `nudge.enabled` honors `SUBFLEET_TICKLE`; `source_allows` accepts only absent/startup/resume sources.
++- SQLite and the inbox cannot commit atomically and the inbox supplies no acknowledgement/dedupe id. A durable pre-send claim is required for at-most-once sending. An interrupted/ambiguous send must remain consumed and be recorded undeliverable rather than be sent again. Explicit failures before any bytes are sent may retry. This follows the existing `sessions.client.record_nudge` ordering.
++
++## Environment deviations discovered before implementation
++
++- The requested `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` resolves to `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/`, where the sandbox rejects creation (`Operation not permitted`). Use writable `/private/tmp/sf-wc-b1` as TMPDIR, with its `uv-cache`, venv and a fresh basetemp per run; clean all job scratch at completion.
++- `uv sync --group dev --extra api` fails because this branch defines no `api` extra. Retry with `uv sync --group dev`; install the required pytest-xdist separately in the isolated venv.
++- Git commands inheriting global config stall. Using `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1` resolves `rev-parse`; no persistent git config is changed.
++
++Implementation, invariant/mutant results, command ledger and built head will be added before completion.
+diff --git a/subfleet/caller_wakes.py b/subfleet/caller_wakes.py
+new file mode 100644
+index 000000000..045480a6e
+--- /dev/null
++++ b/subfleet/caller_wakes.py
+@@ -0,0 +1,252 @@
++"""Durable completion wakes for quiet, ordinary callers (C-15.9).
++
++The sessions kit supplies eligibility and the existing inbox transport supplies
++delivery. Claims commit before socket I/O. An interrupted or ambiguous send is
++terminal: this inbox cannot deduplicate a repeated message after a crash.
++"""
++from __future__ import annotations
++
++from collections import defaultdict
++from datetime import datetime, timezone
++import time
++
++from . import notice_claims, notify_push, protocol, render
++from .sessions import nudge, transcripts
++
++RETRY_WINDOW_S = 24 * 60 * 60
++RETRY_MAX_S = 300
++PREFLIGHT_FAILURES = frozenset({"no-inbox-socket", "no-peer-token"})
++CLOSED_FAILURES = frozenset({"session-not-registered", "session-not-running"})
++
++
++def _instant(stamp: str) -> float:
++    value = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
++    return value.replace(tzinfo=value.tzinfo or timezone.utc).timestamp()
++
++
++def surface(daemon, args: protocol.NoticePendingArgs) -> dict:
++    """Reserve the hook's rows and activity atomically, before it prints them.
++
++    Plain notice.pending remains read-only. This opt-in shape preserves older
++    clients and notice.ack's wire payload. The hook's later mark is harmless.
++    """
++    session, event = args.session_id, args.surface
++    if event not in ("SessionStart", "UserPromptSubmit"):
++        raise protocol.ProtocolError("unknown notice state", reason="notice-state")
++    now = time.time()
++    with notice_claims.delivery_lock(daemon.root, session) as held:
++        if not held:
++            return {"notices": []}
++        notice_claims.reconcile(daemon, session)
++        with daemon.store.transaction("notice.hook_claimed", data={"session_id": session,
++                                                                   "event": event}) as tx:
++            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES(?,?,?) "
++                       "ON CONFLICT(session_id) DO UPDATE SET active_at=excluded.active_at,source=excluded.source,"
++                       "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
++                       "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
++                       (session, now, args.source if event == "SessionStart" else None,
++                        event == "UserPromptSubmit", event == "UserPromptSubmit"))
++            rows = [dict(row) for row in tx.execute(
++                "SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id",
++                (session,))]
++            service = [dict(row) for row in tx.execute(
++                "SELECT * FROM service_notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id",
++                (session,))]
++            about = daemon._pin_notice_jobs(service) if service else {}
++            rows += [{**protocol.service_notice_on_wire(row), "job_id": about.get(row["notice_id"])}
++                     for row in service]
++            if args.jobs_only:
++                rows = [row for row in rows if row.get("job_id")]
++            stamp = datetime.fromtimestamp(now, timezone.utc).isoformat()
++            for row in rows:
++                table, row_id = protocol.notice_row(row["notice_id"])
++                tx.execute(f"UPDATE {table} SET state='surfaced',transport=?,offered_at=COALESCE(offered_at,?) "
++                           "WHERE notice_id=? AND session_id=? AND state IN ('pending','offered')",
++                           (f"hook:{event}", stamp, row_id, session))
++    return {"notices": rows}
++
++
++class CallerWakeEngine:
++    def __init__(self, daemon, *, now=None):
++        self.daemon = daemon
++        self.store = daemon.store
++        self.now = now or time.time
++        self.recover()
++
++    def recover(self) -> None:
++        """Rescan durable claims on startup; never replay an uncertain send."""
++        with self.store.transaction("notice.wake_recovered") as tx:
++            tx.execute("UPDATE notices SET wake_state='undeliverable',wake_reason='interrupted-send' "
++                       "WHERE wake_state='claimed'")
++
++    def _facts(self, session: str) -> dict:
++        result = self.daemon.sessions(protocol.SessionsArgs(action="state", session_ids=[session]))
++        return (result.get("sessions") or {}).get(session) or {}
++
++    def _eligibility(self, session: str, entry: dict, state, limits: dict, now: float) -> tuple[bool, str]:
++        clock = self.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
++        facts = self._facts(session)
++        # The app publishes these in milliseconds. Busy remains busy even
++        # during a long tool call that writes no new transcript records.
++        if entry.get("activity_invalid"):
++            return False, "session activity is invalid"
++        if entry.get("status") == "busy":
++            return False, "session is busy"
++        active_at = max(clock.get("active_at") or 0,
++                        (entry.get("status_updated_at") or 0) / 1000,
++                        (entry.get("updated_at") or 0) / 1000)
++        return nudge.notice_decide(
++            state, limits=limits, active_at=active_at, source=clock.get("source"),
++            retired=facts.get("retired"), last_nudge=facts.get("last_nudge"),
++            wake_streak=clock.get("wake_streak") or 0, last_wake_at=clock.get("last_wake_at"),
++            now=datetime.fromtimestamp(now, timezone.utc))
++
++    def _failure(self, rows: list[dict], reason: str, now: float, *, retry: bool) -> None:
++        with self.store.transaction("notice.wake_failed", data={"reason": reason}) as tx:
++            for row in rows:
++                try:
++                    deadline = _instant(row["created_at"]) + RETRY_WINDOW_S
++                except (ValueError, TypeError, OverflowError):
++                    deadline = now
++                again = retry and now < deadline
++                attempts = row["wake_attempts"] + 1
++                next_at = min(deadline, now + min(RETRY_MAX_S, 2 ** min(attempts, 9))) if again else None
++                tx.execute("UPDATE notices SET wake_state=?,wake_attempts=?,wake_next_at=?,wake_at=?,wake_reason=? "
++                           "WHERE notice_id=? AND job_id=? AND session_id IS ? AND created_at=? AND text=? "
++                           "AND state IN ('pending','offered') AND wake_state IS NULL",
++                           (None if again else "undeliverable", attempts, next_at, now,
++                            reason if again or not retry else "retry-expired", row["notice_id"], row["job_id"],
++                            row["session_id"], row["created_at"], row["text"]))
++
++    def pass_once(self) -> dict:
++        policy = self.daemon.policy
++        limits = nudge.caps(policy)
++        result = {"delivered": 0, "sessions": 0}
++        if not policy.get("sessions", {}).get("notice_wake_enabled", True) or not nudge.enabled():
++            return result
++        now = self.now()
++        pending = self.store.query(
++            "SELECT n.* FROM notices n JOIN jobs j USING(job_id) "
++            "WHERE n.state IN ('pending','offered') AND n.wake_state IS NULL AND j.kind<>'turn' "
++            "AND (n.wake_next_at IS NULL OR n.wake_next_at<=?) ORDER BY n.created_at,n.notice_id", (now,))
++        groups = defaultdict(list)
++        for row in pending:
++            groups[row["session_id"]].append(row)
++        for session, candidates in groups.items():
++            if result["sessions"] >= limits["max_sessions"]:
++                break
++            if not session:
++                self._failure(candidates, "no-caller-session", now, retry=False)
++                continue
++            if self.daemon._conversation_binding(session):
++                continue  # C-24.10 is the only wake path for this session.
++            with notice_claims.delivery_lock(self.daemon.root, session) as held:
++                if not held:
++                    continue
++                try:
++                    notice_claims.reconcile(self.daemon, session)
++                except (OSError, ValueError, KeyError):
++                    continue  # a bad receipt fences only its own caller
++                # Hooks and other passes may have consumed the candidate read.
++                rows = [row for row in candidates if self.store.one(
++                    "SELECT 1 FROM notices WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
++                    "AND state IN ('pending','offered') AND wake_state IS NULL",
++                    (row["notice_id"], row["job_id"], session, row["created_at"], row["text"]))]
++                if not rows:
++                    continue
++                expired = [row for row in rows if row["wake_attempts"] and
++                           now >= _instant(row["created_at"]) + RETRY_WINDOW_S]
++                if expired:
++                    self._failure(expired, "retry-expired", now, retry=False)
++                    rows = [row for row in rows if row not in expired]
++                if not rows:
++                    continue
++                entry = notify_push.find_session(session)
++                if entry is None or not entry["alive"]:
++                    self._failure(rows, "session-not-registered" if entry is None else "session-not-running",
++                                  now, retry=False)
++                    continue
++                path = transcripts.transcript_path(session)
++                before = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
++                if not self._eligibility(session, entry, before, limits, now)[0]:
++                    continue
++                if not entry["socket_present"]:
++                    self._failure(rows, "no-inbox-socket", now, retry=True)
++                    continue
++                after = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
++                if before.fingerprint != after.fingerprint:
++                    continue
++                # Account switches replace the registry row; a fresh busy
++                # status can also arrive without changing the transcript.
++                entry = notify_push.find_session(session)
++                if entry is None or not entry["alive"]:
++                    self._failure(rows, "session-not-registered" if entry is None else "session-not-running",
++                                  now, retry=False)
++                    continue
++                if not entry["socket_present"]:
++                    self._failure(rows, "no-inbox-socket", now, retry=True)
++                    continue
++                claimed = []
++                with self.store.transaction("notice.wake_claimed", data={"session_id": session}) as tx:
++                    if self.daemon._conversation_binding(session) or not self._eligibility(
++                            session, entry, after, limits, now)[0]:
++                        continue
++                    previous_clock = self.store.one(
++                        "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
++                    for row in rows:
++                        if tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
++                                      "wake_state='claimed',wake_attempts=wake_attempts+1,wake_at=?,wake_next_at=NULL "
++                                      "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
++                                      "AND state IN ('pending','offered') AND wake_state IS NULL",
++                                      (now, row["notice_id"], row["job_id"], session,
++                                       row["created_at"], row["text"])).rowcount:
++                            claimed.append(row)
++                    if claimed:
++                        tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) VALUES(?,?,1) "
++                                   "ON CONFLICT(session_id) DO UPDATE SET last_wake_at=excluded.last_wake_at,"
++                                   "wake_streak=wake_streak+1", (session, now))
++                if not claimed:
++                    continue
++                # Only header fields are read for the wake. Notice summaries,
++                # attempts' output and deliverable file contents never enter it.
++                headers = [render.notice_header(self.store.get_job(row["job_id"]), self.daemon.root)
++                           for row in claimed]
++                result["sessions"] += 1
++                try:
++                    outcome = notify_push.push_to_session(session, "\n".join(headers),
++                                                          lane_sessions=self.daemon._lane_session_ids())
++                except Exception:
++                    outcome = {"delivered": False, "reason": "send-uncertain"}
++                if outcome.get("delivered"):
++                    with self.store.transaction("notice.woken", data={"session_id": session,
++                                                                       "notice_ids": [r["notice_id"] for r in claimed]}) as tx:
++                        tx.executemany("UPDATE notices SET wake_state='delivered',wake_reason=NULL "
++                                       "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
++                                       "AND wake_at=? AND wake_state='claimed'",
++                                       [(row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now)
++                                        for row in claimed])
++                    result["delivered"] += len(claimed)
++                else:
++                    retryable = outcome.get("retryable") is True
++                    # Connect failures prove no message bytes were attempted.
++                    # Persist fixed words, never the transport exception text.
++                    reason = "inbox-unavailable" if retryable else outcome.get("reason")
++                    safe = retryable or reason in PREFLIGHT_FAILURES or reason in CLOSED_FAILURES
++                    with self.store.transaction("notice.wake_unsent") as tx:
++                        for row in claimed:
++                            tx.execute("UPDATE notices SET state=?,transport=?,wake_state=?,wake_reason=? "
++                                       "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
++                                       "AND wake_at=? AND wake_state='claimed'",
++                                       (row["state"] if safe else "surfaced", row["transport"] if safe else "caller-wake",
++                                        None if safe else "undeliverable", reason if safe else "send-uncertain",
++                                        row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now))
++                        if safe:
++                            # No bytes were attempted. Give back the session
++                            # slot too, without undoing newer human activity.
++                            tx.execute("UPDATE caller_wake_sessions SET wake_streak=?,last_wake_at=? "
++                                       "WHERE session_id=? AND last_wake_at=?",
++                                       (previous_clock.get("wake_streak") or 0, previous_clock.get("last_wake_at"),
++                                        session, now))
++                    if safe:
++                        self._failure(claimed, reason, now, retry=retryable or reason in PREFLIGHT_FAILURES)
++        return result
+diff --git a/subfleet/daemon.py b/subfleet/daemon.py
+index 9e2e0a828..47b3b9789 100644
+--- a/subfleet/daemon.py
++++ b/subfleet/daemon.py
+@@ -4345,8 +4345,11 @@ class Daemon:
+         if op.startswith("notice."):
+             a = protocol.coerce_args(
+                 protocol.NoticeMarkArgs if op == "notice.mark" else
+-                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
++                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticePendingArgs,
+                 args)
++            if op == "notice.pending" and a.surface:
++                from .caller_wakes import surface
++                return surface(self, a)
+             # C-15.3: a negated id is a service notice, on every op that takes
+             # ids back (`protocol.notice_row`), and `acknowledged` is terminal
+             # in both tables: a notice is acknowledged once.
+@@ -5766,6 +5769,7 @@ class Daemon:
+                 for job_id in self._pending_worktree_holds():
+                     self._schedule("cwd:" + job_id, self._release_worktree_hold, job_id, paced=True)
+                 if self._recovery_complete.is_set():
++                    self._schedule("caller-notices", self._wake_callers, paced=True)
+                     self._schedule("conversations", self.conversations.tick, paced=True)
+                     self._schedule("admission", self._admit, paced=True)
+                     # C-26.9: turns also have a pass of their own, so a person's
+@@ -5780,6 +5784,17 @@ class Daemon:
+                 self.log.error("control iteration failed: %s", type(exc).__name__)
+             self.stopping.wait(self.tick_s)
+ 
++    def _wake_callers(self) -> None:
++        """C-15.9: startup and periodic scans share durable delivery state."""
++        now = time.monotonic()
++        if now < self.__dict__.get("_caller_wake_next", 0):
++            return
++        self._caller_wake_next = now + 1
++        from .caller_wakes import CallerWakeEngine
++        if "_caller_wakes" not in self.__dict__:
++            self._caller_wakes = CallerWakeEngine(self)
++        self._caller_wakes.pass_once()
++
+     def _timer_notice(self, notice: dict) -> bool:
+         """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
+         one is set. With none it is delivered by being shown: `status` and
+@@ -12416,7 +12431,7 @@ class Daemon:
+         # ordinary read/cancel operations stay responsive.
+         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
+                 self.waiters if req.op == "wait" else
+-                self.lookups if req.op in LOOKUP_OPS else self.requests)
++                self.lookups if req.op in LOOKUP_OPS and descriptors.read_only(req.op, req.args) else self.requests)
+         return pool.submit(self._run_worker, self._respond, conn, write_lock, req, arrived,
+                            **({"peer": peer} if req.op == "kill" else {}))
+ 
+diff --git a/subfleet/default_policy.json b/subfleet/default_policy.json
+index a1a71ec77..e824e7573 100644
+--- a/subfleet/default_policy.json
++++ b/subfleet/default_policy.json
+@@ -155,6 +155,9 @@
+     "nudge_cooldown_min": 1.5,
+     "nudge_delay_s": 8,
+     "nudge_sample_s": 3,
++    "notice_wake_enabled": true,
++    "notice_wake_quiet_s": 300,
++    "nudge_max_sessions": 8,
+     "sweep_quiet_s": 120,
+     "muster_max_age_h": 2,
+     "muster_quiet_s": 120,
+diff --git a/subfleet/descriptors.py b/subfleet/descriptors.py
+index 9d574204d..9db0eeab1 100644
+--- a/subfleet/descriptors.py
++++ b/subfleet/descriptors.py
+@@ -136,6 +136,8 @@ def open_descriptors() -> int | None:
+ 
+ def read_only(op: str, args: dict) -> bool:
+     """C-16.7: whether a request is one a caller relies on only for its reply."""
++    if op == "notice.pending" and args.get("surface"):
++        return False  # C-15.9: the hook's opt-in claim commits before printing.
+     if op in READ_ONLY_OPS or op in READ_ONLY_CONVERSATION_OPS:
+         return True
+     if op == "conversation.open":
+diff --git a/subfleet/hooks.py b/subfleet/hooks.py
+index 4b9460db8..623282025 100644
+--- a/subfleet/hooks.py
++++ b/subfleet/hooks.py
+@@ -493,9 +493,23 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
+         # C-15.6: no lock check. C-16.7: a busy daemon is read offline below at
+         # once; waiting out busy answers would only delay the prompt or the start.
+         client = Client(root, verify_lock=False, retry_busy=False) if client is None else client
+-        rows = _pending(client, session)
++        result = client.call("notice.pending", {"session_id": session, "surface": event,
++                                               "jobs_only": launched, "source": payload.get("source")})
++        rows = result.get("notices")
++        rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+-        rows, marked = _offline_pending(root, session), False
++        from .notice_claims import delivery_lock, reserve_offline
++        rows, marked = [], False
++        try:
++            with delivery_lock(root, session) as held:
++                if held:
++                    pending = _offline_pending(root, session)
++                    if launched:
++                        pending = [row for row in pending if names_a_job(row)]
++                    rows = reserve_offline(root, session, pending, event=event,
++                                           source=payload.get("source"))
++        except (OSError, ValueError, KeyError):
++            pass  # without a durable claim, printing could race a restart wake
+     if launched:
+         rows = [row for row in rows if names_a_job(row)]
+     notices = render_pending(rows) if rows else ""
+diff --git a/subfleet/notice_claims.py b/subfleet/notice_claims.py
+new file mode 100644
+index 000000000..934116689
+--- /dev/null
++++ b/subfleet/notice_claims.py
+@@ -0,0 +1,167 @@
++"""Hook receipts when the daemon is unavailable (C-15.9).
++
++The hook never writes SQLite. A per-session file lock fences its read/receipt
++against a waking daemon; a receipt records only notice ids and fingerprints.
++Both paths reserve delivery before writing to their external recipient.
++"""
++from __future__ import annotations
++
++from contextlib import contextmanager
++import fcntl
++import hashlib
++import json
++import math
++import os
++import time
++from pathlib import Path
++
++from .store import notice_fingerprint
++
++
++def receipt_path(root: Path, session: str) -> Path:
++    key = hashlib.sha256(session.encode()).hexdigest()
++    return Path(root) / "hooks" / "notice-receipts" / (key + ".json")
++
++
++@contextmanager
++def delivery_lock(root: Path, session: str):
++    """Nonblocking: neither a prompt nor one busy caller stalls the pass."""
++    path = receipt_path(root, session).with_suffix(".lock")
++    fd = None
++    held = False
++    try:
++        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
++        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
++        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++        held = True
++    except OSError:
++        pass
++    try:
++        yield held
++    finally:
++        if fd is not None:
++            os.close(fd)
++
++
++def read_receipts(root: Path, session: str) -> list[dict]:
++    try:
++        value = json.loads(receipt_path(root, session).read_text())
++    except FileNotFoundError:
++        return []
++    # An unreadable/corrupt receipt must fail closed, never repeat a delivery.
++    if not isinstance(value, list) or not all(
++            isinstance(x, dict) and isinstance(x.get("notice_id"), int)
++            and not isinstance(x["notice_id"], bool) and x["notice_id"] != 0
++            and isinstance(x.get("fingerprint"), str) for x in value):
++        raise ValueError("invalid notice receipts")
++    return value
++
++
++
++def activity_path(root: Path, session: str) -> Path:
++    return receipt_path(root, session).with_suffix(".activity.json")
++
++
++def read_activity(root: Path, session: str) -> dict | None:
++    try:
++        value = json.loads(activity_path(root, session).read_text())
++    except FileNotFoundError:
++        return None
++
++    def valid_time(stamp):
++        if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
++            return False
++        try:
++            return math.isfinite(stamp) and stamp >= 0
++        except OverflowError:
++            return False
++
++    if (not isinstance(value, dict) or set(value) != {"at", "source", "human_at"}
++            or not valid_time(value.get("at"))
++            or not (value.get("source") is None or isinstance(value["source"], str))
++            or not (value.get("human_at") is None or valid_time(value["human_at"]))):
++        raise ValueError("invalid notice activity")
++    return value
++
++
++def record_offline_activity(root: Path, session: str, *, event: str, source: str | None) -> None:
++    """Keep the quiet clock even when this hook has no new notices to print."""
++    if event not in ("SessionStart", "UserPromptSubmit"):
++        raise ValueError("invalid notice activity event")
++    previous = read_activity(root, session) or {}
++    now = time.time()
++    human_at = previous.get("human_at")
++    if event == "UserPromptSubmit":
++        human_at = max(now, human_at or 0)
++    value = {"at": max(now, previous.get("at") or 0),
++             "source": source if event == "SessionStart" and isinstance(source, str) else None,
++             "human_at": human_at}
++    path = activity_path(root, session)
++    temporary = path.with_suffix(".tmp")
++    try:
++        with temporary.open("w") as stream:
++            os.chmod(temporary, 0o600)
++            json.dump(value, stream)
++            stream.flush()
++            os.fsync(stream.fileno())
++        os.replace(temporary, path)
++    finally:
++        temporary.unlink(missing_ok=True)
++
++
++def reserve_offline(root: Path, session: str, rows: list[dict], *,
++                    event: str, source: str | None = None) -> list[dict]:
++    """Called under delivery_lock, before an offline hook prints anything."""
++    record_offline_activity(root, session, event=event, source=source)
++    receipts = read_receipts(root, session)
++    seen = {(item["notice_id"], item["fingerprint"]) for item in receipts}
++    fresh = [row for row in rows if
++             (row["notice_id"], notice_fingerprint(row)) not in seen]
++    if not fresh:
++        return []
++    receipts.extend({"notice_id": row["notice_id"], "fingerprint": notice_fingerprint(row)}
++                    for row in fresh)
++    path = receipt_path(root, session)
++    temporary = path.with_suffix(".tmp")
++    try:
++        with temporary.open("w") as stream:
++            os.chmod(temporary, 0o600)
++            json.dump(receipts, stream)
++            stream.flush()
++            os.fsync(stream.fileno())
++        os.replace(temporary, path)
++    finally:
++        temporary.unlink(missing_ok=True)
++    return fresh
++
++
++def reconcile(daemon, session: str) -> None:
++    """Called under delivery_lock; replay receipts into the daemon's store."""
++    from .protocol import notice_row
++    receipts = read_receipts(daemon.root, session)
++    activity = read_activity(daemon.root, session)
++    if not receipts and activity is None:
++        return
++    with daemon.store.transaction("notice.offline_surfaced", data={"session_id": session}) as tx:
++        if activity is not None:
++            clock = tx.execute("SELECT last_wake_at FROM caller_wake_sessions WHERE session_id=?",
++                               (session,)).fetchone()
++            last_wake = clock["last_wake_at"] if clock else None
++            human_at = activity["human_at"]
++            reset = human_at is not None and (last_wake is None or human_at >= last_wake)
++            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES(?,?,?) "
++                       "ON CONFLICT(session_id) DO UPDATE SET active_at=max(active_at,excluded.active_at),"
++                       "source=CASE WHEN excluded.active_at>=active_at THEN excluded.source ELSE source END,"
++                       "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
++                       "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
++                       (session, activity["at"], activity["source"], reset, reset))
++        for item in receipts:
++            table, row_id = notice_row(item["notice_id"])
++            row = tx.execute(f"SELECT text,created_at FROM {table} WHERE notice_id=? AND session_id=?",
++                             (row_id, session)).fetchone()
++            if row is not None and notice_fingerprint(dict(row)) == item["fingerprint"]:
++                tx.execute(f"UPDATE {table} SET state='surfaced',transport='hook:offline' "
++                           "WHERE notice_id=? AND session_id=? AND state IN ('pending','offered')",
++                           (row_id, session))
++    receipt_path(daemon.root, session).unlink(missing_ok=True)
++    activity_path(daemon.root, session).unlink(missing_ok=True)
+diff --git a/subfleet/notify_push.py b/subfleet/notify_push.py
+index 700449178..fe3aef39e 100644
+--- a/subfleet/notify_push.py
++++ b/subfleet/notify_push.py
+@@ -33,6 +33,7 @@ Two rules this module keeps from v1 and one it adds:
+ from __future__ import annotations
+ 
+ import json
++import math
+ import os
+ import re
+ import socket
+@@ -57,6 +58,10 @@ _ENVELOPE_CLOSE = "</cross-session-message>"
+ DEFAULT_TIMEOUT_S = 5.0
+ 
+ 
++class BeforeSendError(OSError):
++    """The inbox connection failed before any message bytes were attempted."""
++
++
+ def claude_dir() -> Path:
+     """`~/.claude`, overridable exactly as v1 overrides it (`paths.claude_dir`)."""
+     from .home_paths import home_path
+@@ -97,6 +102,15 @@ def _load_json(path: Path) -> Any:
+         return None
+ 
+ 
++def _activity_time(value: Any) -> float | None:
++    if not isinstance(value, (int, float)) or isinstance(value, bool):
++        return None
++    try:
++        return float(value) if math.isfinite(value) and value >= 0 else None
++    except OverflowError:
++        return None
++
++
+ def find_session(session_id: str) -> dict[str, Any] | None:
+     """The registry row for `session_id` — the LIVE one when several exist.
+ 
+@@ -109,6 +123,7 @@ def find_session(session_id: str) -> dict[str, Any] | None:
+     if not session_id:
+         return None
+     best: tuple[tuple, dict[str, Any]] | None = None
++    live = []
+     try:
+         entries = list(sessions_dir().glob("*.json"))
+     except OSError:
+@@ -120,6 +135,9 @@ def find_session(session_id: str) -> dict[str, Any] | None:
+         pid = data.get("pid") if isinstance(data.get("pid"), int) else None
+         sock = data.get("messagingSocketPath")
+         started = data.get("startedAt")
++        activity = {key: data.get(key) for key in ("statusUpdatedAt", "updatedAt")}
++        invalid_activity = any(value is not None and _activity_time(value) is None
++                               for value in activity.values())
+         candidate = {
+             "session_id": session_id,
+             "pid": pid,
+@@ -130,12 +148,29 @@ def find_session(session_id: str) -> dict[str, Any] | None:
+             "alive": _pid_alive(pid),
+             "socket_present": _is_socket(sock if isinstance(sock, str) else None),
+             "registry_path": str(entry),
++            "status": data.get("status"),
++            "status_updated_at": None if invalid_activity else _activity_time(activity["statusUpdatedAt"]),
++            "updated_at": None if invalid_activity else _activity_time(activity["updatedAt"]),
++            "activity_invalid": invalid_activity,
+         }
+         key = (candidate["alive"], candidate["socket_present"],
+                candidate["started_at"] or 0)
+         if best is None or key > best[0]:
+             best = (key, candidate)
+-    return best[1] if best else None
++        if candidate["alive"]:
++            live.append(candidate)
++    if best is None:
++        return None
++    chosen = best[1]
++    if live:
++        # An older live instance can still be working. Pick one address, but
++        # gate delivery against every live instance's activity.
++        chosen["activity_invalid"] = any(row["activity_invalid"] for row in live)
++        if any(row["status"] == "busy" for row in live):
++            chosen["status"] = "busy"
++        for key in ("status_updated_at", "updated_at"):
++            chosen[key] = max((row[key] or 0 for row in live), default=0) or None
++    return chosen
+ 
+ 
+ def peer_token(pid: int | None) -> str | None:
+@@ -263,7 +298,10 @@ def send_to_socket(socket_path: str, token: str | None, content: str, *,
+     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+     client.settimeout(timeout)
+     try:
+-        client.connect(socket_path)
++        try:
++            client.connect(socket_path)
++        except OSError as exc:
++            raise BeforeSendError(*exc.args) from exc
+         client.sendall(payload)
+         try:
+             client.shutdown(socket.SHUT_WR)
+@@ -322,6 +360,11 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
+         send_to_socket(entry["socket"], token,
+                        envelope(body, from_name=from_name, mode_class=declared),
+                        timeout=timeout)
++    except BeforeSendError as exc:
++        cause = exc.__cause__ or exc
++        result["reason"] = f"send-failed: {cause.__class__.__name__}: {cause}"
++        result["retryable"] = True
++        return result
+     except (OSError, ValueError) as exc:
+         result["reason"] = f"send-failed: {exc.__class__.__name__}: {exc}"
+         return result
+diff --git a/subfleet/policy.py b/subfleet/policy.py
+index 51e9dd72c..a69e53e18 100644
+--- a/subfleet/policy.py
++++ b/subfleet/policy.py
+@@ -102,6 +102,9 @@ SESSION_DEFAULTS: dict[str, Any] = {
+     "nudge_cooldown_min": 1.5,       # C-23.33's per-session cooldown (v1: 90 s)
+     "nudge_delay_s": 8,              # the inbox binds a moment after SessionStart
+     "nudge_sample_s": 3,             # C-23.34's liveness sample before delivery
++    "nudge_max_sessions": 8,         # C-15.9: bound each automatic notice pass
++    "notice_wake_enabled": True,
++    "notice_wake_quiet_s": 300,      # C-15.9: give the prompt hooks first chance
+     "sweep_quiet_s": 120,            # C-23.34: a hand-started sweep waits longer
+     "muster_max_age_h": 2,           # the roll-call window
+     "muster_quiet_s": 120,
+@@ -824,6 +827,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
+             fail(f"sessions.{key}", "must be a nonnegative finite number")
+         elif key in ("mirror_stall_min", "mirror_hang_min") and item <= 0:
+             fail(f"sessions.{key}", "must be a positive finite number of minutes")
++        elif key == "nudge_max_sessions" and not isinstance(item, int):
++            fail(f"sessions.{key}", "must be a nonnegative whole number of sessions")
+     value["sessions"] = settings
+ 
+     # `sessions.handoff_caps` is the one nested section: every handoff section is
+diff --git a/subfleet/protocol.py b/subfleet/protocol.py
+index 135f3c38b..40911a011 100644
+--- a/subfleet/protocol.py
++++ b/subfleet/protocol.py
+@@ -300,6 +300,15 @@ class NoticeArgs:
+     notice_ids: list[int] = field(default_factory=list)   # for ack
+ 
+ 
++@dataclass
++class NoticePendingArgs(NoticeArgs):
++    """C-15.9: a session hook atomically claims the rows it will print."""
++
++    surface: str | None = None
++    jobs_only: bool = False
++    source: str | None = None
++
++
+ @dataclass
+ class NoticeMarkArgs:
+     """`notice.mark` (C-15.3): the non-terminal halves of the delivery ladder.
+diff --git a/subfleet/sessions/nudge.py b/subfleet/sessions/nudge.py
+index 6500a4a01..1170ee530 100644
+--- a/subfleet/sessions/nudge.py
++++ b/subfleet/sessions/nudge.py
+@@ -125,6 +125,8 @@ def caps(policy: dict[str, Any]) -> dict[str, float]:
+         "cooldown_s": float(settings.get("nudge_cooldown_min", 1.5)) * 60,
+         "delay_s": float(settings.get("nudge_delay_s", 8)),
+         "sample_s": float(settings.get("nudge_sample_s", 3)),
++        "max_sessions": float(settings.get("nudge_max_sessions", 8)),
++        "notice_quiet_s": float(settings.get("notice_wake_quiet_s", 300)),
+         "sweep_quiet_s": float(settings.get("sweep_quiet_s", 120)),
+         "muster_max_age_s": float(settings.get("muster_max_age_h", 2)) * 3600,
+         "muster_quiet_s": float(settings.get("muster_quiet_s", 120)),
+@@ -233,6 +235,50 @@ def _age_s(stamp: str, now: datetime) -> float | None:
+     return (now - parsed).total_seconds()
+ 
+ 
++def notice_decide(state: TurnState, *, limits: dict[str, float],
++                  active_at: float = 0, source: str | None = None,
++                  retired: dict | None = None, last_nudge: dict | None = None,
++                  wake_streak: int = 0, last_wake_at: float | None = None,
++                  now: datetime | None = None) -> tuple[bool, str]:
++    """Whether a completion notice may wake its quiet caller (C-15.9).
++
++    Completion notices can arrive long after a turn ended, so the resume age
++    maximum does not apply. The last real transcript turn and durable caller
++    activity both count towards the quiet gate. Read the timestamp itself:
++    `TurnState.age_s` is rounded and can otherwise open the gate early.
++    """
++    from ..conversations.wakes import COOLDOWN_S, MAX_STREAK
++
++    now = now or datetime.now(timezone.utc)
++    if not enabled():
++        return False, f"disabled ({TICKLE_ENV}=off)"
++    if not source_allows(source):
++        return False, f"source {source!r} is not a restart"
++    if retired:
++        return False, f"retired by the operator ({retired.get('reason') or 'no reason recorded'})"
++    if state.state not in ("interrupted", "completed"):
++        return False, f"{state.state}: {state.detail}"
++    age_s = _age_s(state.timestamp, now)
++    if age_s is None:
++        return False, "last activity has no usable timestamp"
++    if active_at:
++        age_s = min(age_s, now.timestamp() - active_at)
++    if age_s < limits["notice_quiet_s"]:
++        return False, (f"last activity {age_s:g}s ago; completion notices wait "
++                       f"{limits['notice_quiet_s']:g}s of quiet")
++    if last_nudge and last_nudge.get("at"):
++        elapsed = _age_s(last_nudge["at"], now)
++        if elapsed is not None and elapsed < limits["cooldown_s"]:
++            return False, "resume nudge cooldown"
++    if last_wake_at is not None:
++        elapsed = now.timestamp() - last_wake_at
++        if elapsed < limits["cooldown_s"]:
++            return False, "completion wake cooldown"
++        if wake_streak >= MAX_STREAK and elapsed < COOLDOWN_S:
++            return False, "completion wake streak cooldown"
++    return True, f"{state.state}: quiet for {age_s:g}s"
++
++
+ @dataclass
+ class Report:
+     """One sweep. `duplicates` names both live pids of every doubled session."""
+@@ -442,4 +488,4 @@ def lane_ids_of(facts: dict[str, Any]) -> set[str]:
+ 
+ 
+ __all__ = ["Outcome", "Report", "SCOPES", "caps", "decide", "lane_ids_of",
+-           "muster_text", "nudge_text", "render", "source_allows", "sweep", "wake"]
++           "muster_text", "notice_decide", "nudge_text", "render", "source_allows", "sweep", "wake"]
+diff --git a/subfleet/sessions/transcripts.py b/subfleet/sessions/transcripts.py
+index 823ced792..f2e122132 100644
+--- a/subfleet/sessions/transcripts.py
++++ b/subfleet/sessions/transcripts.py
+@@ -223,7 +223,7 @@ def _instant(value: Any) -> datetime | None:
+ 
+ 
+ def _iso(value: datetime) -> str:
+-    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
++    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+ 
+ 
+ def transcript_path(session_id: str, projects: Path | None = None) -> Path | None:
+diff --git a/subfleet/store.py b/subfleet/store.py
+index a7645a902..97ea5a4c9 100644
+--- a/subfleet/store.py
++++ b/subfleet/store.py
+@@ -43,7 +43,8 @@ from .lockwatch import WatchedLock, thread_name
+ SHELL_REQUIREMENT_MIGRATION = 8
+ LAUNCH_CAPABILITY_MIGRATION = 9
+ PROVIDER_QOS_MIGRATION = 10
+-SCHEMA_VERSION = PROVIDER_QOS_MIGRATION
++NOTICE_WAKE_MIGRATION = 11
++SCHEMA_VERSION = NOTICE_WAKE_MIGRATION
+ #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
+ #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
+ #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
+@@ -129,6 +130,19 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
+         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
+         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
+     ),
++    # C-15.1, D-WAKE-CALLER1: keep delivery claims and retry clocks beside the
++    # notice, and the caller's activity and wake bounds across daemon restarts.
++    NOTICE_WAKE_MIGRATION: (
++        "ALTER TABLE notices ADD COLUMN wake_state TEXT "
++        "CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable'))",
++        "ALTER TABLE notices ADD COLUMN wake_attempts INTEGER NOT NULL DEFAULT 0",
++        "ALTER TABLE notices ADD COLUMN wake_next_at REAL",
++        "ALTER TABLE notices ADD COLUMN wake_at REAL",
++        "ALTER TABLE notices ADD COLUMN wake_reason TEXT",
++        "CREATE TABLE IF NOT EXISTS caller_wake_sessions ("
++        "session_id TEXT PRIMARY KEY, active_at REAL NOT NULL DEFAULT 0, source TEXT, "
++        "wake_streak INTEGER NOT NULL DEFAULT 0, last_wake_at REAL)",
++    ),
+ }
+ 
+ 
+diff --git a/subfleet/store_schema.sql b/subfleet/store_schema.sql
+index 709f4d89d..a67e8eac7 100644
+--- a/subfleet/store_schema.sql
++++ b/subfleet/store_schema.sql
+@@ -226,10 +226,26 @@ CREATE TABLE IF NOT EXISTS notices (
+   transport TEXT,
+   created_at TEXT NOT NULL,
+   offered_at TEXT,
+-  acknowledged_at TEXT
++  acknowledged_at TEXT,
++  wake_state TEXT CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable')),
++  wake_attempts INTEGER NOT NULL DEFAULT 0,
++  wake_next_at REAL,
++  wake_at REAL,
++  wake_reason TEXT
+ );
+ CREATE INDEX IF NOT EXISTS notices_session ON notices(session_id, state);
+ CREATE INDEX IF NOT EXISTS notices_job ON notices(job_id, state);
++CREATE INDEX IF NOT EXISTS notices_caller_wake ON notices(created_at, notice_id)
++  WHERE job_id IS NOT NULL AND state IN ('pending','offered');
++
++-- C-15.1: activity and the existing conversation wake bounds for quiet callers.
++CREATE TABLE IF NOT EXISTS caller_wake_sessions (
++  session_id TEXT PRIMARY KEY,
++  active_at REAL NOT NULL DEFAULT 0,
++  source TEXT,
++  wake_streak INTEGER NOT NULL DEFAULT 0,
++  last_wake_at REAL
++);
+ 
+ -- C-11.5
+ CREATE TABLE IF NOT EXISTS decisions (
+diff --git a/tests/fake/test_caller_notice_wakes.py b/tests/fake/test_caller_notice_wakes.py
+new file mode 100644
+index 000000000..93dc7cf99
+--- /dev/null
++++ b/tests/fake/test_caller_notice_wakes.py
+@@ -0,0 +1,629 @@
++"""C-15.9: durable, once-only quiet-caller completion delivery, using fake inboxes.
++
++The real daemon writes notices and the real hook consumes them. Only the
++transcript, registry and inbox are fake; no provider or session is launched.
++"""
++
++from __future__ import annotations
++
++from collections import Counter
++from datetime import datetime, timezone
++import io
++import itertools
++import json
++from pathlib import Path
++import re
++from types import SimpleNamespace
++
++from hypothesis import HealthCheck, given, settings, strategies as st
++import pytest
++
++from subfleet import hooks, notify_push, render
++from subfleet.conversations.wakes import COOLDOWN_S, MAX_STREAK
++from subfleet.sessions import nudge, transcripts
++from subfleet.sessions.transcripts import TurnState
++from subfleet.store import Store
++from tests.fake.test_notice_delivery import job_notice, pending_ids, surface
++from tests.fake.test_state_contract import state_daemon  # noqa: F401 - fixture
++
++
++EPOCH = datetime(2026, 11, 12, 12, tzinfo=timezone.utc).timestamp()
++EXAMPLES = itertools.count()
++
++
++def stamp(seconds):
++    return datetime.fromtimestamp(seconds, timezone.utc).isoformat()
++
++
++class Callers:
++    """A controllable clock, app registry and session transcripts."""
++
++    def __init__(self, daemon, harness, monkeypatch):
++        self.daemon, self.harness = daemon, harness
++        self.now = EPOCH
++        self.activity = {}
++        self.states = {}
++        self.entries = {}
++        self.failures = {}
++        self.sent = []
++        self.attempts = []
++        self.notices = {}
++        monkeypatch.setenv(nudge.TICKLE_ENV, "on")
++        monkeypatch.setattr(hooks, "wake_worker", lambda *args, **kwargs: None)
++        monkeypatch.setattr(transcripts, "transcript_path", self.transcript_path)
++        monkeypatch.setattr(transcripts, "turn_state", self.turn_state)
++        monkeypatch.setattr(notify_push, "find_session", lambda sid: self.entries.get(sid))
++        monkeypatch.setattr(notify_push, "push_to_session", self.push)
++        self.restart()
++
++    def restart(self, *, reopen=False):
++        from subfleet.caller_wakes import CallerWakeEngine
++        if reopen:
++            path = self.daemon.store.path
++            self.daemon.store.close()
++            self.daemon.store = Store(path)
++        self.engine = CallerWakeEngine(self.daemon, now=lambda: self.now)
++        self.engine.recover()
++
++    def register(self, sid, *, age=600, state="completed"):
++        self.activity[sid] = self.now - age
++        self.states[sid] = state
++        path = self.harness.root / f"{sid}.jsonl"
++        path.touch()
++        self.entries[sid] = {
++            "session_id": sid, "alive": True, "socket_present": True,
++            "socket": str(self.harness.root / f"{sid}.sock"), "pid": 12345,
++            "name": sid, "cwd": str(self.harness.workdir),
++        }
++
++    def transcript_path(self, sid, *args, **kwargs):
++        return self.harness.root / f"{sid}.jsonl" if sid in self.activity else None
++
++    def turn_state(self, path, *args, **kwargs):
++        sid = Path(path).stem
++        return TurnState(state=self.states[sid], timestamp=stamp(self.activity[sid]),
++                         last_uuid=f"last-{sid}", path=str(path),
++                         age_s=int(self.now - self.activity[sid]))
++
++    def push(self, sid, body, **kwargs):
++        self.attempts.append((sid, body))
++        reason = self.failures.get(sid)
++        if reason:
++            return {"delivered": False, "reason": reason, "session_id": sid}
++        self.sent.append((sid, body))
++        return {"delivered": True, "session_id": sid}
++
++    def finish(self, sid, *, created=None):
++        job, notice = job_notice(self.daemon, self.harness, sid)
++        self.daemon.store.update_notice(notice, created_at=stamp(self.now if created is None else created))
++        self.notices[notice] = job
++        return notice
++
++    def row(self, notice):
++        return self.daemon.store.one("SELECT * FROM notices WHERE notice_id=?", (notice,))
++
++    def pass_once(self):
++        return self.engine.pass_once()
++
++    def counts(self):
++        return Counter(notice for _, body in self.sent
++                       for notice in self.notices if self.mentioned(notice, body))
++
++    def mentioned(self, notice, body):
++        # Sequential job ids can have one another as a prefix (run-1/run-10).
++        return bool(re.search(re.escape(self.notices[notice]) + r"(?![\w-])", body))
++
++
++@pytest.fixture
++def callers(state_daemon, monkeypatch):
++    daemon, harness = state_daemon
++    return Callers(daemon, harness, monkeypatch)
++
++
++HISTORY = st.lists(st.tuples(
++    st.sampled_from(("finish", "hook", "pass", "restart", "failure", "advance", "active")),
++    st.integers(0, 1), st.integers(0, 650)), min_size=1, max_size=24)
++PROPERTY = settings(max_examples=35, deadline=None, derandomize=True, database=None,
++                    suppress_health_check=[HealthCheck.function_scoped_fixture])
++
++
++def history(callers, operations):
++    """Apply generated finishes, hook reads, temporary inbox failures and restarts."""
++    prefix = f"history-{next(EXAMPLES)}"
++    sessions = [f"{prefix}-{index}" for index in range(2)]
++    for sid in sessions:
++        callers.register(sid)
++    shown = set()
++    owned = set()
++    for kind, index, amount in operations:
++        sid = sessions[index]
++        if kind == "finish":
++            callers.now += amount / 10
++            owned.add(callers.finish(sid))
++        elif kind == "hook":
++            context = surface(callers.daemon, callers.harness.root, sid)
++            current = {notice for notice in owned if callers.mentioned(notice, context)}
++            assert not current & shown, "a hook must never show a notice twice"
++            assert not current & set(callers.counts()), "a woken notice is no longer new"
++            shown |= current
++        elif kind == "restart":
++            callers.restart(reopen=True)
++        elif kind == "failure":
++            if amount % 2:
++                callers.failures[sid] = "no-inbox-socket"
++            else:
++                callers.failures.pop(sid, None)
++        elif kind == "advance":
++            callers.now += amount
++        elif kind == "active":
++            callers.activity[sid] = callers.now
++        else:
++            callers.pass_once()
++        counts = callers.counts()
++        assert all(counts[notice] <= 1 for notice in owned), "Once: no replay across restart"
++        assert not shown & set(counts), "Never both: hooks and wakes consume atomically"
++    return owned, shown
++
++
++@PROPERTY
++@given(operations=HISTORY)
++def test_c15_9_once_over_generated_finish_hook_failure_and_restart_histories(callers, operations):
++    """Invariant 1 Once: successful delivery is durable across arbitrary passes and restarts."""
++    owned, _ = history(callers, operations)
++    callers.now += COOLDOWN_S + 600
++    callers.failures.clear()
++    callers.pass_once()
++    callers.restart(reopen=True)
++    callers.now += COOLDOWN_S
++    callers.pass_once()
++    assert all(callers.counts()[notice] <= 1 for notice in owned)
++
++
++@PROPERTY
++@given(operations=HISTORY)
++def test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories(callers, operations):
++    """Invariant 2 Never both: a hook's read and the wake claim exclude one another."""
++    owned, shown = history(callers, operations)
++    for notice in owned:
++        sid = callers.row(notice)["session_id"]
++        context = surface(callers.daemon, callers.harness.root, sid)
++        newly_shown = {n for n in owned if callers.mentioned(n, context)}
++        assert not newly_shown & shown
++        assert not newly_shown & set(callers.counts())
++        shown |= newly_shown
++    callers.now += COOLDOWN_S + 600
++    callers.failures.clear()
++    callers.restart(reopen=True)
++    callers.pass_once()
++    assert not shown & set(callers.counts())
++
++
++@PROPERTY
++@given(finish_age=st.integers(0, 900), activity_age=st.integers(0, 600),
++       prehistory=st.lists(st.tuples(st.booleans(), st.booleans(), st.booleans(),
++                                    st.integers(0, 120)), max_size=8))
++def test_c15_9_eventually_over_generated_finish_hook_failure_and_restart_histories(
++        callers, finish_age, activity_age, prehistory):
++    """Invariant 4 Eventually: after the gate and a transient retry, the next pass delivers."""
++    sid = f"eventually-{next(EXAMPLES)}"
++    callers.register(sid, age=activity_age)
++    notice = callers.finish(sid, created=callers.now - finish_age)
++    shown = False
++    for hook, failure, restart, advance in prehistory:
++        callers.now += advance
++        if hook:
++            shown |= callers.mentioned(notice, surface(callers.daemon, callers.harness.root, sid))
++        if failure:
++            callers.failures[sid] = "no-peer-token"
++        else:
++            callers.failures.pop(sid, None)
++        if restart:
++            callers.restart(reopen=True)
++        callers.pass_once()
++    callers.failures.pop(sid, None)
++    row = callers.row(notice)
++    callers.now = max(callers.now, callers.activity[sid] + 300,
++                      row["wake_next_at"] or 0)
++    callers.restart(reopen=True)
++    before = callers.counts()[notice]
++    callers.pass_once()
++    if shown:
++        assert callers.counts()[notice] == 0
++    else:
++        assert callers.counts()[notice] == 1
++        if not before:
++            assert callers.row(notice)["wake_state"] == "delivered"
++
++
++def test_c15_9_delivered_notice_survives_restart_without_replay(callers):
++    callers.register("once")
++    notice = callers.finish("once")
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++    first = callers.row(notice)
++    callers.restart(reopen=True)
++    callers.now += COOLDOWN_S + 1
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++    assert callers.row(notice) == first
++
++
++def test_c15_9_daemon_pass_rescans_pending_notice_after_restart(callers):
++    callers.register("daemon-pass")
++    notice = callers.finish("daemon-pass")
++    callers.restart(reopen=True)
++    callers.daemon._caller_wakes = callers.engine
++    callers.daemon._wake_callers()
++    assert callers.counts()[notice] == 1
++
++
++def test_c15_9_hook_shown_notice_never_wakes(callers):
++    callers.register("hook-first")
++    notice = callers.finish("hook-first")
++    assert callers.notices[notice] in surface(callers.daemon, callers.harness.root, "hook-first")
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++
++
++def test_c15_9_hook_during_inbox_send_does_not_show_claimed_notice(callers, monkeypatch):
++    callers.register("wake-first")
++    notice = callers.finish("wake-first")
++    push = callers.push
++
++    def interleaved(sid, body, **kwargs):
++        assert surface(callers.daemon, callers.harness.root, sid) == ""
++        return push(sid, body, **kwargs)
++
++    monkeypatch.setattr(notify_push, "push_to_session", interleaved)
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++    assert pending_ids(callers.daemon, "wake-first") == set()
++
++
++def test_c15_9_offline_hook_receipt_survives_restart_and_excludes_a_wake(callers):
++    """Never both also covers a read-only hook while the daemon is unavailable."""
++    callers.register("offline-hook")
++    notice = callers.finish("offline-hook")
++
++    class OfflineClient:
++        def call(self, *args, **kwargs):
++            raise OSError("app restarting")
++
++    def offline_hook():
++        stdout = io.StringIO()
++        assert hooks.session_event("UserPromptSubmit", {"session_id": "offline-hook"},
++                                   callers.harness.root, client=OfflineClient(),
++                                   stdout=stdout, env={}) == 0
++        value = stdout.getvalue()
++        return json.loads(value)["hookSpecificOutput"]["additionalContext"] if value else ""
++
++    assert callers.mentioned(notice, offline_hook())
++    assert offline_hook() == ""
++    # An offline hook cannot change SQLite; its receipt closes the race later.
++    assert callers.row(notice)["state"] == "pending"
++    callers.restart(reopen=True)
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++    assert callers.row(notice)["state"] == "surfaced"
++    assert surface(callers.daemon, callers.harness.root, "offline-hook") == ""
++
++
++@pytest.mark.parametrize("age", [0, 299, 299.999999])
++def test_c15_9_quiet_only_never_wakes_a_recently_active_session(callers, age):
++    """Invariant 3 Quiet only: a completed transcript still needs the full gate."""
++    callers.register("active-caller", age=age)
++    notice = callers.finish("active-caller")
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++    assert callers.row(notice)["state"] == "pending"
++    callers.now += 300 - age
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++
++
++def test_c15_9_hook_activity_fences_an_old_completed_transcript(callers, monkeypatch):
++    from subfleet import caller_wakes
++    monkeypatch.setattr(caller_wakes, "time", SimpleNamespace(time=lambda: callers.now))
++    callers.register("fresh-hook", age=3600)
++    assert surface(callers.daemon, callers.harness.root, "fresh-hook") == ""
++    notice = callers.finish("fresh-hook")
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++    callers.now += 300
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++
++
++def test_c15_9_busy_registry_holds_an_old_completed_transcript(callers):
++    callers.register("busy", age=3600)
++    notice = callers.finish("busy")
++    callers.entries["busy"]["status"] = "busy"
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++
++
++def test_c15_9_registry_activity_is_rechecked_before_inbox_claim(callers, monkeypatch):
++    callers.register("busy-recheck", age=3600)
++    notice = callers.finish("busy-recheck")
++    turn_state = callers.turn_state
++
++    def app_starts_a_turn(path, **kwargs):
++        # A long-running tool may make the app busy before its transcript grows.
++        callers.entries["busy-recheck"] = {**callers.entries["busy-recheck"], "status": "busy"}
++        return turn_state(path, **kwargs)
++
++    monkeypatch.setattr(transcripts, "turn_state", app_starts_a_turn)
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++
++
++def test_c15_9_scrubbed_wake_uses_header_fields_never_notice_or_output_text(callers):
++    """Invariant 5 Scrubbed: neither stored notice details nor output bytes enter the inbox."""
++    callers.register("scrubbed")
++    notice = callers.finish("scrubbed")
++    secret = "OUTPUT CONTENT MUST NEVER BE A WAKE"
++    out = callers.harness.root / "result.md"
++    out.write_text(secret)
++    callers.daemon.store.update_notice(notice, text=callers.row(notice)["text"] + "\n" + secret)
++    callers.daemon.store.update_job(callers.notices[notice], out_path=str(out))
++    callers.pass_once()
++    body = callers.sent[-1][1]
++    job = callers.daemon.store.get_job(callers.notices[notice])
++    assert body == render.notice_header(job, callers.harness.root)
++    assert secret not in body
++    assert "rc=130" in body and "cancelled" in body
++
++
++def test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine(callers):
++    """Invariant 6 One path: a conversation's caller never gets this second wake."""
++    callers.register("conversation")
++    notice = callers.finish("conversation")
++    conversation, _ = callers.daemon.conversations.store.create_conversation(
++        provider="claude", workspace=str(callers.harness.workdir), workspace_kind="in-place",
++        settings={"model": "opus", "permission": "ask"},
++        origin="native", native_session_id="conversation")
++    assert callers.daemon._conversation_binding("conversation") == (
++        "conversation " + conversation["conversation_id"])
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++    callers.restart(reopen=True)
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++
++
++def test_c15_9_turn_jobs_stay_out_even_if_an_old_notice_exists(callers):
++    """C-26.12: a historical turn notice cannot make a conversation turn wake itself."""
++    callers.register("turn-caller")
++    notice = callers.finish("turn-caller")
++    callers.daemon.store.update_job(callers.notices[notice], kind="turn")
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++
++
++def test_c15_9_prewrite_inbox_failure_retries_with_durable_backoff_until_reachable(callers):
++    callers.register("restarting")
++    notice = callers.finish("restarting")
++    callers.failures["restarting"] = "no-inbox-socket"
++    callers.pass_once()
++    row = callers.row(notice)
++    assert row["wake_state"] is None and row["wake_attempts"] == 1
++    assert callers.now < row["wake_next_at"] <= callers.now + 300
++    attempted = len(callers.attempts)
++    callers.pass_once()
++    assert len(callers.attempts) == attempted
++    callers.restart(reopen=True)
++    assert callers.row(notice) == row
++    callers.failures.pop("restarting")
++    callers.now = row["wake_next_at"]
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++    assert callers.row(notice)["wake_state"] == "delivered"
++
++
++def test_c15_9_missing_inbox_expires_after_twenty_four_hours(callers):
++    callers.register("expired")
++    notice = callers.finish("expired")
++    callers.failures["expired"] = "no-peer-token"
++    callers.pass_once()
++    callers.restart(reopen=True)
++    callers.now += 24 * 3600
++    callers.pass_once()
++    row = callers.row(notice)
++    assert row["wake_state"] == "undeliverable"
++    assert row["wake_reason"]
++    callers.failures.clear()
++    callers.now += 3600
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++
++
++def test_c15_9_retry_deadline_expires_even_when_the_caller_became_busy(callers):
++    callers.register("busy-expiry")
++    notice = callers.finish("busy-expiry")
++    callers.failures["busy-expiry"] = "no-peer-token"
++    callers.pass_once()
++    callers.now += 24 * 3600
++    callers.entries["busy-expiry"]["status"] = "busy"
++    callers.pass_once()
++    assert callers.row(notice)["wake_state"] == "undeliverable"
++    assert callers.counts()[notice] == 0
++
++
++@pytest.mark.parametrize("entry", [None, {"alive": False, "socket_present": False}])
++def test_c15_9_absent_or_closed_session_is_undeliverable_without_starting_it(callers, entry):
++    callers.register("closed")
++    notice = callers.finish("closed")
++    if entry is None:
++        callers.entries.pop("closed")
++    else:
++        callers.entries["closed"].update(entry)
++    callers.pass_once()
++    assert callers.row(notice)["wake_state"] == "undeliverable"
++    assert callers.attempts == []
++
++
++def test_c15_9_uncertain_send_after_crash_is_never_replayed(callers, monkeypatch):
++    callers.register("crash")
++    notice = callers.finish("crash")
++    push = callers.push
++
++    def crash_after_write(sid, body, **kwargs):
++        push(sid, body, **kwargs)
++        raise SystemExit("daemon died after inbox write")
++
++    monkeypatch.setattr(notify_push, "push_to_session", crash_after_write)
++    with pytest.raises(SystemExit, match="daemon died"):
++        callers.pass_once()
++    assert callers.row(notice)["wake_state"] == "claimed"
++    monkeypatch.setattr(notify_push, "push_to_session", push)
++    callers.restart(reopen=True)
++    callers.now += COOLDOWN_S
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++    assert callers.row(notice)["wake_state"] == "undeliverable"
++
++
++@pytest.mark.parametrize("switch", ["notice", "nudge", "source", "cap"])
++def test_c15_9_off_switches_source_and_zero_cap_hold_notices(callers, monkeypatch, switch):
++    callers.register("held")
++    notice = callers.finish("held")
++    if switch == "notice":
++        callers.daemon.policy["sessions"]["notice_wake_enabled"] = False
++    elif switch == "nudge":
++        monkeypatch.setenv(nudge.TICKLE_ENV, "off")
++    elif switch == "cap":
++        callers.daemon.policy["sessions"]["nudge_max_sessions"] = 0
++    else:
++        with callers.daemon.store.transaction() as tx:
++            tx.execute("INSERT INTO caller_wake_sessions(session_id,source) VALUES ('held','compact')")
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++    assert callers.row(notice)["state"] == "pending"
++
++
++def test_c15_9_caps_bound_sessions_per_pass_and_group_their_notices(callers):
++    callers.daemon.policy["sessions"]["nudge_max_sessions"] = 2
++    for index in range(3):
++        sid = f"capped-{index}"
++        callers.register(sid)
++        for _ in range(2):
++            callers.finish(sid)
++    callers.pass_once()
++    assert len({sid for sid, _ in callers.sent}) == 2
++    assert len(callers.sent) == 2
++    assert sum(callers.counts().values()) == 4
++    callers.pass_once()
++    assert len({sid for sid, _ in callers.sent}) == 3
++    assert sum(callers.counts().values()) == 6
++
++
++def test_c15_9_streak_and_cooldown_survive_restart(callers):
++    callers.register("bounded")
++    notice = callers.finish("bounded")
++    with callers.daemon.store.transaction() as tx:
++        tx.execute("INSERT INTO caller_wake_sessions(session_id,wake_streak,last_wake_at) VALUES (?,?,?)",
++                   ("bounded", MAX_STREAK, callers.now - COOLDOWN_S + 1))
++    callers.restart(reopen=True)
++    callers.pass_once()
++    assert callers.counts()[notice] == 0
++    callers.now += 1
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++
++def test_c15_9_proved_connect_failure_retries_after_store_reopen_without_raw_reason(callers, monkeypatch):
++    """A stale inbox address retries across restart without persisting exception text."""
++    sid = "connect-restart"
++    private = "PRIVATE-CONNECT-EXCEPTION-DETAIL"
++    callers.register(sid)
++    notice = callers.finish(sid)
++
++    def refused(session, body, **_kwargs):
++        callers.attempts.append((session, body))
++        return {"delivered": False, "session_id": session, "retryable": True,
++                "reason": f"send-failed: ConnectionRefusedError: {private}"}
++
++    monkeypatch.setattr(notify_push, "push_to_session", refused)
++    callers.pass_once()
++    row = callers.row(notice)
++    assert row["state"] == "pending" and row["wake_state"] is None
++    assert row["wake_reason"] == "inbox-unavailable"
++    assert row["wake_attempts"] == 1 and row["wake_next_at"] > callers.now
++    assert private not in json.dumps(row)
++    assert not callers.daemon.store.query("SELECT 1 FROM events WHERE data_json LIKE ?", (f"%{private}%",))
++    clock = callers.daemon.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?", (sid,))
++    assert clock["wake_streak"] == 0 and clock["last_wake_at"] is None
++    callers.restart(reopen=True)
++    assert callers.row(notice) == row
++    monkeypatch.setattr(notify_push, "push_to_session", callers.push)
++    callers.now = row["wake_next_at"]
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++    assert callers.row(notice)["wake_state"] == "delivered"
++    callers.restart(reopen=True)
++    callers.now += COOLDOWN_S
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++
++
++@pytest.mark.parametrize("retryable", [False, None, "true"])
++def test_c15_9_sendall_failure_stays_consumed_after_store_restart(callers, monkeypatch, retryable):
++    """A possible partial write cannot be replayed; only boolean True proves pre-send."""
++    sid = "sendall-unknown"
++    private = "PRIVATE-SENDALL-EXCEPTION-DETAIL"
++    callers.register(sid)
++    notice = callers.finish(sid)
++
++    def uncertain(session, body, **_kwargs):
++        callers.attempts.append((session, body))
++        return {"delivered": False, "session_id": session, "retryable": retryable,
++                "reason": f"send-failed: BrokenPipeError: {private}"}
++
++    monkeypatch.setattr(notify_push, "push_to_session", uncertain)
++    callers.pass_once()
++    row = callers.row(notice)
++    assert row["state"] == "surfaced" and row["wake_state"] == "undeliverable"
++    assert row["wake_reason"] == "send-uncertain" and row["wake_next_at"] is None
++    assert private not in json.dumps(row)
++    assert not callers.daemon.store.query("SELECT 1 FROM events WHERE data_json LIKE ?", (f"%{private}%",))
++    attempts = len(callers.attempts)
++    callers.restart(reopen=True)
++    monkeypatch.setattr(notify_push, "push_to_session", callers.push)
++    callers.now += COOLDOWN_S
++    callers.pass_once()
++    assert len(callers.attempts) == attempts
++    assert callers.counts()[notice] == 0
++    assert callers.row(notice)["wake_state"] == "undeliverable"
++
++
++@pytest.mark.parametrize("delivered", [True, False], ids=["success", "safe-connect-failure"])
++def test_c15_9_late_transport_result_never_changes_a_reused_notice_id(callers, monkeypatch, delivered):
++    """Retention can delete an old notice while a different caller claims its reused id."""
++    callers.register("old-caller")
++    callers.register("new-caller")
++    old_id = callers.finish("old-caller")
++    old_job = callers.notices[old_id]
++    replacement = []
++
++    def transport_result_after_reuse(session, body, **_kwargs):
++        assert session == "old-caller"
++        assert callers.row(old_id)["wake_state"] == "claimed"
++        with callers.daemon.store.transaction() as tx:
++            tx.execute("DELETE FROM notices WHERE notice_id=?", (old_id,))
++        new_id = callers.finish("new-caller")
++        assert new_id == old_id and callers.notices[new_id] != old_job
++        # Stand in for a concurrent delivery under the new caller's own lock.
++        with callers.daemon.store.transaction() as tx:
++            tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
++                       "wake_state='claimed',wake_at=? WHERE notice_id=?",
++                       (callers.now + 0.5, new_id))
++        replacement.append(callers.row(new_id))
++        if delivered:
++            callers.sent.append((session, body))
++            return {"delivered": True, "session_id": session}
++        return {"delivered": False, "session_id": session, "retryable": True,
++                "reason": "send-failed: ConnectionRefusedError: fixture"}
++
++    monkeypatch.setattr(notify_push, "push_to_session", transport_result_after_reuse)
++    callers.pass_once()
++    assert len(replacement) == 1
++    assert callers.row(old_id) == replacement[0], "the old transport result belongs only to the old claim"
+diff --git a/tests/unit/test_hooks.py b/tests/unit/test_hooks.py
+index e827e328b..a403443a9 100644
+--- a/tests/unit/test_hooks.py
++++ b/tests/unit/test_hooks.py
+@@ -45,7 +45,7 @@ def payload(event: str, **extra) -> dict:
+ def notice(notice_id: int, job_id: str = JOB, state: str = "pending",
+            text: str = "run finished") -> dict:
+     return {"notice_id": notice_id, "session_id": SESSION, "job_id": job_id,
+-            "state": state, "text": text}
++            "state": state, "text": text, "created_at": "2026-09-05T12:00:00Z"}
+ 
+ 
+ # --- SessionStart hands the wake to the sessions kit (C-23.34) ----------------
+@@ -1062,3 +1062,23 @@ def test_idle_hook_backoff_preserves_delivery_reserve(root):
+     assert hooks._wait_and_deliver(SimpleNamespace(call=call), SESSION, JOB, 1.0,
+                                    stderr=io.StringIO(), now=lambda: clock[0], sleep=sleep) == 0
+     assert clock[0] <= .5 and sum(sleeps) <= .4
++
++
++
++@pytest.mark.parametrize("notices", [None, "malformed", 17, [None, "malformed", 17]],
++                         ids=["none", "string", "integer", "scalar-list"])
++def test_c15_9_hook_ignores_malformed_notice_replies_without_marks(root, notices):
++    """The hook retains its old list-of-dictionaries reply filtering."""
++    called = []
++
++    class ReplyClient:
++        def call(self, op, args=None, **kwargs):
++            called.append(op)
++            assert op == "notice.pending", "an empty hook reply must not mark any notice"
++            return {"notices": notices}
++
++    stdout = io.StringIO()
++    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
++                               client=ReplyClient(), stdout=stdout, env={}) == 0
++    assert stdout.getvalue() == ""
++    assert called == ["notice.pending"]
+diff --git a/tests/unit/test_notice_claims.py b/tests/unit/test_notice_claims.py
+new file mode 100644
+index 000000000..ef9477ebc
+--- /dev/null
++++ b/tests/unit/test_notice_claims.py
+@@ -0,0 +1,285 @@
++"""C-15.9: offline hook receipts fence delivery through daemon restarts."""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++import io
++import json
++from types import SimpleNamespace
++
++import pytest
++
++from subfleet import caller_wakes, hooks, notice_claims, notify_push, protocol
++from subfleet.conversations.wakes import COOLDOWN_S, MAX_STREAK
++from subfleet.sessions import nudge, transcripts
++from subfleet.sessions.transcripts import TurnState
++from subfleet.client import DaemonUnavailable
++from subfleet.store import Store
++
++
++SESSION = "receipt-session"
++TEXT = "job-done succeeded; rc=0; -o /fake/result.md"
++
++
++class OfflineClient:
++    def call(self, *_args, **_kwargs):
++        raise DaemonUnavailable("fixture daemon is stopped")
++
++
++@pytest.fixture
++def core(tmp_path):
++    store = Store(tmp_path / "state.sqlite3")
++    store.add_job(job_id="job-done", request_id="job-done", payload_digest="digest",
++                  kind="dispatch", workdir="/fake/work", prompt_path="/fake/prompt",
++                  sandbox="read-only", state="succeeded", caller_session=SESSION)
++    daemon = SimpleNamespace(root=tmp_path, store=store, _pin_notice_jobs=lambda _rows: {})
++    try:
++        yield daemon
++    finally:
++        daemon.store.close()
++
++
++def add_notice(core, *, service=False, text=TEXT, created_at="2026-11-11T12:00:00Z"):
++    with core.store.transaction() as tx:
++        table = "service_notices" if service else "notices"
++        if service:
++            row_id = tx.execute(
++                "INSERT INTO service_notices(session_id,text,state,created_at) VALUES (?,?,'pending',?)",
++                (SESSION, text, created_at)).lastrowid
++        else:
++            row_id = tx.execute(
++                "INSERT INTO notices(job_id,session_id,text,state,created_at) "
++                "VALUES ('job-done',?,?,'pending',?)", (SESSION, text, created_at)).lastrowid
++    return -row_id if service else row_id
++
++
++def offline_hook(core, *, event="UserPromptSubmit", source=None):
++    stream = io.StringIO()
++    assert hooks.session_event(event, {"session_id": SESSION, "source": source}, core.root,
++                               client=OfflineClient(), stdout=stream, env={}) == 0
++    return stream.getvalue()
++
++
++def online_surface(core):
++    return caller_wakes.surface(core, protocol.NoticePendingArgs(
++        session_id=SESSION, surface="UserPromptSubmit"))["notices"]
++
++
++@pytest.mark.parametrize("service", [False, True], ids=["job", "service"])
++def test_c15_9_offline_hooks_print_once_and_reconcile_after_daemon_restart(core, service):
++    """Receipt files survive while SQLite is untouched, then replay on restart."""
++    wire_id = add_notice(core, service=service)
++    table, row_id = protocol.notice_row(wire_id)
++    first = offline_hook(core)
++    assert TEXT in first
++    assert offline_hook(core) == ""
++    assert core.store.one(f"SELECT state FROM {table} WHERE notice_id=?", (row_id,)) == {"state": "pending"}
++    receipt = notice_claims.receipt_path(core.root, SESSION)
++    saved = json.loads(receipt.read_text())
++    assert len(saved) == 1 and saved[0]["notice_id"] == wire_id
++    assert set(saved[0]) == {"notice_id", "fingerprint"}
++    assert TEXT not in receipt.read_text()
++
++    core.store.close()
++    core.store = Store(core.root / "state.sqlite3")
++    assert online_surface(core) == []
++    assert core.store.one(f"SELECT state,transport FROM {table} WHERE notice_id=?", (row_id,)) == {
++        "state": "surfaced", "transport": "hook:offline"}
++    assert not receipt.exists()
++    assert online_surface(core) == []
++    assert offline_hook(core) == ""
++
++
++def test_c15_9_offline_receipt_lock_refuses_a_racing_daemon_callback(core, monkeypatch):
++    """A daemon callback during offline read sees no claimable rows."""
++    wire_id = add_notice(core)
++    original = hooks._offline_pending
++    raced = []
++
++    def pending(root, session):
++        raced.append(online_surface(core))
++        return original(root, session)
++
++    monkeypatch.setattr(hooks, "_offline_pending", pending)
++    assert TEXT in offline_hook(core)
++    assert raced == [[]]
++    assert core.store.one("SELECT state FROM notices WHERE notice_id=?", (wire_id,))["state"] == "pending"
++    assert online_surface(core) == []
++    assert core.store.one("SELECT state FROM notices WHERE notice_id=?", (wire_id,))["state"] == "surfaced"
++
++
++@pytest.mark.parametrize("service", [False, True], ids=["job", "service"])
++def test_c15_9_receipts_do_not_consume_a_reused_notice_id(core, service):
++    """Only the id plus its creation time and text fingerprint names a notice."""
++    old_id = add_notice(core, service=service)
++    assert TEXT in offline_hook(core)
++    table, row_id = protocol.notice_row(old_id)
++    with core.store.transaction() as tx:
++        tx.execute(f"DELETE FROM {table} WHERE notice_id=?", (row_id,))
++    new_text = "new completion with a reused id"
++    new_id = add_notice(core, service=service, text=new_text, created_at="2026-11-11T12:01:00Z")
++    assert new_id == old_id
++    rows = online_surface(core)
++    assert len(rows) == 1 and rows[0]["text"] == new_text and rows[0]["notice_id"] == new_id
++    assert not notice_claims.receipt_path(core.root, SESSION).exists()
++
++
++@pytest.mark.parametrize("contents", [
++    "{not-json", "{}", "[null]", "[{}]",
++    '[{"notice_id":[],"fingerprint":"bad"}]',
++    '[{"notice_id":1,"fingerprint":{}}]',
++    '[{"notice_id":true,"fingerprint":"bad"}]',
++    '[{"notice_id":"1","fingerprint":"bad"}]',
++])
++def test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook(core, contents):
++    """A malformed receipt cannot authorize printing or make a prompt fail."""
++    add_notice(core)
++    path = notice_claims.receipt_path(core.root, SESSION)
++    path.parent.mkdir(parents=True)
++    path.write_text(contents)
++    assert offline_hook(core) == ""
++    assert path.read_text() == contents
++    assert core.store.one("SELECT state FROM notices")["state"] == "pending"
++
++
++@pytest.mark.parametrize("failure", ["fsync", "replace"])
++def test_c15_9_receipt_write_failure_prints_nothing_and_leaves_no_partial_receipt(core, monkeypatch, failure):
++    """The hook prints only after its delivery receipt is durably published."""
++    add_notice(core)
++
++    def refused(*_args, **_kwargs):
++        raise OSError("fixture receipt publication failed")
++
++    monkeypatch.setattr(notice_claims.os, failure, refused)
++    assert offline_hook(core) == ""
++    path = notice_claims.receipt_path(core.root, SESSION)
++    assert not path.exists()
++    assert not path.with_suffix(".tmp").exists()
++    assert core.store.one("SELECT state FROM notices")["state"] == "pending"
++
++
++def wake_engine(core, monkeypatch, clock):
++    """Real durable decisions with fake transcript/registry/inbox observations."""
++    core.policy = {"sessions": {"notice_wake_quiet_s": 300}}
++    core.sessions = lambda _args: {"sessions": {}}
++    core._conversation_binding = lambda _session: None
++    core._lane_session_ids = lambda: []
++    monkeypatch.setenv(nudge.TICKLE_ENV, "on")
++    monkeypatch.setattr(hooks, "wake_worker", lambda *_args, **_kwargs: None)
++    monkeypatch.setattr(notice_claims.time, "time", lambda: clock[0])
++    monkeypatch.setattr(transcripts, "transcript_path", lambda _session: None)
++    stale = datetime.fromtimestamp(clock[0] - 3600, timezone.utc).isoformat()
++    monkeypatch.setattr(transcripts, "turn_state", lambda *_args, **_kwargs:
++                        TurnState(state="completed", timestamp=stale, last_uuid="stale-turn"))
++    monkeypatch.setattr(notify_push, "find_session", lambda _session:
++                        {"alive": True, "socket_present": True})
++    sent = []
++
++    def push(session, body, **kwargs):
++        sent.append((session, body))
++        return {"delivered": True}
++
++    monkeypatch.setattr(notify_push, "push_to_session", push)
++    return caller_wakes.CallerWakeEngine(core, now=lambda: clock[0]), sent
++
++
++@pytest.mark.parametrize("had_notice", [False, True], ids=["empty", "already-receipted"])
++def test_c15_9_offline_prompt_activity_holds_a_new_notice_until_the_gate(core, monkeypatch, had_notice):
++    """An offline prompt counts even when it prints no newly pending notice."""
++    clock = [1800000000.0]
++    engine, sent = wake_engine(core, monkeypatch, clock)
++    if had_notice:
++        add_notice(core)
++        assert TEXT in offline_hook(core)
++        clock[0] += 100
++    assert offline_hook(core) == ""
++    active_at = clock[0]
++    fresh = add_notice(core, text="newly finished job notice")
++    engine.pass_once()
++    assert sent == []
++    assert core.store.one("SELECT active_at FROM caller_wake_sessions WHERE session_id=?",
++                          (SESSION,))["active_at"] == active_at
++    clock[0] = active_at + 299.999
++    engine.pass_once()
++    assert sent == []
++    clock[0] = active_at + 300
++    engine.pass_once()
++    assert len(sent) == 1
++    assert core.store.one("SELECT wake_state FROM notices WHERE notice_id=?", (fresh,))["wake_state"] == "delivered"
++
++
++@pytest.mark.parametrize("source", ["compact", "clear"])
++def test_c15_9_offline_session_start_source_fences_a_later_notice(core, monkeypatch, source):
++    clock = [1800000000.0]
++    engine, sent = wake_engine(core, monkeypatch, clock)
++    assert offline_hook(core, event="SessionStart", source=source) == ""
++    add_notice(core)
++    clock[0] += 301
++    engine.pass_once()
++    assert sent == []
++    assert core.store.one("SELECT source FROM caller_wake_sessions WHERE session_id=?", (SESSION,)) == {
++        "source": source}
++
++
++def test_c15_9_offline_human_prompt_resets_bounds_even_before_a_later_restart(core, monkeypatch):
++    clock = [1800000000.0]
++    engine, sent = wake_engine(core, monkeypatch, clock)
++    with core.store.transaction() as tx:
++        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
++                   "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, clock[0] - 1))
++    assert offline_hook(core) == ""
++    human_at = clock[0]
++    clock[0] += 1
++    assert offline_hook(core, event="SessionStart", source="resume") == ""
++    assert notice_claims.read_activity(core.root, SESSION) == {
++        "at": clock[0], "source": "resume", "human_at": human_at}
++    add_notice(core)
++    clock[0] += 300
++    assert clock[0] - human_at < COOLDOWN_S
++    engine.pass_once()
++    assert len(sent) == 1
++    assert core.store.one("SELECT wake_streak,source FROM caller_wake_sessions WHERE session_id=?", (SESSION,)) == {
++        "wake_streak": 1, "source": "resume"}
++
++
++def test_c15_9_stale_offline_activity_preserves_newer_online_activity_and_bounds(core, monkeypatch):
++    clock = [1800000000.0]
++    wake_engine(core, monkeypatch, clock)
++    assert offline_hook(core) == ""
++    with core.store.transaction() as tx:
++        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
++                   "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] + 10, MAX_STREAK, clock[0] + 1))
++    with notice_claims.delivery_lock(core.root, SESSION) as held:
++        assert held
++        notice_claims.reconcile(core, SESSION)
++    assert core.store.one("SELECT active_at,source,wake_streak,last_wake_at FROM caller_wake_sessions "
++                          "WHERE session_id=?", (SESSION,)) == {
++        "active_at": clock[0] + 10, "source": "compact", "wake_streak": MAX_STREAK,
++        "last_wake_at": clock[0] + 1}
++
++
++def test_c15_9_a_corrupt_receipt_does_not_starve_another_quiet_caller(core, monkeypatch):
++    clock = [1800000000.0]
++    engine, sent = wake_engine(core, monkeypatch, clock)
++    add_notice(core)
++    path = notice_claims.receipt_path(core.root, SESSION)
++    path.parent.mkdir(parents=True)
++    path.write_text("{}")
++    with core.store.transaction() as tx:
++        tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) "
++                   "VALUES ('job-done','other-caller','other notice','pending','2026-11-11T12:00:00Z')")
++    engine.pass_once()
++    assert [session for session, _body in sent] == ["other-caller"]
++    assert core.store.one("SELECT state FROM notices WHERE session_id=?", (SESSION,)) == {"state": "pending"}
++
++
++@pytest.mark.parametrize("invalid_at", [10 ** 1000, float("nan")], ids=["huge-integer", "nonfinite"])
++def test_c15_9_invalid_activity_timestamps_fail_closed_without_blocking_the_hook(core, invalid_at):
++    add_notice(core)
++    path = notice_claims.activity_path(core.root, SESSION)
++    path.parent.mkdir(parents=True)
++    contents = json.dumps({"at": invalid_at, "source": "resume", "human_at": None})
++    path.write_text(contents)
++    assert offline_hook(core) == ""
++    assert path.read_text() == contents
++    assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+diff --git a/tests/unit/test_notify_push.py b/tests/unit/test_notify_push.py
+index 3a18558e5..5cc0a79ed 100644
+--- a/tests/unit/test_notify_push.py
++++ b/tests/unit/test_notify_push.py
+@@ -408,3 +408,41 @@ def test_offer_returns_one_result_per_row_in_order():
+         rows("pending", "acknowledged", "offered"),
+         push=lambda session, body, **kwargs: {"delivered": True})
+     assert [item["notice_id"] for item in results] == [1, 2, 3]
++
++@pytest.mark.parametrize("stage", ["connect", "sendall"])
++def test_c15_9_only_a_proved_connection_failure_is_retryable(monkeypatch, stage):
++    """A failed connect sent no message; sendall may have sent a partial one."""
++    class InboxFailure:
++        def __init__(self):
++            self.sends = []
++            self.closed = False
++
++        def settimeout(self, _timeout):
++            pass
++
++        def connect(self, _path):
++            if stage == "connect":
++                raise ConnectionRefusedError("PRIVATE-CONNECT-DETAIL")
++
++        def sendall(self, payload):
++            self.sends.append(payload)
++            raise BrokenPipeError("PRIVATE-SENDALL-DETAIL")
++
++        def close(self):
++            self.closed = True
++
++    inbox = InboxFailure()
++    monkeypatch.setattr(notify_push.socket, "socket", lambda *_args: inbox)
++    monkeypatch.setattr(notify_push, "find_session", lambda _sid: {
++        "pid": 42, "socket": "/fake/inbox.sock", "name": "fixture",
++        "alive": True, "socket_present": True,
++    })
++    monkeypatch.setattr(notify_push, "peer_token", lambda _pid: "fixture-peer-token")
++    monkeypatch.setattr(notify_push, "resolve_mode_class", lambda *_args: "prompting")
++    result = notify_push.push_to_session(SESSION, "job finished")
++    assert result["delivered"] is False
++    assert result.get("retryable", False) is (stage == "connect")
++    error = "ConnectionRefusedError" if stage == "connect" else "BrokenPipeError"
++    assert result["reason"].startswith(f"send-failed: {error}:")
++    assert len(inbox.sends) == (0 if stage == "connect" else 1)
++    assert inbox.closed
+diff --git a/tests/unit/test_prune_217.py b/tests/unit/test_prune_217.py
+index 8d97c21ef..a6c0162a9 100644
+--- a/tests/unit/test_prune_217.py
++++ b/tests/unit/test_prune_217.py
+@@ -28,7 +28,7 @@ STATES = ('queued', 'waiting', 'running', 'succeeded', 'failed', 'cancelled', 'l
+ TABLES = {
+     'schema_version', 'lanes', 'readings', 'closures', 'jobs', 'job_owned_branches',
+     'job_pushes', 'attempts', 'artifacts', 'notices', 'decisions', 'leases',
+-    'actions', 'events', 'service_notices',
++    'actions', 'events', 'service_notices', 'caller_wake_sessions',
+ }
+ # Independent copies of the live readers, including why's evaluation timestamp.
+ WHY = ('SELECT decision_json,evaluated_at FROM decisions WHERE job_id=? '
+diff --git a/tests/unit/test_sessions_notice_wake.py b/tests/unit/test_sessions_notice_wake.py
+new file mode 100644
+index 000000000..4c44e03ff
+--- /dev/null
++++ b/tests/unit/test_sessions_notice_wake.py
+@@ -0,0 +1,236 @@
++"""C-15.9: completion notices wake only quiet callers, within shared bounds."""
++
++from datetime import datetime, timedelta, timezone
++import json
++from types import SimpleNamespace
++
++import pytest
++
++from subfleet import descriptors, notify_push, protocol
++from subfleet.caller_wakes import CallerWakeEngine
++from subfleet.conversations.wakes import COOLDOWN_S, MAX_STREAK
++from subfleet.daemon import Daemon
++from subfleet.policy import DEFAULT_POLICY_PATH, PolicyError, SESSION_DEFAULTS, load_policy
++from subfleet.sessions import nudge, transcripts
++from subfleet.sessions.transcripts import TurnState
++
++
++NOW = datetime(2026, 11, 12, 12, tzinfo=timezone.utc)
++
++
++@pytest.fixture(autouse=True)
++def nudges_on(monkeypatch):
++    monkeypatch.setenv(nudge.TICKLE_ENV, "on")
++
++
++def state(age=300, kind="completed", **changes):
++    return TurnState(state=kind, timestamp=(NOW - timedelta(seconds=age)).isoformat(),
++                     **changes)
++
++
++def decide(turn=None, *, limits=None, **kwargs):
++    return nudge.notice_decide(state() if turn is None else turn,
++                               limits=nudge.caps({}) if limits is None else limits,
++                               now=NOW, **kwargs)
++
++
++def test_notice_wake_defaults_and_caps():
++    """C-15.9: the default gate is five minutes and each pass has eight slots."""
++    loaded = load_policy(DEFAULT_POLICY_PATH)
++    assert {key: loaded["sessions"][key] for key in (
++        "notice_wake_enabled", "notice_wake_quiet_s", "nudge_max_sessions")} == {
++            "notice_wake_enabled": True, "notice_wake_quiet_s": 300,
++            "nudge_max_sessions": 8}
++    assert SESSION_DEFAULTS["notice_wake_enabled"] is True
++    assert nudge.caps({})["notice_quiet_s"] == 300
++    assert nudge.caps({})["max_sessions"] == MAX_STREAK
++    custom = {"sessions": {"notice_wake_quiet_s": 600, "nudge_max_sessions": 2}}
++    assert nudge.caps(custom)["notice_quiet_s"] == 600
++    assert nudge.caps(custom)["max_sessions"] == 2
++    assert not decide(state(599), limits=nudge.caps(custom))[0]
++    assert decide(state(600), limits=nudge.caps(custom))[0]
++
++
++@pytest.mark.parametrize("value", [1.5, 1.0, "8", True, -1])
++def test_notice_wake_session_cap_is_a_nonnegative_integer(tmp_path, value):
++    data = json.loads(DEFAULT_POLICY_PATH.read_text())
++    data.setdefault("sessions", {})["nudge_max_sessions"] = value
++    path = tmp_path / "policy.json"
++    path.write_text(json.dumps(data))
++    with pytest.raises(PolicyError) as refused:
++        load_policy(path)
++    assert refused.value.key == "sessions.nudge_max_sessions"
++
++
++@pytest.mark.parametrize("kind", ["interrupted", "completed"])
++def test_notice_wake_accepts_quiet_interrupted_and_completed_turns(kind):
++    """C-15.9: a caller may have completed its waiting turn or been cut off."""
++    assert decide(state(300, kind))[0]
++    assert decide(state(25 * 3600, kind))[0], "a notice has no resume-age maximum"
++
++
++@pytest.mark.parametrize("kind", ["stopped", "unknown", "empty", "active"])
++def test_notice_wake_requires_an_eligible_transcript_state(kind):
++    assert not decide(state(300, kind))[0]
++
++
++@pytest.mark.parametrize("timestamp", [None, "", "not-a-time"])
++def test_notice_wake_refuses_unknown_activity_time(timestamp):
++    assert not decide(TurnState(state="completed", timestamp=timestamp, age_s=1000))[0]
++
++
++@pytest.mark.parametrize("age", [0, 299, 299.49, 299.999999])
++def test_notice_wake_uses_precise_timestamp_not_rounded_age(age):
++    """C-15.9 Quiet only: rounding must never open the quiet gate early."""
++    assert not decide(state(age, age_s=300))[0]
++    assert decide(state(300, age_s=299))[0]
++
++
++def test_notice_wake_preserves_fractional_transcript_activity(tmp_path):
++    """C-15.9 Quiet only: reading a real transcript must not truncate activity."""
++    path = tmp_path / "caller.jsonl"
++    stamp = (NOW - timedelta(seconds=299.51)).isoformat()
++    path.write_text(json.dumps({
++        "type": "assistant", "uuid": "finished-turn", "timestamp": stamp,
++        "message": {"role": "assistant", "content": [{"type": "text", "text": "Waiting."}],
++                    "stop_reason": "end_turn"},
++    }) + "\n")
++    turn = transcripts.turn_state(path, now=NOW)
++    assert turn.state == "completed"
++    assert turn.age_s == 300, "the display age rounds but eligibility must not"
++    assert not decide(turn)[0]
++
++
++def test_notice_wake_uses_the_latest_transcript_or_recorded_activity():
++    """C-15.9 Quiet only: fresh caller activity fences an old transcript."""
++    assert not decide(state(3600), active_at=NOW.timestamp() - 299.999)[0]
++    assert not decide(state(299), active_at=NOW.timestamp() - 3600)[0]
++    assert decide(state(3600), active_at=NOW.timestamp() - 300)[0]
++
++
++def test_notice_wake_off_switch_source_and_retirement_are_respected(monkeypatch):
++    assert not decide(retired={"reason": "replaced"})[0]
++    for source in ("compact", "clear", "other"):
++        assert not decide(source=source)[0]
++    for source in (None, "startup", "resume"):
++        assert decide(source=source)[0]
++    for off in ("off", "0", "false", "no"):
++        monkeypatch.setenv(nudge.TICKLE_ENV, off)
++        assert not decide()[0]
++
++
++@pytest.mark.parametrize("elapsed,expected", [(89.999, False), (90, True)])
++def test_notice_wake_observes_resume_nudge_and_completion_cooldowns(elapsed, expected):
++    stamp = (NOW - timedelta(seconds=elapsed)).isoformat()
++    assert decide(state(3600), last_nudge={"at": stamp})[0] is expected
++    assert decide(state(3600), last_wake_at=NOW.timestamp() - elapsed)[0] is expected
++
++
++def test_notice_wake_borrows_conversation_streak_cap_and_cooldown():
++    """C-15.9: unattended wakes share the existing C-24.10 bounds."""
++    assert not decide(state(3600), wake_streak=MAX_STREAK,
++                      last_wake_at=NOW.timestamp() - COOLDOWN_S + 0.001)[0]
++    assert decide(state(3600), wake_streak=MAX_STREAK,
++                  last_wake_at=NOW.timestamp() - COOLDOWN_S)[0]
++    assert decide(state(3600), wake_streak=MAX_STREAK - 1,
++                  last_wake_at=NOW.timestamp() - 90)[0]
++
++
++def registry_entry(tmp_path, monkeypatch, **activity):
++    """The real registry reader, with only fake paths and process evidence."""
++    directory = tmp_path / "fake-session-registry"
++    directory.mkdir()
++    (directory / "42.json").write_text(json.dumps({
++        "sessionId": "caller", "pid": 42, "messagingSocketPath": None,
++        "startedAt": 1000, **activity,
++    }))
++    monkeypatch.setattr(notify_push, "sessions_dir", lambda: directory)
++    monkeypatch.setattr(notify_push, "_pid_alive", lambda pid: True)
++    return notify_push.find_session("caller")
++
++
++def engine_eligible(entry):
++    engine = object.__new__(CallerWakeEngine)
++    engine.store = SimpleNamespace(one=lambda *args: None)
++    engine.daemon = SimpleNamespace(sessions=lambda *args: {"sessions": {}})
++    return engine._eligibility("caller", entry, state(3600), nudge.caps({}), NOW.timestamp())[0]
++
++
++@pytest.mark.parametrize("activity", [
++    {"status": "busy"},
++    {"status": "idle", "statusUpdatedAt": (NOW.timestamp() - 299.999) * 1000},
++    {"status": "idle", "updatedAt": (NOW.timestamp() - 1) * 1000},
++])
++def test_notice_wake_real_registry_fresh_or_busy_activity_blocks_old_transcript(tmp_path, monkeypatch, activity):
++    """C-15.9 Quiet only: registry activity survives a long tool's quiet transcript."""
++    entry = registry_entry(tmp_path, monkeypatch, **activity)
++    assert not engine_eligible(entry)
++
++
++def test_notice_wake_real_registry_old_idle_activity_allows_quiet_transcript(tmp_path, monkeypatch):
++    entry = registry_entry(tmp_path, monkeypatch, status="idle",
++                           statusUpdatedAt=(NOW.timestamp() - 300) * 1000,
++                           updatedAt=(NOW.timestamp() - 3600) * 1000)
++    assert engine_eligible(entry)
++
++
++@pytest.mark.parametrize("field", ["statusUpdatedAt", "updatedAt"])
++@pytest.mark.parametrize("bad", [
++    True, "123", float("nan"), float("inf"), float("-inf"),
++    pytest.param(10**1000, id="huge-integer"), pytest.param(-1, id="negative"),
++])
++def test_notice_wake_real_registry_malformed_activity_fails_closed(tmp_path, monkeypatch, field, bad):
++    entry = registry_entry(tmp_path, monkeypatch, status="idle", **{field: bad})
++    assert entry["activity_invalid"] is True
++    internal_field = "status_updated_at" if field == "statusUpdatedAt" else "updated_at"
++    assert entry[internal_field] is None
++    assert not engine_eligible(entry)
++
++
++@pytest.mark.parametrize("older_activity", [
++    {"status": "busy"},
++    {"status": "idle", "statusUpdatedAt": (NOW.timestamp() - 1) * 1000},
++    {"status": "idle", "updatedAt": (NOW.timestamp() - 1) * 1000},
++])
++def test_notice_wake_real_registry_older_live_sibling_activity_blocks_delivery(
++        tmp_path, monkeypatch, older_activity):
++    """C-15.9: choosing one inbox must retain every live instance's activity."""
++    registry_entry(tmp_path, monkeypatch, **older_activity)
++    directory = tmp_path / "fake-session-registry"
++    (directory / "43.json").write_text(json.dumps({
++        "sessionId": "caller", "pid": 43, "messagingSocketPath": None,
++        "startedAt": 2000, "status": "idle",
++        "statusUpdatedAt": (NOW.timestamp() - 3600) * 1000,
++    }))
++    entry = notify_push.find_session("caller")
++    assert entry["pid"] == 43, "the newer inbox still wins the address ranking"
++    assert not engine_eligible(entry), "the older live instance is active"
++
++
++def test_notice_hook_claim_is_not_read_only_but_plain_pending_is():
++    """C-15.9: a disconnected hook claim must retain its durable reservation."""
++    assert descriptors.read_only("notice.pending", {"session_id": "caller"})
++    assert not descriptors.read_only("notice.pending", {
++        "session_id": "caller", "surface": "UserPromptSubmit"})
++
++
++@pytest.mark.parametrize("surface,pool", [(None, "lookups"), ("UserPromptSubmit", "requests")])
++def test_notice_hook_claim_uses_the_request_pool(surface, pool):
++    """A write cannot execute inside the lookup pool's read-only snapshot."""
++    submitted = []
++
++    def recorder(name):
++        def submit(*_args, **_kwargs):
++            submitted.append(name)
++            return name
++        return SimpleNamespace(submit=submit)
++
++    daemon = SimpleNamespace(conversations=SimpleNamespace(owns=lambda op: False),
++                             lookups=recorder("lookups"), requests=recorder("requests"),
++                             _run_worker=None, _respond=None)
++    args = {"session_id": "caller"}
++    if surface:
++        args["surface"] = surface
++    result = Daemon._start_request(daemon, None, None,
++                                   protocol.Request(op="notice.pending", args=args), 0, None)
++    assert result == pool and submitted == [pool]
+diff --git a/tests/unit/test_store_migration_2.py b/tests/unit/test_store_migration_2.py
+index ffc064ddb..0d42354bc 100644
+--- a/tests/unit/test_store_migration_2.py
++++ b/tests/unit/test_store_migration_2.py
+@@ -220,8 +220,11 @@ def _schema_before_migration(conn, migration):
+         if version >= migration:
+             for statement in reversed(statements):
+                 parts = statement.split()
+-                assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
+-                conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
++                if parts[:2] == ['CREATE', 'TABLE'] and parts[2:5] == ['IF', 'NOT', 'EXISTS']:
++                    conn.execute(f'DROP TABLE "{parts[5]}"')
++                else:
++                    assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
++                    conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
+     conn.execute("INSERT INTO schema_version VALUES (?,'2026-10-14T00:00:00Z')", (migration - 1,))
+ 
+ 
+diff --git a/tests/unit/test_store_notice_wake_migration.py b/tests/unit/test_store_notice_wake_migration.py
+new file mode 100644
+index 000000000..d4c405b11
+--- /dev/null
++++ b/tests/unit/test_store_notice_wake_migration.py
+@@ -0,0 +1,99 @@
++"""C-3.1, C-15.1: quiet caller delivery records survive an additive migration."""
++
++from __future__ import annotations
++
++import sqlite3
++from pathlib import Path
++
++import pytest
++
++from subfleet.store import NOTICE_WAKE_MIGRATION, SCHEMA_VERSION, Store
++
++from test_store_migration_2 import _migration_adding, _schema_before_migration
++
++
++WAKE_COLUMNS = {"wake_state", "wake_attempts", "wake_next_at", "wake_at", "wake_reason"}
++
++
++def old_store(path: Path) -> Path:
++    """The previous release's store, including notices each delivery layer left."""
++    with sqlite3.connect(path) as conn:
++        _schema_before_migration(conn, NOTICE_WAKE_MIGRATION)
++        for index, state in enumerate(("pending", "offered", "surfaced", "acknowledged"), 1):
++            job_id = f"job-{index}"
++            conn.execute(
++                "INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,"
++                "caller_session,created_at) VALUES (?,?,?,'dispatch','succeeded','/work','/prompt',"
++                "'read-only','caller','2026-11-11T12:00:00Z')", (job_id, job_id, "digest"))
++            conn.execute(
++                "INSERT INTO notices(job_id,session_id,text,state,created_at,offered_at,acknowledged_at) "
++                "VALUES (?,'caller',?,?, '2026-11-11T12:05:00Z',?,?)",
++                (job_id, f"header for {job_id}", state,
++                 "2026-11-11T12:06:00Z" if state != "pending" else None,
++                 "2026-11-11T12:07:00Z" if state == "acknowledged" else None))
++    return path
++
++
++def test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration(tmp_path):
++    assert _migration_adding("wake_state") == NOTICE_WAKE_MIGRATION == SCHEMA_VERSION
++    path = old_store(tmp_path / "old.sqlite3")
++    with sqlite3.connect(path) as conn:
++        before = conn.execute("SELECT * FROM notices ORDER BY notice_id").fetchall()
++        columns = [row[1] for row in conn.execute("PRAGMA table_info(notices)")]
++        assert not WAKE_COLUMNS.intersection(columns)
++        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='caller_wake_sessions'").fetchone() is None
++    with Store(path) as store:
++        after = store.query("SELECT * FROM notices ORDER BY notice_id")
++        assert [[row[column] for column in columns] for row in after] == [list(row) for row in before]
++        assert [row["state"] for row in store.list_notices("caller", pending=True)] == ["pending", "offered"]
++        assert all({key: row[key] for key in WAKE_COLUMNS} == {
++            "wake_state": None, "wake_attempts": 0, "wake_next_at": None,
++            "wake_at": None, "wake_reason": None} for row in after)
++        assert store.query("SELECT * FROM caller_wake_sessions") == []
++        assert store.query("SELECT version FROM schema_version ORDER BY version") == [
++            {"version": NOTICE_WAKE_MIGRATION - 1}, {"version": NOTICE_WAKE_MIGRATION}]
++
++
++def test_d_wake_caller1_reopening_preserves_retry_delivery_and_activity_records(tmp_path):
++    path = old_store(tmp_path / "old.sqlite3")
++    with Store(path) as store:
++        with store.transaction():
++            store.update_notice(1, wake_attempts=3, wake_next_at=2000.0, wake_reason="no-inbox-socket")
++            store.update_notice(2, wake_state="delivered", wake_attempts=1, wake_at=1500.0)
++            store.connection.execute(
++                "INSERT INTO caller_wake_sessions VALUES ('caller',1400.0,'resume',2,1500.0)")
++        notices = store.query("SELECT * FROM notices ORDER BY notice_id")
++        sessions = store.query("SELECT * FROM caller_wake_sessions")
++        versions = store.query("SELECT * FROM schema_version ORDER BY version")
++        migrated = store.query("SELECT * FROM events WHERE kind='schema.migrated'")
++    with Store(path) as store:
++        assert store.query("SELECT * FROM notices ORDER BY notice_id") == notices
++        assert store.query("SELECT * FROM caller_wake_sessions") == sessions
++        assert store.query("SELECT * FROM schema_version ORDER BY version") == versions
++        assert store.query("SELECT * FROM events WHERE kind='schema.migrated'") == migrated
++        assert len(migrated) == 1
++
++
++def test_d_wake_caller1_fresh_and_migrated_stores_have_the_same_delivery_schema(tmp_path):
++    old = old_store(tmp_path / "old.sqlite3")
++    with Store(old) as migrated, Store(tmp_path / "fresh.sqlite3") as fresh:
++        for table in ("notices", "caller_wake_sessions"):
++            assert migrated.query(f'PRAGMA table_info("{table}")') == fresh.query(f'PRAGMA table_info("{table}")')
++        assert migrated.one("SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'") == fresh.one(
++            "SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'")
++        assert "job_id IS NOT NULL AND state IN ('pending','offered')" in fresh.one(
++            "SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'")["sql"]
++
++
++@pytest.mark.parametrize("wake_state", [None, "claimed", "delivered", "undeliverable"])
++def test_d_wake_caller1_delivery_states_and_session_defaults_are_constrained(tmp_path, wake_state):
++    with Store(old_store(tmp_path / "old.sqlite3")) as store:
++        store.update_notice(1, wake_state=wake_state)
++        assert store.one("SELECT wake_state FROM notices WHERE notice_id=1")["wake_state"] == wake_state
++        with pytest.raises(sqlite3.IntegrityError):
++            store.update_notice(1, wake_state="retry-whenever")
++        with store.transaction():
++            store.connection.execute("INSERT INTO caller_wake_sessions(session_id) VALUES ('new-caller')")
++        assert store.one("SELECT * FROM caller_wake_sessions WHERE session_id='new-caller'") == {
++            "session_id": "new-caller", "active_at": 0.0, "source": None,
++            "wake_streak": 0, "last_wake_at": None}
+diff --git a/tests/unit/test_store_qos_migration.py b/tests/unit/test_store_qos_migration.py
+index 2843468d6..dd4c0c604 100644
+--- a/tests/unit/test_store_qos_migration.py
++++ b/tests/unit/test_store_qos_migration.py
+@@ -19,9 +19,9 @@ from subfleet.store import SCHEMA_VERSION, Store, job_flags, shell_flags
+ from test_store_migration_2 import _migration_adding, _schema_before_migration
+ 
+ 
+-def test_d_qos_booked1_the_column_is_the_newest_migration():
++def test_d_qos_booked1_the_column_has_a_numbered_migration():
+     step = _migration_adding("provider_qos")
+-    assert step == SCHEMA_VERSION == store_module.PROVIDER_QOS_MIGRATION
++    assert step == store_module.PROVIDER_QOS_MIGRATION <= SCHEMA_VERSION
+     assert store_module.MIGRATIONS[step] == (
+         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
+         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",)
+@@ -54,8 +54,10 @@ def test_d_qos_booked1_an_old_store_opens_and_its_jobs_read_as_utility(tmp_path)
+         assert store.get_job("old-dispatch")["provider_qos"] == "utility"
+         assert store.get_job_by_request("old-turn")["provider_qos"] == "utility"
+         assert {job["provider_qos"] for job in store.list_jobs()} == {"utility"}
+-        migrated = [row["data_json"] for row in store.query("SELECT data_json FROM events WHERE kind='schema.migrated'")]
+-        assert migrated == [f'{{"version":{SCHEMA_VERSION}}}']
++        migrated = [row["data_json"] for row in store.query(
++            "SELECT data_json FROM events WHERE kind='schema.migrated' ORDER BY event_id")]
++        assert migrated == [f'{{"version":{version}}}' for version in
++                            range(store_module.PROVIDER_QOS_MIGRATION, SCHEMA_VERSION + 1)]
+     with Store(path) as store:                       # reopening changes nothing
+         assert store.get_job("old-dispatch")["provider_qos"] == "utility"
+         assert [row["version"] for row in store.query("SELECT version FROM schema_version ORDER BY version")][-1] == SCHEMA_VERSION
+@@ -91,7 +93,7 @@ def test_d_qos_booked1_attempt_rows_gain_no_job_field(tmp_path, read_only):
+                      "'2026-10-27T00:00:00Z')")
+     with Store(path, read_only=read_only) as store:
+         version = store.one("SELECT MAX(version) AS v FROM schema_version")["v"]
+-        assert version == (SCHEMA_VERSION - 1 if read_only else SCHEMA_VERSION)
++        assert version == (store_module.PROVIDER_QOS_MIGRATION - 1 if read_only else SCHEMA_VERSION)
+         assert store.get_job("old-dispatch")["provider_qos"] == "utility"
+         assert "provider_qos" not in store.get_attempt("old-dispatch/a1")
+         assert [row for row in store.list_attempts("old-dispatch") if "provider_qos" in row] == []

@@ -1,0 +1,11 @@
+--- subfleet/caller_wakes.py
++++ subfleet/caller_wakes.py
+@@ -76,6 +76,8 @@
+     def recover(self) -> None:
+         """Rescan durable claims on startup; never replay an uncertain send."""
+         with self.store.transaction("notice.wake_recovered") as tx:
++            tx.execute("UPDATE notices SET state='pending',wake_state=NULL,wake_at=NULL "
++                       "WHERE wake_state='delivered'")
+             tx.execute("UPDATE notices SET wake_state='undeliverable',wake_reason='interrupted-send' "
+                        "WHERE wake_state='claimed'")
+ 

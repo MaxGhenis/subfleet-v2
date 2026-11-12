@@ -1,0 +1,50 @@
+[
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/.pytest_cache",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/.hypothesis",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/build",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/__pycache__",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/adapters/__pycache__",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/sessions/__pycache__",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/conversations/__pycache__",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/gate/__pycache__",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/guard/__pycache__",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/__pycache__",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/unit/__pycache__",
+    "symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/__pycache__",
+    "symlink": false
+  }
+]

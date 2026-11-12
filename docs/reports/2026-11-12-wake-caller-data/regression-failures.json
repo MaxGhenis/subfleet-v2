@@ -1,0 +1,650 @@
+[
+  {
+    "kind": "FAILED",
+    "node": "tests/fake/test_sessions_end_to_end.py::test_a_revive_records_the_requested_model_substitution",
+    "file": "tests/fake/test_sessions_end_to_end.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/fake/test_sessions_end_to_end.py::test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job",
+    "file": "tests/fake/test_sessions_end_to_end.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/fake/test_sessions_end_to_end.py::test_a_retry_of_an_accepted_continuation_finds_its_job_after_the_binding[revive]",
+    "file": "tests/fake/test_sessions_end_to_end.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/fake/test_sessions_end_to_end.py::test_a_queued_revive_whose_session_becomes_a_conversations_fails_at_admission",
+    "file": "tests/fake/test_sessions_end_to_end.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/fake/test_sessions_end_to_end.py::test_handoff_dispatches_detached_through_the_normal_submit_path",
+    "file": "tests/fake/test_sessions_end_to_end.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/fake/test_sessions_end_to_end.py::test_handoff_prompt_created_private_and_unlinked_after_dispatch",
+    "file": "tests/fake/test_sessions_end_to_end.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/process/test_provider_shell_environment.py::test_codex_exec_and_resume_commands_see_neither_dummy",
+    "file": "tests/process/test_provider_shell_environment.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/process/test_provider_shell_environment.py::test_codex_conversation_turn_commands_see_neither_dummy",
+    "file": "tests/process/test_provider_shell_environment.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases",
+    "file": "tests/fake/test_canonical_identity.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_terminal_messages_become_history_of_one_legacy_conversation",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_each_message_is_classified_by_itself",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_repeated_import_creates_nothing_new",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_message_without_a_transcript_lands_when_the_transcript_appears",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not json]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not an object]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[keyed by something else]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request naming no session]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a directory]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[image paths that are no list]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a message id that is no string]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[an entry with no request]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request that names no session]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a lone surrogate]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-1-the payload's image_paths is not a list]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-value1-the payload's image_paths is not a list]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[service_tier-value2-the payload's service_tier is not a string]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[prompt-he replied \\ud800-the payload or receipt is not UTF-8 text]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[corrupt]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[no messages table]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[other columns]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_missing_outbox_still_reads_the_journal_and_fences",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_running_cockpit_broker_holds_every_session",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_live_cockpit_worker_holds_its_session",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_workers_file_holds_every_session",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_workers_file_naming_a_lone_surrogate_holds_every_session",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[False]",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_one_session_has_one_spelling",
+    "file": "tests/unit/test_importer.py",
+    "reason": "Asser..."
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_the_fence_runs_before_any_history_is_placed",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_one_session_that_cannot_be_read_never_ends_the_pass",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_legacy_hold_and_another_block_are_independent",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_an_unreadable_row_is_reported_and_the_pass_goes_on",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_image_snapshots_stay_in_v1_and_are_counted",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_legacy_id_the_store_holds_as_a_message_of_its_own_is_a_conflict",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_the_legacy_cockpit_runs_alone_and_its_dry_run_writes_nothing",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_the_legacy_import_holds_the_lock_for_its_whole_pass",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_v1_state_that_is_not_there_releases_nothing",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_retired_cockpit_lifts_every_hold",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_a_retirement_that_dies_midway_retires_nothing",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_importer.py::test_swapped_roots_touch_neither_directory",
+    "file": "tests/unit/test_importer.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_publish_rule_round7.py::test_each_spelling_is_refused_in_each_providers_real_shell[codex-zsh -c]",
+    "file": "tests/unit/test_publish_rule_round7.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_publish_rule_round7.py::test_each_spelling_is_refused_in_each_providers_real_shell[codex-zsh -lc]",
+    "file": "tests/unit/test_publish_rule_round7.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_publish_rule_round7.py::test_each_spelling_is_refused_in_each_providers_real_shell[claude-zsh -c]",
+    "file": "tests/unit/test_publish_rule_round7.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_publish_rule_round7.py::test_each_spelling_is_refused_in_each_providers_real_shell[claude-zsh -lc]",
+    "file": "tests/unit/test_publish_rule_round7.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_publish_rule_round7.py::test_each_spelling_is_refused_in_each_providers_real_shell[claude-claude snapshot]",
+    "file": "tests/unit/test_publish_rule_round7.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_publish_rule_round7.py::test_real_codex_sandbox_keeps_the_git_denial_under_inherit_core",
+    "file": "tests/unit/test_publish_rule_round7.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[turn.interrupt]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden[False]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden[True]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_message_unwritten",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_store_error_in_the_conversation_check_is_the_pass_s[store_error0]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_store_error_in_the_conversation_check_is_the_pass_s[store_error1]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_withdrawal_racing_the_dispatcher_leaves_no_turn_to_run",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_admission_cancels_a_turn_job_whose_message_is_settled",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[None]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[[1, 2]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{\"turn\": [1, 2]}]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{\"turn\": \"a string\"}]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[7]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{\"turn\": {}}]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{\"turn\": {\"conversation_id\": [1], \"message_id\": \"m\", \"provider\": \"claude\"}}]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_failed_check_with_an_unreadable_manifest_still_holds_that_job_alone",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_runner_the_store_refuses_to_mark_is_still_started",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_cancel_racing_admission_records_the_stop_first",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_refused_cancel_leaves_no_stop_behind",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_refused_cancel_never_stops_the_turn_it_lost_to",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_cancel_that_wins_keeps_a_runner_admitted_meanwhile_from_writing",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_stop_is_never_lost_to_a_withdrawal_that_loses_its_race",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+    "file": "tests/unit/test_retention_archive.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+    "file": "tests/unit/test_retention_archive.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "file": "tests/unit/test_retention_archive.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "file": "tests/unit/test_retention_archive.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "file": "tests/unit/test_retention_archive.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+    "file": "tests/unit/test_retention_archive.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_waits_for_the_session_s_other_writer_use_up_no_readmission[external-writer]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_waits_for_the_session_s_other_writer_use_up_no_readmission[legacy-owner]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_readmitted_turn_waits_while_the_conversation_is_held",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_an_outcome_never_replaces_the_hold_and_unblock_never_lifts_it",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_resolved_delivery_and_a_quarantine_leave_the_hold",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_only_the_import_lifts_its_hold",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": "..."
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversation[True]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversation[False]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_an_adopted_turn_on_a_held_conversation_never_writes_its_message[False]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_an_adopted_turn_on_a_held_conversation_never_writes_its_message[True]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_person_s_stop_stands_over_the_hold",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_turn_the_hold_stopped_before_its_message_waits_for_the_hold",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_queued_turn_job_of_a_held_conversation_is_not_admitted",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_resume_refuses_a_turn_source_and_a_conversation_bound_session",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_the_daemon_never_revives_or_nudges_a_conversation_bound_session",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_session_only_a_turn_attempt_recorded_is_a_conversation_s_in_either_spelling[upper-recorded]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_session_only_a_turn_attempt_recorded_is_a_conversation_s_in_either_spelling[lower-recorded]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_conversation_open_binds_one_spelling_of_a_session",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_held_session_opened_after_the_pass_is_bound_held",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_while_every_session_is_held_any_session_opened_is_held",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_one_turn_job_whose_conversation_cannot_be_checked_never_ends_the_pass",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  },
+  {
+    "kind": "FAILED",
+    "node": "tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[message.cancel]",
+    "file": "tests/unit/test_legacy_hold.py",
+    "reason": ""
+  }
+]
