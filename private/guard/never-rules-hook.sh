@@ -1,11 +1,11 @@
 #!/bin/bash
 # subfleet-guard-hook — Codex CLI PreToolUse hook: the never-rules guard for
-# subfleet codex lanes. Denies the nine standing NEVER rules that
+# subfleet codex lanes. Denies the eleven standing NEVER rules that
 # ~/.claude/hooks/guard-never-rules.sh enforces for Claude Code sessions.
 #
 # SOURCE OF TRUTH: ~/.claude/hooks/guard-never-rules.sh (and its harness,
 # ~/.claude/tests/guard-never-rules-test.sh). Two sync contracts:
-#   - The seven Bash rule blocks below are copied from that file BYTE-FOR-BYTE,
+#   - The nine Bash rule blocks below are copied from that file BYTE-FOR-BYTE,
 #     each from its column-0 "# --- <rule>:" header line up to (not including)
 #     the next column-0 "# --- " (or "# >>>") line — comments, blank lines and
 #     `block "…"` calls included; `block` is this hook's deny, so the ported
@@ -13,7 +13,11 @@
 #     then re-extract here (~/.cache/subfleet-guard-v2-port/proto/
 #     extract_blocks.sh); never edit only one side.
 #     tests/test_guard_never_rules.py::DriftTests pins the per-rule byte
-#     identity, the prefilter literal, and the hf-dest literals.
+#     identity, the prefilter literal, and the hf-dest literals. In this
+#     repository tests/unit/test_guard_sync.py::DriftTests pins each block
+#     held in tests/fixtures/guard/claude-blocks/ and the prefilter literal.
+#     The guard sync r2 (2026-11-11) ported axiom-brief-regime and
+#     hand-authored-rulespec, which follow trust-root in the Claude hook.
 #   - The unscoped-search rule is the region between the marker lines
 #         (# >>> unscoped-search: shared region begin … >>>)
 #         (# <<< unscoped-search: shared region end <<<)
@@ -63,6 +67,10 @@
 #   tg-getupdates    Telegram getUpdates polling steals the OpenClaw gateway's updates
 #   keychain-dump    security dump-keychain -d on the login keychain (prompt storm)
 #   trust-root       mutating AXIOM_*PUBLIC_KEY org variables (org-wide trust anchors)
+#   axiom-brief-regime  a subfleet run into TheAxiomFoundation whose brief names
+#                    RuleSpec or encoding but carries no ENCODING REGIME block
+#   hand-authored-rulespec  a git commit in a TheAxiomFoundation/rulespec-* checkout
+#                    staging rule YAML with no encoder apply manifest
 #   corpus-squash    squash-merging PRs in axiom-corpus / rulespec-* (.github#39 rule 6)
 #   corpus-push      pushing axiom-corpus main directly (.github#39 rule 6)
 #   stash-shared     git stash in a repo with >1 worktree (stash stack is repo-global)
@@ -125,7 +133,7 @@ command=$(printf '%s' "$input" | "$JQ" -r '.tool_input.command // empty | if typ
 [ -z "$command" ] && exit 0
 cwd=$(printf '%s' "$input" | "$JQ" -r '.cwd // empty' 2>/dev/null) || cwd=""
 
-# block: every rule (the seven verbatim Claude blocks, the shared region, and
+# block: every rule (the nine verbatim Claude blocks, the shared region, and
 # the hf-dest adapter) calls this with its reason; here it is a Codex
 # PreToolUse deny (the Claude hook's block() prints {decision:"block",reason}).
 # When a Bash command carries an apply_patch patch body, the patch text was
@@ -302,8 +310,12 @@ fi
 
 # ---------- Bash branch ----------
 # Cheap prefilter: bail immediately unless a rule keyword appears. The first
-# grep literal is BYTE-IDENTICAL to the Claude hook's prefilter (its tail is
-# the searcher term the drift tests pin in both hooks); the second is the
+# grep literal is BYTE-IDENTICAL to the Claude hook's prefilter line (the
+# guard sync r2, 2026-11-11, re-copied it: it adds `subfleet run` and the
+# `git [-C <dir>] commit` term the two Axiom blocks need, words of
+# Claude-only rules that no block here reads, and a wider searcher term at
+# its tail; tests/unit/test_guard_sync.py pins it against
+# tests/fixtures/guard/claude-blocks/prefilter.txt); the second is the
 # codex addition that lets the fenced hf-dest heredoc scan below run; the
 # third (D-LANE-SCOPE1 r3c) lets a searcher named by a path, after a quote or
 # a backslash, through $(which …), or as egrep, fgrep, rgrep or ugrep reach the
@@ -311,7 +323,7 @@ fi
 # backslash inside its name (r''g, f\ind, $'rg'), and a $'...' holding an
 # escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep,
 # also right after a backtick (r6).
-printf '%s' "$command" | grep -qE 'stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|(^|[[:space:];&|(])(find|rg|grep)[[:space:]]' \
+printf '%s' "$command" | grep -qE 'pending_deployments|deployment_protection_rule|approveDeployments|pkill|killall|pgrep|stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|subfleet[[:space:]]+run|git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit|(^|[^[:alnum:]_.-])(find|gfind|bfs|fd|fdfind|rg|grep|egrep|fgrep|rgrep|ggrep|ugrep)([^[:alnum:]_.-]|$)' \
   || printf '%s' "$command" | grep -qE '\*\*\* Begin Patch' \
   || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
   || printf '%s' "$command" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
@@ -2864,7 +2876,7 @@ fi
 # standalone executable (apply-patch/src/standalone_executable.rs) applies
 # argv[1]-or-stdin against the shell's cwd. So `cd dir; apply_patch <<'EOF'`,
 # `pushd dir && apply_patch …`, and `apply_patch <<'EOF' … EOF && git add -A`
-# all run for real. Runs AFTER the seven Bash rules and the shared region;
+# all run for real. Runs AFTER the nine Bash rules and the shared region;
 # scans the patch's added lines against every base (payload cwd + every
 # cd/pushd target in the command — hf_dest_bases).
 if printf '%s' "$command" | grep -qE '\*\*\* Begin Patch'; then
