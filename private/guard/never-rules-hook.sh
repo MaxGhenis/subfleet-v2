@@ -342,6 +342,56 @@ if printf '%s' "$command" | grep -qE 'AXIOM_[A-Z_]*PUBLIC_KEY'; then
   fi
 fi
 
+# --- axiom-brief-regime: every lane brief that can touch RuleSpec carries the encoding regime ---
+# Max (2026-09-06): "it must always use the encoder agent … if this isn't basically impossible
+# to mess up again we need to fix it." A brief dispatched into the Axiom mirror that mentions
+# RuleSpec/rulespec/encoding must carry the ENCODING REGIME block verbatim (ops/il-lane/COMMON-RULES.md
+# / TheAxiomFoundation/CLAUDE.md). Lanes do not read CLAUDE.md; the brief is their law.
+if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
+  seg=$(printf '%s' "$command" | sed -E 's/.*subfleet[[:space:]]+run//')
+  wd=$(printf '%s' "$seg" | grep -oE '(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' | head -1 | awk '{print $2}')
+  [ -z "$wd" ] && wd="$cwd"
+  wd_abs=$(printf '%s' "$wd" | sed "s|^~|$HOME|")
+  if printf '%s' "$wd_abs" | grep -q 'TheAxiomFoundation'; then
+    pf=$(printf '%s' "$seg" | grep -oE '(^|[[:space:]])-p[[:space:]]+[^[:space:]]+' | head -1 | awk '{print $2}')
+    if [ -n "$pf" ]; then
+      pf_abs=$(printf '%s' "$pf" | sed "s|^~|$HOME|"); case "$pf_abs" in /*) ;; *) pf_abs="$cwd/$pf_abs" ;; esac
+      if [ -f "$pf_abs" ] && grep -qiE 'rulespec|RuleSpec|encod' "$pf_abs" && ! grep -q 'ENCODING REGIME' "$pf_abs"; then
+        block "[axiom-brief-regime] This brief touches RuleSpec/encoding but has no ENCODING REGIME block. Modules come only from 'axiom-encode encode --apply' with apply manifests; hand-authored YAML is never a module (Max 9/6). Prepend the block from ~/TheAxiomFoundation/ops/il-lane/COMMON-RULES.md (or TheAxiomFoundation/CLAUDE.md 'Encoding regime') verbatim, then dispatch."
+      fi
+    fi
+  fi
+fi
+
+# --- hand-authored-rulespec: rule YAML staged in a rulespec-* checkout needs its encoder apply manifest ---
+# Companion tests (*.test.yaml) and composed pipelines (…/composed/…) are exempt; everything else under
+# <cc>/(statutes|regulations|policies|legislation|programs)/ must have .axiom/encoding-manifests/<mirror>.json
+# staged or tracked. The CI guard is the second wall; this is the first.
+if printf '%s' "$command" | grep -qE 'git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit'; then
+  gdir=$(printf '%s' "$command" | grep -oE 'git[[:space:]]+-C[[:space:]]+[^[:space:]]+' | head -1 | awk '{print $3}')
+  [ -z "$gdir" ] && gdir="$cwd"
+  gdir=$(printf '%s' "$gdir" | sed "s|^~|$HOME|")
+  origin_url=$(git -C "$gdir" remote get-url origin 2>/dev/null)
+  if printf '%s' "$origin_url" | grep -qiE 'TheAxiomFoundation/rulespec-'; then
+    missing=""
+    while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      case "$f" in
+        *.test.yaml|*/composed/*|.axiom/*) continue ;;
+      esac
+      if printf '%s' "$f" | grep -qE '^[a-z]{2}(-[a-z0-9-]+)?/(statutes|regulations|policies|legislation|programs)/.+\.ya?ml$'; then
+        m=".axiom/encoding-manifests/${f%.*}.json"
+        if ! git -C "$gdir" cat-file -e ":$m" 2>/dev/null && ! git -C "$gdir" cat-file -e "HEAD:$m" 2>/dev/null; then
+          missing="$missing $f"
+        fi
+      fi
+    done < <(git -C "$gdir" diff --cached --name-only --diff-filter=ACMR 2>/dev/null)
+    if [ -n "$missing" ]; then
+      block "[hand-authored-rulespec] Staged RuleSpec content with no encoder apply manifest:$missing. RuleSpec modules come only from 'axiom-encode encode <corpus citation> --backend codex --apply', which writes .axiom/encoding-manifests/<mirror path>.json; hand-authored YAML is never a module (Max 9/6). Repairs go through --review-findings / --repair-candidate-* replay. Unstage the files and run the encoder."
+    fi
+  fi
+fi
+
 # --- corpus-squash: signed-manifest repos merge-commit, never squash ---
 if printf '%s' "$command" | grep -qE 'pr[[:space:]]+merge' && printf '%s' "$command" | grep -qE '(^|[[:space:]])(--squash|-s)([[:space:]]|$)'; then
   repo_ctx=$(printf '%s' "$command" | grep -oE '(-R|--repo)[[:space:]]+[^[:space:]]+' | awk '{print $2}')
