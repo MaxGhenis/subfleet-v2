@@ -11,6 +11,7 @@ import ast
 import functools
 import hashlib
 from datetime import datetime, timedelta
+import itertools
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,7 @@ BASE = "a8624a4899a2"
 BASE_METHOD_SHA256 = "a894326e79493fd6dc79b8fea75fd392add53d8283f123f4e49e328ee4afbcf5"
 FUTURE = "2099-12-31T00:00:00Z"
 WAITING_METADATA = scheduler.waiting_metadata
+MOVEMENTS = itertools.count()
 
 
 @functools.lru_cache
@@ -681,7 +683,10 @@ def test_i3_generated_head_movements_keep_the_submitted_tree_and_baseline(fleet_
     job = submit(service, harness, repo)
     submitted = service.store.get_job(job)["workdir_head"]
     for index in range(moves):
-        (repo / "tracked.txt").write_text(f"{job} caller movement {index}\n")
+        # Hypothesis reuses `repo` across examples, and job ids have one-second
+        # resolution, so text keyed on the job id can repeat the file's current
+        # content on a fast runner and leave nothing to commit. Keep each write new.
+        (repo / "tracked.txt").write_text(f"caller movement {next(MOVEMENTS)}\n")
         git(repo, "add", "tracked.txt")
         git(repo, "commit", "-m", f"caller movement {index}")
     service._admit()
