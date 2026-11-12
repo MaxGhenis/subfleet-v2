@@ -30,6 +30,10 @@ DELETE_DIR = "retention-delete"
 MARKER = "tree-deleted.json"
 #: A deletion's journal, in `<state>/retention-delete/<job>/`.
 JOURNAL = "journal.json"
+#: Delete journals and their derived marker/event facts share one readable
+#: bound. A marker can exceed 1 MiB when many commits need individual refs;
+#: restart must still read a marker written before its event committed.
+RECORD_LIMIT = 16 << 20
 #: Why the normal pass and the survey keep such a job.
 DELETED = "tree-deleted"
 IN_FLIGHT = "tree-delete in flight"
@@ -52,7 +56,7 @@ def marker(root: Path, job_id: str) -> dict[str, Any] | None:
     if not os.path.lexists(path):
         return None
     try:
-        data = json.loads(rfs.read_regular(path, limit=1 << 20))
+        data = json.loads(rfs.read_regular(path, limit=RECORD_LIMIT))
     except (OSError, ValueError) as exc:
         return {"unreadable": str(exc)[:200]}
     return data if isinstance(data, dict) else {"unreadable": "not a JSON object"}

@@ -10,6 +10,29 @@ the one job to run "through a single pinned admission or by building it
 in-session". Nothing here has run against the live store: the install, the
 dry run over the 79, the canary and the full run come after review.
 
+## November 12 review fixes
+
+Codex's primary and commit-preservation reviews found counterexamples in the
+original head `dba9ac3ca`: a newly added Git root escaped the keep plan, a
+substituted tombstone escaped the earlier identity check, configuration
+includes read excluded files, multi-value pseudo-refs lost later entries,
+remote-tracking refs incorrectly stood for proof of remote possession, and a
+restart could make marker facts differ from their single event.
+
+The working-tree fixes save the root/commit census, recheck it after the
+rename and at the destructive boundary, bind descriptor removal to the saved
+identity, restore complete bundles into empty repositories, collect every
+pseudo-ref entry, reuse durable marker/event facts, and put exclusion-aware
+configuration/storage checks before classification and every later Git
+command. The repository census also includes available unreachable/dangling
+commit objects. Unresolved legacy discovery keeps the candidate. New focused tests
+cover those cases. Combined validation and fresh independent review remain
+pending; this report does not record an installation or a live deletion.
+
+The commands, counts and mutant results below are the **original build's
+evidence**, at the heads each row names. They do not validate these later
+fixes. The mechanism sections describe the current working-tree code.
+
 ## Summary
 
 - `subfleet/retention_delete.py` (new, about 2,100 lines) holds the path:
@@ -22,7 +45,7 @@ dry run over the 79, the canary and the full run come after review.
 - `subfleet/retention_marks.py` (new) holds the marker and journal names that
   the normal pass (`subfleet/retention.py`) and the survey
   (`subfleet/retention_survey.py`) read, so they keep a deleted job for good.
-- Tests: 5 new files, 50 test functions, 120 collected cases (apply 13,
+- Original build tests: 5 new files, 50 test functions, 120 collected cases (apply 13,
   daemon 16, Hypothesis properties 2, resume 22, request, CLI and Excluder
   67); every one passed in its last run (see the commands below).
 - Mutants: the brief's 15, 4 for defects the tests found, and 1 that must
@@ -52,11 +75,11 @@ reasons:
 
 What it reuses, unchanged:
 
-- **Detection.** `retention_survey.job_info` decides gate 6, so the path
+- **Detection.** `retention_survey.job_info` decides gate 7, so the path
   deletes only what the survey itself still calls `nested-linked-worktree` or
   `remote-less-history`.
-- **Pins.** `retention._pin_reasons(only=job)` with `hosted` from
-  `retention.nested_hosts`, plus the reads `_Pass._start` makes when it
+- **Pins.** `retention._pin_reasons(only=job)` with exclusion-aware hosted
+  registration discovery, plus the reads `_Pass._start` makes when it
   selects a job: `folders.turn_holds(inside=True)`,
   `dependencies.dependents`, `folders.exclusive_inside`
   (`DeletePath._pinned`).
@@ -71,7 +94,8 @@ What it reuses, unchanged:
   `rfs.write_atomic`, `rfs.sync_path`.
 - **Git.** `rgit.run`, `rgit.object_format`, `rgit.admin_objects`,
   `rgit.network_remotes`, `rgit.held_arguments`, `rgit.held_commit`,
-  `rgit.create_bundle`, `rgit.verify_bundle`.
+  `rgit.create_bundle`. The delete path now verifies complete bundles by
+  restoring them into an empty repository without source alternates.
 - **Scheduling.** The retention worker's key and `_unrun_lock`, which the
   hourly pass and the unused-tree sweep already take.
 
@@ -88,22 +112,32 @@ the path holds the leases. The rest run while it holds them.
 | 3 | age | `_first_gates` | `created_at` unreadable or under `min_age_days`, unless `age_exempt` |
 | 4 | owned path | `_first_gates` via `retention._owned_worktree` | an in-place job; another sandbox; a symlinked path; a path at or outside `<state>/worktrees`; missing; not a directory; another volume |
 | 5 | excluded, top level | `DeletePath._top`, `borrowed` | the job's workdir, the tree's `.git` (a symlink, or a gitfile naming an excluded place), its registration's repository, or borrowed objects in an excluded repository |
-| 6 | class | `_gates` via `retention_survey.job_info` | an issue other than the two classes, or no issue |
-| 7 | excluded, nested | `layout` (`exclude-nested`), `_gates` | a nested gitfile, registration or alternates naming an excluded repository; a tree the path cannot read whole |
+| 6 | excluded, nested | `layout` (`exclude-nested`), `_gates`, `GitReadGuard` | a nested gitfile, registration or alternates naming an excluded repository; unreadable or symlinked Git metadata; configuration outside the plain checked subset |
+| 7 | class | `_gates` via `retention_survey.job_info` | an issue other than the two classes, or no issue |
 | 8 | pins | `_pinned` | any pin the pass would honour; asked again before the rename and before the removal |
 | 9 | holders | `_holders` | a process with its working directory or a file open in the tree; asked again after the rename |
 | 10 | locks | `_gates` | a registration carrying git's `locked` |
 | 11 | outside | `_gates` | a repository inside registering a worktree outside; a repository borrowing objects from inside |
 | 12 | free space | `_gates` | `statvfs` free under `min_free_gb` |
 
-After gate 12, a root whose commits the path cannot keep (`plan.problems`)
-fails the job with gate `keep`, before anything moves.
+An exclusion input preflight precedes reused path helpers. The complete
+layout/configuration proof precedes classification because the survey invokes
+Git. A root whose commits the path cannot keep (`plan.problems`) fails the
+job with gate `keep`, before anything moves.
 
-The `Excluder` resolves every path the module reads one component at a time
-and refuses a component at or below an excluded root before it stats it.
-Apart from resolving each excluded path itself once per job, the path never
-stats, opens or lists anything at or below an excluded repository. For a tree whose
-top-level gitfile names one, the path reads only that gitfile.
+`Excluder` resolves pointers component by component and refuses an excluded
+component before it stats it. `GitReadGuard` checks local configuration and
+metadata before classification and every later Git command. It rejects
+includes, unknown configuration forms and metadata symlinks, and checks
+commondir/object/alternate storage before following it. Its command context
+suppresses ambient config and init templates for that caller/thread without
+changing the daemon environment. A tree whose top-level gitfile names an
+excluded repository is refused before the tree walk. Unresolved legacy
+dependency discovery keeps the candidate rather than dropping a possible pin.
+Persisted worktree, tombstone, registration and rollback data paths are
+resolved again before following them. The daemon's private state directory,
+request and journal control files remain trusted; this does not promise
+integrity against arbitrary same-user replacement of those control files.
 
 ## The commit-keeping rule
 
@@ -119,19 +153,32 @@ it (`_plan_keep`, `_keep`):
   reads each back. The journal records each ref before git creates it, and
   records the ref folders that git creates for it (`made_folders`).
 - **A repository inside the tree.** `repository_commits` collects what its
-  refs (`refs/stash` included), HEAD, reflogs and registrations name.
+  refs (`refs/stash` included), HEAD, reflogs and registrations name, plus
+  every available commit object, including unreachable/dangling commits.
   `_bundle` builds, in a scratch repository that borrows the repository's
-  objects (it writes nothing into the tree), a bundle of every commit that no
-  network remote holds, with the remotes' commits as prerequisites.
-  `rgit.verify_bundle` checks it (`git bundle verify`, its heads, `index-pack`
-  of its pack in a throwaway repository) before the bundle moves to
+  objects (it writes nothing into the tree), a bundle of the complete history
+  reached by all its tips, without remote prerequisites. Pseudo-ref collection
+  includes every entry of multi-value `MERGE_HEAD` and `FETCH_HEAD` files.
+  Local remote-tracking refs are not proof of a server's object possession.
+  `_verify_bundle` restores the bundle into an empty repository without
+  alternates, checks its heads, fetches with object checking and reads every
+  tip back before the bundle moves to
   `<state>/jobs/<job>/kept-commits/<n>.bundle` and the journal records `kept`.
 
-After the rename, `_after_rename` reads every root's commits again and fails
-the job if any changed since the path kept them. After the removal,
+A removable linked admin containing another Git root, or object storage
+outside the tree but below that admin, keeps the whole job when preservation
+cannot be proved. Unreadable or oversized admin records fail safe rather
+than silently omitting their commits.
+
+The journal saves the Git-root census and commits. `_after_rename` and the
+checks before the destructive state and its first unlink reject new/changed
+roots and commits absent from that census. Partial resume allows old roots
+already removed, but rejects new ones. After the removal,
 `_remove_admins` removes a registration only when its `gitdir` names a place in
 the removed tree, no other tree names it and nobody locked it. A registration
 naming a commit that no written ref holds gets a late ref and stays.
+The final admin census also retains a registration with a newly added nested
+Git root or object store before its removal.
 
 Defects the tests found here, all fixed in d4da08768:
 
@@ -156,7 +203,8 @@ before the leases, so the pass never takes the leases for a dead selection's.
   read, that no process holds it, and that the commits match. Pins come
   again, and the journal records `checked`.
 - **Removal.** At `removing` (`DESTRUCTIVE`), `remove_tree` removes the
-  tombstone by descriptor, never crossing a device.
+  tombstone through an anchored parent descriptor, bound to its saved
+  device/inode and rechecked during traversal, never crossing a device.
 - **Restart before `removing`.** `_resume` calls `_rollback`: it renames the
   tombstone back (it refuses if something occupies the original place), deletes the
   bundles, deletes each ref it wrote whose value it still holds, removes the
@@ -177,6 +225,14 @@ earlier one, so a restart never writes two. Defect found and fixed:
 `Store.add_event` adds an audit row of the same kind after the event, so the
 first build wrote two rows. `_record_event` now writes the row itself with
 the transaction's audit row off, as the daemon's hold writes do (mutant 17).
+Resume reuses an existing marker/event payload rather than recomputing its
+time/free-space readings after an event commit followed by a crash.
+
+The final census is an observation, not an OS lock against arbitrary external
+writers. History introduced after that check and before an unlink remains a
+concurrent-writer bound. The leases fence daemon admission; the implementation
+does not claim per-entry Git recensus or protection against every external
+write into the private tombstone.
 
 ## Invariants and their tests
 
@@ -206,7 +262,7 @@ both.
 The invariant 7 test records every stat, lstat, open, listdir and scandir
 that names an absolute path, and every git command. Descriptor-relative reads
 fall outside what it records. What keeps the tree's walk from happening is the
-gate order (gate 5 runs before the walk in gate 7), and mutant 2 shows the
+gate order (gate 5 runs before the walk in gate 6), and mutant 2 shows the
 difference: without gate 5's check, the path read 25 paths in the excluded
 repository.
 
@@ -230,8 +286,8 @@ a yes gets carried out".
 | A tree whose commits can't be kept stays whole | gate `keep` before anything moves; a bundle that fails verification fails the job before the rename | gates 5 to 12 (`g-symlink-root`: `keep`, `failed`, tree unchanged); `test_a_failure_on_one_job_fails_it_whole_and_the_run_goes_on` (mutant 6) |
 | An age gate | gate 3 | gates 1 to 4 (mutant 10) |
 | Through the daemon; nobody deletes in `~/.subfleet` by hand | the `retention.delete` op and the retention worker | the daemon tests; the CLI tests in the request file |
-| Each run re-reads every tree's state and class before it deletes | every gate reads just before its job's turn; gate 6 asks the survey | gates 5 to 12 (`g-plain`: `class`, "retention would retire it normally") |
-| Leaves out any tree whose gitfile names `~/PolicyEngine/microcosm` | gates 5 and 7 and the `Excluder`; the request's `exclude_repositories` | the invariant 7 tests; `test_covers_compares_folded_and_normalised_names_but_not_prefixes` and `test_an_excluder_spelling_through_a_link_also_excludes_the_real_place`, for the review notes' point that APFS ignores case and a gitfile may spell a relative or differently cased path |
+| Each run re-reads every tree's state and class before it deletes | every gate reads just before its job's turn; gate 7 asks the survey | gates 5 to 12 (`g-plain`: `class`, "retention would retire it normally") |
+| Leaves out any tree whose gitfile names `~/PolicyEngine/microcosm` | gates 5 and 6 and the `Excluder`; the request's `exclude_repositories` | the invariant 7 tests; `test_covers_compares_folded_and_normalised_names_but_not_prefixes` and `test_an_excluder_spelling_through_a_link_also_excludes_the_real_place`, for the review notes' point that APFS ignores case and a gitfile may spell a relative or differently cased path |
 | An independent Opus review | not yet | queued after this report |
 
 The real request (`~/reviews/subfleet-hub/d2660-delete-path/request.json`)

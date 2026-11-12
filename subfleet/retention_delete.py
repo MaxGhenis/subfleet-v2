@@ -13,7 +13,9 @@ inside the tree. The job's rows, its folder and its accepted outputs stay.
 `<state>/jobs/<job>/tree-deleted.json` marks the job, and the normal pass keeps
 a marked job for good (`retention_marks`).
 
-The gates, in order (`GATES`), each read just before that job's turn:
+The named gates (`GATES`) run for each job. Exclusion input checks precede
+helpers that resolve paths; the complete exclusion proof precedes Git-based
+classification:
 
 1. listed: the job is in the request;
 2. finished: a detached job (not a turn) in a terminal state, with no live
@@ -27,14 +29,15 @@ The gates, in order (`GATES`), each read just before that job's turn:
    top-level `.git` alone are read, and one whose registration, repository or
    borrowed objects lie under an `exclude_repositories` path puts the job out
    with nothing else in the tree read;
-6. class: the survey's own detection (`retention_survey.job_info`) still says
+6. excluded repositories, nested: no git root in the tree names one, and
+   plain local configuration and Git metadata pass the read boundary;
+7. class: the survey's own detection (`retention_survey.job_info`) still says
    `nested-linked-worktree` or `remote-less-history`;
-7. excluded repositories, nested: no git root in the tree names one;
-8. pins: `retention._pin_reasons(only=job)` with `hosted` from
-   `retention.nested_hosts`, then the reads `retention._Pass._start` makes in
+8. pins: `retention._pin_reasons(only=job)` with exclusion-aware registration
+   reads for hosted jobs, then the reads `retention._Pass._start` makes in
    its selecting transaction (turn rows on or inside the tree, jobs that need a
    place in it, `worktree:` leases inside it); retention's own fence for the
-   job is no pin;
+   job is no pin. Unresolved legacy dependency discovery keeps the candidate;
 9. holders: no process has its working directory in the tree (libproc) or a
    file open there (`lsof_holders`); a scan that fails skips the job this run;
 10. registration locks: no registration the tree holds carries git's `locked`;
@@ -51,10 +54,22 @@ keeping of commits and the removal run with the leases held under
 in the tree meanwhile (`folders.retiring`). Pins are asked again just before
 the rename and just before the removal.
 
-`Excluder` resolves every path this module reads component by component and
-refuses a component at or below an excluded root before it stats it, so
-nothing there is read or statted (invariant 7). Git itself still reads what a
-repository's own config includes; this module does not parse config.
+`Excluder` resolves filesystem pointers component by component and refuses an
+excluded component before it stats it. `GitReadGuard` admits only checked
+local configuration, rejects includes and metadata symlinks, and validates
+storage pointers before Git starts. A caller/thread-local command context
+suppresses ambient configuration and init templates without changing the
+daemon environment. Other retention callers keep their existing behavior.
+
+Every repository inside the tree gets a complete bundle restored into an
+empty repository; remote-tracking refs are not proof of remote possession.
+The journal saves the Git-root census and commits. Checks after the rename,
+before the destructive boundary and before its first unlink reject new roots
+or commits. Destructive resume permits old roots already removed, but rejects
+new ones and binds removal to the journal's directory identity. The final
+census is an observation, not an OS lock: a non-cooperating writer can still
+add history after that check. Leases fence daemon admission, not arbitrary
+external writes into the private tombstone.
 
 Every step from the leases to the end is journalled in
 `<state>/retention-delete/<job>/journal.json`, never under `<state>/retention/`,
@@ -91,11 +106,13 @@ from . import retention_fs as rfs
 from . import retention_git as rgit
 from . import retention_marks as marks
 from . import retention_survey as rsurvey
+from .retention_delete_guard import GitReadGuard, ISOLATED_CONFIG
 from .contracts import Exit
 from .protocol import ProtocolError
 from .retention_holders import ScanFailed, Watch, lsof_holders
 
 SCHEMA = 1
+JOURNAL_LIMIT = marks.RECORD_LIMIT
 #: A request names at most this many jobs (the CLI and the daemon refuse more).
 MAX_JOBS = 100
 #: The persisted apply request, beside the per-job journal folders. Its leading
@@ -118,7 +135,7 @@ GITFILE_LIMIT = 65536
 INDEPENDENT_CHUNK = 200
 #: A journal that could not be finished or rolled back is tried again after this long.
 RETRY_S = 3600.0
-GATES = ("listed", "finished", "age", "owned-path", "exclude-top", "class", "exclude-nested", "pins",
+GATES = ("listed", "finished", "age", "owned-path", "exclude-top", "exclude-nested", "class", "pins",
          "holders", "locks", "outside", "free-space")
 #: Where else a job can stop: a lease another holder has, or a git root whose
 #: commits this path cannot keep (the tree stays whole and the job fails).
@@ -253,7 +270,7 @@ class Excluder:
 
     `resolve` follows a path component by component and asks, before it
     stats each one, whether it is an excluded root or below one: nothing at or
-    below an excluded root is read or statted (C-8.7, gates 5 and 7, and
+    below an excluded root is read or statted (C-8.7, gates 5 and 6, and
     invariant 7). Resolving a root's own spelling, once, reads its ancestors
     and the root's own entry, never what is in it."""
 
@@ -518,7 +535,7 @@ class Outside:
 
 @dataclass
 class Inside:
-    """A repository inside the tree: a bundle keeps what no network remote holds."""
+    """A repository inside the tree: a self-contained bundle keeps every commit."""
     n: int
     common: str
     rels: list[str] = field(default_factory=list)
@@ -601,12 +618,19 @@ def _alternates(objects: str, excluder: Excluder, gate: str, problems: list[str]
 def layout(tree: Path, scan: TreeScan, excluder: Excluder) -> Layout:
     """What each root is and where its commits live, read without reading
     anything an excluded path names: a root naming one raises `_Gate` for gate
-    5 (the top-level `.git`) or 7. A root whose commits this path cannot keep
+    5 (the top-level `.git`) or 6. A root whose commits this path cannot keep
     is a problem. A gitfile naming a registration its repository has dropped,
     or another tree's registration, holds nothing of this tree's: a note."""
     tree_s = str(tree)
     out = Layout()
     inside: dict[str, Inside] = {}
+    guard = GitReadGuard(excluder)
+
+    def checked_repository(path: str, gate: str) -> None:
+        try:
+            guard.repository(Path(path))
+        except (rgit.GitError, OSError) as exc:
+            raise _Gate(gate, str(exc)) from exc
 
     def add_inside(n: int, common: str, rel: str) -> None:
         repo = inside.setdefault(_key(common), Inside(n, os.path.normpath(common)))
@@ -616,7 +640,11 @@ def layout(tree: Path, scan: TreeScan, excluder: Excluder) -> Layout:
         entry = os.path.join(tree_s, root.rel)
         holder = os.path.dirname(entry)
         gate = "exclude-top" if root.rel.lower() == ".git" else "exclude-nested"
+        resolved, why = excluder.resolve(entry, "/")
+        if resolved is None:
+            raise _Gate(gate, f"{root.rel}: {why}")
         if root.kind == "gitdir":
+            checked_repository(entry, gate)
             if os.path.lexists(os.path.join(entry, "commondir")):
                 out.problems.append(f"{root.rel} is a git directory with a commondir")
                 continue
@@ -656,6 +684,7 @@ def layout(tree: Path, scan: TreeScan, excluder: Excluder) -> Layout:
         if not stat.S_ISDIR(st.st_mode):
             out.problems.append(f"{root.rel} names {admin}, which is not a directory")
             continue
+        checked_repository(admin, gate)
         try:
             text = _text(os.path.join(admin, "commondir"))
         except OSError as exc:
@@ -710,6 +739,7 @@ def layout(tree: Path, scan: TreeScan, excluder: Excluder) -> Layout:
             if any(_inside(where, tree_s) for where in lent):
                 out.borrowers.append(common)
     for repo in sorted(inside.values(), key=lambda r: r.n):
+        checked_repository(repo.common, "exclude-nested")
         worktrees = os.path.join(repo.common, "worktrees")
         try:
             names = sorted(os.listdir(worktrees), key=os.fsencode)
@@ -761,21 +791,41 @@ def admin_commits(admin: Path, fmt: str, cancel: threading.Event | None = None) 
     commits = set(objects["commit"])
     if objects["tag"]:
         commits |= rgit.peel_tags(admin, objects["tag"], cancel=cancel)["commit"]
+    commits |= _typed_commits(admin, _pseudo_refs(admin, fmt, cancel), cancel)
     return commits
 
 
-def _pseudo_refs(git_dir: Path, cancel: threading.Event | None) -> set[str]:
+def _pseudo_refs(git_dir: Path, fmt: str, cancel: threading.Event | None) -> set[str]:
+    """Resolve symbolic refs and collect every entry of multi-value pseudo-refs.
+
+    `rev-parse --verify` reads only the first MERGE_HEAD or FETCH_HEAD entry.
+    Every valid object id in those files' first fields matters, including an
+    orphan commit that no ordinary ref or reflog names. An unreadable or
+    oversized metadata file refuses the job rather than omitting its entries.
+    """
     found: set[str] = set()
+    oid_length = 40 if fmt == "sha1" else 64
     for name in rgit.PSEUDO_REFS:
         out = rgit.run(["rev-parse", "--verify", "--quiet", name], git_dir=git_dir, ok=(0, 1),
                        cancel=cancel).stdout.decode().strip()
         if out:
             found.add(out)
+        try:
+            data = rfs.read_regular(git_dir / name, limit=16 << 20)
+        except FileNotFoundError:
+            continue
+        for line in data.splitlines():
+            fields = line.split(None, 1)
+            if fields:
+                oid = fields[0].lower()
+                if len(oid) == oid_length and all(c in b"0123456789abcdef" for c in oid) and any(c != 48 for c in oid):
+                    found.add(oid.decode("ascii"))
     return found
 
 
 def repository_commits(common: Path, fmt: str, cancel: threading.Event | None = None) -> set[str]:
-    """Every commit a repository's own records name: every ref (branches,
+    """Every available commit object, plus what the repository's records name:
+    dangling commits without any ref or reflog, every ref (branches,
     tags, `refs/stash`, notes, remote-tracking refs), the main worktree's HEAD,
     pseudo-refs and per-worktree refs, every reflog of every worktree
     (`rev-list --reflog`), and each linked worktree's admin directory
@@ -783,7 +833,7 @@ def repository_commits(common: Path, fmt: str, cancel: threading.Event | None = 
     tokens = _split(rgit.run(["for-each-ref", "--format=%(objectname)"], git_dir=common, cancel=cancel).stdout)
     tokens |= _split(rgit.run(["for-each-ref", "--format=%(objectname)", *rgit.WORKTREE_REF_PREFIXES],
                               git_dir=common, ok=(0, 1), cancel=cancel).stdout)
-    tokens |= _pseudo_refs(common, cancel)
+    tokens |= _pseudo_refs(common, fmt, cancel)
     # With no reflog at all rev-list has no revision to list: it prints its usage and exits 129.
     reflog = rgit.run(["rev-list", "--no-walk", "--ignore-missing", "--reflog"], git_dir=common, ok=(0, 129),
                       timeout=600, cancel=cancel)
@@ -792,6 +842,19 @@ def repository_commits(common: Path, fmt: str, cancel: threading.Event | None = 
     elif reflog.stdout.strip():
         raise rgit.GitError("git rev-list --reflog failed")
     commits = _typed_commits(common, tokens, cancel)
+    objects = rgit.run(["cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)"],
+                       git_dir=common, timeout=3600, cancel=cancel).stdout
+    oid_length = 40 if fmt == "sha1" else 64
+    for line in objects.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            raise rgit.GitError("the complete object census returned a malformed record")
+        oid, kind = fields
+        if len(oid) != oid_length or any(c not in b"0123456789abcdef" for c in oid) or \
+                kind not in {b"commit", b"tree", b"blob", b"tag"}:
+            raise rgit.GitError("the complete object census returned an invalid object")
+        if kind == b"commit":
+            commits.add(oid.decode("ascii"))
     worktrees = common / "worktrees"
     try:
         names = sorted(os.listdir(worktrees), key=os.fsencode)
@@ -1122,12 +1185,30 @@ class DeletePath:
     # --- one job --------------------------------------------------------------------
 
     def _one(self, request: Request, job_id: str, *, dry: bool, run: int) -> dict[str, Any] | None:
+        excluder = Excluder(request.exclude_repositories)
+        guard = GitReadGuard(excluder)
+        with rgit.command_guard(guard, env=ISOLATED_CONFIG, cwd=self.root):
+            return self._one_guarded(request, job_id, dry=dry, run=run, excluder=excluder, guard=guard)
+
+    def _one_guarded(self, request: Request, job_id: str, *, dry: bool, run: int,
+                     excluder: Excluder, guard: GitReadGuard) -> dict[str, Any] | None:
         result: dict[str, Any] = {"job_id": job_id, "run": run, "started_at": _utc(self.now()), "gate": None,
                                   "reason": None, "class": None, "roots": [], "keep": {"refs": [], "bundles": []}}
-        excluder = Excluder(request.exclude_repositories)
         holder = f"retention:{job_id}"
         journal: dict[str, Any] | None = None
         try:
+            # Reused ownership/survey helpers resolve paths themselves. Prove
+            # their input spellings before letting them perform those reads.
+            row = self.store.get_job(job_id)
+            if row is not None:
+                for name, value in (("worktree", row["worktree"] or str(self.root / "worktrees" / job_id)),
+                                    ("workdir", row["workdir"])):
+                    if isinstance(value, str) and value:
+                        where, why = excluder.resolve(value, "/")
+                        if where is None:
+                            raise _Gate("exclude-top", f"{name}: {why}")
+            if any(_inside(root, str(self.root)) or _inside(str(self.root), root) for root in excluder.roots):
+                raise _Gate("exclude-top", "an excluded repository intersects the state root")
             job, tree, folder = self._first_gates(request, job_id)
             keys = [f"retire:{job_id}", folders.exclusive_key(folder)]
             if dry:
@@ -1139,7 +1220,7 @@ class DeletePath:
                 job, again, folder_again = self._first_gates(request, job_id, own_journal=True)
                 if again != tree or folder_again != folder:
                     raise _Gate("owned-path", "the job's tree changed while its leases were taken")
-            plan = self._gates(request, job, tree, folder, excluder, result)
+            plan = self._gates(request, job, tree, folder, excluder, result, guard=guard)
             if dry:
                 result.update(disposition="would-delete", ended_at=_utc(self.now()))
                 return result
@@ -1290,22 +1371,13 @@ class DeletePath:
     # gates 5 to 12 -----------------------------------------------------------------
 
     def _gates(self, request: Request, job: dict[str, Any], tree: Path, folder: str, excluder: Excluder,
-               result: dict[str, Any]) -> dict[str, Any]:
+               result: dict[str, Any], *, guard: GitReadGuard) -> dict[str, Any]:
         job_id = job["job_id"]
         self._check()
         top_digest = self._top(job, tree, excluder)
         self._check()
-        # 6. Still the class the survey found, by its own detection.
-        info = rsurvey.job_info(job, self.root, pin=None, kept=None, journal=None,
-                                salvage_refs=self._salvage_refs(job_id), cache={},
-                                remote_less=self.remote_less, live=self._live_trees(excluder),
-                                known=lambda: [], sizes=True)
-        issue = info.get("issue")
-        result["class"] = issue
-        if not issue or not str(issue).startswith(CLASSES):
-            raise _Gate("class", "retention would retire it normally" if not issue
-                        else f"retention keeps it for another reason: {issue}")
-        # 7. Nothing nested names an excluded repository.
+        # Read the entire exclusion/layout proof before classification: the
+        # survey invokes Git, and Git reads configuration during startup.
         self._check()
         try:
             scan = scan_tree(tree, self._check)
@@ -1316,6 +1388,24 @@ class DeletePath:
         if seen != top_digest:
             raise _Gate("exclude-top", "the tree's .git changed after it was read")
         plan = layout(tree, scan, excluder)
+        if plan.problems:
+            raise _Gate("keep", plan.problems[0], disposition="failed")
+        try:
+            for repository in [*(o.common for o in plan.outside), *(o.git_dir for o in plan.outside),
+                               *(i.common for i in plan.inside)]:
+                guard.repository(Path(repository))
+        except (rgit.GitError, OSError) as exc:
+            raise _Gate("exclude-nested", str(exc)) from exc
+        # 7. Still the class the survey found, by its own detection.
+        info = rsurvey.job_info(job, self.root, pin=None, kept=None, journal=None,
+                                salvage_refs=self._salvage_refs(job_id), cache={},
+                                remote_less=self.remote_less, live=self._live_trees(excluder),
+                                known=lambda: [], sizes=True)
+        issue = info.get("issue")
+        result["class"] = issue
+        if not issue or not str(issue).startswith(CLASSES):
+            raise _Gate("class", "retention would retire it normally" if not issue
+                        else f"retention keeps it for another reason: {issue}")
         result["roots"] = plan.roots()
         result["notes"] = plan.notes
         result["bytes"] = {"logical_bytes": scan.logical, "allocated_bytes": scan.allocated, "entries": scan.entries}
@@ -1446,8 +1536,15 @@ class DeletePath:
         reading it there would enter an excluded place (or could not be
         resolved without risking it); the place is then spelled as recorded."""
         workdir = job.get("workdir")
-        if isinstance(workdir, str) and workdir and excluder.covers(workdir):
-            return os.path.normpath(workdir), True
+        if isinstance(workdir, str) and workdir:
+            where, _ = excluder.resolve(workdir, "/")
+            if where is None:
+                return os.path.normpath(workdir), True
+        candidate = job.get("worktree") or str(self.root / "worktrees" / job["job_id"])
+        if isinstance(candidate, str):
+            where, _ = excluder.resolve(candidate, "/")
+            if where is None:
+                return os.path.normpath(candidate), True
         try:
             tree = ret._owned_worktree(job, self.root)
         except ValueError:
@@ -1476,20 +1573,24 @@ class DeletePath:
         whose registration or workdir lies in an excluded repository, whose
         gitfiles `nested_hosts` would resolve there. One of those counts as
         hosted by this tree when the place it names lies inside it."""
-        passed: list[dict[str, Any]] = []
         guests: set[str] = set()
         for row in self.store.list_jobs():
             job = dict(row)
             place, excluded = self._registration(job, excluder)
-            if not excluded:
-                passed.append(job)
-            elif place is not None and job["job_id"] != job_id and _inside(place, str(tree)):
+            if place is not None and job["job_id"] != job_id and _inside(place, str(tree)):
                 guests.add(job["job_id"])
-        guests |= set(ret.nested_hosts(passed, self.root).get(job_id) or ())
+            elif excluded and place is None:
+                raise _Gate("pins", "a hosted job's registration could not be checked without excluded reads")
         return {job_id: guests} if guests else {}
 
     def _pinned(self, job_id: str, folder: str, hosted: dict[str, set[str]]) -> str | None:
-        legacy = dependencies.legacy(self.store.query)
+        # Preserve the normal legacy census, after proving every Python read
+        # against the same exclusion boundary as the Git commands.
+        guard = rgit.active_command_guard()
+        try:
+            legacy = guard.legacy(self.store.query) if guard is not None else dependencies.legacy(self.store.query)
+        except (rgit.GitError, OSError) as exc:
+            return f"dependency-incomplete: {exc}"
         reason = ret._pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
                                   only=job_id, hosted=hosted, root=self.root, legacy=legacy).get(job_id)
         if reason is not None:
@@ -1525,6 +1626,20 @@ class DeletePath:
     # what is kept -------------------------------------------------------------------
 
     def _plan_keep(self, plan: Layout) -> dict[str, Any]:
+        admins = [root.git_dir for root in plan.outside if root.linked]
+        for root in plan.outside:
+            if any(_inside(root.common, admin) or
+                   (not root.linked and _inside(root.git_dir, admin)) for admin in admins):
+                raise _Gate("keep", "a Git store lies inside a registration that removal would reclaim",
+                            disposition="failed")
+        for admin in admins:
+            rgit.check_read(git_dir=Path(admin))
+            # Submodule stores can belong to a linked registration even when
+            # no current worktree gitfile names them. Keeping only the outer
+            # registration's commits does not preserve those repositories.
+            if scan_tree(Path(admin), self._check).roots:
+                raise _Gate("keep", "a registration contains nested Git storage whose commits are not kept",
+                            disposition="failed")
         outside = []
         for root in plan.outside:
             if not root.linked:
@@ -1543,13 +1658,12 @@ class DeletePath:
             fmt = rgit.object_format(common, cancel=self.cancel)
             commits = repository_commits(common, fmt, cancel=self.cancel)
             tips = independent(common, commits, cancel=self.cancel)
-            remotes = rgit.network_remotes(common, cancel=self.cancel)
-            held = rgit.held_arguments(remotes)
-            unheld = [tip for tip in tips if not rgit.held_commit(common, tip, held, cancel=self.cancel)]
+            # A remote-tracking ref is only a local claim. Once this repository
+            # goes, no surviving object store is proved to hold that history.
+            # Keep every tip locally, without remote prerequisites.
             inside.append({"n": repo.n, "rels": repo.rels, "common": repo.common, "fmt": fmt,
-                           "commits_digest": _digest(commits), "tips": tips, "unheld": unheld,
-                           "held": held_objects(common, remotes, self.cancel) if unheld else [],
-                           "remotes": sorted(remotes)})
+                           "commits_digest": _digest(commits), "commits": sorted(commits), "tips": tips, "unheld": tips,
+                           "held": [], "remotes": []})
         return {"outside": outside, "inside": inside}
 
     # the deletion --------------------------------------------------------------------
@@ -1581,8 +1695,13 @@ class DeletePath:
         return journal
 
     def _saved(self, journal: dict[str, Any], state: str, **changes: Any) -> None:
-        journal.update(changes, state=state, updated_at=_utc(self.now()))
-        rfs.write_atomic(self._journal_dir(journal["job_id"]) / marks.JOURNAL, _canonical(journal))
+        updated = {**journal, **changes, "state": state, "updated_at": _utc(self.now())}
+        payload = _canonical(updated)
+        if len(payload) > JOURNAL_LIMIT:
+            raise OSError(errno.EFBIG, "the deletion journal exceeds its readable bound", journal["job_id"])
+        rfs.write_atomic(self._journal_dir(journal["job_id"]) / marks.JOURNAL, payload)
+        journal.clear()
+        journal.update(updated)
         with self.lock:
             self.journals.add(journal["job_id"])
         self._hook(journal["job_id"], state)
@@ -1623,7 +1742,13 @@ class DeletePath:
         and drop the journal. Only putting the tree back must succeed."""
         job_id = journal["job_id"]
         tombstone, original = Path(journal["tombstone"]), Path(journal["worktree"])
+        excluder = self._journal_excluder(journal)
+        for path in (tombstone, original):
+            self._checked_path(path, excluder)
         if os.path.lexists(tombstone):
+            st = os.lstat(tombstone)
+            if not stat.S_ISDIR(st.st_mode) or [st.st_dev, st.st_ino] != journal.get("identity"):
+                raise OSError(errno.ESTALE, "the rollback tombstone is not the journal's directory", str(tombstone))
             if os.path.lexists(original):
                 raise OSError(errno.EEXIST, "the tree's place is taken; the tombstone stays", str(original))
             os.rename(tombstone, original)
@@ -1632,6 +1757,7 @@ class DeletePath:
         notes: list[str] = []
         for path in [*(journal.get("tmp_bundles") or ()), *(journal.get("bundle_paths") or ())]:
             try:
+                self._checked_path(path, excluder)
                 os.unlink(path)
             except FileNotFoundError:
                 pass
@@ -1653,6 +1779,7 @@ class DeletePath:
         # empty folders when it deletes the ref, but never `refs/<namespace>`.
         for folder in reversed(journal.get("made_folders") or ()):
             try:
+                self._checked_path(folder, excluder)
                 os.rmdir(folder)
             except OSError:
                 pass
@@ -1671,9 +1798,11 @@ class DeletePath:
         admins = [{"admin": o["git_dir"], "common": o["common"], "n": o["n"], "rel": o["rel"]}
                   for o in plan["keep"]["outside"]]
         self._saved(journal, "kept", kept=kept, admins=admins,
-                    plan={"outside": [{k: o[k] for k in ("n", "rel", "common", "git_dir", "fmt", "tips")}
+                    git_roots=[{"rel": root.rel, "kind": root.kind,
+                                "digest": hashlib.sha256(root.data).hexdigest()} for root in scan.roots],
+                    plan={"outside": [{k: o[k] for k in ("n", "rel", "common", "git_dir", "fmt", "tips", "commits")}
                                       for o in plan["keep"]["outside"]],
-                          "inside": [{k: b[k] for k in ("n", "rels", "common", "fmt", "commits_digest")}
+                          "inside": [{k: b[k] for k in ("n", "rels", "common", "fmt", "commits_digest", "commits")}
                                      for b in plan["keep"]["inside"]]})
         result["keep"] = kept
         self._check()
@@ -1696,8 +1825,12 @@ class DeletePath:
         if why is not None:
             raise _Gate("pins", f"{why} (asked again before the removal)")
         self._saved(journal, "checked")
+        # A hook, pin refresh or an outside writer may have changed the tree
+        # since its first post-rename check. Repeat the Git census immediately
+        # before handing the directory to the destructive step.
+        self._check_remaining_tree(journal, tombstone, partial=False)
         self._saved(journal, DESTRUCTIVE)
-        return self._finish_deletion(journal, result)
+        return self._finish_deletion(journal, result, fresh=True)
 
     def _keep(self, journal: dict[str, Any], job_id: str, keep: dict[str, Any]) -> dict[str, Any]:
         """Write and read back the refs, then make and verify the bundles; all of
@@ -1714,7 +1847,7 @@ class DeletePath:
         bundles: list[dict[str, Any]] = []
         for repo in keep["inside"]:
             self._check()
-            if repo["unheld"]:
+            if repo["tips"]:
                 bundles.append(self._bundle(journal, job_id, repo))
         return {"refs": refs, "bundles": bundles}
 
@@ -1748,11 +1881,28 @@ class DeletePath:
                             **({"late": True} if late else {})})
         return written
 
+    def _verify_bundle(self, path: Path, expected: dict[str, str], fmt: str, verify: Path) -> None:
+        """Restore and check the retained bundle without any source object store."""
+        rfs.remove_own_tree(verify)
+        rgit.run(["init", "--quiet", "--bare", f"--object-format={fmt}", str(verify)],
+                 timeout=120, cancel=self.cancel)
+        rgit.run(["bundle", "verify", "--quiet", str(path)], git_dir=verify,
+                 timeout=3600, cancel=self.cancel)
+        if rgit.bundle_heads(path, cancel=self.cancel) != expected:
+            raise rgit.GitError("the self-contained bundle's heads do not match its planned tips")
+        rgit.run(["-c", "fetch.fsckObjects=true", "fetch", "--quiet", "--no-tags", str(path),
+                  "+refs/kept/*:refs/kept/*"], git_dir=verify, timeout=3600, cancel=self.cancel)
+        for ref, tip in expected.items():
+            if rgit.resolve(verify, ref, cancel=self.cancel) != tip:
+                raise rgit.GitError(f"the restored bundle lacks {ref} at {tip}")
+
     def _bundle(self, journal: dict[str, Any], job_id: str, repo: dict[str, Any]) -> dict[str, Any]:
-        """A bundle of every commit the repository's tips reach that no network
-        remote holds, made from a scratch repository that borrows the
-        repository's objects (nothing is written into the tree), verified by
-        `rgit.verify_bundle`, then moved into `<state>/jobs/<job>/kept-commits/`."""
+        """Keep the complete history in a bundle restored into an empty repository.
+
+        Only the builder borrows the source's objects. Verification has no
+        alternates or source dependency, so missing shallow/partial-clone
+        objects or bundle prerequisites refuse deletion while the tree is whole.
+        """
         work = self._journal_dir(job_id)
         n = repo["n"]
         scratch = work / f"bundle-{n}.git"
@@ -1764,9 +1914,8 @@ class DeletePath:
             objects = os.path.realpath(os.path.join(repo["common"], "objects"))
             (scratch / "objects" / "info").mkdir(parents=True, exist_ok=True)
             (scratch / "objects" / "info" / "alternates").write_text(objects + "\n")
-            expected = {f"refs/kept/{i}": tip for i, tip in enumerate(repo["unheld"])}
+            expected = {f"refs/kept/{i}": tip for i, tip in enumerate(repo["tips"])}
             updates = [f"create {ref} {tip}\n" for ref, tip in expected.items()]
-            updates += [f"create refs/held/{j} {oid}\n" for j, oid in enumerate(repo["held"])]
             rgit.run(["update-ref", "--stdin"], git_dir=scratch, stdin="".join(updates).encode(), timeout=600,
                      cancel=self.cancel)
             folder = self.root / "jobs" / job_id / "kept-commits"
@@ -1783,9 +1932,8 @@ class DeletePath:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
-            rgit.create_bundle(scratch, temporary, sorted(expected), ["--glob=refs/held/*"] if repo["held"] else [],
-                               cancel=self.cancel)
-            rgit.verify_bundle(scratch, temporary, expected, repo["fmt"], verify, cancel=self.cancel)
+            rgit.create_bundle(scratch, temporary, sorted(expected), [], cancel=self.cancel)
+            self._verify_bundle(temporary, expected, repo["fmt"], verify)
             os.replace(temporary, final)
             rfs.sync_path(folder)
             journal["tmp_bundles"].remove(str(temporary))
@@ -1816,6 +1964,7 @@ class DeletePath:
             if top_st is not None and stat.S_ISREG(top_st.st_mode) else None
         if digest != plan["top_digest"]:
             raise _Gate("exclude-top", "the tree's .git changed after it was read")
+        self._check_remaining_tree(journal, tombstone, partial=False)
         self._holders(job_id, [str(tombstone), str(tree), journal["folder"]], plan["scan"].identity)
         for root in plan["keep"]["outside"]:
             self._check()
@@ -1829,14 +1978,78 @@ class DeletePath:
             if _digest(repository_commits(moved, repo["fmt"], cancel=self.cancel)) != repo["commits_digest"]:
                 raise _Gate("keep", f"{repo['common']} changed after its commits were kept", disposition="failed")
 
-    def _finish_deletion(self, journal: dict[str, Any], result: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _check_remaining_tree(self, journal: dict[str, Any], tombstone: Path, *, partial: bool) -> None:
+        """Reject a replacement, a new Git root, or a commit absent from the
+        saved census. A resumed deletion may have removed old roots, but it
+        must never consume a new one just because it occupies the same tree.
+        """
+        scan = scan_tree(tombstone, self._check)
+        if list(scan.identity) != journal.get("identity"):
+            raise OSError(errno.ESTALE, "the tombstone is not the directory this journal names", str(tombstone))
+        expected = journal.get("git_roots")
+        if not isinstance(expected, list):
+            raise OSError(errno.EINVAL, "the journal has no saved Git-root census", str(tombstone))
+        original = {root["rel"]: (root["kind"], root["digest"]) for root in expected}
+        current = {root.rel: (root.kind, hashlib.sha256(root.data).hexdigest()) for root in scan.roots}
+        if any(original.get(rel) != value for rel, value in current.items()) or (not partial and current != original):
+            raise _Gate("keep", "Git roots changed after their commits were kept", disposition="failed")
+        plan = journal.get("plan") or {}
+        for root in plan.get("outside") or ():
+            if root["rel"] not in current:
+                continue
+            now = admin_commits(Path(root["git_dir"]), root["fmt"], cancel=self.cancel)
+            if now - set(root["commits"]):
+                raise _Gate("keep", "a registration names commits absent from the saved census", disposition="failed")
+        source = str(journal["worktree"])
+        for repo in plan.get("inside") or ():
+            if not any(rel in current for rel in repo["rels"]):
+                continue
+            moved = Path(str(tombstone) + repo["common"][len(source):])
+            if partial and not _is_git_dir(str(moved)):
+                continue  # its old metadata was already removed; its commits are kept
+            now = repository_commits(moved, repo["fmt"], cancel=self.cancel)
+            if now - set(repo["commits"]):
+                raise _Gate("keep", "a repository names commits absent from the saved census", disposition="failed")
+
+    def _finish_deletion(self, journal: dict[str, Any], result: dict[str, Any] | None = None, *,
+                         fresh: bool = False) -> dict[str, Any]:
         """From `removing` on: remove the tombstone and the admin directories,
         write the marker and the event, release the leases, drop the journal."""
         job_id = journal["job_id"]
         state = journal["state"]
         tombstone = Path(journal["tombstone"])
         if state == DESTRUCTIVE:
-            removed = remove_tree(tombstone, check=lambda: self._hook(job_id, "removing-entry"))
+            try:
+                if os.path.lexists(tombstone):
+                    self._check_remaining_tree(journal, tombstone, partial=not fresh)
+            except (_Gate, OSError, rfs.TreeError, rgit.GitError):
+                if fresh:
+                    # This invocation has not removed an entry. Keep that fact
+                    # durable so a failed final check can put the whole tree back.
+                    self._saved(journal, "checked")
+                raise
+            identity = journal.get("identity")
+            if not isinstance(identity, list) or len(identity) != 2 or any(type(n) is not int for n in identity):
+                raise OSError(errno.EINVAL, "the journal has no valid directory identity", str(tombstone))
+            started = False
+
+            def before_entry() -> None:
+                nonlocal started
+                self._hook(job_id, "removing-entry")
+                if not started:
+                    # This is the last census, after the first progress hook
+                    # and before the first unlink. Later concurrent writes
+                    # into the private tombstone remain the documented race
+                    # accepted by d635; the leases prevent daemon admission.
+                    self._check_remaining_tree(journal, tombstone, partial=not fresh)
+                    started = True
+
+            try:
+                removed = remove_tree(tombstone, check=before_entry, identity=tuple(identity))
+            except (_Gate, OSError, rfs.TreeError, rgit.GitError):
+                if fresh and not started:
+                    self._saved(journal, "checked")
+                raise
             rfs.sync_path(tombstone.parent)
             self._saved(journal, "removed", removed_entries=removed)
             state = "removed"
@@ -1847,7 +2060,17 @@ class DeletePath:
             self._saved(journal, "marking")
             state = "marking"
         if state == "marking":
-            marker = self._marker(journal)
+            # Either an earlier marker write or the event transaction may
+            # have completed before the daemon stopped. Reuse those exact
+            # facts rather than recomputing the time/free-space readings.
+            previous = self.store.one("SELECT data_json FROM events WHERE kind=? AND job_id=? ORDER BY event_id LIMIT 1",
+                                      (EVENT, job_id))
+            marker = json.loads(previous["data_json"]) if previous is not None else marks.marker(self.root, job_id)
+            if marker is None:
+                marker = self._marker(journal)
+            elif (marker.get("schema"), marker.get("job_id"), marker.get("ruling"), marker.get("request_digest")) != (
+                    SCHEMA, job_id, journal["ruling"], journal.get("digest")):
+                raise OSError(errno.EINVAL, "an existing marker/event does not match this journal", job_id)
             rfs.write_atomic(marks.marker_path(self.root, job_id), _canonical(marker))
             self._hook(job_id, "marker-written")
             self._record_event(job_id, marker)
@@ -1875,7 +2098,10 @@ class DeletePath:
         row of the same kind after it."""
         with self.store.transaction(EVENT, job_id=job_id) as tx:
             self.store.audit_as(None)
-            if tx.execute("SELECT 1 FROM events WHERE kind=? AND job_id=? LIMIT 1", (EVENT, job_id)).fetchone():
+            previous = tx.execute("SELECT data_json FROM events WHERE kind=? AND job_id=? LIMIT 1", (EVENT, job_id)).fetchone()
+            if previous is not None:
+                if json.loads(previous["data_json"]) != marker:
+                    raise OSError(errno.EINVAL, "the event and marker have different facts", job_id)
                 return
             tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                        (_utc(self.now()), EVENT, job_id, None, None,
@@ -1905,7 +2131,7 @@ class DeletePath:
         for them and stays; the rest are removed."""
         job_id = journal["job_id"]
         original = journal["worktree"]
-        excluder = Excluder(journal.get("exclude_repositories") or ())
+        excluder = self._journal_excluder(journal)
         plan = {o["n"]: o for o in (journal.get("plan") or {}).get("outside") or ()}
         kept_refs = (journal.get("kept") or {}).get("refs") or ()
         removed: list[str] = []
@@ -1914,10 +2140,16 @@ class DeletePath:
         for item in journal.get("admins") or ():
             admin = item["admin"]
             try:
-                if not stat.S_ISDIR(os.lstat(admin).st_mode):
+                self._checked_path(admin, excluder)
+                rgit.check_read(git_dir=Path(admin))
+                inspected = os.lstat(admin)
+                if not stat.S_ISDIR(inspected.st_mode):
                     kept.append({"admin": admin, "why": "not a directory"})
                     continue
             except FileNotFoundError:
+                continue
+            except (OSError, rgit.GitError) as exc:
+                kept.append({"admin": admin, "why": f"its path cannot be checked ({type(exc).__name__})"})
                 continue
             try:
                 back = _text(os.path.join(admin, "gitdir"))
@@ -1953,7 +2185,27 @@ class DeletePath:
             if new:
                 kept.append({"admin": admin, "why": "it names commits made after they were kept: refs keep them"})
                 continue
-            remove_tree(Path(admin))
+            try:
+                rgit.check_read(git_dir=Path(admin))
+                nested = scan_tree(Path(admin), self._check).roots
+            except (OSError, rfs.TreeError, rgit.GitError) as exc:
+                kept.append({"admin": admin, "why": f"its remaining storage could not be checked ({type(exc).__name__})"})
+                continue
+            if nested:
+                kept.append({"admin": admin, "why": "it contains nested Git storage"})
+                continue
+            try:
+                remove_tree(Path(admin), identity=(inspected.st_dev, inspected.st_ino))
+            except OSError as exc:
+                if exc.errno != errno.ESTALE:
+                    raise
+                kept.append({"admin": admin, "why": "its directory changed after it was inspected"})
+                continue
+            except rfs.TreeError as exc:
+                if exc.reason != "swapped":
+                    raise
+                kept.append({"admin": admin, "why": "its directory changed while it was opened"})
+                continue
             rfs.sync_path(Path(admin).parent)
             removed.append(admin)
         return {"removed": removed, "kept": kept, "late_refs": late}
@@ -1962,23 +2214,45 @@ class DeletePath:
         """A tree that names `admin` again (`Retirement._claimed`): at the tree's
         original path, moved aside beside it (`tree_away`), or where the
         registration's backlink says it is."""
+        try:
+            self._checked_path(original, excluder)
+        except OSError:
+            return original  # An unresolved replacement remains a possible claim.
         away = rarch.tree_away(Path(original))
         for place in (original, str(away) if away is not None else None, os.path.dirname(where)):
             if place is None:
                 continue
             try:
-                data = _read_small(os.path.join(place, ".git"))
+                self._checked_path(os.path.join(place, ".git"), excluder)
             except OSError:
+                return place
+            try:
+                data = _read_small(os.path.join(place, ".git"))
+            except FileNotFoundError:
                 continue
+            except OSError:
+                return place
             target = _gitdir_text(data)
             if target is None:
                 continue
             named, _ = excluder.resolve(target, place)
-            if named is not None and _same(named, admin):
+            if named is None or _same(named, admin):
                 return place
         return None
 
     # resume ----------------------------------------------------------------------------
+
+    def _journal_excluder(self, journal: dict[str, Any]) -> Excluder:
+        active = rgit.active_command_guard()
+        return active.excluder if isinstance(active, GitReadGuard) else Excluder(
+            journal.get("exclude_repositories") or ())
+
+    @staticmethod
+    def _checked_path(path: str | Path, excluder: Excluder) -> str:
+        where, why = excluder.resolve(os.fspath(path), "/")
+        if where is None:
+            raise OSError(errno.EACCES, f"excluded or unresolved path: {why}", os.fspath(path))
+        return where
 
     def _resume(self, job_id: str) -> dict[str, Any]:
         """What a killed daemon left of one job: before `removing`, the tree goes
@@ -1986,7 +2260,7 @@ class DeletePath:
         the deletion is finished."""
         path = self._journal_dir(job_id) / marks.JOURNAL
         try:
-            journal = json.loads(rfs.read_regular(path, limit=16 << 20))
+            journal = json.loads(rfs.read_regular(path, limit=JOURNAL_LIMIT))
         except FileNotFoundError:
             with self.lock:
                 self.journals.discard(job_id)
@@ -1998,6 +2272,18 @@ class DeletePath:
                 or journal.get("state") not in STATES:
             self.retry_at[job_id] = self.clock() + RETRY_S
             return {"error": "journal is not one this path wrote"}
+        guard = GitReadGuard(Excluder(journal.get("exclude_repositories") or ()))
+        with rgit.command_guard(guard, env=ISOLATED_CONFIG, cwd=self.root):
+            return self._resume_guarded(job_id, journal)
+
+    def _resume_guarded(self, job_id: str, journal: dict[str, Any]) -> dict[str, Any]:
+        excluder = self._journal_excluder(journal)
+        try:
+            for field in ("worktree", "tombstone"):
+                self._checked_path(journal[field], excluder)
+        except OSError as exc:
+            self.retry_at[job_id] = self.clock() + RETRY_S
+            return {"error": f"resume path: {type(exc).__name__}"}
         state = journal["state"]
         if _before_destructive(journal):
             try:
@@ -2009,7 +2295,7 @@ class DeletePath:
             return {"rolled_back": state, **({"notes": rolled["notes"]} if rolled.get("notes") else {})}
         try:
             result = self._finish_deletion(journal)
-        except (OSError, rgit.GitError) as exc:
+        except (OSError, rgit.GitError, rfs.TreeError, _Gate) as exc:
             self.retry_at[job_id] = self.clock() + RETRY_S
             return {"error": f"finish: {type(exc).__name__}: {exc}"[:300], "state": journal.get("state")}
         self._resumed(job_id, result)
@@ -2086,20 +2372,35 @@ def _before_destructive(journal: dict[str, Any]) -> bool:
     return state is None or STATES.index(state) < STATES.index(DESTRUCTIVE)
 
 
-def remove_tree(path: Path, check: Callable[[], None] | None = None) -> int:
+def remove_tree(path: Path, check: Callable[[], None] | None = None, *, identity: tuple[int, int] | None = None) -> int:
     """Remove `path` and everything below it by descriptor, as
     `rfs.remove_own_tree` does (each directory gets owner read, write and
     search first, so odd modes are handled), and never crossing a device: a
     mount point inside raises `EXDEV`. `check()` runs before each entry. The
     entries removed; an absent path removes nothing."""
-    with rfs._cleanup([None]) as owner:
+    with rfs._cleanup([None, None]) as owner:
         try:
-            owner.resources[0] = rfs.open_dir(path)
+            owner.resources[0] = rfs.open_dir(path.parent)
+            parent = owner.resources[0]
+            named = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
         except FileNotFoundError:
             return 0
-        fd = owner.resources[0]
-        count = _remove_children(fd, os.fstat(fd).st_dev, check)
-    os.rmdir(path)
+        if not stat.S_ISDIR(named.st_mode) or (identity is not None and (named.st_dev, named.st_ino) != identity):
+            raise OSError(errno.ESTALE, "the tombstone name refers to a different directory", str(path))
+        owner.resources[1] = rfs.open_dir(path.name, dir_fd=parent, expect=named)
+        fd = owner.resources[1]
+
+        def still_named() -> None:
+            if check is not None:
+                check()
+            current = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (named.st_dev, named.st_ino):
+                raise OSError(errno.ESTALE, "the tombstone changed during removal", str(path))
+
+        still_named()
+        count = _remove_children(fd, named.st_dev, still_named)
+        still_named()
+        os.rmdir(path.name, dir_fd=parent)
     return count + 1
 
 

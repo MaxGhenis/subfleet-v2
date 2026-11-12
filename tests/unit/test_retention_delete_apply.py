@@ -85,7 +85,7 @@ def test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left(wor
         assert ref["ref"].startswith("refs/subfleet-kept/job-rich/")
         assert git(ref["repository"], "rev-parse", ref["ref"]) == ref["commit"]
     assert len(marker["bundles"]) == 2 and all(b["bytes"] > 0 and len(b["sha256"]) == 64 for b in marker["bundles"])
-    assert sorted(len(b["prerequisites_from"]) for b in marker["bundles"]) == [0, 1]
+    assert sorted(len(b["prerequisites_from"]) for b in marker["bundles"]) == [0, 0]
     events = [e for e in w.store.list_events("job-rich") if e["kind"] == "retention.tree_deleted"]
     assert len(events) == 1 and json.loads(events[0]["data_json"]) == marker
     # Nothing is left in flight.
@@ -416,13 +416,13 @@ def test_a_failure_on_one_job_fails_it_whole_and_the_run_goes_on(world, monkeypa
     commit(inner, "x", "x\n")
     nested_job(w, "f-good")
     before = snapshot(bad)
-    real = rgit.verify_bundle
+    real = rd.DeletePath._verify_bundle
 
-    def verify(git_dir, path, expected, fmt, scratch, **kw):
+    def verify(self, path, expected, fmt, scratch):
         if "f-bad" in str(path):
             raise rgit.GitError("bundle verify failed (test)")
-        return real(git_dir, path, expected, fmt, scratch, **kw)
-    monkeypatch.setattr(rgit, "verify_bundle", verify)
+        return real(self, path, expected, fmt, scratch)
+    monkeypatch.setattr(rd.DeletePath, "_verify_bundle", verify)
     path = delete_path(w)
     lines = results(run(path, request("f-bad", "f-good")))
     assert lines["f-bad"]["disposition"] == "failed" and "bundle verify failed" in lines["f-bad"]["reason"]

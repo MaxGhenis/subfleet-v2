@@ -146,7 +146,7 @@ def test_a_kill_inside_the_bundle_check_ends_with_the_tree_whole(world, monkeypa
 
     def verify(*args, **kwargs):
         raise Killed("verify")
-    monkeypatch.setattr(rgit, "verify_bundle", verify)
+    monkeypatch.setattr(rd.DeletePath, "_verify_bundle", verify)
     path = delete_path(w)
     path.start(request("job-kill"), mode="apply")
     with pytest.raises(Killed):
