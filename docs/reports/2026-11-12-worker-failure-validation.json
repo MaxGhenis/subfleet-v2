@@ -1,0 +1,85 @@
+{
+  "environment": {
+    "TMPDIR": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/",
+    "UV_CACHE_DIR": "/private/tmp/sf-wcp-b1/uv-cache"
+  },
+  "TMPDIR_command": "getconf DARWIN_USER_TEMP_DIR",
+  "runs_in_order": [
+    {
+      "label": "cause draft",
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' pytest tests/unit/test_worker_failure_cause.py --basetemp=/private/tmp/sf-wcp-b1/tests-new-cause-1",
+      "returncode": 0,
+      "passed": 50,
+      "skipped": 0,
+      "pytest_seconds": 48.04
+    },
+    {
+      "label": "hostile metadata sites",
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' pytest tests/unit/test_worker_failure_cause.py --basetemp=/private/tmp/sf-wcp-b1/tests-new-cause-2",
+      "returncode": 0,
+      "passed": 53,
+      "skipped": 0,
+      "pytest_seconds": 22.48
+    },
+    {
+      "label": "handler draft",
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' pytest tests/unit/test_worker_failure_handler.py --basetemp=/private/tmp/sf-wcp-b1/tests-new-handler-1 -q",
+      "returncode": 0,
+      "passed": 21,
+      "skipped": 0,
+      "pytest_seconds": 30.74
+    },
+    {
+      "label": "handler shared source budget",
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' pytest tests/unit/test_worker_failure_handler.py --basetemp=/private/tmp/sf-wcp-b1/tests-new-handler-2 -q",
+      "returncode": 0,
+      "passed": 22,
+      "skipped": 0,
+      "pytest_seconds": 31.47
+    },
+    {
+      "label": "all matched files before signature refinement",
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' pytest $(rg -l 'in a row, next try|worker %s failed|control iteration failed|request %s failed|_worker_failures|ScrubbingFormatter' tests/) tests/unit/test_daemon_log_sites.py -n 4 --basetemp=/private/tmp/sf-wcp-b1/tests-matches-1 -q",
+      "returncode": 0,
+      "passed": 759,
+      "skipped": 2,
+      "pytest_seconds": 378.71,
+      "output": "bringing up nodes...\nbringing up nodes...\n\n........................................................................ [  9%]\n........................................................................ [ 18%]\n........................................................................ [ 28%]\n........................................................................ [ 37%]\n........................................................................ [ 47%]\n........................................................................ [ 56%]\n........................................................................ [ 66%]\n........................................................................ [ 75%]\n........................................................................ [ 85%]\n......................................ss................................ [ 94%]\n.........................................                                [100%]\n759 passed, 2 skipped in 378.71s (0:06:18)\n"
+    },
+    {
+      "label": "final cause signature regression",
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' pytest tests/unit/test_worker_failure_cause.py --basetemp=/private/tmp/sf-wcp-b1/tests-new-cause-3 -q",
+      "returncode": 0,
+      "passed": 54,
+      "skipped": 0,
+      "pytest_seconds": 16.07,
+      "output": "......................................................                   [100%]\n54 passed in 16.07s\n"
+    },
+    {
+      "label": "final all matched files",
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' pytest $(rg -l 'in a row, next try|worker %s failed|control iteration failed|request %s failed|_worker_failures|ScrubbingFormatter' tests/) tests/unit/test_daemon_log_sites.py -n 4 --basetemp=/private/tmp/sf-wcp-b1/tests-matches-2 -q -rs",
+      "returncode": 0,
+      "passed": 760,
+      "skipped": 2,
+      "pytest_seconds": 274.7,
+      "output": "bringing up nodes...\nbringing up nodes...\n\n........................................................................ [  9%]\n........................................................................ [ 18%]\n........................................................................ [ 28%]\n........................................................................ [ 37%]\n........................................................................ [ 47%]\n........................................................................ [ 56%]\n........................................................................ [ 66%]\n........................................................................ [ 75%]\n........................................................................ [ 85%]\n...................ss................................................... [ 94%]\n..........................................                               [100%]\n=========================== short test summary info ============================\nSKIPPED [1] tests/unit/test_daemon_log_sites.py:368: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable\nSKIPPED [1] tests/unit/test_daemon_log_sites.py:390: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable\n760 passed, 2 skipped in 274.70s (0:04:34)\n"
+    },
+    {
+      "label": "required contract and refusal files",
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' pytest tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py -n 4 --basetemp=/private/tmp/sf-wcp-b1/tests-contract-1 -q -rs",
+      "returncode": 0,
+      "passed": 425,
+      "skipped": 0,
+      "pytest_seconds": 86.55,
+      "output": "bringing up nodes...\nbringing up nodes...\n\n........................................................................ [ 16%]\n........................................................................ [ 33%]\n........................................................................ [ 50%]\n........................................................................ [ 67%]\n........................................................................ [ 84%]\n.................................................................        [100%]\n425 passed in 86.55s (0:01:26)\n"
+    }
+  ],
+  "final_targeted_result": {
+    "passed": 1185,
+    "skipped": 2
+  },
+  "skip_reason": "Two optional real-daemon logging-site tests require permitted sysctl/ps inspection; macOS boot identity is unavailable.",
+  "hypothesis_tests_added": 4,
+  "final_new_tests": 76,
+  "capture_note": "The first four runs retain their exact tool-reported counts and summaries; later runs include tee captures. Tee files and all basetemps were under the named scratch folder."
+}

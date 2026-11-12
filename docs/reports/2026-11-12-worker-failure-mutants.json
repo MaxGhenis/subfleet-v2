@@ -1,0 +1,236 @@
+{
+  "pristine_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+  "TMPDIR": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/",
+  "UV_CACHE_DIR": "/private/tmp/sf-wcp-b1/uv-cache",
+  "results": [
+    {
+      "number": 1,
+      "name": "cause-on-every-paced-failure",
+      "test": "tests/unit/test_worker_failure_cause.py::test_paced_cause_and_exact_summary_cadence",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-wcp-b1/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "tests/unit/test_worker_failure_cause.py::test_paced_cause_and_exact_summary_cadence",
+        "-n",
+        "4",
+        "--basetemp",
+        "/private/tmp/sf-wcp-b1/mutants-1794464172319997000/pytest-1",
+        "-q"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "seconds": 58.71019879198866,
+      "error": null,
+      "restored_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+      "mutation": {
+        "old": "                cause = count % WORKER_CAUSE_EVERY == 1          # 1, 33, 65, ...",
+        "new": "                cause = True  # MUTANT: every paced failure gets its cause"
+      },
+      "pytest_output": "bringing up nodes...\nbringing up nodes...\n\nF                                                                        [100%]\n=================================== FAILURES ===================================\n__________________ test_paced_cause_and_exact_summary_cadence __________________\n[gw0] darwin -- Python 3.14.7 /private/tmp/sf-wcp-b1/uv-cache/builds-v0/.tmpVS09S4/bin/python\n  + Exception Group Traceback (most recent call last):\n  |   File \"/Users/maxghenis/.subfleet/worktrees/20261111-122603-wcp-build-r1s/tests/unit/test_worker_failure_cause.py\", line 128, in test_paced_cause_and_exact_summary_cadence\n  |     @given(n=st.integers(min_value=1, max_value=145))\n  |                    ^^^\n  |   File \"/Users/maxghenis/.subfleet/worktrees/20261111-122603-wcp-build-r1s/.venv/lib/python3.14t/site-packages/hypothesis/core.py\", line 2295, in wrapped_test\n  |     raise the_error_hypothesis_found\n  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)\n  +-+---------------- 1 ----------------\n    | Traceback (most recent call last):\n    |   File \"/Users/maxghenis/.subfleet/worktrees/20261111-122603-wcp-build-r1s/tests/unit/test_worker_failure_cause.py\", line 136, in test_paced_cause_and_exact_summary_cadence\n    |     assert len(service.recording.records) == len(expected)\n    | AssertionError: assert 3 == 2\n    |  +  where 3 = len([<LogRecord: subfleet.daemon.test-worker-cause, 40, /Users/maxghenis/.subfleet/worktrees/20261111-122603-wcp-build-r1s...ktrees/20261111-122603-wcp-build-r1s/subfleet/daemon.py, 5527, \"worker %s failed: %s (%d in a row, next try in %g s)\">])\n    |  +    where [<LogRecord: subfleet.daemon.test-worker-cause, 40, /Users/maxghenis/.subfleet/worktrees/20261111-122603-wcp-build-r1s...ktrees/20261111-122603-wcp-build-r1s/subfleet/daemon.py, 5527, \"worker %s failed: %s (%d in a row, next try in %g s)\">] = <test_worker_failure_cause.RecordingFilter object at 0x43ae072ad10>.records\n    |  +      where <test_worker_failure_cause.RecordingFilter object at 0x43ae072ad10> = <subfleet.daemon.Daemon object at 0x43ae6bd5590>.recording\n    |  +  and   2 = len([1, 2])\n    | Failing test case: test_paced_cause_and_exact_summary_cadence(\n    |     n=3,\n    | )\n    +---------------- 2 ----------------\n    | Traceback (most recent call last):\n    |   File \"/Users/maxghenis/.subfleet/worktrees/20261111-122603-wcp-build-r1s/tests/unit/test_worker_failure_cause.py\", line 137, in test_paced_cause_and_exact_summary_cadence\n    |     assert len(causes(service)) == len(range(1, n + 1, 32))\n    | AssertionError: assert 2 == 1\n    |  +  where 2 = len([<LogRecord: subfleet.daemon.test-worker-cause, 40, /Users/maxghenis/.subfleet/worktrees/20261111-122603-wcp-build-r1s...ktrees/20261111-122603-wcp-build-r1s/subfleet/daemon.py, 5527, \"worker %s failed: %s (%d in a row, next try in %g s)\">])\n    |  +    where [<LogRecord: subfleet.daemon.test-worker-cause, 40, /Users/maxghenis/.subfleet/worktrees/20261111-122603-wcp-build-r1s...ktrees/20261111-122603-wcp-build-r1s/subfleet/daemon.py, 5527, \"worker %s failed: %s (%d in a row, next try in %g s)\">] = causes(<subfleet.daemon.Daemon object at 0x43ae6bd5890>)\n    |  +  and   1 = len(range(1, 3, 32))\n    |  +    where range(1, 3, 32) = range(1, (2 + 1), 32)\n    | Failing test case: test_paced_cause_and_exact_summary_cadence(\n    |     n=2,\n    | )\n    +------------------------------------\n=========================== short test summary info ============================\nFAILED tests/unit/test_worker_failure_cause.py::test_paced_cause_and_exact_summary_cadence\n1 failed in 45.68s\n",
+      "pytest_summary": "1 failed in 45.68s"
+    },
+    {
+      "number": 2,
+      "name": "cause-rendering-raises-out-of-done",
+      "test": "tests/unit/test_worker_failure_cause.py::test_hostile_exception_cause_never_escapes_or_skips_handler",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-wcp-b1/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "tests/unit/test_worker_failure_cause.py::test_hostile_exception_cause_never_escapes_or_skips_handler",
+        "-n",
+        "4",
+        "--basetemp",
+        "/private/tmp/sf-wcp-b1/mutants-1794464172319997000/pytest-2",
+        "-q"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "seconds": 26.936150791007094,
+      "error": null,
+      "restored_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+      "mutation": {
+        "old": "                    self.log.error(\"worker %s failed: %s\", key, type(exc).__name__, exc_info=True)",
+        "new": "                    str(exc)  # MUTANT: render before the protected handler\n                    self.log.error(\"worker %s failed: %s\", key, type(exc).__name__, exc_info=True)"
+      },
+      "pytest_output": "bringing up nodes...\nbringing up nodes...\n\n............................FF                                           [100%]\n=================================== FAILURES ===================================\n___ test_hostile_exception_cause_never_escapes_or_skips_handler[worker-str] ____\n[gw0] darwin -- Python 3.14.7 /private/tmp/sf-wcp-b1/uv-cache/builds-v0/.tmpLHpajF/bin/python\n\nself = <test_worker_failure_cause.InlineFuture object at 0x2967a58ed10>\n\n    def result(self):\n        if self.error is not None:\n>           raise self.error\n\ntests/unit/test_worker_failure_cause.py:36: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_worker_failure_cause.py:30: in __init__\n    self.value, self.error = function(*args), None\n                             ^^^^^^^^^^^^^^^\ntests/unit/test_worker_failure_cause.py:70: in <lambda>\n    service._run_worker = lambda function, *args: function(*args)\n                                                  ^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nargs = (), kwargs = {}\n\n    def raise_error(*args, **kwargs):\n>       raise error\nE       test_worker_failure_cause.BadString: <exception str() failed>\n\ntests/unit/test_worker_failure_cause.py:244: BadString\n\nDuring handling of the above exception, another exception occurred:\n\nkind = 'str', site = 'worker'\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2967f4f3990>\ncapsys = <_pytest.capture.CaptureFixture object at 0x2967e028890>\n\n    @pytest.mark.parametrize(\"kind\", HOSTILE)\n    @pytest.mark.parametrize(\"site\", [\"worker\", \"control\", \"request\"])\n    def test_hostile_exception_cause_never_escapes_or_skips_handler(kind, site, monkeypatch, capsys):\n        \"\"\"All three sites return normally and actually hand the cause to the scrubber.\"\"\"\n        service, error = core(), hostile(kind)\n    \n        def raise_error(*args, **kwargs):\n            raise error\n    \n        if site == \"worker\":\n>           schedule(service, raise_error, paced=False)\n\ntests/unit/test_worker_failure_cause.py:247: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_worker_failure_cause.py:85: in schedule\n    service._schedule(key, function, paced=paced)\nsubfleet/daemon.py:5543: in _schedule\n    future.add_done_callback(done)\ntests/unit/test_worker_failure_cause.py:40: in add_done_callback\n    callback(self)\nsubfleet/daemon.py:5514: in done\n    str(exc)  # MUTANT: render before the protected handler\n    ^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = BadString()\n\n    def __str__(self):\n>       raise RuntimeError(\"exception string cannot render\")\nE       RuntimeError: exception string cannot render\n\ntests/unit/test_worker_failure_cause.py:184: RuntimeError\n___ test_hostile_exception_cause_never_escapes_or_skips_handler[worker-repr] ___\n[gw0] darwin -- Python 3.14.7 /private/tmp/sf-wcp-b1/uv-cache/builds-v0/.tmpLHpajF/bin/python\n\nself = <test_worker_failure_cause.InlineFuture object at 0x2967f4f4c50>\n\n    def result(self):\n        if self.error is not None:\n>           raise self.error\n\ntests/unit/test_worker_failure_cause.py:36: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_worker_failure_cause.py:30: in __init__\n    self.value, self.error = function(*args), None\n                             ^^^^^^^^^^^^^^^\ntests/unit/test_worker_failure_cause.py:70: in <lambda>\n    service._run_worker = lambda function, *args: function(*args)\n                                                  ^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nargs = (), kwargs = {}\n\n    def raise_error(*args, **kwargs):\n>       raise error\nE       RuntimeError: <exception str() failed>\n\ntests/unit/test_worker_failure_cause.py:244: RuntimeError\n\nDuring handling of the above exception, another exception occurred:\n\nkind = 'repr', site = 'worker'\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2967f4f3ad0>\ncapsys = <_pytest.capture.CaptureFixture object at 0x2967f4f3710>\n\n    @pytest.mark.parametrize(\"kind\", HOSTILE)\n    @pytest.mark.parametrize(\"site\", [\"worker\", \"control\", \"request\"])\n    def test_hostile_exception_cause_never_escapes_or_skips_handler(kind, site, monkeypatch, capsys):\n        \"\"\"All three sites return normally and actually hand the cause to the scrubber.\"\"\"\n        service, error = core(), hostile(kind)\n    \n        def raise_error(*args, **kwargs):\n            raise error\n    \n        if site == \"worker\":\n>           schedule(service, raise_error, paced=False)\n\ntests/unit/test_worker_failure_cause.py:247: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_worker_failure_cause.py:85: in schedule\n    service._schedule(key, function, paced=paced)\nsubfleet/daemon.py:5543: in _schedule\n    future.add_done_callback(done)\ntests/unit/test_worker_failure_cause.py:40: in add_done_callback\n    callback(self)\nsubfleet/daemon.py:5514: in done\n    str(exc)  # MUTANT: render before the protected handler\n    ^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <[RuntimeError('argument repr cannot render') raised in repr()] BadRepr object at 0x2967ff20310>\n\n    def __repr__(self):\n>       raise RuntimeError(\"argument repr cannot render\")\nE       RuntimeError: argument repr cannot render\n\ntests/unit/test_worker_failure_cause.py:189: RuntimeError\n=========================== short test summary info ============================\nFAILED tests/unit/test_worker_failure_cause.py::test_hostile_exception_cause_never_escapes_or_skips_handler[worker-str]\nFAILED tests/unit/test_worker_failure_cause.py::test_hostile_exception_cause_never_escapes_or_skips_handler[worker-repr]\n2 failed, 28 passed in 16.25s\n",
+      "pytest_summary": "2 failed, 28 passed in 16.25s"
+    },
+    {
+      "number": 3,
+      "name": "retention-structured-error-contains-message",
+      "test": "tests/unit/test_worker_failure_cause.py::test_retention_error_is_type_only_and_deferred_keeps_count",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-wcp-b1/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "tests/unit/test_worker_failure_cause.py::test_retention_error_is_type_only_and_deferred_keeps_count",
+        "-n",
+        "4",
+        "--basetemp",
+        "/private/tmp/sf-wcp-b1/mutants-1794464172319997000/pytest-3",
+        "-q"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "seconds": 12.222216624999419,
+      "error": null,
+      "restored_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+      "mutation": {
+        "old": "                    self.timers.mark(\"retention\", error=type(exc).__name__, next_due=after(delay))",
+        "new": "                    self.timers.mark(\"retention\", error=str(exc), next_due=after(delay))"
+      },
+      "pytest_output": "bringing up nodes...\nbringing up nodes...\n\nF                                                                        [100%]\n=================================== FAILURES ===================================\n__________ test_retention_error_is_type_only_and_deferred_keeps_count __________\n[gw0] darwin -- Python 3.14.7 /private/tmp/sf-wcp-b1/uv-cache/builds-v0/.tmptE2SLw/bin/python\n\n    def test_retention_error_is_type_only_and_deferred_keeps_count():\n        service = core()\n        schedule(service, key=\"retention\")\n        assert service.marks[0][0] == (\"retention\",)\n>       assert service.marks[0][1][\"error\"] == \"RuntimeError\"\nE       AssertionError: assert 'fixture failure cause' == 'RuntimeError'\nE         \nE         - RuntimeError\nE         + fixture failure cause\n\ntests/unit/test_worker_failure_cause.py:159: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_worker_failure_cause.py::test_retention_error_is_type_only_and_deferred_keeps_count\n1 failed in 7.85s\n",
+      "pytest_summary": "1 failed in 7.85s"
+    },
+    {
+      "number": 4,
+      "name": "control-signatures-never-clear-on-success",
+      "test": "tests/unit/test_worker_failure_cause.py::test_control_cause_deduplication_resets_after_completed_iteration",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-wcp-b1/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "tests/unit/test_worker_failure_cause.py::test_control_cause_deduplication_resets_after_completed_iteration",
+        "-n",
+        "4",
+        "--basetemp",
+        "/private/tmp/sf-wcp-b1/mutants-1794464172319997000/pytest-4",
+        "-q"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "seconds": 11.278810999996495,
+      "error": null,
+      "restored_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+      "mutation": {
+        "old": "                self._control_traced.clear()",
+        "new": "                pass  # MUTANT: retain control causes after completed iterations"
+      },
+      "pytest_output": "bringing up nodes...\nbringing up nodes...\n\nF                                                                        [100%]\n=================================== FAILURES ===================================\n______ test_control_cause_deduplication_resets_after_completed_iteration _______\n[gw0] darwin -- Python 3.14.7 /private/tmp/sf-wcp-b1/uv-cache/builds-v0/.tmppHjYiq/bin/python\n\n    def test_control_cause_deduplication_resets_after_completed_iteration():\n        service = core()\n        run_control(service, [RuntimeError(\"one\"), RuntimeError(\"two\"), None, RuntimeError(\"three\")])\n>       assert [bool(record.exc_info) for record in service.recording.records] == [True, False, True]\nE       assert [True, False, False] == [True, False, True]\nE         \nE         At index 2 diff: False != True\nE         Use -v to get more diff\n\ntests/unit/test_worker_failure_cause.py:262: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_worker_failure_cause.py::test_control_cause_deduplication_resets_after_completed_iteration\n1 failed in 7.36s\n",
+      "pytest_summary": "1 failed in 7.36s"
+    },
+    {
+      "number": 5,
+      "name": "remembered-set-grows-past-256",
+      "test": "tests/unit/test_worker_failure_cause.py::test_first_trace_holds_at_most_256_and_starts_again_when_full",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-wcp-b1/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "tests/unit/test_worker_failure_cause.py::test_first_trace_holds_at_most_256_and_starts_again_when_full",
+        "-n",
+        "4",
+        "--basetemp",
+        "/private/tmp/sf-wcp-b1/mutants-1794464172319997000/pytest-5",
+        "-q"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "seconds": 12.215924707998056,
+      "error": null,
+      "restored_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+      "mutation": {
+        "old": "        if len(traced) >= TRACED_CAUSES_MAX:\n            traced.clear()",
+        "new": "        if False:  # MUTANT: the remembered set never restarts\n            traced.clear()"
+      },
+      "pytest_output": "bringing up nodes...\nbringing up nodes...\n\nF                                                                        [100%]\n=================================== FAILURES ===================================\n________ test_first_trace_holds_at_most_256_and_starts_again_when_full _________\n[gw0] darwin -- Python 3.14.7 /private/tmp/sf-wcp-b1/uv-cache/builds-v0/.tmpvlpWq6/bin/python\n\n    def test_first_trace_holds_at_most_256_and_starts_again_when_full():\n        traced = set()\n        assert daemon_module.TRACED_CAUSES_MAX == 256\n        for number in range(520):\n            assert Daemon._first_trace(traced, (number,))\n>           assert 1 <= len(traced) <= 256\nE           assert 257 <= 256\nE            +  where 257 = len({(0,), (1,), (2,), (3,), (4,), (5,), ...})\n\ntests/unit/test_worker_failure_cause.py:272: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_worker_failure_cause.py::test_first_trace_holds_at_most_256_and_starts_again_when_full\n1 failed in 7.41s\n",
+      "pytest_summary": "1 failed in 7.41s"
+    },
+    {
+      "number": 6,
+      "name": "summary-text-changes",
+      "test": "tests/unit/test_worker_failure_cause.py::test_paced_cause_and_exact_summary_cadence",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-wcp-b1/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "tests/unit/test_worker_failure_cause.py::test_paced_cause_and_exact_summary_cadence",
+        "-n",
+        "4",
+        "--basetemp",
+        "/private/tmp/sf-wcp-b1/mutants-1794464172319997000/pytest-6",
+        "-q"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "seconds": 47.491987541958224,
+      "error": null,
+      "restored_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+      "mutation": {
+        "old": "                    self.log.error(\"worker %s failed: %s (%d in a row, next try in %g s)\",",
+        "new": "                    self.log.error(\"worker %s failed: %s (%d consecutive, retry after %g s)\","
+      },
+      "pytest_output": "bringing up nodes...\nbringing up nodes...\n\nF                                                                        [100%]\n=================================== FAILURES ===================================\n__________________ test_paced_cause_and_exact_summary_cadence __________________\n[gw0] darwin -- Python 3.14.7 /private/tmp/sf-wcp-b1/uv-cache/builds-v0/.tmprR92gT/bin/python\n\n    @BOUNDED\n>   @given(n=st.integers(min_value=1, max_value=145))\n                   ^^^\n\ntests/unit/test_worker_failure_cause.py:128: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nn = 1\n\n    @BOUNDED\n    @given(n=st.integers(min_value=1, max_value=145))\n    def test_paced_cause_and_exact_summary_cadence(n):\n        \"\"\"Causes are 1 mod 32; unchanged summaries are powers of two plus causes.\"\"\"\n        service = core()\n        for _ in range(n):\n            schedule(service)\n        expected = [number for number in range(1, n + 1)\n                    if number & (number - 1) == 0 or number % 32 == 1]\n        assert len(service.recording.records) == len(expected)\n        assert len(causes(service)) == len(range(1, n + 1, 32))\n        for record, number in zip(service.recording.records, expected):\n            assert bool(record.exc_info) == (number % 32 == 1)\n>           assert record.getMessage() == (\n                \"worker admission failed: RuntimeError \"\n                f\"({number} in a row, next try in {daemon_module.worker_retry_delay(number):g} s)\")\nE           AssertionError: assert 'worker admis... after 0.5 s)' == 'worker admis...try in 0.5 s)'\nE             \nE             - worker admission failed: RuntimeError (1 in a row, next try in 0.5 s)\nE             ?                                           ^^^  ----- ---    ^^\nE             + worker admission failed: RuntimeError (1 consecutive, retry after 0.5 s)\nE             ?                                          ++++++++ ^^^       ^^^^^\nE           Failing test case: test_paced_cause_and_exact_summary_cadence(\nE               n=1,  # or any other generated value\nE           )\n\ntests/unit/test_worker_failure_cause.py:140: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_worker_failure_cause.py::test_paced_cause_and_exact_summary_cadence\n1 failed in 43.48s\n",
+      "pytest_summary": "1 failed in 43.48s"
+    },
+    {
+      "number": 7,
+      "name": "cause-bypasses-scrubbing-formatter",
+      "test": "tests/unit/test_worker_failure_cause.py::test_exception_message_notes_chain_and_source_are_scrubbed",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-wcp-b1/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "tests/unit/test_worker_failure_cause.py::test_exception_message_notes_chain_and_source_are_scrubbed",
+        "-n",
+        "4",
+        "--basetemp",
+        "/private/tmp/sf-wcp-b1/mutants-1794464172319997000/pytest-7",
+        "-q"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "seconds": 22.34506116702687,
+      "error": null,
+      "restored_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+      "mutation": {
+        "old": "                    self.log.error(\"worker %s failed: %s\", key, type(exc).__name__, exc_info=True)",
+        "new": "                    print(exc, file=sys.stderr)  # MUTANT: raw cause bypass\n                    self.log.error(\"worker %s failed: %s\", key, type(exc).__name__, exc_info=True)"
+      },
+      "pytest_output": "bringing up nodes...\nbringing up nodes...\n\n..F                                                                      [100%]\n=================================== FAILURES ===================================\n______ test_exception_message_notes_chain_and_source_are_scrubbed[worker] ______\n[gw2] darwin -- Python 3.14.7 /private/tmp/sf-wcp-b1/uv-cache/builds-v0/.tmpl9InhQ/bin/python\n\nsite = 'worker'\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x506aab83990>\ntmp_path = PosixPath('/private/tmp/sf-wcp-b1/mutants-1794464172319997000/pytest-7/popen-gw2/test_exception_message_notes_c0')\ncapsys = <_pytest.capture.CaptureFixture object at 0x506a7f38890>\n\n    @pytest.mark.parametrize(\"site\", [\"worker\", \"control\", \"request\"])\n    def test_exception_message_notes_chain_and_source_are_scrubbed(site, monkeypatch, tmp_path, capsys):\n        \"\"\"A dummy credential in each traceback surface cannot bypass the handler.\"\"\"\n        service = core()\n        source = tmp_path / \"fixture_raise.py\"\n        source.write_text(\"def fixture_raise():\\n    raise RuntimeError(\\\"password=\" + MARKER + \"\\\")\\n\")\n        namespace = {}\n        exec(compile(source.read_text(), str(source), \"exec\"), namespace)\n        try:\n            namespace[\"fixture_raise\"]()\n        except RuntimeError as inner:\n            error = RuntimeError(\"password=\" + MARKER)\n            error.add_note(\"token=\" + MARKER)\n            error.__cause__ = inner\n    \n        def raise_error(*args, **kwargs):\n            raise error\n    \n        if site == \"worker\":\n            schedule(service, raise_error, paced=False)\n        elif site == \"control\":\n            run_control(service, [error])\n        else:\n            service.dispatch = raise_error\n            request(service, monkeypatch)\n        written = service.stream.getvalue() + capsys.readouterr().err\n        assert len(causes(service)) == 1\n        for offset in range(len(MARKER) - 11):\n>           assert MARKER[offset:offset + 12] not in written\nE           AssertionError: assert 'SECRET7synth' not in 'worker admi...0123456789\\n'\nE             \nE             'SECRET7synth' is contained here:\nE               \nE               password=SECRET7syntheticMarkerValue0123456789\nE             ?          ++++++++++++\n\ntests/unit/test_worker_failure_cause.py:423: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_worker_failure_cause.py::test_exception_message_notes_chain_and_source_are_scrubbed[worker]\n1 failed, 2 passed in 11.06s\n",
+      "pytest_summary": "1 failed, 2 passed in 11.06s"
+    }
+  ],
+  "source_final_sha256": "c691dcc0837fdcb2dfda0491098e82b203f638e9e50655b62e5437b7e88635b1",
+  "source_restored_exact_bytes": true,
+  "run_returncode": 0,
+  "snapshot_path_during_run": "/private/tmp/sf-wcp-b1/daemon-pristine-mutants.py",
+  "scratch_removed_after_copy": true
+}
