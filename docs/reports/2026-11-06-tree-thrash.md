@@ -390,3 +390,70 @@ Final ordered command ledger (the common environment above applies; each uses it
 Additional commands: `UV_PROJECT_ENVIRONMENT="$TMPDIR/tree-thrash-r1/py314-env" uv --cache-dir "$UV_CACHE_DIR" sync --python 3.14 --group dev` passed (3.14.7, nine packages). Two idle check drivers were interrupted with exit 130 before starting any tests, to adjust the budget and interpreter; the final driver uses the saved command ledger above. `gh pr edit 295 --repo MaxGhenis/subfleet-v2 --body-file docs/reports/2026-11-06-tree-thrash-fix-r1-pr.md` passed and corrected the PR's race/no-Git wording. The retention attempt ledger in `retention-ready.json` includes its unsuccessful reproduction, cached-Python plugin error and interrupted startup; none is claimed as a pass.
 
 Head built: `a22ac891703147078f62329dfbd06da69650bb8b` plus the preserved working-tree changes (commits denied).
+
+## Fix round 2
+
+An in-session Opus agent did this round on 2026-11-12. It started at 15:48:18 UTC in `/Users/maxghenis/subfleet-v2-lanes/tree-thrash`, branch `fix/tree-thrash-217`, at `a23368655`. The account's 5-hour limit stopped the agent at 16:02 UTC, and it resumed at 16:22:50 UTC. Nothing was pushed, and no branch was created, moved or deleted. No live state was read.
+
+### CI at a23368655
+
+Run 43112905227 tested merge `bfc1493`, which is `a23368655` merged into release/217 at `b51f08f96`. Seven of its ten jobs passed. One of them, Python 3.12 shard 1/5, ran this PR's whole main module. release/217 has no CI runs of its own because the workflow runs only on pull requests. Each failure below is therefore compared with other PR runs on the same base.
+
+**1. Shard 1/5, Python 3.14 (job 130833338211): a defect in this PR's test, now fixed.** `test_i3_generated_head_movements_keep_the_submitted_tree_and_baseline` raised a Hypothesis `FlakyFailure` around `CalledProcessError`. The command `git commit -m "caller movement 0"` exited 1 at `tests/fake/test_admission_tree_thrash.py:686` (line numbers as of `a23368655`).
+
+Three things combine to cause it:
+- Hypothesis reuses the function-scoped `repo` fixture (`tests/fake/test_unrun_worktrees.py:39`) across examples.
+- Job ids are local time to the second (`subfleet/ids.py:28`).
+- The test wrote `f"{job} caller movement {index}"` (`:684`).
+
+On a fast runner, two consecutive examples can get the same job id. Suppose the earlier example made one move. The later example's first write then equals the file's current text, so `git add` stages nothing and `git commit` exits 1. Hypothesis's replay ran in a later second and passed, so Hypothesis reported the test as flaky. No product code is involved.
+
+- **Positive control:** a scratch pytest plugin pinned `ids.job_id`'s clock, so every example got the same id. With the unmodified test, the run gave 1 failed in 57.01 s, with the same `CalledProcessError` on `caller movement 0` (`moves=3`).
+- **Fix (`5c645aaa1`, `tests/fake/test_admission_tree_thrash.py` only):** a module counter, `MOVEMENTS = itertools.count()`, keys each write: `f"caller movement {next(MOVEMENTS)}"`. Every move still commits a new tree. The baseline assertion therefore still tells the submitted tree from the moved HEAD, and the property's assertions are unchanged.
+- **Same pinned-clock run after the fix:** 1 passed in 49.41 s. Hypothesis ran all four distinct cases, `moves` 0 to 3, then stopped with nothing left to do.
+
+**2. Shard 2/5, Python 3.14 (job 130833337951): not this PR.** `tests/unit/test_sessions_handoff.py::test_scrubber_handles_repeated_incomplete_patterns_without_quadratic_retries[data-uri]` measured 0.1038 CPU seconds. Its bound is under 0.1 s (`tests/unit/test_sessions_handoff.py:879`).
+
+This PR changes no scrubber or sessions code. `a8624a489..HEAD` touches `subfleet/daemon.py`, the contract, tests, a fixture and two tools. A sibling scrubber measurement, `test_scrubber_work_scales_linearly_for_long_ordinary_identifiers[a-]`, is already in `.github/known-flaky.txt` as D-SCRUBBER-LOAD; this node is not. The same shard passed on Python 3.12. No change was made. The hub can rerun the job, or add the node to the allowlist in a separate change.
+
+**3. Shard 4/5, Python 3.12 (job 130833338134): cancelled at the base's 45-minute limit, not this PR.** The job started at 23:57:48Z and pytest at 23:58:19Z. The progress line reached [90%] at 00:42:28Z, and the log records "The operation was canceled" at 00:43:00Z. The workflow sets `timeout-minutes: 45` (`.github/workflows/tests.yml:32`).
+
+Evidence that the base itself is at that limit:
+- Run 43112964936, for the store-compact PR, tested a merge into the same base `b51f08f96`. Its Python 3.12 shard 4/5 job (130833547586) took 44:15 in total, with pytest at 2,609.26 s. That is 45 s under the cap.
+- Both runs show the same stall at progress row 32: 794 s in ours and 833 s in theirs.
+- Both runs show an F at the same place in row 33. Every following position is one column later in ours. In theirs, that F is `tests/unit/test_guard_subfleet_root.py::test_r7_heredoc_bodies_count_against_the_step_budget`, which missed its CPU budget. Ours is very likely the same test. That is an inference from positions; the outcomes artifact was not downloaded.
+- Ours ran slower almost everywhere. By row 93 ours had taken 2,649 s and theirs 2,384 s, and theirs finished all 104 rows at 2,611 s. Only 52 s of the gap is in rows 1–30, where this PR's one added file, `tests/fake/test_admission_tree_thrash_head.py`, would run. The file is unmeasured, so its crc32 hash puts it on shard 4. On Python 3.14 shard 4/5 it is not among the 30 slowest test phases, whose cutoff is 9.07 s. Even without those 52 s, this runner would have needed about 47 minutes.
+- The map predicts 34.9 minutes for this shard; the base measured about 44. The map is out of date.
+
+No change was made. The hub can rerun the job, or regenerate the map with `tools/ci_shard_durations.py` in a separate change.
+
+**The measured-shape test is not slow on CI.** Python 3.12 shard 1/5 passed the whole main module. On both shard-1 jobs, no tree-thrash test phase is among the 30 slowest: the cutoffs are 13.88 s on 3.12 and 10.75 s on 3.14. Locally at `5c645aaa1`, under a load average of 167, the measured shape took 41.11 s. Fix round 1's 1,211 s timeout happened in that lane's environment and did not recur here. No marker was added. The repository has no general slow or opt-in marker; `real_lsof` covers only the real process listing.
+
+Review r1's findings stay fixed. This round changes only the text the I3 property writes. The frozen oracle, the sweep's eligibility recheck and the contract wording are untouched.
+
+### Commands and results
+
+Every run used the same settings:
+- The `/Users/maxghenis/subfleet-v2-lanes/guard-sync/.venv` interpreter (Python 3.15.2, pytest 9.1.1, Hypothesis 6.168.1).
+- `PYTHONPATH="$PWD"`. `import subfleet` resolved to the tree-thrash worktree.
+- `PATH=/usr/bin:/bin:/opt/homebrew/bin`, so Apple Git 2.54.0 came first.
+- `-p no:cacheprovider --timeout-method=thread`.
+- One file at a time, serially, each with a new `--basetemp` under `$(getconf DARWIN_USER_TEMP_DIR)sf-tt-f2/`.
+
+The runs, in order:
+- `gh run view --job <id> -R MaxGhenis/subfleet-v2 --log` for jobs 130833338211, 130833337951 and 130833338134. For comparison, the same was run for 130833338124, 130833337770 and 130833338138 (this run), and for 130833547443, 130833547586 and 130832329333 (two other PRs on base `b51f08f96`). All exited 0.
+- `gh run list -R MaxGhenis/subfleet-v2 --branch release/217 --limit 5`: no runs.
+- Reproduction with the pinned-clock plugin, `--timeout=1200`, test from `a23368655`, basetemp `repro-i3-before`: 1 failed in 57.01 s, the CI failure.
+- The same after the fix, basetemp `repro-i3-after`: 1 passed in 49.41 s.
+- `tests/fake/test_admission_tree_thrash.py` at `5c645aaa1`, `--timeout=2400`, basetemp `main-module`, 16:02:23–16:04:01Z: **20 passed in 95.64 s**, exit 0. The longest cases were the measured shape at 41.11 s, I2/I5 generated at 15.29 s, I1 generated at 10.30 s and I3 generated at 4.57 s. Every other case took 4.25 s or less.
+- `tests/fake/test_detached_retention_fence.py` at `5c645aaa1`, `--timeout=1200`, basetemp `retention-fence-2`: 1 failed, 88 passed in 223.11 s. The failure came from my basetemp name. `test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions` (`:279`) asserts that the word "retention" is absent from the status text. That text quotes the lease path, which ran through `.../retention-fence-2/...`. The held-lease line it looks for did match.
+- `tests/fake/test_detached_retention_fence.py` again, basetemp `fence-3`: 16:27:43–16:29:59Z: **89 passed in 134.54 s**, exit 0. This includes `test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions` and the C-8.4/C-6.5 oracle test (6.40 s); the longest case was the interleavings property at 50.47 s.
+
+### Not run
+
+- `tests/fake/test_admission_tree_thrash_head.py` locally.
+- The scrubber and `test_r7` timing tests locally. Their CI outcome depends on runner load, which this host cannot reproduce.
+- Mutants.
+- A fresh Actions run, which waits for the hub's push.
+
+Head built: `5c645aaa1` (the fix). This section is committed on top of it.
