@@ -340,18 +340,26 @@ def _atomic_write_text(path: Path, text: str) -> None:
         os.close(dir_fd)
 
 
-def lane_settings(settings: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def lane_settings(
+    settings: Mapping[str, Any] | None = None, *, effort: str | None = None,
+) -> dict[str, Any]:
     """`settings` with `LANE_SETTINGS_ENV` merged over its `env` (D-WATCHDOG1): the
     payload of a launch's one `--settings`. Every other key, and every other
-    variable in `env`, is kept as it was; `settings` itself is not changed."""
+    variable not pinned below, is kept as it was; `settings` itself is not changed.
+    A named effort is pinned here too: Claude Code resolves its environment
+    before `--effort`, including the user's settings env (D-EFFORT-ENV1)."""
     merged = dict(settings or {})
     merged["env"] = {**dict(merged.get("env") or {}), **LANE_SETTINGS_ENV}
+    if effort:
+        merged["env"]["CLAUDE_CODE_EFFORT_LEVEL"] = effort
     return merged
 
 
-def lane_settings_args(settings: Mapping[str, Any] | None = None) -> list[str]:
+def lane_settings_args(
+    settings: Mapping[str, Any] | None = None, *, effort: str | None = None,
+) -> list[str]:
     """`--settings` with `lane_settings(settings)`, as compact JSON."""
-    return ["--settings", json.dumps(lane_settings(settings), separators=(",", ":"))]
+    return ["--settings", json.dumps(lane_settings(settings, effort=effort), separators=(",", ":"))]
 
 
 def apply_headless_block(prompt: str) -> str:
@@ -1431,7 +1439,7 @@ class ClaudeAdapter(Adapter):
                                          review_root=job.review_root,
                                          mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
                                          tmpdir=credential_env.get("TMPDIR")))
-        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings(effort=effort))  # C-12.4, D-EFFORT-ENV1
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
@@ -2117,7 +2125,7 @@ def reconstruct_v1_argv(
     claude_bin: str, model: str, session_id: str, sandbox: str, *,
     isolated: bool = False, review_root: str | None = None,
     output_format: str = "stream-json", verbose: bool = True,
-    mcp_config: str = EMPTY_MCP_CONFIG,
+    mcp_config: str = EMPTY_MCP_CONFIG, effort: str | None = None,
 ) -> tuple[str, ...]:
     """v1 `bin/subfleet-claude`'s launch line, rebuilt here from its own source.
 
@@ -2126,12 +2134,14 @@ def reconstruct_v1_argv(
         "$CLAUDE_BIN" -p --model "$MODEL" --session-id "$SID" \\
             --output-format json ${PERM_ARGS[@]+"${PERM_ARGS[@]}"}
 
-    v2 differs in exactly four documented places: the output format is `stream-json`
+    v2 differs in exactly five documented places: the output format is `stream-json`
     (C-12.4, so the `rate_limit_event` is readable), `--verbose` accompanies it,
     a writable launch adds `--strict-mcp-config --mcp-config <config>` after v1's
     bypass flag (C-12.9, d714), so it starts only the MCP servers its job named, and
     every launch ends with one `--settings` carrying `LANE_SETTINGS_ENV` (d1031,
-    D-WATCHDOG1), intended to let a lane at its plan's ceiling exit. Read-only `PERM_ARGS` is
+    D-WATCHDOG1), intended to let a lane at its plan's ceiling exit. Finally, a named
+    effort adds `--effort` and the same `CLAUDE_CODE_EFFORT_LEVEL` in that settings
+    env, overriding user settings (C-12.4, D-EFFORT-ENV1). Read-only `PERM_ARGS` is
     reproduced verbatim, in v1's order. The parity test compares this against
     `ClaudeAdapter.build_launch`, so a drift in either fails loudly.
     """
@@ -2139,6 +2149,8 @@ def reconstruct_v1_argv(
             "--output-format", output_format]
     if verbose:
         argv.append("--verbose")
+    if effort:
+        argv += ["--effort", effort]
     if sandbox == Sandbox.WORKSPACE_WRITE.value:
         argv += ["--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", mcp_config]
     else:
@@ -2156,7 +2168,7 @@ def reconstruct_v1_argv(
         ]
         if isolated and review_root:
             argv += ["--add-dir", review_root]
-    argv += lane_settings_args()
+    argv += lane_settings_args(effort=effort)
     return tuple(argv)
 
 

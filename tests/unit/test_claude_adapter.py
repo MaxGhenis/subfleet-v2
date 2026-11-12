@@ -402,6 +402,21 @@ def test_launch_argv_equals_v1s_line_for_the_same_inputs(adapter, tmp_path, sand
     )
 
 
+@pytest.mark.parametrize("effort", [None, "low", "medium", "high", "xhigh", "max"])
+@pytest.mark.parametrize("sandbox", [Sandbox.READ_ONLY, Sandbox.WORKSPACE_WRITE])
+def test_effort_launch_argv_equals_the_documented_v1_reference(adapter, tmp_path, sandbox, effort):
+    """C-12.4, D-EFFORT-ENV1: the fifth documented v2 difference pins a named
+    effort in both its flag and the one settings payload, for either sandbox.
+    The complete line still agrees with the offline v1 reconstruction.
+    """
+    launch = _build(adapter, tmp_path, sandbox, effort=effort)
+    actual = without_publish_hook(launch.argv, writable_review=sandbox == Sandbox.WORKSPACE_WRITE)
+    assert actual == reconstruct_v1_argv(
+        str(adapter.claude_bin), "claude-opus-5", launch.native_session_id, sandbox.value,
+        effort=effort,
+    )
+
+
 def without_publish_hook(argv, *, writable_review: bool) -> tuple:
     """C-12.4: every launch ends with one `--settings` carrying the lane settings
     (d1031); a writable review launch puts `--setting-sources user` before it
