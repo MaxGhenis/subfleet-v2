@@ -1,0 +1,627 @@
+Inventory/audit agent shell command log
+
+All commands ran in the assigned workspace. Commands are reconstructed verbatim from tool-call history. Counts are historical snapshots. No tests were executed by this agent. Scratch-only manifest writes were authorized by root. Tool polling calls are not shell commands.
+
+1. Result: exit 0; workspace confirmed; first 80 matching paths printed
+Command:
+pwd && rg --files -g 'AGENTS.md' -g 'pyproject.toml' -g 'conftest.py' -g '*policy*' -g '*.py' tests | head -80
+
+2. Result: exit 0; import, policy and old-model references found; output truncated
+Command:
+rg -n 'subfleet\.adapters(\.claude| import claude)|from subfleet\.adapters import|default_policy|load_default_policy|routing_strategies|sessions_fixtures|claude-fable-5-1' tests --glob '*.py'
+
+3. Result: exit 0; read session isolation and autouse fixtures
+Command:
+cat tests/conftest.py
+
+4. Result: exit 0; pytest testpaths and dev dependencies located
+Command:
+rg -n 'pytest|testpaths|addopts|api|subfleet' pyproject.toml
+
+5. Result: exit 1; no AGENTS.md found within workspace
+Command:
+rg --files -g AGENTS.md -g '!**/.git/**' .
+
+6. Result: exit 0; read session-start isolation and cleanup
+Command:
+sed -n '1,160p' tests/conftest.py
+
+7. Result: exit 0; found hardcoded /tmp/sf-failed ROOT and pruning behavior
+Command:
+cat tests/failed_keep.py
+
+8. Result: exit 0; helper loads shipped policy and holds scope generator
+Command:
+cat tests/routing_strategies.py
+
+9. Result: exit 0; read session fixture model defaults
+Command:
+sed -n '1,130p' tests/sessions_fixtures.py
+
+10. Result: exit 0; located policy loading and shared harness readers
+Command:
+rg -n 'def load_policy|default_policy|DEFAULT_POLICY|load_policy\(' subfleet/policy.py tests/unit/test_policy_support.py tests/unit/test_scheduler.py tests/fake/conftest.py tests/frontend/daemon_harness.py tests/e2e/conftest.py tests/live/test_claude_live.py pyproject.toml
+
+11. Result: exit 0; policy textual-reader seed paths listed
+Command:
+rg -l 'default_policy|DEFAULT_POLICY_PATH' tests --glob '*.py'
+
+12. Result: exit 0; direct Claude reference paths listed
+Command:
+rg -l 'subfleet\.adapters\.claude\b|from subfleet\.adapters import .*\bclaude\b' tests --glob 'test_*.py'
+
+13. Result: exit 0; read exact model/cap assertions; Fable assertion only pins scope
+Command:
+cat tests/unit/test_policy_support.py
+
+14. Result: exit 0; confirmed opt-in skip conditions and live behavior; no live action taken
+Command:
+cat tests/live/test_claude_live.py
+
+15. Result: exit 0; read shipped-policy Harness setup
+Command:
+sed -n '1,140p' tests/fake/conftest.py
+
+16. Result: exit 0; pytest testpaths/pythonpath/markers read
+Command:
+sed -n '45,100p' pyproject.toml
+
+17. Result: exit 1; inventory script indentation error caused KeyError tests/relay_stalls.py; no files modified
+Command:
+python3 - <<'PY'
+from pathlib import Path
+from collections import Counter
+import ast
+paths=list(Path('tests').rglob('*.py'))
+mods={'.'.join(p.with_suffix('').parts):p for p in paths}
+modulepaths={p:mod for mod,p in mods.items()}
+edges={}
+for p in paths:
+ t=ast.parse(p.read_text())
+ imports=set()
+ for n in ast.walk(t):
+  if isinstance(n,ast.Import): imports.update(a.name for a in n.names)
+  if isinstance(n,ast.ImportFrom):
+   base=n.module or ''
+   if n.level:
+    package=modulepaths[p].split('.')[:-1]
+    base='.'.join(package[:len(package)-n.level+1]+([base] if base else []))
+   imports.add(base)
+   imports.update(base+'.'+a.name for a in n.names)
+ edges[p]={mods[m] for m in imports if m in mods}
+ seeds={p for p in paths if ('default_policy' in p.read_text() or 'DEFAULT_POLICY_PATH' in p.read_text())}
+ adapter=set()
+ for p in paths:
+  t=ast.parse(p.read_text())
+  for n in ast.walk(t):
+   if isinstance(n,ast.Import) and any(a.name=='subfleet.adapters.claude' for a in n.names): adapter.add(p)
+   if isinstance(n,ast.ImportFrom) and (n.module=='subfleet.adapters.claude' or (n.module=='subfleet.adapters' and any(a.name=='claude' for a in n.names))):adapter.add(p)
+ affected=seeds|adapter
+ while True:
+  changed={p for p in paths if edges[p]&affected}
+  if changed<=affected:break
+  affected|=changed
+ tests={p for p in affected if p.name.startswith('test_')}
+ print('files',len(tests),'direct_adapter',len(adapter),'policy_seeds',len(seeds),'helpers',len(affected-tests))
+ print(Counter(p.parts[1] for p in tests))
+ print('\n'.join(str(p) for p in sorted(tests)))
+ print('NONTEST AFFECTED',*[str(p) for p in sorted(affected-tests)],sep='\n')
+PY
+
+18. Result: exit 0 after tool polling; 383 transitive test modules, 46 direct Claude files, 61 policy seed files, 14 helpers; full transitive scope rejected as too broad
+Command:
+python3 - <<'PY'
+import ast
+from collections import Counter
+from pathlib import Path
+paths=list(Path('tests').rglob('*.py'))
+mods={'.'.join(p.with_suffix('').parts):p for p in paths}
+edges={p:set() for p in paths}
+adapter=set()
+policy=set()
+for p in paths:
+    text=p.read_text()
+    if 'default_policy' in text or 'DEFAULT_POLICY_PATH' in text: policy.add(p)
+    for node in ast.walk(ast.parse(text)):
+        names=[]
+        if isinstance(node,ast.Import):
+            names=[a.name for a in node.names]
+            if 'subfleet.adapters.claude' in names: adapter.add(p)
+        elif isinstance(node,ast.ImportFrom):
+            base=node.module or ''
+            if node.level:
+                package='.'.join(p.with_suffix('').parts[:-1])
+                prefix=package.split('.')[:len(package.split('.'))-node.level+1]
+                base='.'.join(prefix+([base] if base else []))
+            names=[base]+[base+'.'+a.name for a in node.names]
+            if node.module=='subfleet.adapters.claude' or (node.module=='subfleet.adapters' and any(a.name=='claude' for a in node.names)): adapter.add(p)
+        edges[p].update(mods[name] for name in names if name in mods)
+affected=policy|adapter
+while True:
+    additions={p for p in paths if edges[p]&affected}-affected
+    if not additions:break
+    affected|=additions
+tests={p for p in affected if p.name.startswith('test_')}
+print('files',len(tests),'direct_adapter',len(adapter),'policy_seeds',len(policy),'helpers',len(affected-tests))
+print(Counter(p.parts[1] for p in tests))
+print('\n'.join(str(p) for p in sorted(tests)))
+print('NONTEST AFFECTED',*[str(p) for p in sorted(affected-tests)],sep='\n')
+PY
+
+19. Result: exit 0; current-policy old-id comparisons located
+Command:
+rg -n 'claude-fable-5-1|default_policy|DEFAULT_POLICY_PATH' tests/sessions_fixtures.py tests/unit/test_app_cutover_daemon.py tests/unit/test_importer.py tests/unit/test_scheduler_weekly.py tests/unit/test_claude_usage.py tests/unit/test_scoped_stream_capacity.py
+
+20. Result: exit 0; old-id references listed; explicit historical-attempt tests distinguished from policy readers
+Command:
+rg -n 'claude-fable-5-1' tests --glob 'test_*.py' --glob '!fixtures/**'
+
+21. Result: exit 0; no additional exact Fable model-dict or retired-map comparison identified
+Command:
+rg -n '\["models"\]|\[.models.\]|\["retired"\]|\[.retired.\]|models.*==|==.*models|retired.*==' tests/unit/test_policy.py tests/unit/test_policy_support.py tests/unit/test_policy_tier_preferences.py tests/unit/test_picker.py tests/unit/test_scheduler_split.py tests/unit/test_cli.py tests/unit/test_ultracode_effort.py tests/unit/test_sessions_cli.py tests/unit/test_policy_ramp.py tests/unit/test_policy_sandbox_resolution.py
+
+22. Result: exit 0; identified old Fable constant used with current-policy OAuth readings
+Command:
+sed -n '1,95p' tests/e2e/test_reserve.py
+
+23. Result: exit 0; current ClaudeAdapter OAuth scope assertion uses old id
+Command:
+sed -n '240,305p' tests/unit/test_timers_busy_read.py
+
+24. Result: exit 0; historical rejected-credits fixture uses explicit 5.1 attempt
+Command:
+sed -n '145,185p' tests/unit/test_claude_adapter.py
+
+25. Result: exit 0; historical fixture scope comparison should stay
+Command:
+sed -n '855,885p' tests/unit/test_claude_adapter.py
+
+26. Result: exit 0; current alias attempt compares closure and admission reading to old fixture model
+Command:
+sed -n '90,135p' tests/e2e/test_milestone2_claude.py
+
+27. Result: exit 0; old Fable closure is a deliberately unrelated-model case
+Command:
+sed -n '360,430p' tests/unit/test_unadmittable_pin.py
+
+28. Result: exit 0; reserve_policy fixture consumer pins old Fable closure
+Command:
+sed -n '1,65p' tests/unit/test_scheduler_turns.py
+
+29. Result: exit 0; measured-reserve scope row pins old Fable id
+Command:
+sed -n '125,157p' tests/fake/test_reserve_authorization.py
+
+30. Result: exit 0; wrote scratch-only manifests: primary 101 paths / 93 test modules, additional 27 modules, union 128 paths / 120 modules
+Command:
+python3 - <<'PY'
+import ast
+from pathlib import Path
+root=Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1')
+paths=list(Path('tests').rglob('*.py'))
+mods={'.'.join(p.with_suffix('').parts):p for p in paths}
+edges={p:set() for p in paths}
+adapter=set()
+policy=set()
+for p in paths:
+    source=p.read_text()
+    if 'default_policy' in source or 'DEFAULT_POLICY_PATH' in source: policy.add(p)
+    for node in ast.walk(ast.parse(source)):
+        names=[]
+        if isinstance(node,ast.Import):
+            names=[a.name for a in node.names]
+            if 'subfleet.adapters.claude' in names: adapter.add(p)
+        elif isinstance(node,ast.ImportFrom):
+            base=node.module or ''
+            if node.level:
+                package='.'.join(p.with_suffix('').parts[:-1])
+                prefix=package.split('.')[:len(package.split('.'))-node.level+1]
+                base='.'.join(prefix+([base] if base else []))
+            names=[base]+[base+'.'+a.name for a in node.names]
+            if node.module=='subfleet.adapters.claude' or (node.module=='subfleet.adapters' and any(a.name=='claude' for a in node.names)): adapter.add(p)
+        edges[p].update(mods[name] for name in names if name in mods)
+primary=policy|adapter
+helpers={Path('tests/routing_strategies.py'),Path('tests/sessions_fixtures.py')}
+while True:
+    additions={p for p in paths if not p.name.startswith('test_') and edges[p]&helpers}-helpers
+    if not additions: break
+    helpers|=additions
+consumers={p for p in paths if p.name.startswith('test_') and edges[p]&helpers}
+additional=consumers-primary
+union=primary|additional
+for name,items in [('direct_claude_imports.txt',adapter),('direct_policy_readers.txt',policy),('primary_test_manifest.txt',primary),('additional_helper_consumers.txt',additional),('test_manifest.txt',union)]:
+    target=root/name
+    target.write_text('\n'.join(str(p) for p in sorted(items))+'\n')
+    print(name,len(items),sum(p.name.startswith('test_') for p in items),'test modules')
+print('helper seeds and bridges:',*[str(p) for p in sorted(helpers)])
+print('additional:',*[str(p) for p in sorted(additional)],sep='\n')
+PY
+
+31. Result: exit 0; exact/default shape comparisons reviewed; no additional predicted edit
+Command:
+rg -n 'fable|retired|models.*==|==.*models|policy.*==' tests/unit/test_policy.py tests/unit/test_policy_support.py tests/unit/test_policy_ramp.py tests/unit/test_policy_tier_preferences.py tests/unit/test_app_cutover_daemon.py tests/unit/test_scoped_stream_capacity.py tests/unit/test_ultracode_effort.py tests/unit/test_sessions_cli.py tests/unit/test_claude_cards_wiring.py tests/unit/test_launch_env_policy.py
+
+32. Result: exit 2; tests/process/conftest.py absent; remaining matches exposed explicit /tmp allocations
+Command:
+rg -n 'sf-failed|tempfile|mktemp|SUBFLEET_LIVE|pytest_plugins' tests/e2e/conftest.py tests/frontend/conftest.py tests/process/conftest.py tests/fake/conftest.py tests/unit/conftest.py tests/frontend/daemon_harness.py subfleet/home_paths.py
+
+33. Result: exit 0; policy helper confirmed shipped-default reader
+Command:
+sed -n '380,420p' tests/sessions_fixtures.py
+
+34. Result: exit 0; reserve model helper references found
+Command:
+rg -n 'scope.*SCOPED_MODEL_IDS|SCOPED_MODEL_IDS|fable.*model|models.*fable' tests/unit/test_timers_probe.py tests/unit/test_scheduler_turns.py tests/unit/test_status_json.py tests/frontend/test_status_model.py tests/fake/test_reserve_authorization.py
+
+35. Result: exit 0 after tool polling; added 6 modules; final manifest 134 paths / 126 test modules
+Command:
+python3 - <<'PY'
+import ast
+from pathlib import Path
+scratch=Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1')
+manifest=scratch/'test_manifest.txt'
+current=set(manifest.read_text().splitlines())
+explicit={'tests/unit/test_timers_busy_read.py','tests/unit/test_scheduler_turns.py','tests/fake/test_reserve_authorization.py','tests/e2e/test_reserve.py','tests/e2e/test_milestone2_claude.py'}
+fixture_consumers=set()
+for p in Path('tests').rglob('*.py'):
+    if not p.name.startswith('test_'): continue
+    for node in ast.walk(ast.parse(p.read_text())):
+        if isinstance(node,ast.ImportFrom) and node.module=='tests.unit.test_scheduler' and any(a.name in {'policy','reserve_policy'} for a in node.names): fixture_consumers.add(str(p))
+additions=(explicit|fixture_consumers)-current
+manifest.write_text('\n'.join(sorted(current|explicit|fixture_consumers))+'\n')
+(scratch/'additional_current_behavior_and_policy_fixtures.txt').write_text('\n'.join(sorted(additions))+'\n')
+print('added',len(additions),*sorted(additions),sep='\n')
+print('total',len(current|explicit|fixture_consumers),'test modules',sum(Path(p).name.startswith('test_') for p in current|explicit|fixture_consumers))
+print('fixture consumers',*sorted(fixture_consumers),sep='\n')
+PY
+
+36. Result: exit 0; located explicit tempfile allocations for audit
+Command:
+rg -n 'sf-agree|mkdtemp|TemporaryDirectory|tests/unit|temp-paths|isolation' tests/unit/conftest.py tests/unit/test_host_push.py tests/unit/test_host_push_validated_top.py tests/unit/test_policy_sandbox_resolution.py tests/unit/test_sessions_revive.py tests/unit/test_sessions_cli.py tests/unit/test_scheduler.py tests/unit/test_scoped_stream_capacity.py
+
+37. Result: exit 0; scratch artifact paths listed; output too broad/truncated because uv cache matched; later reads restricted to known exact paths
+Command:
+rg --files /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1 --glob '*temp-paths*' --glob '*isola*' --glob '*log*' --glob '*.py'
+
+38. Result: exit 0; located workspace and short temporary-parent allocations
+Command:
+rg -n 'sf-agree|mkdtemp\(.*dir=|TemporaryDirectory\(.*dir=' tests --glob '*.py'
+
+39. Result: exit 0; read existing scratch allocation wrapper
+Command:
+cat /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/sf_fable52_isolation.py
+
+40. Result: exit 0; sf-agree property confirmed max_examples=60, permanent-parent semantics and context cleanup
+Command:
+sed -n '245,330p' tests/unit/test_conversation_catalog.py
+
+41. Result: exit 0; readmits property uses explicit workspace parent
+Command:
+sed -n '2585,2635p' tests/unit/test_conversation_service.py
+
+42. Result: exit 0; read root runner environment, manifest expansion and command recording
+Command:
+cat /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/run_checks.py
+
+43. Result: exit 0; first logged allocation was long-scratch safe home
+Command:
+head -5 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/temp-paths-14119.jsonl
+
+44. Result: exit 0; initial run reported one failure, 441 passed, 7 skipped before interrupt traceback
+Command:
+head -40 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/03-related.log
+
+45. Result: exit 0; at 03:42:46 snapshot: 2,452 unique allocations, 60 outside scratch all tests/unit/sf-agree-*, zero tracked outside leftovers
+Command:
+python3 - <<'PY'
+import json
+from collections import Counter,defaultdict
+from pathlib import Path
+from datetime import datetime,timezone
+scratch=Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1')
+workspace=Path.cwd().resolve()
+all_paths=[]
+for file in sorted(scratch.glob('temp-paths-*.jsonl')):
+    paths=[]
+    for line in file.read_text().splitlines():
+        try: paths.append(Path(json.loads(line)))
+        except json.JSONDecodeError: pass
+    all_paths.extend(paths)
+    print(file.name,'count',len(paths),'mtime',datetime.fromtimestamp(file.stat().st_mtime,timezone.utc).isoformat(),'first',str(paths[0]) if paths else '')
+outside=sorted(set(p for p in all_paths if not p.is_relative_to(scratch) and not p.is_relative_to(Path('/private/tmp/sf-fable52-b1'))))
+print('tracked_all',len(all_paths),'unique',len(set(all_paths)),'outside',len(outside))
+print('outside_parents',dict(Counter(str(p.parent) for p in outside)))
+left=[str(p) for p in outside if p.exists() or p.is_symlink()]
+print('tracked_outside_remaining',len(left),*left,sep='\n')
+print('workspace_prefix_groups',dict(Counter('-'.join(p.name.split('-')[:2]) for p in outside)))
+print('top scratch files',*[p.name for p in sorted(scratch.iterdir()) if p.is_file()],sep='\n')
+PY
+
+46. Result: exit 0; root command ledger then held initial two successful targeted runs only; audit executed no tests
+Command:
+cat /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/commands.jsonl
+
+47. Result: exit 0; initial broad failure and KeyboardInterrupt confirmed
+Command:
+rg -n '^_|^FAILED|^ERROR|passed|failed|KeyboardInterrupt|Traceback|pytest' /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/03-related.log
+
+48. Result: exit 0; short socket root and permanent workdir fallback fixture behavior read
+Command:
+sed -n '1,165p' tests/unit/conftest.py
+
+49. Result: exit 0; relevant allocation sites reviewed
+Command:
+rg -n 'TemporaryDirectory|mkdtemp|mktemp|mkdir\(' tests/unit/test_claude_usage.py tests/unit/test_scoped_stream_capacity.py tests/unit/test_scoped_window_scope.py tests/unit/test_claude_adapter.py tests/unit/test_app_cutover_daemon.py tests/unit/test_importer.py tests/unit/test_scheduler.py tests/unit/test_scheduler_weekly.py tests/process/test_claude_isolation.py tests/fake/test_daemon_descriptors.py tests/fake/test_launch_env_daemon.py tests/fake/test_launch_env_ignored_hook.py
+
+50. Result: exit 0; initial 03 run ended 03:38:13 before logs begin 03:38:45; known scratch worker directories showed catalog tests executed; no untracked matching long-scratch dirs printed; output truncated
+Command:
+python3 - <<'PY'
+import json
+from pathlib import Path
+from datetime import datetime,timezone
+s=Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1')
+def stamp(p):
+ st=p.stat();return {'mtime':datetime.fromtimestamp(st.st_mtime,timezone.utc).isoformat(),'birth':datetime.fromtimestamp(getattr(st,'st_birthtime',st.st_ctime),timezone.utc).isoformat()}
+for name in ['sf_fable52_isolation.py','03-related.log','04-related.log','outside-scratch-temp-paths.json']:
+ p=s/name
+ print(name,stamp(p))
+base=s/'pytest-03-related'
+for worker in sorted(base.glob('popen-*')):
+ children=[p.name for p in worker.iterdir() if p.is_dir()]
+ print(worker.name,len(children),children)
+tracked={Path(json.loads(line)) for f in s.glob('temp-paths-*.jsonl') for line in f.read_text().splitlines() if line}
+print('longscratch_untracked_existing_directories')
+for p in sorted(s.iterdir()):
+ if p.is_dir() and p.name.startswith(('sf-','sfwork','readmits-')) and p not in tracked:print(p,stamp(p))
+PY
+
+51. Result: exit 1; lastfailed contains one Claude usage assertion; stepwise file absent
+Command:
+cat .pytest_cache/v/cache/lastfailed .pytest_cache/v/cache/stepwise
+
+52. Result: exit 0; exact outside artifact has 60 entries; workspace sf-agree-*, readmits-*, sfwork-* remaining counts all zero
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import json
+s=Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1')
+p=s/'outside-scratch-temp-paths.json'
+obj=json.loads(p.read_text())
+print(type(obj).__name__,len(obj))
+print('first',obj[0] if isinstance(obj,list) and obj else '')
+print('last',obj[-1] if isinstance(obj,list) and obj else '')
+root=Path.cwd()
+for base,pattern in [(root/'tests/unit','sf-agree-*'),(root/'tests/unit','readmits-*'),(root,'sfwork-*')]:
+ paths=sorted(base.glob(pattern))
+ print(str(base),pattern,'remaining',len(paths),*[str(p) for p in paths])
+PY
+
+53. Result: exit 0; candidate initial-run allocation sites read; exact unlogged initial paths remain UNPROVEN
+Command:
+rg -n 'TemporaryDirectory|mkdtemp|mkdir\(|rmtree' tests/unit/test_conversation_catalog.py tests/unit/test_conversation_handoff.py tests/unit/test_cli.py tests/unit/test_claude_cards.py tests/unit/test_claude_cards_wiring.py tests/unit/test_claude_usage.py tests/unit/test_claude_adapter.py tests/unit/test_sessions_revive.py tests/fake/test_admission_latency.py tests/fake/test_admission_liveness.py tests/fake/test_folder_spelling.py tests/fake/test_sessions_end_to_end.py tests/e2e/test_legacy_cockpit.py
+
+54. Result: exit 0; traceback ends KeyboardInterrupt
+Command:
+tail -15 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/03-related.log
+
+55. Result: exit 0 expected; this scratch-only Python heredoc wrote inventory-command-log.txt from the tool history; no repository file edited. The full self-recording heredoc is present in the tool-call transcript.
+
+Follow-up sessions/e2e read-only audit commands:
+
+56. Result: exit 0; cold_session records old Fable model deliberately
+Command:
+sed -n '1,205p' tests/unit/test_sessions_revive.py
+
+57. Result: exit 0; dry-run assertion and explicit historical substitution tests reviewed
+Command:
+sed -n '300,435p' tests/unit/test_sessions_revive.py
+
+58. Result: exit 2; subfleet/sessions/service.py absent; other matches located model-for retirement and dry-run behavior
+Command:
+rg -n 'dry_run|dry-run|would revive|retired|recorded_model|resolve_model' subfleet/sessions/revive.py subfleet/sessions/service.py subfleet/sessions/cli.py tests/unit/test_sessions_revive.py tests/sessions_fixtures.py
+
+59. Result: exit 0; failed tests enumerated from root broad run
+Command:
+rg -n 'test_dry|test_c.*dry|FAILED|test_credits_rejection|test_c11_7' /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/04-related.log
+
+60. Result: exit 0; recorded fixture data and current attempt checks distinguished
+Command:
+sed -n '1,90p' tests/e2e/test_milestone2_claude.py
+
+61. Result: exit 0; e2e copies shipped policy
+Command:
+sed -n '75,135p' tests/e2e/conftest.py
+
+62. Result: exit 0; inspect prefers desktop metadata model, then transcript model
+Command:
+sed -n '195,265p' subfleet/sessions/revive.py
+
+63. Result: exit 0; model_for resolves retired id to current family alias with reason
+Command:
+sed -n '325,350p' subfleet/sessions/revive.py
+
+64. Result: exit 0; dry-run message includes chosen alias and retirement reason
+Command:
+sed -n '385,435p' subfleet/sessions/revive.py
+
+65. Result: exit 0; current-policy meter assertion failure read
+Command:
+sed -n '263,278p' /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/04-related.log
+
+66. Result: exit 0; fake-provider replay behavior read; no provider invoked
+Command:
+sed -n '1,180p' tests/bin/claude
+
+67. Result: exit 0; explicit temporary path is removed with os.rmdir finally
+Command:
+sed -n '65,85p' tests/unit/test_conversation_catalog.py
+
+68. Result: exit 0; current-policy assertions pin old Fable constant
+Command:
+sed -n '1,85p' tests/e2e/test_reserve.py
+
+69. Result: exit 0; fake replays historical model fields; only session id/cwd rewritten
+Command:
+sed -n '180,310p' tests/bin/claude
+
+70. Result: exit 0; exact dry-run retirement message read from failure
+Command:
+sed -n '240,263p' /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/04-related.log
+
+71. Result: exit 0; current alias passed to e2e CLI model flag
+Command:
+rg -n 'run_args|FAKE_MODEL|model|scenario' tests/e2e/conftest.py
+
+72. Result: exit 0 expected; scratch-only Python heredoc appended commands 56-71 to this log; full recorder source remains in tool transcript.
+
+Final stale-pin read-only audit commands:
+
+73. Result: exit 0; remaining old-id references reviewed; fixtures path glob also printed generator references and those were retained
+Command:
+rg -n 'claude-fable-5-1' tests --glob '*.py' --glob '!fixtures/**'
+
+74. Result: exit 0; root run at 98%, summary not yet printed
+Command:
+tail -45 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/06-related.log
+
+75. Result: exit 0; model-name map and reading scopes are explicitly injected
+Command:
+sed -n '230,310p' tests/unit/test_status_json.py
+
+76. Result: exit 0; old model scope injected through stub adapter response
+Command:
+sed -n '430,475p' tests/unit/test_timers_probe.py
+
+77. Result: exit 0; old model scope is explicit arbitrary test evidence
+Command:
+sed -n '1,95p' tests/unit/test_capacity_view.py
+
+78. Result: exit 0; model attempts/readings and names explicitly injected
+Command:
+sed -n '145,220p' tests/frontend/test_status_model.py
+
+79. Result: exit 0; old model is synthetic generated closure scope
+Command:
+sed -n '145,205p' tests/unit/test_status_hold_source.py
+
+80. Result: exit 0; explicit desktop record parser expectation, independent of policy resolution
+Command:
+sed -n '1,110p' tests/unit/test_sessions_revive_reads.py
+
+81. Result: exit 0; explicit requested/served model attestation tests
+Command:
+sed -n '60,115p' tests/unit/test_gate_verdict.py
+
+82. Result: exit 0; dated observed catalog and explicit old model fast-mode test
+Command:
+sed -n '475,555p' tests/unit/test_claude_turn.py
+
+83. Result: exit 0; no root-run failure summary yet
+Command:
+tail -40 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/06-related.log
+
+84. Result: exit 0; Fable uses limited to already corrected modules and reserve fixture alias
+Command:
+rg -n '\bfable\b|claude-fable' tests/e2e --glob '*.py'
+
+85. Result: exit 0; fake catalog retains explicit old Fable entry
+Command:
+sed -n '90,118p' tests/fake/interactive_claude.py
+
+86. Result: exit 0; status source invariants and fixture independence reviewed
+Command:
+sed -n '1,65p' tests/unit/test_status_hold_source.py
+
+87. Result: exit 0; no root-run failure summary yet
+Command:
+tail -50 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/06-related.log
+
+88. Result: exit 0; no retained failure directories in scratch sf-failed
+Command:
+python3 - <<'PY'
+from pathlib import Path
+s=Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1')
+for p in sorted((s/'sf-failed').glob('*/*')):
+ print(p.relative_to(s), 'directory' if p.is_dir() else 'file')
+PY
+
+89. Result: exit 0 expected; scratch-only Python heredoc appended commands 73-88; full recorder source remains in tool transcript.
+
+CA baseline failure read-only diagnosis commands:
+
+90. Result: exit 0; property counterexample assertion and explicit selected policy read
+Command:
+sed -n '1,245p' tests/unit/test_codex_ca_bundle.py
+
+91. Result: exit 2; subfleet/provider_ca.py absent; correct module identified as provider_env.py from test imports
+Command:
+rg -n 'CA|ca_bundle|ALLOWED_NAMES|SUBFLEET_LIVE|SF_TEST|verify' subfleet/adapters/codex.py subfleet/provider_ca.py subfleet/home_paths.py tests/unit/test_codex_ca_bundle.py
+
+92. Result: exit 0; no differences
+Command:
+git diff HEAD -- tests/unit/test_codex_ca_bundle.py subfleet/adapters/codex.py subfleet/provider_ca.py subfleet/home_paths.py
+
+93. Result: exit 0; bounded CA failure: generated SUBFLEET_LIVE empty value retained, property expects ALLOWED_NAMES subset
+Command:
+python3 - <<'PY'
+import xml.etree.ElementTree as ET
+from pathlib import Path
+p=Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/06-related.xml')
+root=ET.parse(p).getroot()
+for case in root.iter('testcase'):
+ if 'ca_selection' in case.attrib.get('name',''):
+  print(case.attrib)
+  for failure in case.findall('failure'):
+   print(failure.attrib)
+   print((failure.text or '')[-8500:])
+PY
+
+94. Result: exit 0; build delegates to launch environment selection, explicit null bundle avoids file reads
+Command:
+sed -n '1,265p' subfleet/provider_env.py
+
+95. Result: exit 0; HARNESS_NAMES explicitly includes SUBFLEET_LIVE and allowed_name admits it
+Command:
+sed -n '1,235p' subfleet/launch_env.py
+
+96. Result: exit 0; relevant worktree files match HEAD
+Command:
+git diff HEAD -- subfleet/provider_env.py subfleet/launch_env.py tests/unit/test_codex_ca_bundle.py
+
+97. Result: exit 0; relevant HEAD files match baseline
+Command:
+git diff b51f08f961e1 HEAD -- subfleet/provider_env.py subfleet/launch_env.py tests/unit/test_codex_ca_bundle.py
+
+98. Result: exit 0; environment selection call path found
+Command:
+rg -n 'SUBFLEET_LIVE|ALLOWED_NAMES|under_pytest|PYTEST|TEST_|def .*env|def .*build' subfleet/launch_env.py subfleet/provider_env.py subfleet/policy.py tests/conftest.py
+
+99. Result: exit 0; _selected and build_environment preserve admitted harness variable from explicit mapping
+Command:
+sed -n '245,330p' subfleet/launch_env.py
+
+100. Result: exit 0; helper definition located
+Command:
+rg -n 'def codex_ca_bundle' subfleet/policy.py
+
+101. Result: exit 0; supporting source files match baseline
+Command:
+git diff b51f08f961e1 HEAD -- subfleet/home_paths.py subfleet/policy.py subfleet/sessions/transcripts.py
+
+102. Result: exit 0; supporting worktree files match HEAD
+Command:
+git diff HEAD -- subfleet/home_paths.py subfleet/policy.py subfleet/sessions/transcripts.py
+
+103. Result: exit 0; baseline/HEAD blob pairs identical: 9bb2db33ac939fb9d5c28edc92a5aeafa270bbca, a3df2078a5c8fe4b46f0e8c9b20beb961e344d65, 88296122cadc760bb35e4ac65fb333c61ed6026b
+Command:
+git rev-parse HEAD:tests/unit/test_codex_ca_bundle.py b51f08f961e1:tests/unit/test_codex_ca_bundle.py HEAD:subfleet/provider_env.py b51f08f961e1:subfleet/provider_env.py HEAD:subfleet/launch_env.py b51f08f961e1:subfleet/launch_env.py
+
+104. Result: exit 0; codex_ca_bundle only reads supplied mapping
+Command:
+sed -n '1,42p' subfleet/policy.py
+
+105. Result: exit 0; existing test_launch_env_round3 pins HARNESS_NAMES and expected admission of SUBFLEET_LIVE
+Command:
+rg -n 'HARNESS_NAMES|SUBFLEET_LIVE' tests/unit/test_launch_env_helpers.py tests/unit/test_launch_env_round3.py tests/unit/test_launch_env_policy.py
+
+106. Result: exit 0 expected; scratch-only recorder appended commands 90-105; full recorder source remains in tool transcript. No baseline repro or tests were executed by this agent.

@@ -1,0 +1,72 @@
+Contract/examples subagent command log
+Workspace: /Users/maxghenis/.subfleet/worktrees/20261109-162401-fable52-build
+No tests run. No commits created. Root requested combined behavioral/contract commit.
+
+1. pwd && git status --short && rg -n 'C-9\.[89]|Change.?log|changelog|claude-fable-5-1' docs/acceptance-contract.md subfleet/status_json.py subfleet/conversations/claude_turn.py
+   Result: captured stdout was only workspace path; wrapper printed output only, so exit status was not captured. Follow-up source reads supplied the needed evidence.
+
+2. git status --short
+   Result: exit 0; clean worktree at time of read.
+
+3. rg -n 'C-9|change|Fable|fable' docs/acceptance-contract.md subfleet/status_json.py subfleet/conversations/claude_turn.py
+   Result: exit 0; 235 matching lines, output truncated (153,948 original tokens). Located requested comment examples and contract clauses.
+
+4. sed -n '1,20p' docs/acceptance-contract.md
+   Result: exit 0; read contract header and changelog format, including same-commit instruction for clause changes.
+
+5. rg -n '^\- \*\*C-9\.[89]\*\*' docs/acceptance-contract.md
+   Result: exit 0; two matching clauses. C-9.8 covers stream readings/closures; C-9.9 covers OAuth sensor.
+
+6. sed -n '220,239p' subfleet/status_json.py && sed -n '65,91p' subfleet/conversations/claude_turn.py
+   Result: exit 0; read comment context and catalog resolution implementation.
+
+7. rg --files -g 'AGENTS.md' -g '*CLAUDE.md' -g '*SKILL.md' .
+   Result: exit 1; no matching local instruction files.
+
+8. sed -n '78,106p' subfleet/adapters/claude.py && sed -n '65,95p' subfleet/default_policy.json
+   Result: exit 0; read scoped defaults, family window table and shipped Claude policy model definitions.
+
+9. python - <<'PY' ... PY followed by git diff -- docs/acceptance-contract.md subfleet/status_json.py subfleet/conversations/claude_turn.py
+   Edit description: inserted exactly one C-9.8 sentence specifying same-family concrete attempt ID without trailing [1m], family default otherwise, account for shared/unknown windows; inserted one D-FABLE52-1 changelog line dated 2026-11-11; changed the sole claude-fable-5-1 comment example in each source file to claude-fable-5-2. Assertions required unique old clause/example matches.
+   Result: exit 0; diff showed only three owned files; diff output truncated at 5,084 original tokens.
+
+10. git diff --check -- docs/acceptance-contract.md subfleet/status_json.py subfleet/conversations/claude_turn.py && git diff --stat -- docs/acceptance-contract.md subfleet/status_json.py subfleet/conversations/claude_turn.py
+    Result: exit 0; no whitespace errors; 3 files changed, 4 insertions(+), 3 deletions(-) at that point.
+
+11. python - <<'PY' ... PY followed by git diff --check -- docs/acceptance-contract.md subfleet/status_json.py subfleet/conversations/claude_turn.py
+    Edit description: replaced the catalog example's parenthetical “observed 2026-09-24: values” with “for example, values” so the updated Fable 5.2 example makes no pre-release observation claim. Assertion required one matching comment block.
+    Result: exit 0; final diff whitespace check passed.
+
+12. python - <<'PY' ... PY
+    Edit description: wrote this command log under the authorized sf-fable52-b1 scratch folder; no repo file writes.
+    Result: see tool return for this write (expected successful completion).
+
+
+Follow-up: seven observed shipped-policy expectation failures
+No tests run because root's mutation runner was active. No commits attempted (root reported denied index.lock). No behavioral code or fixture changes.
+
+13. rg -n -C 3 'claude-fable-5-1|before_sha|[a-f0-9]{64}' tests/unit/test_claude_usage.py tests/unit/test_importer.py tests/unit/test_app_cutover_daemon.py tests/unit/test_timers_busy_read.py tests/fake/test_reserve_authorization.py tests/unit/test_policy_ramp.py tests/unit/test_provider_active_cap.py
+    Result: exit 0; read all requested stale Fable scope/catalog pins and the two old pinned hashes with comments.
+
+14. rg -n 'FAILED .*test_claude_usage|FAILED .*test_importer|FAILED .*test_app_cutover_daemon|FAILED .*test_timers_busy_read|FAILED .*test_reserve_authorization|FAILED .*test_policy_ramp|FAILED .*test_provider_active_cap' /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261109-162401-fable52-build-a1-s3v6uud6/sf-fable52-b1/04-related.log
+    Result: exit 0; confirmed all seven files had a failed test in completed related run.
+
+15. sed -n '45,83p' tests/unit/test_claude_usage.py && sed -n '753,779p' tests/unit/test_importer.py && sed -n '188,213p' tests/unit/test_app_cutover_daemon.py && sed -n '265,290p' tests/unit/test_timers_busy_read.py && sed -n '120,155p' tests/fake/test_reserve_authorization.py
+    Result: exit 0; read affected test bodies and real-path context.
+
+16. sed -n '1,37p' tests/unit/test_policy_ramp.py && sed -n '47,74p' tests/unit/test_provider_active_cap.py
+    Result: exit 0; read both raw-policy hash tests and their comments.
+
+17. python - <<'PY' ... PY
+    Edit description: assertion-guarded replacement of six claude-fable-5-1 scope/catalog pins with claude-fable-5-2 across the five requested test files; two old raw-policy hashes replaced by root-provided cb125a1a9e1e23557df220b0cb678e58b39e68a2b5f4c66fea4a883901267e1c; hash comments updated to D-FABLE52-1. No fixture edits.
+    Result: exit 0.
+
+18. git diff --check -- tests/unit/test_claude_usage.py tests/unit/test_importer.py tests/unit/test_app_cutover_daemon.py tests/unit/test_timers_busy_read.py tests/fake/test_reserve_authorization.py tests/unit/test_policy_ramp.py tests/unit/test_provider_active_cap.py
+    Result: exit 0; no whitespace errors.
+
+19. git diff --stat -- tests/unit/test_claude_usage.py tests/unit/test_importer.py tests/unit/test_app_cutover_daemon.py tests/unit/test_timers_busy_read.py tests/fake/test_reserve_authorization.py tests/unit/test_policy_ramp.py tests/unit/test_provider_active_cap.py
+    Result: exit 0; seven files changed, ten insertions(+), ten deletions(-).
+
+20. python - <<'PY' ... PY
+    Edit description: appended this follow-up command log under assigned scratch.
+    Result: see tool return for this append.
