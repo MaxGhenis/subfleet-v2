@@ -1,0 +1,30 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_sandbox_hold_survives_lease_reapers_and_is_outside_task_range ______
+
+    def test_sandbox_hold_survives_lease_reapers_and_is_outside_task_range():
+        """Mutant 6: attempt/job/probe/retention/resume cleanup preserves the operator row."""
+        with fleet() as (service, harness, clock, signals):
+            sandbox_hold(service, 100)
+            review = submit(service, harness, "review", "reaper-review")
+            service._admit()
+            [attempt] = attempts(service, review)
+            finish(service, attempt)
+            for holder in (attempt["attempt_id"], review, "probe:timer:x", "retention:x", "resume:x"):
+                service.store.release_leases(holder)
+            service._recover_probes()
+>           assert listing(service) == [{"sandbox": "workspace-write", "until": stamp(100),
+                                         "note": "disk brake", "since": stamp(0)}], "reaper deleted sandbox hold"
+E           AssertionError: reaper deleted sandbox hold
+E           assert [] == [{'sandbox': ...9T16:33:00Z'}]
+E             
+E             Right contains one more item: {'sandbox': 'workspace-write', 'until': '2026-10-09T16:34:40Z', 'note': 'disk brake', 'since': '2026-10-09T16:33:00Z'}
+E             Use -v to get more diff
+
+tests/fake/test_sandbox_hold_properties.py:429: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4429002608:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4429002608:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_properties.py::test_sandbox_hold_survives_lease_reapers_and_is_outside_task_range
+1 failed in 1.32s

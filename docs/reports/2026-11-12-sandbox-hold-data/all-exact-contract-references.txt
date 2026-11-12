@@ -1,0 +1,149 @@
+tests/fake/test_task_hold_reset_demand.py:131:        assert state_of(service, build) == ("waiting", "task-held")
+tests/fake/test_task_hold_reset_demand.py:156:    (its take moves the job to `task-held`), then the look goes on. Its opening wrote a capacity
+tests/fake/test_task_hold_reset_demand.py:157:    wait over `task-held`, which only the two hold checks kept from being demand. Now the opening's
+tests/fake/test_task_hold_reset_demand.py:164:        assert state_of(service, build) == ("waiting", "task-held"), \
+tests/fake/test_task_hold_admission.py:55:    assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(3600))
+tests/fake/test_task_hold_admission.py:57:    assert hold_record == {"reason": "task-held", "task": "build", "until": stamp(3600), "note": NOTE,
+tests/fake/test_task_hold_admission.py:86:    assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:98:    assert all(job(service, b)["wait_reason"] == "task-held" for b in builds)
+tests/fake/test_task_hold_admission.py:220:    assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(3600))
+tests/fake/test_task_hold_admission.py:306:    rows = service.store.query("SELECT kind,data_json FROM events WHERE kind IN ('task.held','task.released') "
+tests/fake/test_task_hold_admission.py:311:        ("task.held", {"task": "build", "until": stamp(600), "note": NOTE, "replaced": None}),
+tests/fake/test_task_hold_admission.py:312:        ("task.held", {"task": "build", "until": stamp(900), "note": "moved",
+tests/fake/test_task_hold_admission.py:314:        ("task.released", {"task": "build", "until": stamp(900), "note": "moved", "woken": 0}),
+tests/fake/test_task_hold_admission.py:335:    assert waiting["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:337:    assert service._admission["pending"] == 0 and "task-held" not in service._admission["reasons"]
+tests/fake/test_task_hold_admission.py:411:    assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:457:        assert reopened.get_job(build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:487:    assert "task-held" in render._HOLD_TEXT
+tests/fake/test_task_hold_admission.py:488:    assert "task-held" in daemon_module.NOT_ADMISSIONS_TO_PLACE
+tests/fake/test_task_hold_admission.py:500:        assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:513:        assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_cas.py:42:    assert refusal.reason == "task-hold-condition", "CAS-refusal: wrong refusal"
+tests/fake/test_task_hold_cas.py:57:        assert service.store.get_job(build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_cas.py:119:    """No row means no mutation even when a stale task-held waiter remains."""
+tests/fake/test_task_hold_cas.py:123:        assert service.store.get_job(build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_cas.py:139:        assert service.store.query("SELECT kind FROM events WHERE kind='task.released'") == [{"kind": "task.released"}]
+tests/fake/test_task_hold_cas.py:155:            if kind == {"hold": "task.held", "release": "task.released"}[action] and not after_foreign:
+tests/fake/test_task_hold_cas.py:171:            assert captured.value.reason == "task-hold-condition", "CAS-writer: wrong refusal"
+tests/fake/test_sandbox_hold_interleavings.py:49:            "task-held", stamp(expected_end))
+tests/fake/test_sandbox_hold_interleavings.py:50:        assert service.store.query("SELECT * FROM events WHERE kind='job.task_hold_ended' AND job_id=?",
+tests/fake/test_sandbox_hold_interleavings.py:54:        assert job(service, ident)["wait_reason"] == "task-held"
+tests/fake/test_sandbox_hold_interleavings.py:78:        assert job(service, ident)["wait_reason"] == "task-held"
+tests/fake/test_sandbox_hold_interleavings.py:132:                job(service, ident)["next_check_at"]) == ("waiting", "task-held", stamp(100))
+tests/fake/test_sandbox_hold_interleavings.py:173:        assert (result["status"], result.get("sandbox_held")) == ("demand-gone", "workspace-write"), result
+tests/fake/test_task_hold_cas_properties.py:78:                    assert exc.reason == "task-hold-condition"
+tests/fake/test_task_hold_cas_properties.py:100:                    assert events[-1]["kind"] == {"hold": "task.held", "release": "task.released"}[action]
+tests/fake/test_sandbox_hold_properties.py:165:                assert job(service, ident)["wait_reason"] == "task-held"
+tests/fake/test_sandbox_hold_properties.py:294:        assert service.store.one("SELECT 1 FROM leases WHERE lease_key='sandbox-hold:workspace-write'")
+tests/fake/test_sandbox_hold_properties.py:330:        row = service.store.one("SELECT * FROM leases WHERE lease_key='sandbox-hold:workspace-write'")
+tests/fake/test_sandbox_hold_properties.py:352:        assert attempts(service, jobs["generated-0"]) == [], "sandbox release: task-held job escaped"
+tests/fake/test_sandbox_hold_properties.py:399:    """C-11.8's episode and the task-held events are shared with task holds."""
+tests/fake/test_sandbox_hold_properties.py:414:        assert "job.task_held" in [event["kind"] for event in events]
+tests/fake/test_sandbox_hold_properties.py:415:        assert "job.task_hold_ended" in [event["kind"] for event in events]
+tests/fake/test_sandbox_hold_properties.py:432:        assert not low <= "sandbox-hold:workspace-write" < high, "sandbox key entered the task-hold range"
+tests/fake/test_sandbox_hold_properties.py:437:        task = "sandbox-hold:workspace-write"
+tests/fake/test_sandbox_hold_properties.py:460:        assert error.value.reason == "task-hold-condition"
+tests/fake/test_task_hold_mutants.py:219:        assert job(service, build)["wait_reason"] == "task-held", \
+tests/fake/test_task_hold_mutants.py:272:    lines = render.why_queue({"job_id": "j", "kind": "dispatch", "state": "waiting", "wait_reason": "task-held",
+tests/fake/test_task_hold_mutants.py:273:                              "hold": {"reason": "task-held", "task": "data build", "until": stamp(60), "note": "n"}})
+tests/fake/test_sandbox_hold_continuity.py:53:            "task-held", stamp(200))
+tests/fake/test_sandbox_hold_continuity.py:59:            "task-hold:build": stamp(0), "sandbox-hold:workspace-write": stamp(20)}
+tests/fake/test_unrun_worktrees.py:574:    assert (job["state"], job["wait_reason"]) == ("waiting", "task-held"), dict(job)
+tests/fake/test_unrun_worktrees.py:575:    assert daemon._holds[job_id]["reason"] == "task-held"
+tests/fake/test_retention_dependency_review_r5.py:265:    assert reads and holds[job_id]["reason"] == "task-held", holds
+tests/fake/test_retention_dependency_review_r5.py:266:    assert service.store.get_job(job_id)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:17:its own thread, writes nothing over `task-held` (R3-1); and a finalizer that runs long after the
+tests/fake/test_task_hold_clocks.py:114:        assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:115:        taken = service.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_held' "
+tests/fake/test_task_hold_clocks.py:119:        assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:131:            assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:141:            assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:196:        taken = service.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_held' "
+tests/fake/test_task_hold_clocks.py:204:    excepted), each with its `job.task_held` event, beside `task.held`: no pass is needed."""
+tests/fake/test_task_hold_clocks.py:211:            assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(600))
+tests/fake/test_task_hold_clocks.py:214:            "SELECT kind, job_id FROM events WHERE kind IN ('job.task_held','task.held') ORDER BY event_id")]
+tests/fake/test_task_hold_clocks.py:215:        assert kinds == [("job.task_held", builds[0]), ("job.task_held", builds[1]), ("task.held", None)]
+tests/fake/test_task_hold_clocks.py:229:        assert service.store.one("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_hold_ended' "
+tests/fake/test_task_hold_clocks.py:234:        assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:286:        taken = service.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_held'", (build,))
+tests/fake/test_task_hold_clocks.py:341:            assert (row["wait_reason"], row["next_check_at"]) == ("task-held", stamp(90 if started == 90 else 20))
+tests/fake/test_task_hold_clocks.py:390:            assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:400:            [ended] = service.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_hold_ended'",
+tests/fake/test_task_hold_clocks.py:430:        ended = service.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_hold_ended'",
+tests/fake/test_task_hold_clocks.py:479:        assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(1000)), \
+tests/fake/test_task_hold_clocks.py:491:    `task-held`. A release at 50 woke nothing and the job failed at 70; an expiry at 1000 seen at
+tests/fake/test_task_hold_clocks.py:494:    the commit, as the commit's take pauses one, and the job stays `task-held`."""
+tests/fake/test_task_hold_clocks.py:503:        assert (row["wait_reason"], row["next_check_at"]) == ("task-held", stamp(1000)), \
+tests/fake/test_task_hold_clocks.py:504:            ("R3-1: the episode's opening wrote its capacity wait over task-held", dict(row))
+tests/fake/test_task_hold_clocks.py:509:            assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:556:    `task-held` until the hold's end, and this pass reports it so:
+tests/fake/test_task_hold_clocks.py:590:        assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(1000)), \
+tests/fake/test_task_hold_clocks.py:592:        assert service._holds[build]["reason"] == "task-held"
+tests/fake/test_task_hold_clocks.py:680:            if kind == ("task.held" if operation == "hold" else "task.released"):
+tests/fake/test_task_hold_clocks.py:736:            before_read.wait()                                       # rows copied: task-held, clock 25
+tests/fake/test_task_hold_clocks.py:742:        takes = events(service, build, "job.task_held")
+tests/fake/test_task_hold_clocks.py:743:        ended = events(service, build, "job.task_hold_ended")
+tests/fake/test_task_hold_clocks.py:789:        ended = events(service, build, "job.task_hold_ended")
+tests/fake/test_task_hold_clocks.py:794:        assert (committed["wait_reason"], committed["next_check_at"]) == ("task-held", stamp(42))
+tests/fake/test_task_hold_clocks.py:869:        take = events(service, build, "job.task_held")[-1]
+tests/fake/test_task_hold_clocks.py:926:        answer = behind_finalizer(service, harness, clock, monkeypatch, "task.held",
+tests/fake/test_task_hold_clocks.py:946:        answer = behind_finalizer(service, harness, clock, monkeypatch, "task.released",
+tests/fake/test_task_hold_clocks.py:957:        answer = behind_finalizer(service, harness, clock, monkeypatch, "task.held",
+tests/fake/test_task_hold_clocks.py:963:        assert not service.store.query("SELECT 1 FROM events WHERE kind='task.held'")
+tests/fake/test_task_hold_properties.py:217:        for row in self.service.store.query("SELECT event_id, data_json FROM events WHERE kind='job.task_held' "
+tests/fake/test_task_hold_properties.py:360:            if job["wait_reason"] == "task-held":
+tests/fake/test_task_hold_properties.py:364:            if recorded and recorded.get("reason") == "task-held":
+tests/fake/test_task_hold_properties.py:370:                    assert job["wait_reason"] != "task-held", ("T3 woken", job)
+tests/fake/test_task_hold_properties.py:375:                    or job["state"] not in ("queued", "waiting") or job["wait_reason"] == "task-held"
+tests/fake/test_task_hold_properties.py:387:            was_held = service.store.one("SELECT 1 FROM events WHERE job_id=? AND kind='job.task_held' "
+tests/fake/test_task_hold_properties.py:393:            if (tasks_before.get(job_id) == "task-held" and job["wait_reason"] != "task-held"
+tests/fake/test_task_hold_properties.py:401:                    "SELECT event_id, ts, data_json FROM events WHERE job_id=? AND kind='job.task_hold_ended' "
+tests/fake/test_task_hold_properties.py:408:                    "SELECT ts FROM events WHERE job_id=? AND kind='job.task_held' AND event_id>? AND event_id<? "
+tests/fake/test_task_hold_properties.py:645:            for row in service.store.query("SELECT event_id, data_json FROM events WHERE kind='job.task_held' "
+tests/fake/test_task_hold_properties.py:712:            if row["wait_reason"] != "task-held" and "paused_s" not in episode:
+tests/fake/test_task_hold_properties.py:897:        endings = events(service, build, "job.task_hold_ended")
+tests/unit/test_sandbox_hold_cli.py:91:    error = DaemonError(7, "operator owns this hold", reason="task-hold-condition", details={"task_hold": HOLD})
+tests/unit/test_sandbox_hold_cli.py:95:    assert json.loads(captured.out) == {"refused": "task-hold-condition", "task_hold": HOLD}
+tests/unit/test_sandbox_hold_cli.py:96:    assert "task-hold-condition" in captured.err
+tests/unit/test_sandbox_hold_cli.py:111:             "state": "waiting", "wait_reason": "task-held"}
+tests/unit/test_task_hold_cas_wire.py:22:                                  fix="untrusted repair", reason="task-hold-condition",
+tests/unit/test_task_hold_cas_wire.py:38:    assert error.code == 7 and error.reason == "task-hold-condition"
+tests/unit/test_task_hold_cas_wire.py:49:    assert error["reason"] == "task-hold-condition" and error["details"] == {"task_hold": HOLD}
+tests/unit/test_task_hold_cas_wire.py:73:    assert response["error"] == {"code": 7, "message": refusals.HANDLER_MESSAGES["task-hold-condition"][0],
+tests/unit/test_task_hold_cas_wire.py:101:    error = DaemonError(7, "opaque older message", reason="task-hold-condition",
+tests/unit/test_sandbox_hold_contract.py:20:KEY = "sandbox-hold:workspace-write"
+tests/unit/test_sandbox_hold_contract.py:35:    wait = {"reason": "task-held", "sandbox": SANDBOX, "until": stamp(100), "note": "disk brake",
+tests/unit/test_sandbox_hold_contract.py:40:                              "wait_reason": "task-held", "next_check_at": stamp(100), "hold": wait})
+tests/unit/test_sandbox_hold_contract.py:124:        assert service._holds[ident] == {"reason": "task-held", "sandbox": SANDBOX, "until": stamp(100),
+tests/unit/test_sandbox_hold_contract.py:131:            "('task.held','job.task_held','task.released','job.task_hold_ended') ORDER BY event_id")]
+tests/unit/test_sandbox_hold_contract.py:133:            ("job.task_held", {"sandbox": SANDBOX, "until": stamp(100), "since": stamp(0),
+tests/unit/test_sandbox_hold_contract.py:135:            ("task.held", {"sandbox": SANDBOX, "until": stamp(100), "note": "disk brake", "replaced": None}),
+tests/unit/test_sandbox_hold_contract.py:136:            ("job.task_hold_ended", {"by": "release", "sandbox": SANDBOX,
+tests/unit/test_sandbox_hold_contract.py:138:            ("task.released", {"sandbox": SANDBOX, "until": stamp(100), "note": "disk brake", "woken": 1}),
+tests/unit/test_sandbox_hold_contract.py:146:    error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+tests/unit/test_sandbox_hold_contract.py:154:        "fix": None, "reason": "task-hold-condition", "details": {"task_hold": HOLD},
+tests/unit/test_sandbox_hold_contract.py:170:    error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+tests/unit/test_sandbox_hold_contract.py:185:                "private diagnostic", Exit.REFUSED, reason="task-hold-condition", details={"task_hold": HOLD}))
+tests/unit/test_sandbox_hold_contract.py:193:    assert json.loads(captured.out) == {"refused": "task-hold-condition", "task_hold": HOLD}
+tests/unit/test_sandbox_hold_contract.py:194:    assert "sandbox workspace-write" in captured.err and "task-hold-condition" in captured.err
+tests/unit/test_sandbox_hold_contract.py:211:        assert (error.value.reason, error.value.code) == ("tasks-target", 2)
+tests/unit/test_sandbox_hold_contract.py:218:def test_status_counts_all_sandbox_held_jobs_and_excludes_exempt_rows(reader):
+tests/unit/test_sandbox_hold_contract.py:230:        # name task-held, the turn and taskless exclusions still apply.
+tests/unit/test_sandbox_hold_contract.py:232:            tx.execute("UPDATE jobs SET sandbox=?,state='waiting',wait_reason='task-held',next_check_at=? "
+tests/unit/test_task_hold_cas_cli.py:33:        "private diagnostic", Exit.REFUSED, reason="task-hold-condition", details={"task_hold": HOLD}))
+tests/unit/test_task_hold_cas_cli.py:121:    assert "task-hold-condition" in captured.err
+tests/unit/test_task_hold_cas_cli.py:126:        assert result == {"refused": "task-hold-condition", "task_hold": HOLD}
+tests/unit/test_task_hold_cas_cli.py:144:    assert json.loads(captured.out) == {"refused": "task-hold-condition", "task_hold": HOLD}
+tests/unit/test_task_hold_cas_cli.py:151:            "private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+tests/unit/test_task_hold_cas_cli.py:174:         DaemonError(7, "task-hold-condition", reason="task-hold-condition", details={"task_hold": HOLD}), 7),
+tests/unit/test_task_holds.py:148:        "reason": "task-held", "task": "build", "until": "2026-10-24T13:00:00Z", "note": "uk-data",
+tests/unit/test_task_holds.py:180:                              "wait_reason": "task-held", "next_check_at": "2026-10-24T13:00:00Z",
+tests/unit/test_task_holds.py:181:                              "hold": {"reason": "task-held", "task": "build", "until": "2026-10-24T13:00:00Z",
+tests/unit/test_task_holds.py:189:    """The release command a `task-held` job's `why` line names, from between its backticks."""
+tests/unit/test_task_holds.py:191:                              "wait_reason": "task-held", "hold": {"reason": "task-held", "task": task,
+tests/unit/test_task_holds.py:285:                      "wait_reason": "task-held"},
+tests/unit/test_task_holds.py:311:                      "wait_reason": "task-held"}]}
+tests/unit/test_sandbox_hold_reapers.py:21:SANDBOX_KEY = "sandbox-hold:workspace-write"
+tests/unit/test_task_hold_cas_integration.py:41:        assert response == {"refused": "task-hold-condition", "task_hold": blocking}
+tests/unit/test_task_hold_cas_integration.py:45:        assert "task-hold-condition" in captured.err

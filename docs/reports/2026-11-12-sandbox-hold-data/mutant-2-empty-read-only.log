@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_empty_sandbox_is_conservatively_held ___________________
+
+    def test_empty_sandbox_is_conservatively_held():
+        """Mutant 2: legacy empty sandboxes are workspace-write at this door."""
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, [("review", "", "dispatch")])
+            sandbox_hold(service, 100)
+            service._admit()
+>           assert attempts(service, jobs["generated-0"]) == [], "empty sandbox: job escaped the hold"
+E           AssertionError: empty sandbox: job escaped the hold
+E           assert [{'attempt_id...odex-1', ...}] == []
+E             
+E             Left contains one more item: {'attempt_id': '20261112-012535-generated-0/a1', 'job_id': '20261112-012535-generated-0', 'seq': 1, 'lane_id': 'codex-1', ...}
+E             Use -v to get more diff
+
+tests/fake/test_sandbox_hold_properties.py:270: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4491229040:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4491229040:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_properties.py::test_empty_sandbox_is_conservatively_held
+1 failed in 2.02s

@@ -1,0 +1,48 @@
+tests/unit/test_task_hold_cas_wire.py:22:                                  fix="untrusted repair", reason="task-hold-condition",
+tests/unit/test_task_hold_cas_wire.py:38:    assert error.code == 7 and error.reason == "task-hold-condition"
+tests/unit/test_task_hold_cas_wire.py:49:    assert error["reason"] == "task-hold-condition" and error["details"] == {"task_hold": HOLD}
+tests/unit/test_task_hold_cas_wire.py:73:    assert response["error"] == {"code": 7, "message": refusals.HANDLER_MESSAGES["task-hold-condition"][0],
+tests/unit/test_task_hold_cas_wire.py:101:    error = DaemonError(7, "opaque older message", reason="task-hold-condition",
+tests/unit/test_task_hold_cas_cli.py:33:        "private diagnostic", Exit.REFUSED, reason="task-hold-condition", details={"task_hold": HOLD}))
+tests/unit/test_task_hold_cas_cli.py:121:    assert "task-hold-condition" in captured.err
+tests/unit/test_task_hold_cas_cli.py:126:        assert result == {"refused": "task-hold-condition", "task_hold": HOLD}
+tests/unit/test_task_hold_cas_cli.py:144:    assert json.loads(captured.out) == {"refused": "task-hold-condition", "task_hold": HOLD}
+tests/unit/test_task_hold_cas_cli.py:151:            "private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+tests/unit/test_task_hold_cas_cli.py:174:         DaemonError(7, "task-hold-condition", reason="task-hold-condition", details={"task_hold": HOLD}), 7),
+tests/fake/test_task_hold_admission.py:55:    assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(3600))
+tests/fake/test_task_hold_admission.py:57:    assert hold_record == {"reason": "task-held", "task": "build", "until": stamp(3600), "note": NOTE,
+tests/fake/test_task_hold_admission.py:86:    assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:98:    assert all(job(service, b)["wait_reason"] == "task-held" for b in builds)
+tests/fake/test_task_hold_admission.py:107:        assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("queued", None, None)
+tests/fake/test_task_hold_admission.py:146:        == ["task-hold:build"]
+tests/fake/test_task_hold_admission.py:220:    assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(3600))
+tests/fake/test_task_hold_admission.py:253:    assert error.reason == reason and error.code == 2
+tests/fake/test_task_hold_admission.py:269:    assert error.reason == "task-hold-note"
+tests/fake/test_task_hold_admission.py:306:    rows = service.store.query("SELECT kind,data_json FROM events WHERE kind IN ('task.held','task.released') "
+tests/fake/test_task_hold_admission.py:311:        ("task.held", {"task": "build", "until": stamp(600), "note": NOTE, "replaced": None}),
+tests/fake/test_task_hold_admission.py:312:        ("task.held", {"task": "build", "until": stamp(900), "note": "moved",
+tests/fake/test_task_hold_admission.py:314:        ("task.released", {"task": "build", "until": stamp(900), "note": "moved", "woken": 0}),
+tests/fake/test_task_hold_admission.py:335:    assert waiting["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:337:    assert service._admission["pending"] == 0 and "task-held" not in service._admission["reasons"]
+tests/fake/test_task_hold_admission.py:389:    for task in ("builds", "Build", "build ", "task-hold:build", "data build"):
+tests/fake/test_task_hold_admission.py:393:            assert (error.reason, error.code) == ("unknown-task", 2), (task, args)
+tests/fake/test_task_hold_admission.py:411:    assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:457:        assert reopened.get_job(build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:487:    assert "task-held" in render._HOLD_TEXT
+tests/fake/test_task_hold_admission.py:488:    assert "task-held" in daemon_module.NOT_ADMISSIONS_TO_PLACE
+tests/fake/test_task_hold_admission.py:500:        assert job(service, build)["wait_reason"] == "task-held"
+tests/fake/test_task_hold_admission.py:505:        assert job(service, build)["wait_reason"] == "uncertain"
+tests/fake/test_task_hold_admission.py:510:        assert job(service, build)["wait_reason"] == "capacity"
+tests/fake/test_task_hold_admission.py:513:        assert job(service, build)["wait_reason"] == "task-held"
+tests/unit/test_task_holds.py:113:    "lease_key": st.one_of(st.sampled_from(["task-hold:build", "task-hold:review", "task-hold:", "lane:codex-1:slot:0",
+tests/unit/test_task_holds.py:129:        source = [row for row in rows if row["lease_key"] == "task-hold:" + task]
+tests/unit/test_task_holds.py:135:        if (isinstance(key, str) and key.startswith("task-hold:") and len(key) > len("task-hold:")
+tests/unit/test_task_holds.py:137:            assert key[len("task-hold:"):] in holds
+tests/unit/test_task_holds.py:148:        "reason": "task-held", "task": "build", "until": "2026-10-24T13:00:00Z", "note": "uk-data",
+tests/unit/test_task_holds.py:154:    for key in ("task-hold:build", "task-hold:authored-prose", "task-hold:zz"):
+tests/unit/test_task_holds.py:180:                              "wait_reason": "task-held", "next_check_at": "2026-10-24T13:00:00Z",
+tests/unit/test_task_holds.py:181:                              "hold": {"reason": "task-held", "task": "build", "until": "2026-10-24T13:00:00Z",
+tests/unit/test_task_holds.py:189:    """The release command a `task-held` job's `why` line names, from between its backticks."""
+tests/unit/test_task_holds.py:191:                              "wait_reason": "task-held", "hold": {"reason": "task-held", "task": task,
+tests/unit/test_task_holds.py:285:                      "wait_reason": "task-held"},
+tests/unit/test_task_holds.py:311:                      "wait_reason": "task-held"}]}

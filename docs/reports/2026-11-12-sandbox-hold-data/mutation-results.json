@@ -1,0 +1,176 @@
+[
+  {
+    "mutant": 1,
+    "name": "policy-default",
+    "test": "tests/fake/test_sandbox_hold_properties.py::test_sandbox_hold_reads_the_job_row_instead_of_the_task_default",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-sbh-b1/uv-cache",
+      "run",
+      "--no-sync",
+      "--with",
+      "pytest-xdist>=3.6",
+      "pytest",
+      "-q",
+      "-p",
+      "pytest_scratch",
+      "tests/fake/test_sandbox_hold_properties.py::test_sandbox_hold_reads_the_job_row_instead_of_the_task_default",
+      "--basetemp",
+      "/private/tmp/sf-sbh-b1/mutants/pytest-1"
+    ],
+    "exit": 1,
+    "assertion": "row sandbox:",
+    "killed": true,
+    "restored_sha256": {
+      "subfleet/task_holds.py": "c2f4fb4064f9b13b63e08f3a14881517fa04e28577027bbc264545ac47d12943",
+      "subfleet/daemon.py": "3785df8d734f04bd1252592081eaab7848132e6863d2e97b8d76f5307e7a2786",
+      "subfleet/store.py": "8be9ab8cc380d037cf6fd4a03f1be60ff844781a35fd3b54c047b3871e115ded"
+    }
+  },
+  {
+    "mutant": 2,
+    "name": "empty-read-only",
+    "test": "tests/fake/test_sandbox_hold_properties.py::test_empty_sandbox_is_conservatively_held",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-sbh-b1/uv-cache",
+      "run",
+      "--no-sync",
+      "--with",
+      "pytest-xdist>=3.6",
+      "pytest",
+      "-q",
+      "-p",
+      "pytest_scratch",
+      "tests/fake/test_sandbox_hold_properties.py::test_empty_sandbox_is_conservatively_held",
+      "--basetemp",
+      "/private/tmp/sf-sbh-b1/mutants/pytest-2"
+    ],
+    "exit": 1,
+    "assertion": "empty sandbox:",
+    "killed": true,
+    "restored_sha256": {
+      "subfleet/task_holds.py": "c2f4fb4064f9b13b63e08f3a14881517fa04e28577027bbc264545ac47d12943",
+      "subfleet/daemon.py": "3785df8d734f04bd1252592081eaab7848132e6863d2e97b8d76f5307e7a2786",
+      "subfleet/store.py": "8be9ab8cc380d037cf6fd4a03f1be60ff844781a35fd3b54c047b3871e115ded"
+    }
+  },
+  {
+    "mutant": 3,
+    "name": "hold-turn",
+    "test": "tests/fake/test_sandbox_hold_properties.py::test_s5_turns_and_jobs_without_a_task_are_never_held",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-sbh-b1/uv-cache",
+      "run",
+      "--no-sync",
+      "--with",
+      "pytest-xdist>=3.6",
+      "pytest",
+      "-q",
+      "-p",
+      "pytest_scratch",
+      "tests/fake/test_sandbox_hold_properties.py::test_s5_turns_and_jobs_without_a_task_are_never_held",
+      "--basetemp",
+      "/private/tmp/sf-sbh-b1/mutants/pytest-3"
+    ],
+    "exit": 1,
+    "assertion": "S5: exempt job was held",
+    "killed": true,
+    "restored_sha256": {
+      "subfleet/task_holds.py": "c2f4fb4064f9b13b63e08f3a14881517fa04e28577027bbc264545ac47d12943",
+      "subfleet/daemon.py": "3785df8d734f04bd1252592081eaab7848132e6863d2e97b8d76f5307e7a2786",
+      "subfleet/store.py": "8be9ab8cc380d037cf6fd4a03f1be60ff844781a35fd3b54c047b3871e115ded"
+    }
+  },
+  {
+    "mutant": 4,
+    "name": "expired-holds",
+    "test": "tests/fake/test_sandbox_hold_properties.py::test_expired_sandbox_hold_stops_nothing_without_being_reaped",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-sbh-b1/uv-cache",
+      "run",
+      "--no-sync",
+      "--with",
+      "pytest-xdist>=3.6",
+      "pytest",
+      "-q",
+      "-p",
+      "pytest_scratch",
+      "tests/fake/test_sandbox_hold_properties.py::test_expired_sandbox_hold_stops_nothing_without_being_reaped",
+      "--basetemp",
+      "/private/tmp/sf-sbh-b1/mutants/pytest-4"
+    ],
+    "exit": 1,
+    "assertion": "expired sandbox:",
+    "killed": true,
+    "restored_sha256": {
+      "subfleet/task_holds.py": "c2f4fb4064f9b13b63e08f3a14881517fa04e28577027bbc264545ac47d12943",
+      "subfleet/daemon.py": "3785df8d734f04bd1252592081eaab7848132e6863d2e97b8d76f5307e7a2786",
+      "subfleet/store.py": "8be9ab8cc380d037cf6fd4a03f1be60ff844781a35fd3b54c047b3871e115ded"
+    }
+  },
+  {
+    "mutant": 5,
+    "name": "release-task-too",
+    "test": "tests/fake/test_sandbox_hold_properties.py::test_sandbox_release_keeps_an_independent_task_hold",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-sbh-b1/uv-cache",
+      "run",
+      "--no-sync",
+      "--with",
+      "pytest-xdist>=3.6",
+      "pytest",
+      "-q",
+      "-p",
+      "pytest_scratch",
+      "tests/fake/test_sandbox_hold_properties.py::test_sandbox_release_keeps_an_independent_task_hold",
+      "--basetemp",
+      "/private/tmp/sf-sbh-b1/mutants/pytest-5"
+    ],
+    "exit": 1,
+    "assertion": "sandbox release: task hold was changed",
+    "killed": true,
+    "restored_sha256": {
+      "subfleet/task_holds.py": "c2f4fb4064f9b13b63e08f3a14881517fa04e28577027bbc264545ac47d12943",
+      "subfleet/daemon.py": "3785df8d734f04bd1252592081eaab7848132e6863d2e97b8d76f5307e7a2786",
+      "subfleet/store.py": "8be9ab8cc380d037cf6fd4a03f1be60ff844781a35fd3b54c047b3871e115ded"
+    }
+  },
+  {
+    "mutant": 6,
+    "name": "reaper-deletes",
+    "test": "tests/fake/test_sandbox_hold_properties.py::test_sandbox_hold_survives_lease_reapers_and_is_outside_task_range",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-sbh-b1/uv-cache",
+      "run",
+      "--no-sync",
+      "--with",
+      "pytest-xdist>=3.6",
+      "pytest",
+      "-q",
+      "-p",
+      "pytest_scratch",
+      "tests/fake/test_sandbox_hold_properties.py::test_sandbox_hold_survives_lease_reapers_and_is_outside_task_range",
+      "--basetemp",
+      "/private/tmp/sf-sbh-b1/mutants/pytest-6"
+    ],
+    "exit": 1,
+    "assertion": "reaper deleted sandbox hold",
+    "killed": true,
+    "restored_sha256": {
+      "subfleet/task_holds.py": "c2f4fb4064f9b13b63e08f3a14881517fa04e28577027bbc264545ac47d12943",
+      "subfleet/daemon.py": "3785df8d734f04bd1252592081eaab7848132e6863d2e97b8d76f5307e7a2786",
+      "subfleet/store.py": "8be9ab8cc380d037cf6fd4a03f1be60ff844781a35fd3b54c047b3871e115ded"
+    }
+  }
+]

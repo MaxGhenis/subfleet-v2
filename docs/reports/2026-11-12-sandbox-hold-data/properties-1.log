@@ -1,0 +1,991 @@
+..FF..FFF...FF....                                                       [100%]
+=================================== FAILURES ===================================
+___________________ test_s4_hold_membership_obeys_the_clock ____________________
+
+    service._admit()
+>   assert placement_image(service, jobs) == held_image, "S2: unheld placements changed"
+           ^^^
+
+tests/fake/test_sandbox_hold_properties.py:185: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+specs = [(None, 'workspace-write', 'dispatch')], task_ends = {}, sandbox_end = 1
+delta = -1
+
+            service._admit()
+            assert placement_image(service, jobs) == held_image, "S2: unheld placements changed"
+            assert {name: tuple(job(service, ident)[key] for key in
+                                ("state", "wait_reason", "next_check_at"))
+                    for name, ident in jobs.items()} == unheld_states, "S2: unheld waits changed"
+    
+    
+    @SETTINGS
+    @given(specs=JOBS, task_ends=TASK_HOLDS, sandbox_end=ENDS,
+           delta=st.sampled_from((-1, 0, 1)))
+    def test_s4_hold_membership_obeys_the_clock(specs, task_ends, sandbox_end, delta):
+        """Invariant 4: the instant before, at and after an end is decided by the clock."""
+        now = sandbox_end + delta
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, specs)
+            install_holds(service, task_ends, sandbox_end)
+            clock[0] = now
+            for index, spec in enumerate(specs):
+>               current = held_for(service, jobs[f"generated-{index}"], now)
+E               AssertionError: S4: an ended hold changed admission
+E               assert False == (None is None)
+E                +  where False = bool([])
+E                +  and   None = model_end((None, 'workspace-write', 'dispatch'), {}, 1, 0)
+E               Failing test case: test_s4_hold_membership_obeys_the_clock(
+E                   # The test always failed when commented parts were varied together.
+E                   specs=[(None, 'workspace-write', 'dispatch')],
+E                   task_ends={},  # or any other generated value
+E                   sandbox_end=1,  # or any other generated value
+E                   delta=-1,  # or any other generated value
+E               )
+E               Explanation:
+E                   These lines were always and only run by failing test cases:
+E                       /Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/attempt_tmp.py:69
+E                       /Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/attempt_tmp.py:98
+E                       /Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/attempt_tmp.py:106
+E                       /Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/attempt_tmp.py:114
+E                       /Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/attempt_tmp.py:116
+E                       (and 125 more with settings.verbosity >= verbose)
+
+tests/fake/test_sandbox_hold_properties.py:202: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4470429008:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470429008:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4470431024:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470431024:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4466701184:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4466701184:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4466697488:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4466697488:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4466697488:daemon.py:10371 guardian 55171 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4466700848:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4466700848:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4466700848:daemon.py:10371 guardian 55945 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4466694464:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4466694464:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4466694464:daemon.py:10371 guardian 56238 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469486464:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469486464:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4469486464:daemon.py:10371 guardian 56558 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469435968:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469435968:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4469435968:daemon.py:10371 guardian 56830 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469437984:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469437984:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4469437984:daemon.py:10371 guardian 56993 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469429584:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469429584:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4470428672:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470428672:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470428672:daemon.py:10371 guardian 57223 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4470425648:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470425648:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470425648:daemon.py:10371 guardian 57347 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4466690768:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4466690768:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4466690768:daemon.py:10371 guardian 57829 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469429584:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469429584:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4469429584:daemon.py:10371 guardian 58186 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469438992:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469438992:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4469438992:daemon.py:10371 guardian 58722 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469428912:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469428912:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4469428912:daemon.py:10371 guardian 59101 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469426224:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469426224:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4470431360:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470431360:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4469429248:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469429248:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4469429248:daemon.py:10371 guardian 60585 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4470429344:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470429344:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470429344:daemon.py:10371 guardian 61101 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4470424640:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470424640:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470424640:daemon.py:10371 guardian 61254 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4470432032:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470432032:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470432032:daemon.py:10371 guardian 61415 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4470433712:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470433712:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470433712:daemon.py:10371 guardian 61469 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4470435392:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470435392:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470435392:daemon.py:10371 guardian 61799 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4470437072:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470437072:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470437072:daemon.py:10371 guardian 62544 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4470438752:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470438752:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4470438752:daemon.py:10371 guardian 62732 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495049456:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495049456:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495049456:daemon.py:10371 guardian 62941 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495051136:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495051136:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495051136:daemon.py:10371 guardian 63555 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495050800:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495050800:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495052816:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495052816:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495054496:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495054496:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495051472:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495051472:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495056176:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495056176:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495054160:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495054160:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4469427904:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469427904:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495060544:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495060544:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495060544:daemon.py:10371 guardian 64424 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495061216:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495061216:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495061216:daemon.py:10371 guardian 64548 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495063232:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495063232:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495064576:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495064576:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495064576:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495064576:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495063232:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495063232:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495055168:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495055168:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495063904:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495063904:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495055840:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495055840:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495058192:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495058192:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4507930304:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507930304:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4495060208:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495060208:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+INFO     subfleet.daemon.4507927952:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507927952:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507927952:daemon.py:10371 guardian 65957 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507926944:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507926944:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507926944:daemon.py:10371 guardian 66441 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507932320:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507932320:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507932320:daemon.py:10371 guardian 66449 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507933328:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507933328:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507933328:daemon.py:10371 guardian 66614 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507935680:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507935680:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507935680:daemon.py:10371 guardian 66710 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507937360:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507937360:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507937360:daemon.py:10371 guardian 66972 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507939040:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507939040:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507939040:daemon.py:10371 guardian 67239 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507941056:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507941056:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507941056:daemon.py:10371 guardian 67597 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507942400:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507942400:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507942400:daemon.py:10371 guardian 67842 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523246320:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523246320:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523246320:daemon.py:10371 guardian 68015 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4507931648:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507931648:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4507931648:daemon.py:10371 guardian 68164 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495057856:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495057856:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495057856:daemon.py:10371 guardian 68340 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495057184:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495057184:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495057184:daemon.py:10371 guardian 68697 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495062560:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495062560:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495062560:daemon.py:10371 guardian 69732 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495053488:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495053488:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495053488:daemon.py:10371 guardian 70038 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4495053824:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495053824:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4495053824:daemon.py:10371 guardian 70412 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4469425888:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4469425888:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4469425888:daemon.py:10371 guardian 70720 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523248336:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523248336:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523248336:daemon.py:10371 guardian 70883 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523249680:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523249680:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523249680:daemon.py:10371 guardian 71008 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523251696:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523251696:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523251696:daemon.py:10371 guardian 71148 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523253376:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523253376:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523253376:daemon.py:10371 guardian 71429 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523254384:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523254384:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523254384:daemon.py:10371 guardian 71720 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523256400:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523256400:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523256400:daemon.py:10371 guardian 72283 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523258080:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523258080:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523258080:daemon.py:10371 guardian 72944 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4523260096:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4523260096:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4523260096:daemon.py:10371 guardian 73130 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542627920:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542627920:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542627920:daemon.py:10371 guardian 73211 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542628928:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542628928:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542628928:daemon.py:10371 guardian 73229 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542631280:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542631280:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542631280:daemon.py:10371 guardian 73613 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542632960:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542632960:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542632960:daemon.py:10371 guardian 73890 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542634640:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542634640:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542634640:daemon.py:10371 guardian 74298 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542636320:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542636320:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542636320:daemon.py:10371 guardian 74395 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542637664:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542637664:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542637664:daemon.py:10371 guardian 74824 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542639008:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542639008:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542639008:daemon.py:10371 guardian 75218 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542641024:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542641024:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542641024:daemon.py:10371 guardian 75609 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4542642704:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4542642704:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4542642704:daemon.py:10371 guardian 75889 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555227552:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555227552:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555227552:daemon.py:10371 guardian 76218 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555228896:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555228896:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555228896:daemon.py:10371 guardian 76301 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555230912:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555230912:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555230912:daemon.py:10371 guardian 76540 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555233264:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555233264:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555233264:daemon.py:10371 guardian 76773 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555234608:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555234608:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555234608:daemon.py:10371 guardian 77312 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555235952:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555235952:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555235952:daemon.py:10371 guardian 78298 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555237968:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555237968:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555237968:daemon.py:10371 guardian 79188 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555238976:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555238976:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555238976:daemon.py:10371 guardian 79740 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4555240992:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4555240992:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4555240992:daemon.py:10371 guardian 80724 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565975456:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565975456:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565975456:daemon.py:10371 guardian 81324 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565976464:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565976464:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565976464:daemon.py:10371 guardian 81384 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565977808:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565977808:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565977808:daemon.py:10371 guardian 81727 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565979488:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565979488:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565979488:daemon.py:10371 guardian 82299 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565981840:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565981840:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565981840:daemon.py:10371 guardian 82684 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565984192:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565984192:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565984192:daemon.py:10371 guardian 83474 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565984864:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565984864:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565984864:daemon.py:10371 guardian 83738 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565986544:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565986544:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565986544:daemon.py:10371 guardian 84404 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565988560:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565988560:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565988560:daemon.py:10371 guardian 85016 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565989904:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565989904:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565989904:daemon.py:10371 guardian 85066 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578165488:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578165488:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578165488:daemon.py:10371 guardian 85447 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578166496:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578166496:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578166496:daemon.py:10371 guardian 85624 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578168176:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578168176:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578168176:daemon.py:10371 guardian 85977 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578169520:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578169520:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578169520:daemon.py:10371 guardian 86166 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578171536:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578171536:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578171536:daemon.py:10371 guardian 86823 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578173552:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578173552:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578173552:daemon.py:10371 guardian 86981 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578175232:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578175232:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578175232:daemon.py:10371 guardian 87401 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578176240:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578176240:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578176240:daemon.py:10371 guardian 87522 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578178928:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578178928:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578178928:daemon.py:10371 guardian 87816 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4578180608:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4578180608:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4578180608:daemon.py:10371 guardian 89984 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590125808:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590125808:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590125808:daemon.py:10371 guardian 90406 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590127152:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590127152:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590127152:daemon.py:10371 guardian 90560 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590129168:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590129168:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590129168:daemon.py:10371 guardian 90606 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590130848:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590130848:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590130848:daemon.py:10371 guardian 90720 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590132864:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590132864:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590132864:daemon.py:10371 guardian 90996 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590133872:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590133872:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590133872:daemon.py:10371 guardian 91213 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590136224:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590136224:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590136224:daemon.py:10371 guardian 91609 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590137568:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590137568:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590137568:daemon.py:10371 guardian 92011 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4590138912:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4590138912:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4590138912:daemon.py:10371 guardian 92596 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600611568:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600611568:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600611568:daemon.py:10371 guardian 92837 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600612576:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600612576:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600612576:daemon.py:10371 guardian 93245 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600613920:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600613920:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600613920:daemon.py:10371 guardian 93726 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600615936:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600615936:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600615936:daemon.py:10371 guardian 93936 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600617280:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600617280:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600617280:daemon.py:10371 guardian 94002 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600618624:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600618624:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600618624:daemon.py:10371 guardian 94391 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600620640:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600620640:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600620640:daemon.py:10371 guardian 94883 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600620304:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600620304:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600620304:daemon.py:10371 guardian 95117 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600622320:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600622320:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600622320:daemon.py:10371 guardian 95422 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600624000:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600624000:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600624000:daemon.py:10371 guardian 96241 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4600625680:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4600625680:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4600625680:daemon.py:10371 guardian 96382 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614078880:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614078880:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614078880:daemon.py:10371 guardian 96493 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614080896:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614080896:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614080896:daemon.py:10371 guardian 96662 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614082240:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614082240:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614082240:daemon.py:10371 guardian 96898 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614083920:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614083920:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614083920:daemon.py:10371 guardian 97627 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614085600:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614085600:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614085600:daemon.py:10371 guardian 98269 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614087280:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614087280:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614087280:daemon.py:10371 guardian 99087 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614088960:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614088960:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614088960:daemon.py:10371 guardian 99116 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614090640:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614090640:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614090640:daemon.py:10371 guardian 99298 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614092320:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614092320:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614092320:daemon.py:10371 guardian 99363 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4614094000:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4614094000:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4614094000:daemon.py:10371 guardian 99720 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624860224:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624860224:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624860224:daemon.py:10371 guardian 99872 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624861904:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624861904:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624861904:daemon.py:10371 guardian 359 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624863584:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624863584:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624863584:daemon.py:10371 guardian 1367 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624865264:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624865264:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624865264:daemon.py:10371 guardian 1784 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4565978480:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4565978480:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4565978480:daemon.py:10371 guardian 1990 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624864928:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624864928:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624864928:daemon.py:10371 guardian 2267 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624866944:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624866944:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624866944:daemon.py:10371 guardian 2345 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624868624:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624868624:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624868624:daemon.py:10371 guardian 2524 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624870304:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624870304:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624870304:daemon.py:10371 guardian 2610 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624871984:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624871984:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624871984:daemon.py:10371 guardian 3177 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4624874000:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4624874000:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4624874000:daemon.py:10371 guardian 3473 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636819872:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636819872:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636819872:daemon.py:10371 guardian 3645 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636821216:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636821216:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636821216:daemon.py:10371 guardian 3723 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636822896:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636822896:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636822896:daemon.py:10371 guardian 3859 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636824912:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636824912:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636824912:daemon.py:10371 guardian 4030 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636826256:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636826256:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636826256:daemon.py:10371 guardian 4265 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636827936:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636827936:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636827936:daemon.py:10371 guardian 4442 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636829616:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636829616:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636829616:daemon.py:10371 guardian 4524 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636831296:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636831296:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636831296:daemon.py:10371 guardian 4675 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636832976:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636832976:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636832976:daemon.py:10371 guardian 5171 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4636834656:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4636834656:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4636834656:daemon.py:10371 guardian 5389 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648813296:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648813296:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648813296:daemon.py:10371 guardian 5552 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648815312:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648815312:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648815312:daemon.py:10371 guardian 5655 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648816992:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648816992:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648816992:daemon.py:10371 guardian 5812 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648818336:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648818336:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648818336:daemon.py:10371 guardian 6056 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648820016:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648820016:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648820016:daemon.py:10371 guardian 6194 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648821696:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648821696:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648821696:daemon.py:10371 guardian 6214 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648823376:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648823376:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648823376:daemon.py:10371 guardian 6464 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648825056:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648825056:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648825056:daemon.py:10371 guardian 6700 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4648826736:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4648826736:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4648826736:daemon.py:10371 guardian 7107 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659298384:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659298384:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659298384:daemon.py:10371 guardian 7471 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659299728:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659299728:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659299728:daemon.py:10371 guardian 7890 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659301408:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659301408:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659301408:daemon.py:10371 guardian 8218 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659303088:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659303088:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659303088:daemon.py:10371 guardian 8295 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659304768:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659304768:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659304768:daemon.py:10371 guardian 8446 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659306784:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659306784:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659306784:daemon.py:10371 guardian 8709 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659308464:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659308464:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659308464:daemon.py:10371 guardian 9323 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659310144:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659310144:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659310144:daemon.py:10371 guardian 9577 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659311488:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659311488:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659311488:daemon.py:10371 guardian 9620 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4659313840:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4659313840:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4659313840:daemon.py:10371 guardian 9896 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671521520:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671521520:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671521520:daemon.py:10371 guardian 9994 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671523200:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671523200:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671523200:daemon.py:10371 guardian 10111 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671525888:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671525888:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671525888:daemon.py:10371 guardian 10537 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671526560:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671526560:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671526560:daemon.py:10371 guardian 10858 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671527904:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671527904:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671527904:daemon.py:10371 guardian 11284 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671529584:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671529584:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671529584:daemon.py:10371 guardian 12144 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671532272:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671532272:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671532272:daemon.py:10371 guardian 12568 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671533616:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671533616:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671533616:daemon.py:10371 guardian 12764 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671534624:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671534624:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671534624:daemon.py:10371 guardian 12954 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4671536640:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4671536640:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4671536640:daemon.py:10371 guardian 13041 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681958464:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681958464:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681958464:daemon.py:10371 guardian 13182 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681961488:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681961488:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681961488:daemon.py:10371 guardian 13295 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681962160:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681962160:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681962160:daemon.py:10371 guardian 13548 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681963504:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681963504:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681963504:daemon.py:10371 guardian 13809 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681965184:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681965184:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681965184:daemon.py:10371 guardian 13949 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681967200:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681967200:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681967200:daemon.py:10371 guardian 14095 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681968544:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681968544:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681968544:daemon.py:10371 guardian 14339 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681970224:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681970224:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681970224:daemon.py:10371 guardian 14474 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4681972240:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4681972240:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4681972240:daemon.py:10371 guardian 14592 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693868960:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693868960:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693868960:daemon.py:10371 guardian 14792 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693880384:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693880384:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693880384:daemon.py:10371 guardian 15052 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693883408:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693883408:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693883408:daemon.py:10371 guardian 15369 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693880048:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693880048:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693880048:daemon.py:10371 guardian 16283 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693878368:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693878368:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693878368:daemon.py:10371 guardian 16456 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693876352:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693876352:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693876352:daemon.py:10371 guardian 16543 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693874672:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693874672:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693874672:daemon.py:10371 guardian 16874 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693872992:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693872992:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693872992:daemon.py:10371 guardian 17160 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693871648:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693871648:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693871648:daemon.py:10371 guardian 17862 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4693869968:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4693869968:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4693869968:daemon.py:10371 guardian 18028 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706255264:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706255264:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706255264:daemon.py:10371 guardian 18753 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706257616:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706257616:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706257616:daemon.py:10371 guardian 18880 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706258624:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706258624:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706258624:daemon.py:10371 guardian 19465 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706260640:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706260640:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706260640:daemon.py:10371 guardian 19553 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706262320:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706262320:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706262320:daemon.py:10371 guardian 19576 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706263664:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706263664:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706263664:daemon.py:10371 guardian 19855 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706265344:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706265344:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706265344:daemon.py:10371 guardian 20498 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706267024:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706267024:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706267024:daemon.py:10371 guardian 20656 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706270048:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706270048:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706270048:daemon.py:10371 guardian 20759 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4706270384:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4706270384:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4706270384:daemon.py:10371 guardian 20816 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716692544:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716692544:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716692544:daemon.py:10371 guardian 20867 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716694224:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716694224:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716694224:daemon.py:10371 guardian 20893 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716695904:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716695904:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716695904:daemon.py:10371 guardian 21034 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716697920:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716697920:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716697920:daemon.py:10371 guardian 21421 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716699600:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716699600:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716699600:daemon.py:10371 guardian 21514 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716701280:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716701280:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716701280:daemon.py:10371 guardian 21572 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716702624:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716702624:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716702624:daemon.py:10371 guardian 21854 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716704640:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716704640:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716704640:daemon.py:10371 guardian 22140 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4716705984:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4716705984:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4716705984:daemon.py:10371 guardian 22379 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729094224:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729094224:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729094224:daemon.py:10371 guardian 22494 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729096240:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729096240:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729096240:daemon.py:10371 guardian 23084 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729097584:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729097584:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729097584:daemon.py:10371 guardian 23459 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729099264:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729099264:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729099264:daemon.py:10371 guardian 23553 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729101280:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729101280:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729101280:daemon.py:10371 guardian 23975 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729102624:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729102624:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729102624:daemon.py:10371 guardian 24257 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729104640:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729104640:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729104640:daemon.py:10371 guardian 24445 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729106656:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729106656:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729106656:daemon.py:10371 guardian 24581 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729107664:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729107664:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729107664:daemon.py:10371 guardian 24798 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739892288:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739892288:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739892288:daemon.py:10371 guardian 24877 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4729107328:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4729107328:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4729107328:daemon.py:10371 guardian 25205 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739893632:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739893632:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739893632:daemon.py:10371 guardian 25389 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739895648:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739895648:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739895648:daemon.py:10371 guardian 25849 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739896992:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739896992:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739896992:daemon.py:10371 guardian 26259 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739898672:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739898672:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739898672:daemon.py:10371 guardian 27021 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739900688:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739900688:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739900688:daemon.py:10371 guardian 27485 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739902032:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739902032:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739902032:daemon.py:10371 guardian 28103 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739903712:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739903712:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739903712:daemon.py:10371 guardian 28175 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739905728:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739905728:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739905728:daemon.py:10371 guardian 28711 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+INFO     subfleet.daemon.4739906736:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739906736:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739906736:daemon.py:10371 guardian 29235 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+___________ test_s6_task_and_sandbox_holds_compose_to_the_later_end ____________
+
+    service._admit()
+>   for index, spec in enumerate(specs):
+           ^^^
+
+tests/fake/test_sandbox_hold_properties.py:207: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.15/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+specs = [('review', 'workspace-write', 'dispatch'), ('build', 'read-only', 'dispatch'), ('review', '', 'dispatch'), ('review', 'workspace-write', 'turn'), (None, 'workspace-write', 'dispatch')]
+task_ends = {'review': 120, 'build': 80}, sandbox_end = 100, now = 90
+
+            service._admit()
+            for index, spec in enumerate(specs):
+                placed = attempts(service, jobs[f"generated-{index}"])
+                assert bool(placed) == (model_end(spec, task_ends, sandbox_end, now) is None), \
+                    "S4: an ended hold changed admission"
+    
+    
+    @SETTINGS
+    @given(specs=JOBS, task_ends=TASK_HOLDS, sandbox_end=SANDBOX_HOLD,
+           now=st.integers(min_value=0, max_value=121))
+    @example(specs=[("review", "workspace-write", "dispatch"), ("build", "read-only", "dispatch"),
+                    ("review", "", "dispatch"), ("review", "workspace-write", "turn"),
+                    (None, "workspace-write", "dispatch")],
+             task_ends={"review": 120, "build": 80}, sandbox_end=100, now=90)
+    def test_s6_task_and_sandbox_holds_compose_to_the_later_end(specs, task_ends, sandbox_end, now):
+        """Invariant 6: the disjunction of active task/sandbox holds uses its latest end."""
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, specs)
+            install_holds(service, task_ends, sandbox_end)
+            clock[0] = now
+            for index, spec in enumerate(specs):
+                current = held_for(service, jobs[f"generated-{index}"], now)
+                end = model_end(spec, task_ends, sandbox_end, now)
+>               assert (current is not None) == (end is not None), "S6: hold composition is not a disjunction"
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AssertionError: S6: composed admission changed
+E               assert False == (None is None)
+E                +  where False = bool([])
+E                +    where [] = attempts(<subfleet.daemon.Daemon object at 0x11b3542f0>, '20261112-010209-generated-4')
+E               Failing explicit example: test_s6_task_and_sandbox_holds_compose_to_the_later_end(
+E                   specs=[('review', 'workspace-write', 'dispatch'),
+E                    ('build', 'read-only', 'dispatch'),
+E                    ('review', '', 'dispatch'),
+E                    ('review', 'workspace-write', 'turn'),
+E                    (None, 'workspace-write', 'dispatch')],
+E                   task_ends={'review': 120, 'build': 80},
+E                   sandbox_end=100,
+E                   now=90,
+E               )
+
+tests/fake/test_sandbox_hold_properties.py:229: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4751442672:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4751442672:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4751442672:daemon.py:10371 guardian 29556 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+_____________ test_s5_turns_and_jobs_without_a_task_are_never_held _____________
+
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, [("review", "", "dispatch")])
+            sandbox_hold(service, 100)
+            service._admit()
+            assert attempts(service, jobs["generated-0"]) == [], "empty sandbox: job escaped the hold"
+    
+    
+    def test_s5_turns_and_jobs_without_a_task_are_never_held():
+>       """Invariant 5 / mutant 3: neither hold can stop turns or jobs without tasks."""
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: S5: exempt job was held
+E       assert False
+E        +  where False = all(<generator object test_s5_turns_and_jobs_without_a_task_are_never_held.<locals>.<genexpr> at 0x11b011b40>)
+
+tests/fake/test_sandbox_hold_properties.py:262: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4751446368:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4751446368:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4751446368:daemon.py:10371 guardian 30393 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+_________ test_expired_sandbox_hold_stops_nothing_without_being_reaped _________
+
+                     (None, "workspace-write", "dispatch"), (None, "", "dispatch")]
+            jobs = jobs_from(service, harness, specs)
+            install_holds(service, {"build": 100, "review": 100}, 100)
+            service._admit()
+            assert all(len(attempts(service, ident)) == 1 for ident in jobs.values()), "S5: exempt job was held"
+    
+    
+    def test_expired_sandbox_hold_stops_nothing_without_being_reaped():
+        """Mutant 4: the row remains, while the clock ends its effect."""
+>       with fleet() as (service, harness, clock, signals):
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: expired sandbox: job still held
+E       assert 0 == 1
+E        +  where 0 = len([])
+E        +    where [] = attempts(<subfleet.daemon.Daemon object at 0x11a852f90>, '20261112-010215-generated-0')
+
+tests/fake/test_sandbox_hold_properties.py:274: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4739903376:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739903376:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739903376:daemon.py:10371 guardian 30783 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+______________ test_s3_running_attempt_job_and_lane_are_unchanged ______________
+
+            assert attempts(service, jobs["generated-0"]) == []
+            clock[0] = 100
+            service._admit()
+            assert len(attempts(service, jobs["generated-0"])) == 1, "expired sandbox: job still held"
+            assert service.store.one("SELECT 1 FROM leases WHERE lease_key='sandbox-hold:workspace-write'")
+    
+    
+    def test_s3_running_attempt_job_and_lane_are_unchanged():
+        """Invariant 3: hold, replacement and release change no running state or lane."""
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, [("review", "workspace-write", "dispatch")])
+            ident = jobs["generated-0"]
+            service._admit()
+            with service.store.transaction("test.running") as tx:
+                tx.execute("UPDATE attempts SET state='running',started_at=? WHERE job_id=?", (stamp(0), ident))
+            before_attempts, before_job = attempts(service, ident), job(service, ident)
+            before_lanes = service.store.query("SELECT * FROM lanes ORDER BY lane_id")
+>           sandbox_hold(service, 100)
+E           AssertionError: S3: running job changed
+E           assert {'job_id': '2...ispatch', ...} == {'job_id': '2...ispatch', ...}
+E             
+E             Omitting 47 identical items, use -vv to show
+E             Differing items:
+E             {'next_check_at': '2026-10-09T16:34:10Z'} != {'next_check_at': '2026-10-09T16:34:00Z'}
+E             Use -v to get more diff
+
+tests/fake/test_sandbox_hold_properties.py:295: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4739907072:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4739907072:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4739907072:daemon.py:10371 guardian 30967 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+__________ test_releasing_either_hold_keeps_the_other_in_force[task] ___________
+
+released = 'task'
+
+    
+            service._prepare_route = hold_then_route
+            service._admit()
+            assert landed and attempts(service, ident) == [], "S1: reservation ignored a newly committed sandbox hold"
+            assert job(service, ident)["next_check_at"] == stamp(100)
+    
+    
+    @pytest.mark.parametrize("released", ("task", "sandbox"))
+    def test_releasing_either_hold_keeps_the_other_in_force(released):
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, [("review", "workspace-write", "dispatch")])
+            ident = jobs["generated-0"]
+            install_holds(service, {"review": 200}, 100)
+            service._admit()
+            assert job(service, ident)["next_check_at"] == stamp(200)
+            if released == "task":
+                service.dispatch("tasks", {"action": "release", "task": "review"})
+                remaining = 100
+            else:
+>               sandbox_release(service)
+E               AssertionError: assert 0 == 1
+E                +  where 0 = len([])
+E                +    where [] = attempts(<subfleet.daemon.Daemon object at 0x11b355a90>, '20261112-010220-generated-0')
+
+tests/fake/test_sandbox_hold_properties.py:375: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4751448720:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4751448720:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4751448720:daemon.py:10371 guardian 31461 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+_________ test_releasing_either_hold_keeps_the_other_in_force[sandbox] _________
+
+released = 'sandbox'
+
+    
+            service._prepare_route = hold_then_route
+            service._admit()
+            assert landed and attempts(service, ident) == [], "S1: reservation ignored a newly committed sandbox hold"
+            assert job(service, ident)["next_check_at"] == stamp(100)
+    
+    
+    @pytest.mark.parametrize("released", ("task", "sandbox"))
+    def test_releasing_either_hold_keeps_the_other_in_force(released):
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, [("review", "workspace-write", "dispatch")])
+            ident = jobs["generated-0"]
+            install_holds(service, {"review": 200}, 100)
+            service._admit()
+            assert job(service, ident)["next_check_at"] == stamp(200)
+            if released == "task":
+                service.dispatch("tasks", {"action": "release", "task": "review"})
+                remaining = 100
+            else:
+>               sandbox_release(service)
+E               AssertionError: assert 0 == 1
+E                +  where 0 = len([])
+E                +    where [] = attempts(<subfleet.daemon.Daemon object at 0x11b355550>, '20261112-010221-generated-0')
+
+tests/fake/test_sandbox_hold_properties.py:375: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4751447376:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4751447376:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4751447376:daemon.py:10371 guardian 31556 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_properties.py::test_s4_hold_membership_obeys_the_clock
+FAILED tests/fake/test_sandbox_hold_properties.py::test_s6_task_and_sandbox_holds_compose_to_the_later_end
+FAILED tests/fake/test_sandbox_hold_properties.py::test_s5_turns_and_jobs_without_a_task_are_never_held
+FAILED tests/fake/test_sandbox_hold_properties.py::test_expired_sandbox_hold_stops_nothing_without_being_reaped
+FAILED tests/fake/test_sandbox_hold_properties.py::test_s3_running_attempt_job_and_lane_are_unchanged
+FAILED tests/fake/test_sandbox_hold_properties.py::test_releasing_either_hold_keeps_the_other_in_force[task]
+FAILED tests/fake/test_sandbox_hold_properties.py::test_releasing_either_hold_keeps_the_other_in_force[sandbox]
+7 failed, 11 passed in 337.12s (0:05:37)
