@@ -281,6 +281,7 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
 #: C-6.10, C-11.10: the key range admission's lease census leaves out: an operator's task
 #: holds (`task_holds.KEY`), which are no capacity, so a release frees no capacity wait early.
 LEASE_CENSUS_SKIPS = task_holds.ROWS_PARAMS
+SANDBOX_CENSUS_SKIPS = task_holds.SANDBOX_ROWS_PARAMS
 #: C-4.5, C-11.10: when the job's latest attempt ended, and the retry deadline its finalizer
 #: wrote (`retry_due_at` in the attempt's evidence, review r3 of #260, R3-2), if it ended
 #: `transient` with no model capacity steer (C-9.5: a steered retry is due at the next pass,
@@ -1573,20 +1574,20 @@ class Daemon:
         """A task the scheduler routes: a key of the policy's `chains`, as submit checks it."""
         return isinstance(task, str) and task in self.policy["chains"]
 
-    def _task_holds_now(self, read: Callable | None = None) -> dict[str, dict]:
-        """C-11.10: task -> its hold, for each hold in force at this instant (one range read of `leases`).
+    def _task_holds_now(self, read: Callable | None = None) -> dict[task_holds.HoldKey, dict]:
+        """C-11.10: active task/sandbox holds, from two disjoint indexed ranges of `leases`.
 
         `read(sql, params)` is a transaction's own read, so a reservation judges the
         rows it commits beside; without it the store is read as any look reads it."""
-        rows = (read or self.store.query)(task_holds.ROWS_SQL, task_holds.ROWS_PARAMS)
+        reader = read or self.store.query
+        rows = [*reader(task_holds.ROWS_SQL, task_holds.ROWS_PARAMS),
+                *reader(task_holds.ROWS_SQL, task_holds.SANDBOX_ROWS_PARAMS)]
         return task_holds.in_force([dict(row) for row in rows], utcnow())
 
-    def _task_hold_for(self, job: dict, holds: dict[str, dict]) -> dict | None:
-        """C-11.10: the hold that keeps `job` from a new attempt, or None. A hold on task T
-        covers every job whose task is T but a conversation turn (C-26.9: a person waits)."""
-        if job["kind"] == "turn" or not job["task"]:
-            return None
-        return holds.get(job["task"])
+    def _task_hold_for(self, job: dict, holds: dict[task_holds.HoldKey, dict]) -> dict | None:
+        """C-11.10: the task or sandbox hold that keeps `job` from a new attempt, or None.
+        Conversation turns and jobs with no task stay unheld (C-26.9)."""
+        return task_holds.hold_for(job, holds)
 
     def _task_held(self, job: dict, hold: dict, holds: dict[str, dict], *,
                    tx: sqlite3.Connection | None = None) -> None:
@@ -1623,7 +1624,7 @@ class Daemon:
                     tx.execute(sql, (hold["until"], job_id))
                 else:
                     with self.store.transaction("job.task_hold_moved", job_id=job_id,
-                                                data={"task": hold["task"], "until": hold["until"]}) as inner:
+                                                data={**task_holds.target(hold), "until": hold["until"]}) as inner:
                         current = self._task_held_at_write(inner, job, holds)
                     if current is None:
                         holds.pop(job_id, None)
@@ -1632,7 +1633,7 @@ class Daemon:
             elif tx is not None:
                 paused = self._take_for_hold(tx, job, hold)
             else:
-                data: dict[str, Any] = {"task": hold["task"], "until": hold["until"]}
+                data: dict[str, Any] = {**task_holds.target(hold), "until": hold["until"]}
                 with self.store.transaction("job.task_held", job_id=job_id, data=data) as inner:
                     current = self._task_held_at_write(inner, job, holds)
                 if current is None:
@@ -1688,6 +1689,7 @@ class Daemon:
         state, reason, clock = row[0], row[1], row[2]
         now = utcnow()
         episode = self._held_pin_episode(tx, job_id)
+        first: dict = {}
         if reason == "task-held":
             if clock != hold["until"]:
                 tx.execute("UPDATE jobs SET next_check_at=? WHERE job_id=?", (hold["until"], job_id))
@@ -1703,14 +1705,16 @@ class Daemon:
                        (hold["until"], job_id))
             kept = self._kept_retry(tx, job_id, state, reason, clock, now)
         record: dict[str, Any] = {
-            "task": hold["task"], "until": hold["until"], "since": hold.get("since"), "taken": True,
+            **task_holds.target(hold), "until": hold["until"], "since": hold.get("since"), "taken": True,
             "kept": kept}
         paused = None
         if episode.get("open") and episode.get("fail_at"):
             if isinstance(episode.get("paused_s"), (int, float)):
                 paused = float(episode["paused_s"])
             else:
-                start = max(task_holds.instant(hold.get("since") or now),
+                since = min((value for value in (hold.get("since"), first.get("since")) if value),
+                            key=task_holds.instant, default=now)
+                start = max(task_holds.instant(since),
                             task_holds.instant(episode.get("since") or now))
                 paused = max(0.0, (task_holds.instant(episode["fail_at"]) - start).total_seconds())
             record["pin_paused_s"] = paused
@@ -1740,7 +1744,7 @@ class Daemon:
         audit event of its own beyond the take's. The caller writes nothing more. The pass reports
         the job `task-held` (`holds`, when given) and reads its episode from the store at its next
         look (`_pin_stale`). The hold, or None: no hold, and the caller writes as before."""
-        hold = self._task_hold_for(job, self._task_holds_now(lambda sql, params: tx.execute(sql, params).fetchall()))
+        hold = task_holds.job_held(tx, job["job_id"], utcnow())
         if hold is None:
             return None
         if opened is not None:
@@ -1748,7 +1752,7 @@ class Daemon:
                        (utcnow(), "job.pin_unadmittable", job["job_id"], None, opened.get("lane_id"),
                         _event_json(opened)))
         start = tx.total_changes
-        data: dict[str, Any] = {"task": hold["task"], "until": hold["until"]}
+        data: dict[str, Any] = {**task_holds.target(hold), "until": hold["until"]}
         self._take_for_hold(tx, job, hold, data=data)
         if data.get("taken"):
             self.store.audit_as("job.task_held", data)
@@ -1822,13 +1826,21 @@ class Daemon:
           with no hold does), then is taken.
 
         Each take writes its own `job.task_held` event (`_take_for_hold`)."""
-        rows = tx.execute("SELECT job_id, state, wait_reason, next_check_at FROM jobs WHERE task=? AND kind!='turn' "
+        clause, params = self._hold_jobs_clause(hold)
+        rows = tx.execute("SELECT job_id, state, wait_reason, next_check_at FROM jobs WHERE " + clause +
+                          " AND kind!='turn' "
                           "AND state IN ('queued','waiting') AND cancel_requested_at IS NULL "
                           "AND COALESCE(wait_reason,'') NOT IN ('approval','uncertain') "
-                          "ORDER BY created_at, rowid", (hold["task"],)).fetchall()
+                          "ORDER BY created_at, rowid", params).fetchall()
         for job_id, state, reason, clock in rows:
+            # Compose both rows inside this writer, including a longer hold on
+            # the other target. Replacing one hold must not shorten the other.
+            current = task_holds.job_held(tx, job_id, now)
+            if current is None:
+                continue
             if reason == "task-held":
-                if clock == hold["until"]:
+                if clock and _earlier(now, clock):
+                    self._take_for_hold(tx, {"job_id": job_id}, current)
                     continue
                 end = clock if clock and _earlier(clock, now) else now
                 record: dict[str, Any] = {"by": "end"}
@@ -1837,7 +1849,15 @@ class Daemon:
                 tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                            (now, "job.task_hold_ended", job_id, None, None, _event_json(record)))
             self._take_for_hold(tx, {"job_id": job_id, "state": state, "wait_reason": reason,
-                                     "next_check_at": clock}, hold)
+                                     "next_check_at": clock}, current)
+
+    @staticmethod
+    def _hold_jobs_clause(hold: dict) -> tuple[str, tuple]:
+        """Only detached, task-bearing jobs of the chosen target; no live attempt read."""
+        if "sandbox" in hold:
+            return ("COALESCE(task,'')!='' AND COALESCE(NULLIF(sandbox,''),'workspace-write')=?",
+                    (hold["sandbox"],))
+        return "task=?", (hold["task"],)
 
     def _task_hold_restore(self, tx: sqlite3.Connection, job_id: str, ended_at: str, now: str, *,
                            record: dict, unheld_s: float = 0.0) -> tuple[str, str | None, str | None] | None:
@@ -1867,7 +1887,8 @@ class Daemon:
         data = json.loads(taken[0]) if taken else {}
         kept = data.get("kept") if isinstance(data.get("kept"), dict) else {}
         paused = data.get("pin_paused_s")
-        record.update(task=data.get("task"), ended_at=ended_at)
+        record.update(task_holds.target(data) if "sandbox" in data or "task" in data else {"task": None})
+        record["ended_at"] = ended_at
         values: tuple[str, str | None, str | None] = ("queued", None, None)
         if isinstance(paused, (int, float)) and not isinstance(paused, bool):
             values = ("waiting", "capacity", _later(ended_at, max(0.0, paused - unheld_s)))
@@ -1956,6 +1977,16 @@ class Daemon:
             return self._release_task(a)
         raise protocol.ProtocolError("tasks: the action is list, hold or release", reason="tasks-action")
 
+    def _hold_target(self, a: protocol.TasksArgs, action: str) -> tuple[dict, str]:
+        if a.sandbox is not None:
+            if a.task is not None or a.sandbox != task_holds.SANDBOX:
+                raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["tasks-target"][0], reason="tasks-target")
+            return {"sandbox": a.sandbox}, task_holds.SANDBOX_KEY + a.sandbox
+        if not (self._known_task(a.task) or (action == "release" and isinstance(a.task, str) and a.task
+                and self.store.one(task_holds.ROW_SQL, (task_holds.lease_key(a.task),)))):
+            raise self._unknown_task(a.task, action)
+        return {"task": a.task}, task_holds.lease_key(a.task)
+
     def _hold_task(self, a: protocol.TasksArgs) -> dict:
         """C-11.10: hold task `a.task` until `a.until`, with the operator's note.
 
@@ -1972,8 +2003,7 @@ class Daemon:
         With `if_note_prefix`, only no hold in force or one whose note starts
         with the prefix may be replaced. Read and check after BEGIN IMMEDIATE,
         at the same sampled clock as expiry validation, before any row changes."""
-        if not self._known_task(a.task):
-            raise self._unknown_task(a.task, "hold")
+        target, key = self._hold_target(a, "hold")
         try:
             note = task_holds.note_text(a.note)
             prefix = task_holds.note_text(a.if_note_prefix) if a.if_note_prefix is not None else None
@@ -1982,8 +2012,8 @@ class Daemon:
         except ValueError:
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-note"][0],
                                          reason="task-hold-note") from None
-        task, key = a.task, task_holds.lease_key(a.task)
-        data: dict[str, Any] = {"task": task, "note": note, "replaced": None}
+        task = next(iter(target.values()))
+        data: dict[str, Any] = {**target, "note": note, "replaced": None}
         with self.store.transaction("task.held", data=data) as tx:
             now = utcnow()
             try:
@@ -2007,15 +2037,11 @@ class Daemon:
                        "ON CONFLICT(lease_key) DO UPDATE SET holder=excluded.holder, "
                        "acquired_at=excluded.acquired_at, expires_at=excluded.expires_at",
                        (key, task_holds.HOLDER + note, since, until))
-            if replaced is not None:
-                # The jobs a hold in force keeps wait for this one's end: a second hold replaces the first.
-                tx.execute("UPDATE jobs SET next_check_at=? WHERE state='waiting' AND wait_reason='task-held' "
-                           "AND task=? AND kind!='turn'", (until, task))
             # T6 (review r2 of #260, F1): the jobs that wait now are taken in this transaction,
             # so their clocks stop at the commit, whether or not a pass looks before the hold ends.
-            self._take_task_jobs(tx, {"task": task, "until": until, "since": since}, now)
+            self._take_task_jobs(tx, {**target, "until": until, "since": since}, now)
         self._task_holds_changed()
-        return {"held": task, "task_hold": {"task": task, "until": until, "note": note, "since": since},
+        return {"held": task, "task_hold": {**target, "until": until, "note": note, "since": since},
                 "replaced": replaced, "task_holds": task_holds.listing(self._task_holds_now())}
 
     def _release_task(self, a: protocol.TasksArgs) -> dict:
@@ -2032,19 +2058,17 @@ class Daemon:
         gives any job no pass has woken since the end its clocks back, from that end.
         With `if_note_prefix`, even an expired row must have a matching note;
         the transaction reads and checks it before deleting or waking any job."""
-        task = a.task
+        target, key = self._hold_target(a, "release")
+        task = next(iter(target.values()))
         try:
             prefix = task_holds.note_text(a.if_note_prefix) if a.if_note_prefix is not None else None
         except ValueError:
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-note"][0],
                                          reason="task-hold-note") from None
-        if not (isinstance(task, str) and task and (
-                self._known_task(task) or self.store.one(task_holds.ROW_SQL, (task_holds.lease_key(task),)))):
-            raise self._unknown_task(task, "release")
-        data: dict[str, Any] = {"task": task}
+        data: dict[str, Any] = dict(target)
         with self.store.transaction("task.released", data=data) as tx:
             now = utcnow()
-            row = tx.execute(task_holds.ROW_SQL, (task_holds.lease_key(task),)).fetchone()
+            row = tx.execute(task_holds.ROW_SQL, (key,)).fetchone()
             ended = task_holds.hold_of(dict(row)) if row else None
             if prefix is not None and ended is None:
                 # A conditional release owns no row here. Even stale waiting
@@ -2057,12 +2081,17 @@ class Daemon:
                                              details={"task_hold": ended})
             if ended is not None:
                 data.update(until=ended["until"], note=ended["note"])
-            tx.execute("DELETE FROM leases WHERE lease_key=?", (task_holds.lease_key(task),))
+            tx.execute("DELETE FROM leases WHERE lease_key=?", (key,))
+            clause, params = self._hold_jobs_clause(target)
             held = tx.execute("SELECT job_id, next_check_at FROM jobs WHERE state='waiting' "
-                              "AND wait_reason='task-held' AND task=? AND kind!='turn' "
-                              "AND cancel_requested_at IS NULL ORDER BY created_at, rowid", (task,)).fetchall()
+                              "AND wait_reason='task-held' AND " + clause + " AND kind!='turn' "
+                              "AND cancel_requested_at IS NULL ORDER BY created_at, rowid", params).fetchall()
             woken = 0
             for job_id, clock in held:
+                remaining = task_holds.job_held(tx, job_id, now)
+                if remaining is not None:
+                    self._take_for_hold(tx, {"job_id": job_id}, remaining)
+                    continue
                 end, unheld = now, 0.0
                 if clock and _earlier(clock, now):
                     # Held for a hold that had already ended by its clock, unseen by any pass:
@@ -2803,7 +2832,7 @@ class Daemon:
             demand.append({"job_id": job["job_id"], "tier": job["tier"], **demand_verdict(decision)})
         return demand
 
-    def _demand_held(self, job: dict, holds: dict[str, dict]) -> bool:
+    def _demand_held(self, job: dict, holds: dict[task_holds.HoldKey, dict]) -> bool:
         """C-11.10, C-23.16: whether a hold in force keeps `job`, so it is no reset-credit demand."""
         return self._task_hold_for(job, holds) is not None
 
@@ -7650,8 +7679,9 @@ class Daemon:
         # C-11.10: an operator's task hold is a row here too, and no capacity: its
         # release frees nothing a capacity wait waits for (it wakes its own jobs).
         leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
-            f"SELECT lease_key,holder FROM leases WHERE {probes} AND NOT (lease_key >= ? AND lease_key < ?)",
-            LEASE_CENSUS_SKIPS))
+            f"SELECT lease_key,holder FROM leases WHERE {probes} AND NOT (lease_key >= ? AND lease_key < ?) "
+            "AND NOT (lease_key >= ? AND lease_key < ?)",
+            (*LEASE_CENSUS_SKIPS, *SANDBOX_CENSUS_SKIPS)))
         quarantines_now = (frozenset(row["attempt_id"] for row in self.store.query(PROVIDER_QUARANTINES)
                                     if scheduler.uncontained_quarantine(row))
                            if scheduler.provider_caps_on(self.policy) else frozenset())
