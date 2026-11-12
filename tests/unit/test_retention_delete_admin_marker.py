@@ -12,7 +12,7 @@ import pytest
 
 from subfleet import retention_delete as rd, retention_git as rgit, retention_marks as marks
 from tests.unit.retention_delete_world import delete_path
-from tests.unit.retention_world import World
+from tests.unit.retention_world import World, git
 
 
 @pytest.fixture
@@ -37,11 +37,13 @@ def test_admin_cleanup_is_bound_to_the_inspected_directory(world, monkeypatch, r
     tree.rename(w.base / "preserved-fixture-tree")
     old_identity = (admin.stat().st_dev, admin.stat().st_ino)
     preserved = w.base / "preserved-fixture-admin"
+    ref = f"refs/subfleet-kept/{job_id}/0/0"
+    git(w.repo, "update-ref", ref, w.head())
     journal = {
         "job_id": job_id, "worktree": str(tree),
         "admins": [{"admin": str(admin), "common": str(common), "n": 0, "rel": ".git"}],
-        "plan": {"outside": [{"n": 0, "fmt": "sha1"}]},
-        "kept": {"refs": [{"repository": str(common), "n": 0, "commit": w.head()}]},
+        "plan": {"outside": [{"n": 0, "fmt": "sha1"}], "borrower_repositories": [str(common)]},
+        "kept": {"refs": [{"repository": str(common), "n": 0, "ref": ref, "commit": w.head()}]},
     }
     read_commits = rd.admin_commits
     observed = []
