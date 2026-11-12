@@ -1,0 +1,8 @@
+...................s.................................................... [ 49%]
+......................................................ss................ [ 98%]
+..                                                                       [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/unit/test_hooks.py:341: native ps inspection is unavailable; hook output/mark assertions passed
+SKIPPED [1] tests/unit/test_doctor.py:605: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+SKIPPED [1] tests/unit/test_doctor.py:617: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+143 passed, 3 skipped in 24.46s

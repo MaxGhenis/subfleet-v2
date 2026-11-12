@@ -1,0 +1,16 @@
+tests/mirror_flags_model.py
+tests/frontend/test_core_steer.py
+tests/unit/test_launch_env_round7.py
+tests/fake/interactive_claude.py
+tests/unit/test_retention_regenerable_properties.py
+tests/unit/test_daemon_verbs.py
+tests/unit/test_doctor.py
+tests/unit/test_hooks_install_equality.py
+tests/unit/test_daemon_log_sites.py
+tests/unit/test_hooks.py
+tests/unit/test_live_store_guard_round4.py
+tests/unit/test_hooks_native_guard.py
+tests/unit/test_steer_invariants.py
+tests/unit/test_compat.py
+tests/unit/test_hooks_install_differential.py
+tests/fixtures/compat/cases.json

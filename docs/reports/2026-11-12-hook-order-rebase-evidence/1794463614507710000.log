@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_an_unchanged_event_keeps_its_own_spelling_when_another_is_rewritten ___
+
+tmp_path = PosixPath('/private/tmp/sf-hor-b1/mutant-3/test_an_unchanged_event_keeps_0')
+
+    def test_an_unchanged_event_keeps_its_own_spelling_when_another_is_rewritten(tmp_path):
+        """C-23.25 an event without drift is copied, not re-rendered: its key order
+        survives a rewrite that another event's drift causes."""
+        data = live_shape()
+        data["hooks"]["SessionStart"] = [data["hooks"]["SessionStart"][0]]   # missing
+        path = write(tmp_path, data)
+        hooks.apply(path, command=CMD, timeout=TIMEOUT)
+        entry = json.loads(path.read_text())["hooks"]["PostToolUse"][1]["hooks"][0]
+>       assert list(entry) == ["type", "command", "timeout", "asyncRewake"]
+E       AssertionError: assert ['type', 'com...e', 'timeout'] == ['type', 'com...'asyncRewake']
+E         
+E         At index 2 diff: 'asyncRewake' != 'timeout'
+E         Use -v to get more diff
+
+tests/unit/test_hooks_install_equality.py:262: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks_install_equality.py::test_an_unchanged_event_keeps_its_own_spelling_when_another_is_rewritten
+1 failed in 11.67s

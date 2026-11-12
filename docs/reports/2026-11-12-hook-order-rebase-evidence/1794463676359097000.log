@@ -1,0 +1,44 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_install_agrees_with_release_when_owned_entries_are_alone_and_last ____
+
+    @settings(max_examples=150, deadline=None)
+>   @given(compatible_install_files())
+                   ^^^
+
+tests/unit/test_hooks_install_differential.py:118: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14t/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+data = {'hooks': {'PreToolUse': [{'matcher': '*', 'hooks': [{'type': 'command', 'command': '/usr/local/bin/other-tool hook'}]}]}}
+
+    @settings(max_examples=150, deadline=None)
+    @given(compatible_install_files())
+    @example({"hooks": {"PreToolUse": [foreign("/usr/local/bin/other-tool hook")]}})
+    def test_install_agrees_with_release_when_owned_entries_are_alone_and_last(data):
+        """C-23.25 invariant 7: preserve every case the old install loop got right."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = write(Path(directory), data)
+            current = json.loads(path.read_text())
+            report = hooks_module.plan(path, command=CMD, timeout=TIMEOUT)
+            reference = release_plan(current)
+            assert report["ok"] is True
+            assert report["changed_events"] == reference["changed_events"]
+>           assert canonical(report["proposed"]) == canonical(reference["proposed"])
+E           AssertionError: assert ('object', ((..., (...))))),)) == ('object', ((..., (...))))),))
+E             
+E             At index 1 diff: (('hooks', ('object', (('PostToolUse', ('array', (('object', (('hooks', ('array', (('object', (('asyncRewake', ('bool', True)), ('command', ('str', '/home/user/bin/subfleet hook PostToolUse')), ('timeout', ('number', 600.0)), ('type', ('str', 'command')))),))), ('matcher', ('str', 'Bash')))),))), ('PreToolUse', ('array', (('object', (('hooks', ('array', (('object', (('command', ('str', '/home/user/bin/subfleet hook PreToolUse')), ('timeout', ('number', 5.0)), ('type', ('str', 'command')))),))), ('matcher', ('str', 'Bash')))), ('object', (('hooks', ('arr...
+E             
+E             ...Full output truncated (2 lines hidden), use '-vv' to show
+E           Failing explicit example: test_install_agrees_with_release_when_owned_entries_are_alone_and_last(
+E               data={'hooks': {'PreToolUse': [{'matcher': '*',
+E                   'hooks': [{'type': 'command',
+E                     'command': '/usr/local/bin/other-tool hook'}]}]}},
+E           )
+
+tests/unit/test_hooks_install_differential.py:129: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks_install_differential.py::test_install_agrees_with_release_when_owned_entries_are_alone_and_last
+1 failed in 11.40s
