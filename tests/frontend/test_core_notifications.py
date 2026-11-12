@@ -375,11 +375,11 @@ def notification_model_probe(tmp_path_factory) -> Path:
 
 def model_clicks(probe, tmp_path, steps: list[dict], focused: str | None = "cv-1", baselined: bool = True,
                  pending: dict | None = None, detail: dict | None = None,
-                 posted_detail: dict | None = None) -> list[dict]:
+                 posted_detail: dict | None = None, on_screen: bool | None = None) -> list[dict]:
     root = tmp_path / f"model-{uuid.uuid4().hex}"
     root.mkdir()
     data = {"root": str(root), "focused": focused, "baselined": baselined, "pending": pending or {}, "steps": steps,
-            "detail": detail, "posted_detail": posted_detail}
+            "detail": detail, "posted_detail": posted_detail, "on_screen": on_screen}
     return model_run(probe, tmp_path, data)["steps"]
 
 
@@ -501,6 +501,11 @@ def test_c29_9_the_merged_userinfo_reads_back_as_both_targets(notification_model
         {"frontmost": {"request_id": "approval:7", "intent": {**APPROVAL, "conversation": "cv-1"}, "allowing": False}},
     ], detail=approval_detail())
     assert [o["shows"] for o in out] == [True, True]
+    watched = model_clicks(notification_model_probe, tmp_path, [
+        {"frontmost": {"request_id": "approval:7", **ALLOWING}},
+        {"frontmost": {"request_id": "approval:7", "intent": {**APPROVAL, "conversation": "cv-1"}, "allowing": False}},
+    ], detail=approval_detail(), on_screen=True)
+    assert [o["shows"] for o in watched] == [True, False]
 
 
 # The delegate itself, the one the model owns, as the notification center calls it
@@ -532,6 +537,14 @@ def test_c29_9_the_delegate_presents_a_banner_unless_its_conversation_is_on_scre
                      "allowing": False}},
     ], detail=approval_detail())
     assert [o["shows"] for o in out] == [["banner", "list"], ["banner", "list"]]
+    # With the focused conversation on screen (the window up and key), its own
+    # notification shows nothing, and another conversation's still shows.
+    watched = model_clicks(notification_model_probe, tmp_path, [
+        {"present": {"request_id": "approval:7", **ALLOWING}},
+        {"present": {"request_id": "complete:m", "intent": {"kind": "completed", "subject": "m", "conversation": "cv-1"},
+                     "allowing": False}},
+    ], detail=approval_detail(), on_screen=True)
+    assert [o["shows"] for o in watched] == [["banner", "list"], []]
 
 
 def test_c29_9_the_allow_once_category_is_release_217s(notification_model_probe, tmp_path):

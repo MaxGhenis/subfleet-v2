@@ -619,10 +619,15 @@ final class UIModel: ObservableObject {
         let visible = mainWindow.map {
             $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && holdsKey($0) && shown($0)
         } ?? false
-        let onScreen = NSApp?.isActive == true && visible
+        let onScreen = onScreenOverride ?? (NSApp?.isActive == true && visible)
         if publish && state.focusedOnScreen != onScreen { state.focusedOnScreen = onScreen }
         return onScreen
     }
+
+    /// Stands in for what AppKit would say when set: the UI-model probes have no
+    /// window to show, and set it to decide with the focused conversation on
+    /// screen. Nil in the app.
+    var onScreenOverride: Bool?
 
     /// Whether the display showing `window` is awake (CoreGraphics: an asleep
     /// display "is therefore not drawable") and this login session is on the

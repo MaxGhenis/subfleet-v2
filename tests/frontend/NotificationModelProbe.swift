@@ -4,6 +4,8 @@
 // UIModel's timers, watch or event loops, nor touches the notification center.
 //
 // `notification-model <input.json>`: `{"root", "focused", "baselined", "pending": {"<conversation>": n},
+// "on_screen": true|false (UIModel.onScreenOverride; absent, AppKit decides, and with no window
+// nothing is on screen),
 // "detail": <approval.get's answer>, "posted_detail": <the request as posted, default "detail">,
 // "steps": [...]}`. A step is one of:
 //   {"click": {"request_id", "user_info"}}            UIModel.show, as a delivered click reads back
@@ -105,6 +107,7 @@ final class NotificationProbeClient: DaemonCalling, @unchecked Sendable {
         let client = NotificationProbeClient(detail: given("detail"))
         let model = UIModel(paths: .rooted(at: URL(fileURLWithPath: input["root"]!.string!)),
                             client: client, defaults: NotificationProbeDefaults(), state: state)
+        model.onScreenOverride = input["on_screen"]?.bool
         let detail = given("posted_detail") ?? given("detail")
         var out: [[String: Any]] = []
         for step in input["steps"]?.array ?? [] {
