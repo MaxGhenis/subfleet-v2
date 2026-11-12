@@ -85,8 +85,8 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import (Store, _pin_notice_key, batch_submission_rows, cancel_info, job_flags, notice_fingerprint, notice_rows,
-                    pin_notice_jobs, shell_flags)
+from .store import (CLOSE_WAIT_S as STORE_CLOSE_WAIT_S, Store, _pin_notice_key, batch_submission_rows, cancel_info,
+                    job_flags, notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags)
 from . import uncommitted
 
 
@@ -1970,11 +1970,18 @@ class Daemon:
         then without a break, and a held job's paused clocks count from there (T6).
         The same transaction takes every job of the task that waits or is queued now
         (`_take_task_jobs`), so a hold pauses their clocks from its commit. Running
-        attempts are not read, signalled or touched: a new attempt is what a hold stops."""
+        attempts are not read, signalled or touched: a new attempt is what a hold stops.
+
+        With `if_note_prefix`, only no hold in force or one whose note starts
+        with the prefix may be replaced. Read and check after BEGIN IMMEDIATE,
+        at the same sampled clock as expiry validation, before any row changes."""
         if not self._known_task(a.task):
             raise self._unknown_task(a.task, "hold")
         try:
             note = task_holds.note_text(a.note)
+            prefix = task_holds.note_text(a.if_note_prefix) if a.if_note_prefix is not None else None
+            if prefix is not None and not note.startswith(prefix):
+                raise ValueError("the new note must start with --if-note-prefix")
         except ValueError:
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-note"][0],
                                          reason="task-hold-note") from None
@@ -1992,6 +1999,10 @@ class Daemon:
             replaced = task_holds.hold_of(dict(row)) if row else None
             if not task_holds.in_force_now(replaced, now):
                 replaced = None
+            if prefix is not None and replaced is not None and not replaced["note"].startswith(prefix):
+                raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-condition"][0],
+                                             Exit.REFUSED, reason="task-hold-condition",
+                                             details={"task_hold": replaced})
             if replaced is not None:
                 data["replaced"] = {"until": replaced["until"], "note": replaced["note"]}
             since = replaced["since"] if replaced is not None and replaced.get("since") else now
@@ -2021,8 +2032,15 @@ class Daemon:
         still be released while its row is there. A release with no row changes
         nothing and records nothing. A release of a hold already past its end
         (`was_held` false) still deletes the row and records `task.released`, and
-        gives any job no pass has woken since the end its clocks back, from that end."""
+        gives any job no pass has woken since the end its clocks back, from that end.
+        With `if_note_prefix`, even an expired row must have a matching note;
+        the transaction reads and checks it before deleting or waking any job."""
         task = a.task
+        try:
+            prefix = task_holds.note_text(a.if_note_prefix) if a.if_note_prefix is not None else None
+        except ValueError:
+            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-note"][0],
+                                         reason="task-hold-note") from None
         if not (isinstance(task, str) and task and (
                 self._known_task(task) or self.store.one(task_holds.ROW_SQL, (task_holds.lease_key(task),)))):
             raise self._unknown_task(task, "release")
@@ -2031,6 +2049,15 @@ class Daemon:
             now = utcnow()
             row = tx.execute(task_holds.ROW_SQL, (task_holds.lease_key(task),)).fetchone()
             ended = task_holds.hold_of(dict(row)) if row else None
+            if prefix is not None and ended is None:
+                # A conditional release owns no row here. Even stale waiting
+                # jobs are unchanged; only a row bearing this prefix may be released.
+                return {"released": task, "was_held": False, "woken": 0,
+                        "task_holds": task_holds.listing(self._task_holds_now())}
+            if prefix is not None and ended is not None and not ended["note"].startswith(prefix):
+                raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-condition"][0],
+                                             Exit.REFUSED, reason="task-hold-condition",
+                                             details={"task_hold": ended})
             if ended is not None:
                 data.update(until=ended["until"], note=ended["note"])
             tx.execute("DELETE FROM leases WHERE lease_key=?", (task_holds.lease_key(task),))
@@ -12827,6 +12854,10 @@ class Daemon:
                 self.on_stop()        # C-5.8a, before anything can wait
             except Exception as exc:  # noqa: BLE001 - the drain below must still run
                 self.log.error("stop bound not armed: %s", type(exc).__name__)
+        # C-5.8a, C-30.1: start the catalog grace before any other stop wait.
+        store_close_by = time.monotonic() + STORE_CLOSE_WAIT_S
+        self.conversations.begin_close()
+        self.lock_watch.begin_stop()
         self.stopping.set()
         self.timers.cancel.set()
         self._notify()
@@ -12864,7 +12895,7 @@ class Daemon:
             for conn in self._connections:
                 conn.close()
             self._connections.clear()
-        self.store.close()
+        self.store.close(deadline=store_close_by)
         (self.root / "daemon.sock").unlink(missing_ok=True)
         # While the lock is still this daemon's: the flag goes, then the handler.
         self._disable_stack_dumps()
