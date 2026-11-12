@@ -1,0 +1,20 @@
+{
+  "utc": "2026-11-12T06:34:35.853050+00:00",
+  "workspace_generated_folders_removed": [
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/build",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/docs/reports/2026-11-12-effort-env-data/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/subfleet/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/subfleet/adapters/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/subfleet/conversations/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/subfleet/sessions/__pycache__"
+  ],
+  "scratch_roots_removed": [
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261111-122612-eff-build-r1s-a1-d5eqgqp5/sf-eff-b1",
+    "/private/tmp/sf-eff-b1"
+  ],
+  "temporary_bootstraps_remaining": 0,
+  "production_sha256": {
+    "subfleet/adapters/claude.py": "692f2f88dea44c8426aadda97ab807396b1035b903c02e9a4b6a431624098e79",
+    "subfleet/conversations/claude_turn.py": "82c95e41ccd0e4f788ec5507f2445c16087d441aa3b832d9d732a03b3d2fa475"
+  }
+}

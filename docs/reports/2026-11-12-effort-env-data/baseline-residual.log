@@ -1,0 +1,38 @@
+bringing up nodes...
+bringing up nodes...
+
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+__________ test_two_legacy_alias_holders_oldest_exports_and_releases ___________
+[gw1] darwin -- Python 3.14.7 /private/tmp/sf-eff-b1/uv-cache/builds-v0/.tmpHTozfc/bin/python
+tests/fake/test_canonical_identity.py:331: in test_two_legacy_alias_holders_oldest_exports_and_releases
+    assert {holder for _, holder in resource_leases.OutputClaim.prepare(service.store.query, str(left)).holds(service.store.query)} == {"newer-job"}
+E   AssertionError: assert set() == {'newer-job'}
+E     
+E     Extra items in the right set:
+E     'newer-job'
+E     Use -v to get more diff
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4996536271248:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4996536271248:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+___________ test_codex_conversation_turn_commands_see_neither_dummy ____________
+[gw2] darwin -- Python 3.14.7 /private/tmp/sf-eff-b1/uv-cache/builds-v0/.tmpHTozfc/bin/python
+tests/process/test_provider_shell_environment.py:256: in test_codex_conversation_turn_commands_see_neither_dummy
+    assert _seen(model.outputs) == {"MISSING"}
+E   AssertionError: assert set() == {'MISSING'}
+E     
+E     Extra items in the right set:
+E     'MISSING'
+E     Use -v to get more diff
+____________ test_codex_exec_and_resume_commands_see_neither_dummy _____________
+[gw0] darwin -- Python 3.14.7 /private/tmp/sf-eff-b1/uv-cache/builds-v0/.tmpHTozfc/bin/python
+tests/process/test_provider_shell_environment.py:192: in test_codex_exec_and_resume_commands_see_neither_dummy
+    assert _seen(control), "the control's command never ran"
+E   AssertionError: the control's command never ran
+E   assert set()
+E    +  where set() = _seen(['Chunk ID: c345b3\nWall time: 0.0000 seconds\nProcess exited with code 71\nOriginal token count: 14\nOutput:\nsandbox-exec: sandbox_apply: Operation not permitted\n'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases
+FAILED tests/process/test_provider_shell_environment.py::test_codex_conversation_turn_commands_see_neither_dummy
+FAILED tests/process/test_provider_shell_environment.py::test_codex_exec_and_resume_commands_see_neither_dummy
+3 failed in 17.42s

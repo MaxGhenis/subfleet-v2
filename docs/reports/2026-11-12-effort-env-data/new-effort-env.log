@@ -1,0 +1,46 @@
+Installed 7 packages in 1.69s
+.F.ssss                                                                  [100%]
+=================================== FAILURES ===================================
+__________ test_property_turn_effort_pins_settings_and_preserves_argv __________
+
+tmp_path = PosixPath('/private/tmp/sf-eff-b1/new-effort-env/test_property_turn_effort_pins0')
+
+    @PROPERTIES
+>   @example(case=dict(path="turn", permission="bypass", fast=True, effort="ultracode", resume=True, tmp=True))
+                   ^^^^^^^^^^^
+
+tests/unit/test_effort_env.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/private/tmp/sf-eff-b1/venv/lib/python3.14t/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+tests/unit/test_effort_env.py:157: in test_property_turn_effort_pins_settings_and_preserves_argv
+    _assert_effort_and_differential(case, lsc.build(case, scratch))
+tests/unit/test_effort_env.py:72: in _assert_effort_and_differential
+    index, payload = _one_settings(argv)
+                     ^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+argv = ['claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', ...]
+
+    def _one_settings(argv: list[str]) -> tuple[int, dict]:
+        assert len(lsc.settings_payloads(argv)) == 1, argv
+>       assert argv[-2] == "--settings", argv
+E       AssertionError: ['claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', ...]
+E       assert '--add-dir' == '--settings'
+E         
+E         - --settings
+E         + --add-dir
+E       Failing explicit example: test_property_turn_effort_pins_settings_and_preserves_argv(
+E           tmp_path=PosixPath('/private/tmp/sf-eff-b1/new-effort-env/test_property_turn_effort_pins0'),
+E           case={'path': 'turn',
+E            'permission': 'bypass',
+E            'fast': True,
+E            'effort': 'ultracode',
+E            'resume': True,
+E            'tmp': True},
+E       )
+
+tests/unit/test_effort_env.py:35: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_effort_env.py::test_property_turn_effort_pins_settings_and_preserves_argv
+1 failed, 2 passed, 4 skipped in 46.68s
