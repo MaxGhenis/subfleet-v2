@@ -96,6 +96,8 @@ CLOSE_WAIT_S = 5.0
 #: disk. SQLite's automatic checkpoints are PASSIVE: they never wait for a
 #: reader, only stop short of the oldest snapshot still open.
 WAL_SIZE_LIMIT = 64 * 1024 * 1024
+#: C-3.8: the event columns besides its kind and data that `Store.audit_as` may set.
+AUDIT_IDS = frozenset({"job_id", "attempt_id", "lane_id"})
 
 #: C-3.1: migrations are additive and numbered. Each entry is the statements that
 #: carry a database from `n - 1` to `n`; `store_schema.sql` always describes the
@@ -308,8 +310,9 @@ class Store:
         # held it, for how long, and what they were doing.
         self._lock = WatchedLock("store")
         self._depth = 0
-        # C-3.2: each open transaction's audit event, innermost last (`audit_as`).
-        self._audits: list[list] = []
+        # C-3.2, C-3.8: each open transaction's audit event, innermost last (`audit_as`):
+        # its kind, data and ids, which the event is written with when it commits.
+        self._audits: list[dict[str, Any]] = []
         # Bumped by every committed top-level transaction that changed a row.
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
@@ -428,14 +431,16 @@ class Store:
             self.connection.execute("BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}")
             self._depth += 1
             before = self.connection.total_changes
-            audit = [kind, data]
+            audit = {"kind": kind, "data": data, "job_id": job_id, "attempt_id": attempt_id, "lane_id": lane_id}
             self._audits.append(audit)
             try:
                 yield self.connection
-                if self.connection.total_changes != before and audit[0] is not None:
+                if self.connection.total_changes != before and audit["kind"] is not None:
+                    # C-3.8: the ids too are the entry's, which `audit_as` may have set.
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
-                        (utc_now(), audit[0], job_id, attempt_id, lane_id, _json(audit[1] or {})))
+                        (utc_now(), audit["kind"], audit["job_id"], audit["attempt_id"], audit["lane_id"],
+                         _json(audit["data"] or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
                 if depth == 0 and self.connection.total_changes != before:
                     self.generation += 1
@@ -450,17 +455,25 @@ class Store:
                 self._audits.pop()
                 self._depth -= 1
 
-    def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None) -> None:
+    def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None, **ids: str | None) -> None:
         """C-3.2: the audit event of the innermost transaction open on this thread is `kind`
         with `data`, for a transaction that learns inside itself what it did; with `kind`
         None it writes none, its block having recorded its own events. C-11.10 (review r3
         of #260, R3-1): an admission write that finds the task held becomes that hold's take,
         so it records `job.task_held`, and an episode that opens behind a hold records its
-        own `job.pin_unadmittable` before the take that pauses it."""
+        own `job.pin_unadmittable` before the take that pauses it.
+
+        C-3.8: `ids` may also set the event's `job_id`, `attempt_id` and `lane_id`, which
+        otherwise stay as the transaction opened with them: admission learns the attempt and
+        lane only when it reserves one (`attempt.reserved`). Any other field is refused
+        (`ValueError`); `kind` and `data` are replaced whole, as before."""
+        stray = set(ids) - AUDIT_IDS
+        if stray:
+            raise ValueError(f"audit_as: an event has no field {', '.join(sorted(stray))}")
         with self._lock:
             if not self._audits:
                 raise RuntimeError("audit_as: no transaction is open on this thread")
-            self._audits[-1][:] = [kind, data]
+            self._audits[-1].update(kind=kind, data=data, **ids)
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         if self._reads_elsewhere():
