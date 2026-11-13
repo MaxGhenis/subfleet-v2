@@ -1,0 +1,27 @@
+bringing up nodes...
+bringing up nodes...
+
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___________ test_closure_expiring_during_the_first_pass_is_not_lost ____________
+[gw3] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python
+tests/fake/test_idle_admission_pacing.py:243: in test_closure_expiring_during_the_first_pass_is_not_lost
+    assert service._admission_rest_until == 0
+E   assert 1010.0 == 0
+E    +  where 1010.0 = <subfleet.daemon.Daemon object at 0x109559d30>._admission_rest_until
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4451573040:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4451573040:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+_______ test_closure_expiring_during_a_slow_pass_survives_its_completion _______
+[gw2] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python
+tests/fake/test_idle_admission_pacing.py:229: in test_closure_expiring_during_a_slow_pass_survives_its_completion
+    assert service._admission_rest_until == 0
+E   assert 1012.101 == 0
+E    +  where 1012.101 = <subfleet.daemon.Daemon object at 0x107d21940>._admission_rest_until
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4426176832:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4426176832:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_admission_pacing.py::test_closure_expiring_during_the_first_pass_is_not_lost
+FAILED tests/fake/test_idle_admission_pacing.py::test_closure_expiring_during_a_slow_pass_survives_its_completion
+2 failed in 65.46s (0:01:05)

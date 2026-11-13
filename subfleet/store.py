@@ -310,6 +310,10 @@ class Store:
         self._depth = 0
         # C-3.2: each open transaction's audit event, innermost last (`audit_as`).
         self._audits: list[list] = []
+        # D-ADMIT-IDLE1: connection-local mutation notices, published only after
+        # the outer transaction commits. No persistent schema or polling read.
+        self._admission_watch: Callable[[str], None] | None = None
+        self._admission_pending: set[str] = set()
         # Bumped by every committed top-level transaction that changed a row.
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
@@ -407,6 +411,40 @@ class Store:
     def conn(self) -> sqlite3.Connection:
         return self.connection
 
+    def watch_admission(self, callback: Callable[[str], None]) -> None:
+        """Wake admission for committed queue/capacity changes on this writer.
+
+        Daemon and timer workers sometimes mutate rows through raw transaction
+        SQL, so method-specific hooks miss changes. TEMP triggers belong only
+        to this connection and collect categories; a rollback restores the set
+        alongside its savepoint. A callback must only update in-memory state.
+        """
+        with self._lock:
+            self._admission_watch = callback
+            self.connection.create_function(
+                "subfleet_admission_changed", 1, self._admission_pending.add)
+            triggers = [
+                ("jobs_insert", "INSERT", "jobs", "NEW.state IN ('queued','waiting')", "jobs"),
+                ("jobs_update", "UPDATE", "jobs",
+                 "NEW.state IN ('queued','waiting') AND ("
+                 "OLD.state NOT IN ('queued','waiting') OR "
+                 "(NEW.state='queued' AND OLD.state!='queued') OR "
+                 "(OLD.wait_reason='task-held' AND NEW.wait_reason IS NOT 'task-held'))", "jobs"),
+                ("leases_delete", "DELETE", "leases", "1", "lease"),
+            ]
+            for table, category, columns in (
+                    ("closures", "closure", ("lane_id", "scope", "until_at", "reason", "clock_source",
+                                              "source_event", "released_at")),
+                    ("lanes", "lane", tuple(sorted(self._columns["lanes"] - {"created_at", "updated_at"})))):
+                changed = " OR ".join(f"OLD.{column} IS NOT NEW.{column}" for column in columns)
+                for operation in ("INSERT", "DELETE", "UPDATE"):
+                    triggers.append((f"{table}_{operation.lower()}", operation, table,
+                                     changed if operation == "UPDATE" else "1", category))
+            for name, operation, table, condition, category in triggers:
+                self.connection.execute(
+                    f"CREATE TEMP TRIGGER IF NOT EXISTS admission_{name} AFTER {operation} ON main.{table} "
+                    f"WHEN {condition} BEGIN SELECT subfleet_admission_changed('{category}'); END")
+
     @contextmanager
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,
                     attempt_id: str | None = None, lane_id: str | None = None,
@@ -424,6 +462,8 @@ class Store:
                 "snapshot")
         with self._lock:
             depth = self._depth
+            pending_before = self._admission_pending.copy()
+            notices: tuple[str, ...] = ()
             savepoint = f"store_{depth}"
             self.connection.execute("BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}")
             self._depth += 1
@@ -439,7 +479,12 @@ class Store:
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
                 if depth == 0 and self.connection.total_changes != before:
                     self.generation += 1
+                if depth == 0:
+                    notices = tuple(sorted(self._admission_pending))
+                    self._admission_pending.clear()
             except BaseException:
+                self._admission_pending.clear()
+                self._admission_pending.update(pending_before)
                 if depth == 0:
                     self.connection.rollback()
                 else:
@@ -449,6 +494,9 @@ class Store:
             finally:
                 self._audits.pop()
                 self._depth -= 1
+        if self._admission_watch is not None:
+            for category in notices:
+                self._admission_watch(category)
 
     def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None) -> None:
         """C-3.2: the audit event of the innermost transaction open on this thread is `kind`

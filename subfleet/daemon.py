@@ -91,6 +91,9 @@ from .store import (CLOSE_WAIT_S as STORE_CLOSE_WAIT_S, Store, _pin_notice_key, 
 from . import uncommitted
 
 
+ADMISSION_IDLE_PACE_S = 2
+
+
 def guardian_qos_args(qos: str) -> list[str]:
     """C-5.1, D-QOS-BOOKED1: the guardian's `--provider-qos` for one attempt's launch.
 
@@ -1004,12 +1007,14 @@ class Daemon:
             atomic_publish(policy_path, Path(__file__).with_name("default_policy.json").read_bytes())
         self.policy = load_policy(policy_path)
         self.policy_digest = policy_hash(policy_path)
+        self._admission_policy_seen = self.policy_digest
         # D-ENV1: every launch withholds the lanes' credential references, read
         # from the store at each launch; a lane gets only its own, resolved.
         self._provider_environment = ProviderEnvironment(self.policy, log=self.log,
                                                          references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self.store.watch_admission(self._wake_admission)
         # C-8.7 (d2660): the operator's delete path; its request and journals
         # are read back here, and it steps on the retention worker.
         self._retention_delete = retention_delete.DeletePath(self.store, self.root, log=self.log)
@@ -1152,10 +1157,24 @@ class Daemon:
         self._attempt_answers: dict[str, float] = {}
         self._answer_reads: dict[str, dict] = {}
         self._answer_news = False
+        # D-ADMIT-IDLE1: only the detached worker rests. A wake during a pass
+        # must survive that pass finishing, so it carries a generation as well
+        # as clearing the deadline. No due-job clock is a wake.
+        self._admission_pace_lock = threading.Lock()
+        self._admission_wake_seq = 0
+        self._admission_capacity_revision = 0
+        self._admission_rest_until = 0.0
+        self._admission_closure_due = float("inf")
+        self._admission_policy_seen = None
+        self._admission_thread = threading.local()
         # C-6.10: job id -> the verdict a capacity wait keeps reaching, and how
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-6.10: one coalesced news bit per eligible pending waiter. A door
+        # hold may skip its capacity check after the pool acknowledges a census.
+        # Consume only at that check; pending-job cleanup and restart forget it.
+        self._capacity_news: dict[str, bool] = {}
         # C-11.10: bumped after each task hold or release commits, so a pass that
         # read the holds before it reads them again at its next job.
         self._task_hold_epoch = 0
@@ -1185,6 +1204,12 @@ class Daemon:
         # C-6.4a, C-6.10: quarantine can retain a provider slot after its lane
         # lease is gone. Each pool must notice that count freeing independently.
         self._provider_quarantines_seen: dict[str, frozenset[str]] = {}
+        # C-6.10: each pool observes closure endings, lane enrollment/enabling
+        # and policy changes even while its jobs' capacity clocks run.
+        self._capacity_changes_seen: dict[str, tuple[frozenset, frozenset, str, int]] = {}
+        # A failed pass may have consumed census news before reaching every
+        # waiter. Keep that news until a whole pass of this pool succeeds.
+        self._capacity_change_retry: set[str] = set()
         # C-6.12, C-24.5: turn job id -> the error type its conversation check last
         # raised, so the log says so once per change rather than once a pass.
         self._turn_check_errors: dict[str, str] = {}
@@ -2309,6 +2334,7 @@ class Daemon:
             self.log.warning("lane %s answered (%s) but the record could not be written: %s",
                              lane_id, source, type(exc).__name__)
         if freed:
+            self._wake_admission()
             self._notify()
 
     def _take_answer_news(self) -> bool:
@@ -2353,6 +2379,7 @@ class Daemon:
                                      aid, a["lane_id"], wait)
                     with self._answer_lock:                # the lane is free: the jobs held for it look now
                         self._answer_news = True
+                    self._wake_admission()
                     self._notify()
             with open_regular(state["path"]) as stream:
                 size = os.fstat(stream.fileno()).st_size
@@ -5461,6 +5488,8 @@ class Daemon:
         nothing would offer it again, so holding it back would drop it after the
         caller was told it was accepted.
         """
+        if key == "admission" and not self._admission_ready():
+            return
         with self._busy_lock:
             if (key in self._busy or self.stopping.is_set()
                     or (paced and time.monotonic() < self._worker_retry_at.get(key, 0))):
@@ -5476,6 +5505,8 @@ class Daemon:
                         self._worker_failures.pop(key, None)
                     self._worker_retry_at.pop(key, None)
             except Exception as exc:
+                if key == "admission":
+                    self._wake_admission()          # C-5.10 alone paces failures
                 # Provider/keychain errors can contain secrets; log the error
                 # type only. Safe details belong in structured outcome rows.
                 if not paced:
@@ -7352,7 +7383,70 @@ class Daemon:
         """C-26.9: the turn pass alone, on its own worker: a person is waiting."""
         self._admit_kind("turn", wait=False)
 
+    def _wake_admission(self, source: str = "wake") -> None:
+        """End the detached rest after a committed change, never a due look.
+
+        The daemon's store observes row changes, including the SQL lease deletes
+        made by workers and timers. Admission's own queue transitions are not
+        external arrivals; they must not keep an idle pass running forever.
+        """
+        if source == "jobs" and getattr(self._admission_thread, "active", False):
+            return
+        with self._admission_pace_lock:
+            self._admission_wake_seq += 1
+            if source in ("closure", "lane"):
+                self._admission_capacity_revision += 1
+            self._admission_rest_until = 0.0
+
+    def _admission_ready(self) -> bool:
+        """A per-tick memory check; closure expiry was read by the last pass."""
+        with self._admission_pace_lock:
+            digest = getattr(self, "policy_digest", None)
+            if digest != self._admission_policy_seen:
+                self._admission_policy_seen = digest
+                self._admission_wake_seq += 1
+                self._admission_rest_until = 0.0
+            return time.monotonic() >= min(self._admission_rest_until, self._admission_closure_due)
+
     def _admit_kind(self, kind: str, *, wait: bool = True) -> None:
+        if kind != "detached":
+            self._admit_kind_once(kind, wait=wait)
+            return
+        started = time.monotonic()
+        started_at = utcnow()
+        with self._admission_pace_lock:
+            wake_seq = self._admission_wake_seq
+        active = getattr(self._admission_thread, "active", False)
+        self._admission_thread.active = True
+        try:
+            placed = self._admit_kind_once(kind, wait=wait)
+            if placed is None:                     # another pass holds the lock
+                return
+            # Include a closure that expired during this pass, even the first
+            # pass: its route snapshot may still have seen the hold in force.
+            expiry = self.store.one("SELECT min(until_at) AS due FROM closures "
+                                    "WHERE released_at IS NULL AND until_at>?", (started_at,))["due"]
+            expiry_at = _epoch(expiry)
+            if expiry and expiry_at is None:
+                # C-6.12: a corrupt closure is its route's error, never the
+                # detached worker's. It must not hide another closure's wake.
+                expiry_at = min((value for row in self.store.query(
+                    "SELECT DISTINCT until_at FROM closures WHERE released_at IS NULL AND until_at>?",
+                    (started_at,)) if (value := _epoch(row["until_at"])) is not None), default=None)
+            ended = time.monotonic()
+            with self._admission_pace_lock:
+                self._admission_closure_due = (ended + max(0, expiry_at - time.time())
+                                               if expiry_at is not None else float("inf"))
+                self._admission_rest_until = (ended + max(ADMISSION_IDLE_PACE_S, 4 * (ended - started))
+                                              if not placed and wake_seq == self._admission_wake_seq
+                                              and self._admission_closure_due > ended else 0.0)
+        except BaseException:
+            self._wake_admission()                 # an error gets only C-5.10's rest
+            raise
+        finally:
+            self._admission_thread.active = active
+
+    def _admit_kind_once(self, kind: str, *, wait: bool = True) -> int | None:
         """One admission pass over one kind of job, then the record of what it left unplaced (C-6.11)."""
         if kind == "turn" and not self._holds_by_kind["turn"] and not self.store.one(
                 "SELECT 1 FROM jobs WHERE state IN ('queued','waiting') AND kind='turn' "
@@ -7373,8 +7467,14 @@ class Daemon:
             # A pass that raises leaves both as the last whole pass left them: half
             # a hold set would read as "nothing left pending" and end the idle
             # stretch with the queue untouched. C-5.10 logs and paces the failure.
-            self._admit_pass(holds, tally, kind=kind)
+            try:
+                self._admit_pass(holds, tally, kind=kind)
+            except BaseException:
+                with self._admission_lock:
+                    self._capacity_change_retry.add(kind)
+                raise
             with self._admission_lock:
+                self._capacity_change_retry.discard(kind)
                 self._holds_by_kind = {**self._holds_by_kind, kind: holds}
                 self._holds = {**self._holds_by_kind["detached"], **self._holds_by_kind["turn"]}
         finally:
@@ -7411,6 +7511,7 @@ class Daemon:
                 self._note_admission({"placed": placed}, holds)
             finally:
                 self._note_lock.release()
+        return tally["placed"]
 
     def _count_route(self, **counts: int) -> None:
         """C-6.3: add to `daemon.status`'s `route_evaluations`; both passes count."""
@@ -7626,6 +7727,34 @@ class Daemon:
         finally:
             self._admission = state
 
+    def _capacity_change_news(self, kind: str) -> bool:
+        """C-6.10: capacity changes that bring this pool's backed-off waits forward.
+
+        Read once per pass, never by the control tick. A closure gone from the
+        in-force set was released or expired; changing its scope, cause or end
+        also retires its old condition. Each pool keeps its own last census.
+        """
+        # Capture before the snapshot: a condition added during this pass may
+        # be seen by a later route, then released before the next census. The
+        # revision still brings that wait forward when both sets look unchanged.
+        with self._admission_pace_lock:
+            revision = self._admission_capacity_revision
+        with self.store.snapshot():
+            closures = frozenset((row["closure_id"], row["lane_id"], row["scope"], row["until_at"], row["reason"])
+                                 for row in self.store.list_closures(active_at=utcnow()))
+            lanes = frozenset((row["lane_id"], row["enabled"], row["credential_epoch"], row["owner"],
+                               row["desktop"], row["credential_ref"])
+                              for row in self.store.lane_rows())
+        current = (closures, lanes, self.policy_digest, revision)
+        with self._admission_lock:
+            previous = self._capacity_changes_seen.get(kind)
+            self._capacity_changes_seen = {**self._capacity_changes_seen, kind: current}
+            retry = kind in self._capacity_change_retry
+        if retry:
+            return True
+        return bool(previous and (previous[0] - closures or previous[1] != lanes
+                                  or previous[2] != current[2] or previous[3] != revision))
+
     def _admit_pass(self, holds: dict[str, dict], tally: dict, *, kind: str = "detached") -> None:
         """One pass over the queued jobs of one kind: `turn` or `detached` (C-26.9)."""
         output_identities: dict[str, str] = {}
@@ -7662,7 +7791,7 @@ class Daemon:
                     self._push_workspace_store_failures.pop(job_id, None)
                     self._push_workspace_store_first_failure.pop(job_id, None)
                     self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
-        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
+        tables = (self._capacity_waits, self._capacity_news, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
         if gone:
@@ -7701,6 +7830,7 @@ class Daemon:
                          or self._provider_quarantines_seen.get(kind, frozenset()) - quarantines_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
             self._provider_quarantines_seen = {**self._provider_quarantines_seen, kind: quarantines_now}
+        freed = self._capacity_change_news(kind) or freed
         if kind == "detached" and self._take_answer_news():
             freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
@@ -7799,6 +7929,14 @@ class Daemon:
                                        if self._pin_episodes.get(job["job_id"], {}).get("open"))
         episodes_after_commits(task_hold_read[0])
         for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
+            # Save news before any temporary guard can skip this waiter. Repeated
+            # news coalesces; only ordinary expedited capacity waits retain it.
+            known = self._capacity_waits.get(job["job_id"])
+            if job["wait_reason"] == "capacity" and known and known["expedite"]:
+                if freed:
+                    self._capacity_news[job["job_id"]] = True
+            else:
+                self._capacity_news.pop(job["job_id"], None)
             if job["job_id"] in workspace_skips:
                 continue
             if task_hold_read[0] != self._task_hold_epoch:
@@ -8066,7 +8204,8 @@ class Daemon:
                            if known and known["hold"].get("reason") == "behind-older-job" else None)
             unblocked = predecessor is not None and not any(
                 waiter[0] == predecessor and not waiter[3] for waiter in older_waiters(tier))
-            hurried = bool(freed and known and known["expedite"]) or turn_came or unblocked
+            saved_news = self._capacity_news.pop(job["job_id"], False)
+            hurried = bool((freed or saved_news) and known and known["expedite"]) or turn_came or unblocked
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 # C-11.8: a job every lane refuses now for a reason no wait ends waits
                 # for nothing another job could take, however its clock was set (a
@@ -8117,12 +8256,26 @@ class Daemon:
                 refused = unadmittable_now(far_s=0)[0]          # None too for a route not evaluated
                 if refused:
                     for_good = unadmittable_now()[0]
+                    try:
+                        # Standing refusals omit reading/slot reasons. Judge the
+                        # whole verdict before granting the event-only ceiling,
+                        # and retain every known reset without preparing a tree.
+                        waiting_decision = self._route(routed_job, extra_exclusions=extra_exclusions,
+                                                       desktop=desktop_account)
+                    except Unroutable as exc:
+                        self._unroutable(job, exc, holds)
+                        continue
+                    # C-6.12: a completed evaluation ends the run of route errors.
+                    self._route_deferrals.pop(job["job_id"], None)
                     hold = {"reason": scheduler.refusal_label(refused), "refused_now": refused, "unprepared": True,
                             **({"for_good": for_good} if for_good else {})}
                     # No lane would take it: C-23.16's demand, as the look it skipped would have found.
-                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + "|".join(refused), hold,
+                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + scheduler.verdict_signature(waiting_decision), hold,
                                                    lane_wait=True)
-                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    next_check = scheduler.waiting_metadata(
+                        waiting_decision, rechecks=rechecks,
+                        ceiling_s=scheduler.capacity_recheck_ceiling(waiting_decision),
+                        capacity_steer=routed_job.get("capacity_steer"))["next_check_at"]
                     with self.store.transaction("job.unprepared_wait", job_id=job["job_id"]) as tx:
                         taken = self._task_held_at_write(tx, job, holds)            # C-11.10 (R3-1)
                         if taken is None:
@@ -8643,7 +8796,8 @@ class Daemon:
                             rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
                                                            lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(
-                                decision, rechecks=rechecks, capacity_steer=decision_job.get("capacity_steer"))
+                                decision, rechecks=rechecks, ceiling_s=scheduler.capacity_recheck_ceiling(decision),
+                                capacity_steer=decision_job.get("capacity_steer"))
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
@@ -8871,6 +9025,8 @@ class Daemon:
                             hold = self._ramp.hold(klass, reserved_at)
                             if hold:
                                 ramp_hold = holds[job["job_id"]] = hold
+                                if saved_news:
+                                    self._capacity_news[job["job_id"]] = True
                                 status = "held"
                                 break
                         for key, holder in leases:

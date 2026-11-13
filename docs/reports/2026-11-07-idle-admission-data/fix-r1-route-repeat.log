@@ -1,0 +1,34 @@
+bringing up nodes...
+bringing up nodes...
+
+....F...................F............................................... [ 77%]
+.....................                                                    [100%]
+=================================== FAILURES ===================================
+____ test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again ____
+[gw1] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpGWibLf/bin/python
+tests/fake/test_admission_route_isolation.py:591: in test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again
+    assert early == [("codex-1", ("act-1", ends.strftime("%Y-%m-%dT%H:%M:%SZ")))]  # held out, 99% did not count
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert [(None, None)] == [('codex-1', ...T14:41:34Z'))]
+E     
+E     At index 0 diff: (None, None) != ('codex-1', ('act-1', '2026-11-13T14:41:34Z'))
+E     Use -v to get more diff
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4433042736:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4433042736:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+___ test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again ___
+[gw3] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpGWibLf/bin/python
+tests/fake/test_admission_route_isolation.py:554: in test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again
+    assert early == ["codex-1"]                                # measured then: a second slot
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert [None] == ['codex-1']
+E     
+E     At index 0 diff: None != 'codex-1'
+E     Use -v to get more diff
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4503192640:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4503192640:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_route_isolation.py::test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again
+FAILED tests/fake/test_admission_route_isolation.py::test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again
+2 failed, 91 passed in 559.72s (0:09:19)

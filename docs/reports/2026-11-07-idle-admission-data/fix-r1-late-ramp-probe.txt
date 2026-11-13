@@ -1,0 +1,28 @@
+from tests.fake.test_idle_capacity_events import clock, held_fleet, long_wait, release
+from tests.fake.test_routing_end_to_end import routing_state
+from tests.fake.test_idle_capacity_guard_news import door
+
+
+def test_late_ramp_keeps_release_until_guard_clears(held_fleet, monkeypatch):
+    service, harness, closure, advance = held_fleet
+    hold, _ = door(service, monkeypatch, 'ramp')
+    job = long_wait(service, harness)
+    original_clock = service.store.get_job(job)['next_check_at']
+    hold()
+    advance(31)
+    real = service._workspace
+    jump = [True]
+    def workspace(candidate):
+        result = real(candidate)
+        if candidate['job_id'] == job and jump[0]:
+            jump[0] = False
+            advance(-20)
+        return result
+    monkeypatch.setattr(service, '_workspace', workspace)
+    release(service, closure)
+    service._admit()
+    assert service._holds[job]['reason'] == 'ramp'
+    assert service.store.get_job(job)['next_check_at'] == original_clock
+    advance(31)
+    service._admit()
+    assert [row['state'] for row in service.store.list_attempts(job)] == ['reserved']

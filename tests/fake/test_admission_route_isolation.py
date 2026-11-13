@@ -1338,14 +1338,13 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
 @pytest.mark.parametrize("stall", [0, CAPACITY_RECHECK_BASE_S], ids=["prompt", "a-loaded-runner"])
 @pytest.mark.parametrize("look", [-1, 0, 1], ids=["before-the-retry-is-due", "when-it-is-due", "after"])
 def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, monkeypatch, look, stall):
-    """The retry's look let its pin go and set a one-second clock; a younger job that
-    competes for claude-b arrives. Until the clock is due the younger job waits behind
-    the retry; once it is due both are placed, the retry first (C-6.9). The original
-    test read the wall clock: on a loaded machine the one second could run out before
-    the second pass, which then placed both, in order, and had no younger-job hold
-    to assert on. The held clock makes all three deadline positions explicit.
-    The loaded-runner cases spend that second on the real clock while the test's
-    clock stays held, including before the younger job is submitted."""
+    """Enabling claude-b brings the retry's capacity look forward (C-6.10).
+
+    The retry's previous look let its pin go and set a one-second clock. When
+    the lane opens and a younger competitor arrives, both are placed in FIFO
+    order, including before that clock is due. The held clock makes all three
+    deadline positions explicit, while the loaded-runner cases spend a real
+    second before the younger job is submitted."""
     service, harness = fleet
     capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
@@ -1370,13 +1369,10 @@ def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, mon
     service._admit()
     placed = [row["job_id"] for row in service.store.query("SELECT job_id FROM attempts WHERE state='reserved' "
                                                            "ORDER BY rowid")]
-    if look < 0:                                                      # the retry's clock runs; the younger job waits
-        assert service._holds[younger]["reason"] == "behind-older-job" and service._holds[younger]["behind"] == retry
-        assert placed == [] and service.store.get_job(younger)["state"] == "queued"
-    else:                                                             # due: the retry first, then the younger job
-        assert placed == [retry, younger] and younger not in service._holds
-        assert [row["lane_id"] for row in service.store.query("SELECT lane_id FROM attempts WHERE state='reserved' "
-                                                              "ORDER BY rowid")] == ["claude-b", "claude-b"]
+    assert placed == [retry, younger]
+    assert retry not in service._holds and younger not in service._holds
+    assert [row["lane_id"] for row in service.store.query("SELECT lane_id FROM attempts WHERE state='reserved' "
+                                                          "ORDER BY rowid")] == ["claude-b", "claude-b"]
 
 
 def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):

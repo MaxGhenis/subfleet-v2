@@ -1,0 +1,12 @@
+F
+=================================== FAILURES ===================================
+_ test_c6_10_every_rejection_reason_has_a_conservative_classification[future-rejection-False] _
+tests/fake/test_idle_capacity_events.py:67: in test_c6_10_every_rejection_reason_has_a_conservative_classification
+    assert scheduler.capacity_reason_event_only(reason) is event_only
+E   AssertionError: assert True is False
+E    +  where True = <function capacity_reason_event_only at 0x107cdab90>('future-rejection')
+E    +    where <function capacity_reason_event_only at 0x107cdab90> = scheduler.capacity_reason_event_only
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_events.py::test_c6_10_every_rejection_reason_has_a_conservative_classification[future-rejection-False]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 7.54s

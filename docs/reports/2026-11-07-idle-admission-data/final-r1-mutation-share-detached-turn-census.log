@@ -1,0 +1,29 @@
+bringing up nodes...
+bringing up nodes...
+
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___ test_capacity_news_censuses_are_independent_for_each_pool[turn-detached] ___
+[gw3] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python
+tests/fake/test_idle_capacity_pools.py:19: in test_capacity_news_censuses_are_independent_for_each_pool
+    assert service._capacity_change_news(second) is True
+E   AssertionError: assert False is True
+E    +  where False = _capacity_change_news('detached')
+E    +    where _capacity_change_news = <subfleet.daemon.Daemon object at 0x10b9cea50>._capacity_change_news
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4489800272:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4489800272:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+___ test_capacity_news_censuses_are_independent_for_each_pool[detached-turn] ___
+[gw1] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python
+tests/fake/test_idle_capacity_pools.py:19: in test_capacity_news_censuses_are_independent_for_each_pool
+    assert service._capacity_change_news(second) is True
+E   AssertionError: assert False is True
+E    +  where False = _capacity_change_news('turn')
+E    +    where _capacity_change_news = <subfleet.daemon.Daemon object at 0x107556cf0>._capacity_change_news
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4418006256:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4418006256:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_pools.py::test_capacity_news_censuses_are_independent_for_each_pool[turn-detached]
+FAILED tests/fake/test_idle_capacity_pools.py::test_capacity_news_censuses_are_independent_for_each_pool[detached-turn]
+2 failed in 80.42s (0:01:20)

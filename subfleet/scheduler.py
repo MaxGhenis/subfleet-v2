@@ -18,7 +18,7 @@ from typing import Any
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .launch_env import refused_reference
 from .protocol import PROVIDER_QOS_REQUESTS
-from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
+from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, CAPACITY_RECHECK_EVENT_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
                      provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
@@ -1493,6 +1493,44 @@ def capacity_recheck_delay(rechecks: int, ceiling_s: float = CAPACITY_RECHECK_CE
     """C-6.10: seconds until the next look at a job whose verdict has held `rechecks` times."""
     # The exponent is bounded so a job that waits for days cannot overflow a float.
     return min(ceiling_s, CAPACITY_RECHECK_BASE_S * 2 ** min(max(rechecks, 0), 16))
+
+
+def capacity_reason_event_only(reason: Any, *, closures: Iterable[Mapping[str, Any]] = (),
+                               lane_id: str | None = None) -> bool:
+    """C-6.10: only a change admission observes can end this rejection.
+
+    The allowlist is deliberately narrow: new or unrecognized reasons retain
+    the ordinary clock. A closure's rendered reason omits its cause, so its
+    actual rows must all identify operator holds; a provider limit with the
+    same scope and deadline must not inherit an operator hold's longer clock.
+    """
+    if not isinstance(reason, str):
+        return False
+    if reason == "disabled" or reason.startswith("needs a shell: "):
+        return True
+    if not reason.startswith("closed:"):
+        return False
+    matched = [row for row in closures if (lane_id is None or row.get("lane_id") == lane_id)
+               and reason == f"closed:{row.get('scope')}:{row.get('until_at')}"]
+    return bool(matched) and all(row.get("reason") == "operator-hold" for row in matched)
+
+
+def capacity_recheck_ceiling(decision: Decision | Mapping[str, Any]) -> float:
+    """C-6.10: every lane of the verdict must have only event-only rejections."""
+    value = _row(decision)
+    evaluations = value.get("evaluations") or ()
+    if value.get("chosen_lane") or not evaluations:
+        return CAPACITY_RECHECK_CEILING_S
+    for evaluation in evaluations:
+        rejections = evaluation.get("rejections") or ()
+        if evaluation.get("candidates") or not rejections:
+            return CAPACITY_RECHECK_CEILING_S
+        for row in rejections:
+            reasons = row.get("reasons") or [row.get("reason")]
+            if not all(capacity_reason_event_only(reason, closures=evaluation.get("closures") or (),
+                                                 lane_id=row.get("lane_id")) for reason in reasons):
+                return CAPACITY_RECHECK_CEILING_S
+    return CAPACITY_RECHECK_EVENT_CEILING_S
 
 
 def waiting_metadata(decision: Decision, now: str | datetime | None = None, *,
