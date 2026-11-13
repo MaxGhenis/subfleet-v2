@@ -100,19 +100,55 @@ def test_finite_extremes_are_accepted_and_certify_unchanged(literal):
     assert certify(parsed)["peer_verdict"] == parsed
 
 
-def test_a_round_with_a_number_past_float_range_blocks_instead_of_agreeing(core, tmp_path):
-    """D-GATE-CERT1: the round blocks with exit 4; it never journals `agreed` and then fails every poll."""
+def gate_poll(core, started):
+    return dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+
+
+def start_gate(core, tmp_path):
     plan = tmp_path / "plan.md"
     plan.write_text("A concrete plan.\n")
-    started = dispatch(core, "gate.start", wire(arguments(plan)))
-    finish(core, started, transform=lambda text: text.replace('"notes":[]}', '"notes":[],"extra":1e1000}'))
-    result = dispatch(core, "gate.poll", {"gate_id": started["gate_id"]})
+    return dispatch(core, "gate.start", wire(arguments(plan)))
+
+
+def past_float_range(text):
+    return text.replace('"notes":[]}', '"notes":[],"extra":1e1000}')
+
+
+def test_a_number_past_float_range_never_lets_the_gate_agree_on_it(core, tmp_path):
+    """D-GATE-CERT1, C-23.9: a form failure the round re-asks once; repeated, it blocks with exit 4.
+
+    The gate never journals `agreed` on a verdict its certificate cannot write, so no
+    poll repeats a certificate refusal.
+    """
+    started = start_gate(core, tmp_path)
+    finish(core, started, transform=past_float_range)
+    reasking = gate_poll(core, started)
+    assert reasking["code"] is None and reasking["job_id"] != started["job_id"]
+    reason = "peer verdict holds a number outside the float range at $.extra"
+    assert core._gate_service._load(started["gate_id"])["rounds"][-1]["format_reask"]["reason"] == reason
+    finish(core, reasking, transform=past_float_range)
+    result = gate_poll(core, started)
     assert result["code"] == 4 and result["status"] == "blocked"
-    assert "outside the float range at $.extra" in result["message"]
+    assert "format re-ask also failed" in result["message"] and reason in result["message"]
     state = core._gate_service._load(started["gate_id"])
     assert state["status"] == "blocked" and state["rounds"][-1]["verdict"] is None
-    assert dispatch(core, "gate.poll", {"gate_id": started["gate_id"]}) == result
+    assert gate_poll(core, started) == result
+    assert len(core.store.list_jobs()) == 2
     assert not (core.root / "gates" / started["gate_id"] / "certificate.json").exists()
+
+
+def test_a_number_past_float_range_is_reasked_and_a_clean_retry_certifies(core, tmp_path):
+    """D-GATE-CERT1, C-23.9: in a template member the number leaves the re-ask free to approve."""
+    started = start_gate(core, tmp_path)
+    finish(core, started, transform=lambda text: text.replace('"schema_version":1,', '"schema_version":1e1000,'))
+    reasking = gate_poll(core, started)
+    assert reasking["code"] is None and "outside the float range at $.schema_version" in reasking["message"]
+    finish(core, reasking)
+    done = gate_poll(core, started)
+    assert done["code"] == 0 and done["status"] == "completed", done
+    record = core._gate_service._load(started["gate_id"])["rounds"][-1]
+    issued = json.loads((core.root / "gates" / started["gate_id"] / "certificate.json").read_text())
+    assert issued["peer_verdict"] == record["verdict"] and record["verdict"]["schema_version"] == 1
 
 
 # --- sentinels -----------------------------------------------------------------------
@@ -209,7 +245,22 @@ def test_a_round_whose_peer_quotes_a_sentinel_agrees_and_issues_its_certificate(
     directory = core.root / "gates" / started["gate_id"]
     issued = json.loads((directory / "certificate.json").read_text())
     assert issued["peer_verdict"]["summary"] == f"Quoted {VERDICT_BEGIN} and {VERDICT_END}."
-    assert issued["peer_verdict"] == core._gate_service._load(started["gate_id"])["rounds"][-1]["verdict"]
+    record = core._gate_service._load(started["gate_id"])["rounds"][-1]
+    assert issued["peer_verdict"] == record["verdict"]
+    # Accepted as written, so there is nothing to re-ask: one peer job, no format_reask.
+    assert len(core.store.list_jobs()) == 1 and "format_reask" not in record
+
+
+def test_a_sentinel_quoted_literally_is_not_reasked(core, tmp_path):
+    """C-23.9 as #178 wrote it: a literal sentinel splits the output into blocks the
+    diagnosis cannot read, so it fails closed and the round blocks after one job."""
+    started = start_gate(core, tmp_path)
+    finish(core, started, transform=lambda text: text.replace(
+        '"The copied plan is consistent."', f'"Quoted {VERDICT_END} literally."'))
+    result = gate_poll(core, started)
+    assert result["code"] == 4 and result["status"] == "blocked"
+    assert "duplicates the verdict sentinel" in result["message"] and "not re-asked" in result["message"]
+    assert len(core.store.list_jobs()) == 1
 
 
 def test_the_prompt_template_stays_one_block_when_its_revision_or_context_quotes_a_sentinel(tmp_path):
