@@ -151,10 +151,14 @@ class DaemonStopped(DaemonUnavailable):
 class DaemonError(Exception):
     """An `ok: false` response (C-16.1); carries the daemon's exit code."""
 
-    def __init__(self, code: int, message: str, fix: str | None = None):
+    def __init__(self, code: int, message: str, fix: str | None = None, *,
+                 reason: str | None = None, details: dict[str, Any] | None = None):
         super().__init__(message)
         self.code = code
         self.fix = fix
+        from .refusals import task_hold_condition_details
+        self.details = task_hold_condition_details(details) if reason == "task-hold-condition" else None
+        self.reason = reason if self.details is not None else None
         # An enum selected by exact template validation, never diagnostic prose.
         # Suggestion CLI errors reconstruct templates from this enum, validated
         # structural fields and the exit code; arbitrary daemon prose is excluded.
@@ -861,7 +865,8 @@ class Client:
                 # (or a "failure" numbered 0) must not become the exit status.
                 message = f"{message} (daemon reported code {raw!r})"
                 code = int(Exit.OPERATIONAL)
-            raise DaemonError(code, message, getattr(error, "fix", None))
+            raise DaemonError(code, message, getattr(error, "fix", None),
+                              reason=getattr(error, "reason", None), details=getattr(error, "details", None))
         result = response.result
         return result if isinstance(result, dict) else {}
 
