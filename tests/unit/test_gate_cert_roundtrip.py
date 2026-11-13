@@ -230,3 +230,44 @@ def test_the_prompt_template_stays_one_block_when_its_revision_or_context_quotes
     assert template in prompt
     copied = template.replace('"approve | changes_requested | blocked"', '"approve"')
     assert parse_verdict(copied, quoted)["artifact_revision"] == quoted  # the copy is a valid verdict
+
+
+# --- determinism ---------------------------------------------------------------------
+
+@pytest.fixture
+def twin_cores(tmp_path, monkeypatch):
+    """Two independent daemons, each built as `core` builds one, under one clock and one id sequence."""
+    builders = [core.__wrapped__(tmp_path / name, monkeypatch) for name in ("a", "b")]
+    yield [next(builder) for builder in builders]
+    for builder in builders:
+        next(builder, None)
+
+
+def test_the_same_peer_output_gives_the_same_round_result_and_certificate_bytes(twin_cores, tmp_path, monkeypatch):
+    """Invariant 4: replaying one peer output through a fresh gate repeats the result and the certificate."""
+    import itertools
+    import uuid as uuid_module
+
+    from subfleet.gate import certificate as certificate_module
+    from subfleet.gate import service as service_module
+
+    monkeypatch.setattr(service_module, "utc_now", lambda: "2026-11-13T00:00:00Z")
+    monkeypatch.setattr(certificate_module, "utc_now", lambda: "2026-11-13T00:00:00Z")
+    plan = tmp_path / "plan.md"
+    plan.write_text("One plan, reviewed twice.\n")
+    quoted = lambda text: text.replace(  # noqa: E731
+        '"The copied plan is consistent."', f'"Caf\\u00e9 {ESCAPED_END}, weight 1e-1000."')
+    outcomes = []
+    for daemon in twin_cores:
+        ids = itertools.count()
+        monkeypatch.setattr(service_module, "uuid", type("ids", (), {
+            "uuid4": staticmethod(lambda: uuid_module.UUID(int=next(ids)))}))
+        started = dispatch(daemon, "gate.start", wire(arguments(plan)))
+        finish(daemon, started, transform=quoted)
+        result = dispatch(daemon, "gate.poll", {"gate_id": started["gate_id"]})
+        record = daemon._gate_service._load(started["gate_id"])["rounds"][-1]
+        issued = (daemon.root / "gates" / started["gate_id"] / "certificate.json").read_bytes()
+        outcomes.append(({key: item for key, item in result.items() if key != "job_id"},
+                         record["verdict"], record["status"], record["error"], issued))
+    assert outcomes[0][0]["code"] == 0 and outcomes[0][1]["summary"] == f"Café {VERDICT_END}, weight 1e-1000."
+    assert outcomes[0] == outcomes[1]
