@@ -60,8 +60,8 @@ from ..contracts import (
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .base import Adapter, AdapterError, open_stream, stream_path
 from .claude_stream import (
-    AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
-    is_synthetic_api_error, model_answered, parse_lines, parse_stream,
+    AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, cli_placeholder,
+    message_text, is_synthetic_api_error, model_answered, parse_lines, parse_stream,
 )
 
 # --- constants ---------------------------------------------------------------
@@ -2128,13 +2128,17 @@ class SubscriptionRefusal:
 def _provider_error_texts(summary: StreamSummary) -> tuple[str, ...]:
     """The words Claude Code marked as an error: the result's `errors`, an error
     result's text, and the text of every assistant frame stamped with an `error`
-    kind. Never ordinary assistant prose."""
+    kind that is the CLI's own (`cli_placeholder`). Never a model's prose: a frame
+    a model served keeps its words out even when the CLI stamped it with a kind
+    outside `AUTH_ERROR_KINDS` (`max_output_tokens`, say), so every line this
+    returns is also in `StreamSummary.cli_texts` (C-9.2)."""
     texts: list[str] = []
     if summary.result is not None:
         texts.extend(summary.result.errors)
         if summary.result.is_error and summary.result.text:
             texts.append(summary.result.text)
-    texts.extend(m.text for m in summary.assistants if m.error and m.text)
+    texts.extend(m.text for m in summary.assistants
+                 if m.error and m.text and cli_placeholder(m.raw))
     return tuple(dict.fromkeys(t for t in texts if t))
 
 
