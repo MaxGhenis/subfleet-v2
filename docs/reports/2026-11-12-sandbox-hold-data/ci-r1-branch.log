@@ -1,0 +1,1 @@
+fatal: cannot lock ref 'refs/heads/fix/sandbox-hold-ci-r1': Unable to create '/Users/maxghenis/subfleet-v2/.git/refs/heads/fix/sandbox-hold-ci-r1.lock': Operation not permitted

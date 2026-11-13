@@ -1,0 +1,26 @@
+[
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1",
+    "is_directory": true,
+    "canonical_matches": true,
+    "is_symlink": false
+  },
+  {
+    "path": "/private/tmp/sf-sbh-c1",
+    "is_directory": true,
+    "canonical_matches": true,
+    "is_symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data",
+    "is_directory": true,
+    "canonical_matches": true,
+    "is_symlink": false
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data",
+    "is_directory": true,
+    "canonical_matches": true,
+    "is_symlink": false
+  }
+]

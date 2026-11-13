@@ -1,0 +1,30 @@
+{
+  "commands": [
+    [
+      "git",
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "diff",
+      "--quiet",
+      "--",
+      "subfleet",
+      "tests/unit/test_host_push_store_interleavings.py"
+    ],
+    [
+      "git",
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "show",
+      "ea28630b5:docs/reports/2026-11-12-sandbox-hold.md"
+    ]
+  ],
+  "production_and_busyrows_source_unchanged": true,
+  "original_report_preserved": true,
+  "source_sha256": {
+    "tests/unit/test_host_push_build_budget.py": "0f75a20a9b834a52e2cb472f9c6417584ffad76f8b180ccade9dd68be9254b76",
+    "tests/unit/test_host_push_store_completion_pr183.py": "19856002fdf41d006a56bc46a1b481698f2d02f79577b36a24e0b966715ddc7f",
+    "tests/unit/test_host_push_sandbox_hold.py": "38e60c860ff74ee53c007334f2e06a3022195c2bee9c01c4c3eb10208b151701"
+  }
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "command": [
+      "git",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "add",
+      "--",
+      "tests/unit/test_host_push_sandbox_hold.py"
+    ],
+    "returncode": 128,
+    "stdout": "",
+    "stderr": "fatal: Unable to create '/Users/maxghenis/subfleet-v2/.git/worktrees/20261113-071657-sbh-fix-ci-r1/index.lock': Operation not permitted\n"
+  }
+]

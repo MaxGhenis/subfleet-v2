@@ -1,0 +1,26 @@
+tests/unit/test_host_push_mutations.py:52:def test_mutation_skip_descends_from_base_is_caught(worlds, monkeypatch):
+tests/unit/test_host_push_mutations.py:63:def test_mutation_skip_github_check_is_caught(worlds, monkeypatch):
+tests/fake/test_unrun_worktrees.py:740:    whether its look ran (read-only) or was skipped (`unprepared`)."""
+tests/unit/test_retention_folded_pin.py:88:        pytest.skip("needs a state root reached through the Data volume's firmlink")
+tests/unit/test_retention_folded_pin.py:353:            pytest.skip("the state root is not reached through the Data volume's firmlink")
+tests/unit/test_retention_folded_pin.py:407:            pytest.skip("the volume does not find a name by letters that fold to its own")
+tests/unit/test_retention_folded_pin.py:467:            pytest.skip("the volume does not find a name by letters that fold to its own")
+tests/fake/test_task_hold_properties.py:811:@pytest.mark.skipif(not MATRIX, reason="opt-in: TASK_HOLD_MUTANT_MATRIX=all or a comma list of mutants")
+tests/fake/test_task_hold_mutants.py:311:    "release-skips-notify": (release_notifies_the_waiters, "T3-notify"),
+tests/unit/test_host_push_build.py:96:def cancellation_after_snapshot(world, patch, *, skip):
+tests/unit/test_host_push_build.py:111:        if not skip:
+tests/unit/test_host_push_build.py:122:    if skip:
+tests/unit/test_host_push_build.py:162:    assert calls == ([] if skip else ["subfleet-push_0"]), "synchronous rebuild after cancellation"
+tests/unit/test_host_push_build.py:169:@pytest.mark.parametrize("skip", [False, True], ids=["discarded", "skipped"])
+tests/unit/test_host_push_build.py:170:def test_cancelled_build_after_admission_snapshot_never_rebuilds(worlds, skip):
+tests/unit/test_host_push_build.py:172:        cancellation_after_snapshot(world, world.patch, skip=skip)
+tests/unit/test_host_push_build.py:187:            cancellation_after_snapshot(world, world.patch, skip=False)
+tests/unit/test_host_push_build.py:289:@pytest.mark.skipif(os.environ.get("SF_HOST_PUSH_BENCHMARK") != "1", reason="explicit local-repo benchmark")
+tests/unit/test_host_push_quarantine_restart.py:132:def test_mutation_skipping_startup_cleanup_is_caught(startup, monkeypatch, tmp_path):
+tests/unit/test_host_push_build_budget.py:58:def test_mutation_skipping_startup_completion_consumption_is_caught(worlds):
+tests/unit/test_host_push_store_interleavings.py:123:        skipped = core._reap_push_workspaces({})
+tests/unit/test_host_push_store_interleavings.py:128:                    or job_id in pinned or job_id in skipped):
+tests/fake/test_admission_properties.py:9:- not fixed, as a strict `xfail` that states what the contract (or the property)
+tests/fake/test_admission_properties.py:284:# C-6.9, C-6.12: a job held behind an older one while its capacity clock runs (strict xfails until
+tests/fake/test_admission_properties.py:612:# --- found, not fixed: strict xfails ----------------------------------------------------------
+tests/fake/test_admission_properties.py:614:@pytest.mark.xfail(strict=True, raises=AssertionError, reason="C-6.10: the wait is keyed on its kind as well as its verdict, so a "
