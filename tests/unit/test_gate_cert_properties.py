@@ -251,3 +251,35 @@ def test_the_base_parser_is_266c3ab8b_verbatim_and_had_both_defects():
     assert base.parse_verdict(overflow, REVISION)["x"] == float("inf")
     with pytest.raises(GateError, match="float range"):
         parse_verdict(overflow, REVISION)
+
+
+def read_as_178_wrote_it(fragment: str):
+    """#178's `_read` at 904b47400 before its fast path: every candidate goes through json.loads."""
+    from subfleet.gate import verdict as module
+    repaired = module._FENCE_CLOSE.sub("", module._FENCE_OPEN.sub("", fragment))
+    repaired = module._ESCAPE.sub(lambda match: match.group(0) if match.group(1) in '"\\/bfnrtu'
+                                  else "\\\\" + match.group(1), repaired)
+    repaired = module._TRAILING_COMMA.sub(r"\1", repaired)
+    for candidate in (fragment, repaired):
+        try:
+            value = json.loads(candidate, object_pairs_hook=module._Members)
+            if isinstance(value, str):
+                value = json.loads(value, object_pairs_hook=module._Members)
+        except (ValueError, RecursionError):
+            continue
+        return value if isinstance(value, module._Members) and not module._too_deep(value) else None
+    return None
+
+
+FRAGMENT_PARTS = ['{"a": 1}', '{"a": [1,]}', '"{\\"a\\": 1}"', '"\\u007b\\"a\\": 2}"', "[1]", "1", "true", "null",
+                  "```json\n", "\n```", " ", "\t", "\n", "\r", "\x0b", "\x0c", "﻿", " ", " ",
+                  '{"a": "\\d"}', ",", "}", "{", '"', "x", "\\"]
+
+
+@settings(max_examples=400, deadline=None, database=None)
+@given(st.lists(st.sampled_from(FRAGMENT_PARTS), max_size=6).map("".join))
+def test_the_diagnosis_reads_exactly_what_it_read_before_its_fast_path(fragment):
+    """Port of #178: skipping candidates that cannot start an object or a string, and reusing one
+    decoder, changes no diagnosis read (the linearity bound needed both)."""
+    from subfleet.gate.verdict import _read
+    assert _read(fragment) == read_as_178_wrote_it(fragment)

@@ -217,6 +217,10 @@ class _Members(list):
     """Every member of one JSON object, duplicates included (diagnosis only)."""
 
 
+# One decoder for every diagnosis read: `json.loads` with a hook builds a new one per call.
+_MEMBERS_DECODER = json.JSONDecoder(object_pairs_hook=_Members)
+
+
 def _values(members: _Members, name: str) -> list[Any]:
     return [item for key, item in members if key == name]
 
@@ -250,10 +254,16 @@ def _read(fragment: str) -> _Members | None:
                            else "\\\\" + match.group(1), repaired)
     repaired = _TRAILING_COMMA.sub(r"\1", repaired)
     for candidate in (fragment, repaired):
+        # Only an object or a string (that may hold one) can read; JSON's whitespace
+        # precedes either. Skipping the rest changes no result, and keeps a scan of
+        # many empty blocks linear at a small constant (review r5 of #178: 11 s for
+        # 40,000 begin sentinels, almost all of it failed decodes).
+        if candidate.lstrip(" \t\n\r")[:1] not in ("{", '"'):
+            continue
         try:
-            value = json.loads(candidate, object_pairs_hook=_Members)
+            value = _MEMBERS_DECODER.decode(candidate)
             if isinstance(value, str):
-                value = json.loads(value, object_pairs_hook=_Members)
+                value = _MEMBERS_DECODER.decode(value)
         except (ValueError, RecursionError):
             continue
         return value if isinstance(value, _Members) and not _too_deep(value) else None
