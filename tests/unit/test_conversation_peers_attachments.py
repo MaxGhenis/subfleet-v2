@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import json
 import os
 import struct
 import stat
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
+import hypothesis
 import pytest
+from hypothesis import strategies as st
 
 from subfleet.conversations import attachments, peers
 from subfleet.conversations.peers import AuditToken, Proc, allowed_executable_paths, executable_path, judge
@@ -109,6 +113,53 @@ def test_the_chain_keeps_the_space_a_root_ends_in(monkeypatch):
     assert peers.process_chain(10)[0].command == "python SUBFLEET_ROOT=/tmp/root "
     v = judge(token(10), chain=peers.process_chain, root="/tmp/root ", executable=lambda pid: "/bin/zsh")
     assert not v.person and v.reason == "the caller carries Subfleet's attempt markers"
+
+
+def test_ps_text_prints_every_byte_as_ps_printed_it():
+    """C-25.6: `PS_BYTES` is what `ps` printed for each of the 255 bytes an environment
+    can hold, measured on macOS 26.6.2 (tests/fixtures/ps_vis_bytes.json; the process
+    test `test_ps_rendering.py` measures again wherever it runs)."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "ps_vis_bytes.json"
+    measured = json.loads(fixture.read_text())["bytes"]
+    assert sorted(measured) == [f"{value:02X}" for value in range(1, 256)]
+    assert {name: peers.PS_BYTES[int(name, 16)] for name in measured} == measured
+
+
+@pytest.mark.parametrize("value,printed", [
+    ("/tmp/subfleet-José-root", "/tmp/subfleet-JosM-CM-)-root"),
+    ("a\tb\nc", "a\\011b\\012c"),
+    ("a back\\slash and a space ", "a back\\slash and a space "),
+    ("\u00a0", "M-B\\240"),
+    ("\x01\x1b\x7f", "^A^[^?"),
+    (os.fsdecode(b"\x80\x89\xa0\xde\xff"), "M^@M^I\\240M-^M^?"),
+    ("M-CM-)", "M-CM-)"),
+])
+def test_ps_text_examples(value, printed):
+    """C-25.6: a value as `ps` prints it, byte by byte, from its `os.fsencode` bytes."""
+    assert peers.ps_text(value) == printed
+
+
+@hypothesis.settings(max_examples=300, deadline=None)
+@hypothesis.given(raw=st.binary(max_size=64).map(lambda raw: raw.replace(b"\0", b"")))
+def test_ps_text_invariants(raw):
+    """C-25.6: for any bytes a value can hold, `ps_text` prints only printable ASCII,
+    with a space exactly where the value had one (so no other byte can end or start
+    a variable), prints printable ASCII as itself, and prints a value one byte at a
+    time."""
+    printed = peers.ps_text(os.fsdecode(raw))
+    assert all(" " <= char <= "~" for char in printed)
+    assert printed.count(" ") == raw.count(b" ")
+    assert printed == "".join(peers.PS_BYTES[byte] for byte in raw)
+    if all(0x20 <= byte <= 0x7E for byte in raw):
+        assert printed == raw.decode("ascii")
+
+
+@pytest.mark.parametrize("value", ["/tmp/a\x00b", "\x00"])
+def test_ps_text_refuses_a_value_with_a_nul(value):
+    """A NUL ends an environment string, so no process carries a value that holds
+    one. `ps_text` refuses it rather than printing `^@`."""
+    with pytest.raises(ValueError):
+        peers.ps_text(value)
 
 
 def test_an_unidentified_caller_is_refused():

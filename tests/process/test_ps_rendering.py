@@ -73,9 +73,9 @@ def printed(pid):
 
 
 def expected(env):
-    """The same line from `procs.ps_text`: the argv, then each variable, spaced."""
+    """The same line from `peers.ps_text`: the argv, then each variable, spaced."""
     words = [*SLEEPER, *(os.fsdecode(name + b"=" + value) for name, value in env)]
-    return " ".join(procs.ps_text(word) for word in words)
+    return " ".join(peers.ps_text(word) for word in words)
 
 
 @contextmanager
@@ -94,7 +94,7 @@ def marker_read_of(pid):
 
 def test_ps_prints_every_byte_as_procs_expects():
     """C-5.5: the real `ps`, in the C locale `procs._read` gives it, prints each of the
-    255 bytes an environment can hold as `procs.PS_BYTES` says, and as the recorded
+    255 bytes an environment can hold as `peers.PS_BYTES` says, and as the recorded
     measurement (tests/fixtures/ps_vis_bytes.json) did. On a macOS whose `ps` prints
     differently this test fails; nothing runs it before a daemon there starts."""
     env = [PATH, *((b"B%02X" % value, b"<" + bytes([value]) + b">") for value in range(1, 256))]
@@ -111,7 +111,7 @@ def test_ps_prints_every_byte_as_procs_expects():
 def test_ps_prints_any_environment_as_ps_text_says(values):
     """C-5.5, differential: for arbitrary environment values (every byte but NUL, in
     any sequence, trailing spaces included), the real `ps` prints the whole line as
-    `procs.ps_text` does, so a value's bytes are printed one at a time."""
+    `peers.ps_text` does, so a value's bytes are printed one at a time."""
     env = [PATH, *((b"V%02d" % index, value) for index, value in enumerate(values))]
     with child(env) as process:
         assert printed(process.pid) == expected(env)

@@ -49,8 +49,6 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable
 
-from ..procs import ps_text
-
 MARKERS = ("SUBFLEET_ATTEMPT=", "SUBFLEET_JOB=")
 APP_EXECUTABLES = ("/Applications/Subfleet.app/Contents/MacOS/Subfleet",)
 #: `ps -o tty` for a process with no controlling terminal.
@@ -120,6 +118,46 @@ def _ps(argv: list[str]) -> str:
     return subprocess.run(argv, capture_output=True, text=True, timeout=5, env=env, check=False).stdout
 
 
+def _ps_byte(value: int) -> str:
+    if value in (0x09, 0x0A, 0xA0):
+        return f"\\{value:03o}"
+    low = value & 0x7F
+    control = low < 0x20 or low == 0x7F
+    shown = ("^?" if low == 0x7F else f"^{chr(low + 0x40)}") if control else chr(low)
+    if value < 0x80:
+        return shown
+    return "M" + (shown if control else "-" + shown)
+
+
+#: C-25.6: what `ps -E` prints for each byte of a command line or environment as
+#: `process_chain` reads it. `_ps` runs it with `LC_ALL=C`. In the C locale `ps` joins
+#: the argv and environment strings with spaces (`getproclline`) and passes the line
+#: through `strvis(3)` with `VIS_TAB | VIS_NL | VIS_NOSLASH` (adv_cmds-237
+#: `ps/print.c`, unchanged since 199.0.1), one byte at a time: printable ASCII as
+#: itself, the space and the backslash too; tab, newline and 0xA0 in octal (`\011`);
+#: other control bytes as `^A` and `^?`; any other byte from 0x80 as `M-` or `M^` and
+#: its low seven bits, so `é` (C3 A9) is `M-CM-)`. Measured for all 255 values on
+#: macOS 26.6.2 (tests/fixtures/ps_vis_bytes.json; tests/process/test_ps_rendering.py
+#: measures again wherever it runs). The census (C-5.5) reads raw argument buffers
+#: since D-CEN1 and needs none of this.
+PS_BYTES = tuple(_ps_byte(value) for value in range(256))
+
+
+def ps_text(value: str) -> str:
+    """`value` as `ps -E` prints it in the C locale `_ps` gives it: its bytes as a
+    child's environment holds them (`os.fsencode`, as `subprocess` encodes one),
+    each in `PS_BYTES`'s notation. `ps` passes `VIS_NOSLASH`, so its notation puts
+    no backslash before an `M-` or `^` form and does not escape a literal backslash:
+    two values can print alike (`é` and the text `M-CM-)`; a newline and the text
+    `\\012`), and a match on the printed text finds both. A value no environment
+    can hold (one with a NUL, or one `os.fsencode` cannot encode) raises
+    `ValueError`."""
+    raw = os.fsencode(value)
+    if 0 in raw:
+        raise ValueError("an environment value cannot hold a NUL")
+    return "".join(PS_BYTES[byte] for byte in raw)
+
+
 def executable_path(pid: int) -> str | None:
     """The caller's executable as the kernel records it (`proc_pidpath`), which
     keeps a path with spaces whole; `ps -o command` cannot be split to recover
@@ -163,7 +201,7 @@ def process_chain(pid: int) -> list[Proc]:
         seen.add(current)
         ppid, tty = table[current]
         # Only the newline is stripped: a root that ends in a space ends the line
-        # when SUBFLEET_ROOT is the last variable (C-5.5).
+        # when SUBFLEET_ROOT is the last variable (C-25.6).
         command = _ps(["/bin/ps", "-Ewwp", str(current), "-o", "command="]).rstrip("\n")
         chain.append(Proc(current, ppid, tty, command))
         if current == 1:
@@ -194,7 +232,7 @@ def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = proce
     if not procs:
         return Verdict(False, "the caller's process could not be inspected", pid)
     # `ps` prints the environment in vis(3) notation, so the root is looked for as
-    # it prints (C-5.5): `é` is `M-CM-)`.
+    # it prints (C-25.6): `é` is `M-CM-)`.
     root_marker = f"SUBFLEET_ROOT={ps_text(root)}" if root else None
     for proc in procs:
         if "subfleet.guardian" in proc.command:
