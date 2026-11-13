@@ -25,7 +25,7 @@ import pytest
 from subfleet import daemon as daemon_module
 from subfleet.adapters import registry as adapter_registry
 from subfleet.contracts import Credential, Lane, LaneOwner, Sandbox
-from subfleet.daemon import Daemon, revive_lease_key
+from subfleet.daemon import ADMISSION_EVENT, Daemon, revive_lease_key
 from subfleet.sessions import handoff as handoff_module
 from subfleet.sessions import nudge as nudge_module
 from subfleet.sessions import revive as revive_module
@@ -572,6 +572,11 @@ def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world, process
     assert "already has a live revive" in notice["text"]
     assert "another-revive" in notice["text"]
     assert notice["session_id"] == ALICE
+    # C-3.8: the event says what happened; nothing was reserved, and admission's
+    # opening name is not left on it either.
+    kinds = [row["kind"] for row in service.store.list_events(result.job_id)]
+    assert "job.revive_skipped" in kinds
+    assert "attempt.reserved" not in kinds and ADMISSION_EVENT not in kinds
 
 
 def test_the_lease_is_session_scoped_and_released_with_the_job(world, process_inspection_available):

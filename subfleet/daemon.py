@@ -272,6 +272,12 @@ READER_JOIN_S = 2.0
 ADMISSION_IDLE_LOG_S = 60
 ADMISSION_IDLE_REPEAT_S = 600
 ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
+#: C-3.8: the name admission's reserving transaction opens under. Every arm but the
+#: reservation (`RESERVATION_EVENT`, named with its attempt and lane once the attempt
+#: row is in) and a skipped revive (`job.revive_skipped`) is a wait, or writes nothing.
+#: Tests and `tools/store_contention_repro.py` key on it by this name, never a copy.
+ADMISSION_EVENT = "job.capacity_waiting"
+RESERVATION_EVENT = "attempt.reserved"
 #: C-6.11: waits that are a person's or a retry's to end, not admission's. A
 #: turn held for its conversation (C-24.5, C-30.4) is not admission's to place.
 #: An operator's hold on a job's task (C-11.10) is the operator's own act: it is no
@@ -8415,8 +8421,10 @@ class Daemon:
                                 if job["out_path"] else None)
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
+                    # C-3.8: named for what it does. It opens as the wait; the reservation
+                    # renames it where the attempt row goes in.
                     with self._isolated_route(job, holds) as route, \
-                            self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+                            self.store.transaction(ADMISSION_EVENT, job_id=job["job_id"]) as tx:
                         read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
                         job = self._job(job["job_id"])
                         if job["cancel_requested_at"] or job["state"] in TERMINAL:
@@ -8852,6 +8860,7 @@ class Daemon:
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"],
                                     baseline, json.dumps(evidence), reserved_at))
+                        self.store.audit_as(RESERVATION_EVENT, attempt_id=aid, lane_id=lane_id)     # C-3.8
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
@@ -9576,7 +9585,10 @@ class Daemon:
         and `exit_for_job` reports a cancelled job as 130 whatever its rc, which
         would hide the refusal C-17.3 numbers 7. Submit refuses the ordinary
         case; this path is the submit/admission race, and it says the same thing.
+        C-3.8: the caller's transaction (admission's) records `job.revive_skipped`, naming
+        the revive that holds the lease; it reserved nothing and waits for nothing.
         """
+        self.store.audit_as("job.revive_skipped", {"holder": holder})
         tx.execute("UPDATE jobs SET state='failed',rc=7,wait_reason=NULL,"
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))
