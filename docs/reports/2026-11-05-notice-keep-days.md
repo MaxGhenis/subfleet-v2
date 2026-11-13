@@ -605,3 +605,189 @@ lookup, identity and tooling steps were denied when Git tried to create
 (`Operation not permitted`). The final report/evidence staging attempt has
 the same restriction. No commit was created; all changes and receipts remain
 in the assigned workspace for the hub to collect.
+
+## Fix round 3
+
+Work started at **2026-11-13 12:17:32 UTC**, from `e8d32cca6aef`; the
+three-hour cutoff is **15:17:32 UTC**. **1,065 tests passed across 19 files**, with no failures, errors or skips.
+Report completed at **2026-11-13 13:43:24 UTC**, within the three-hour limit.
+
+**P2: bounded read snapshots.**
+[retention_notices.py:119](../../subfleet/retention_notices.py#L119) replaces
+the unrestricted SELECT with keyset pages of at most **1,000 events**. Each
+page is an autocommit statement, releasing its snapshot before the next page.
+The lookup captures the largest retirement event id once; concurrent events
+past that id are excluded, and a later invocation can include them. This
+provides a captured ledger prefix, without promising one snapshot across all
+pages. [C-8.4:528](../acceptance-contract.md#L528) and its contiguous
+changelog entry at line 9 state that behavior and the permission requirement.
+
+[retention_notices.py:81](../../subfleet/retention_notices.py#L81) installs a
+SQLite progress handler on the upper-id SELECT and every page, with a
+**1-second statement deadline**; the complete lookup, archive reconstruction
+included, has a **30-second overall deadline**. Expiry raises
+`OutcomesLookupDeadlineError` with `OUTCOMES_LOOKUP_DEADLINE`; it never returns
+the pages read so far as complete history. The overall budget permits the
+largest measured successful lookup, **25.679227 s**, with **4.320773 s**
+headroom. The 1,000-row/one-second limits follow the hub's design and bound
+snapshot exposure independently of that overall budget.
+
+The existing `events_kind` index supports both statements: plans show
+`SEARCH events USING COVERING INDEX events_kind (kind=?)` for the upper id and
+`SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)`
+for pages. Session ids exist in JSON with no supporting session index, so pages
+scan retirement events across sessions and filter afterward. No index or
+schema change was added.
+
+These deadlines are cooperative: SQLite progress and checks between operations
+observe expiry. Scheduling or blocking I/O can delay observation. Existing
+Store schema/PRAGMA initialization occurs before installing this handler,
+using Store's 5-second busy timeout; event queries then use a 1-second busy
+timeout. The overall clock starts before opening Store and is checked when
+control returns. These are explicit failure budgets, not hard interruption
+guarantees for every filesystem operation.
+
+Permanent tests in
+[test_retention_outcome_pages.py:53](../../tests/unit/test_retention_outcome_pages.py#L53)
+cover page sizes; r3's **6,000 events and requested 1 ms per fetched row** with
+the **five-second single-snapshot ceiling**; a real writer checkpoint blocked
+within a page and completing with `(0,0,0)` between pages; arrivals excluded
+past the captured id and visible next invocation; progress interruption of
+both statement types; deadline expiry after a completed page; elapsed busy/I/O
+errors; and expiry during archive reconstruction. The delayed reader hit the named statement deadline after **1.048569 s**
+with **30 rows fetched**, **one writer commit** and **one checkpoint backlog**;
+its snapshot stayed below five seconds and the subsequent TRUNCATE checkpoint
+completed with `(0,0,0)`. See the [isolated log](2026-11-05-notice-keep-r3-data/final-r3-17-test_retention_outcome_pages.log).
+
+**Question 19: closed store in a read-only folder.**
+[retention_notices.py:320](../../subfleet/retention_notices.py#L320) translates
+SQLite's readonly failure into `OutcomesLookupDirectoryError`, a named
+`OUTCOMES_LOOKUP_READONLY_DIRECTORY` error. Its message identifies the state
+directory and tells the caller to make it writable so SQLite can create
+coordination files, or provide usable `state.sqlite3-wal` and
+`state.sqlite3-shm`, then retry. The existing ordinary read-only behavior is
+preserved: without sidecars, a closed WAL store needs a writable directory.
+
+Three real permission cases in
+[test_retention_outcome_permissions.py:61](../../tests/unit/test_retention_outcome_permissions.py#L61)
+assert a named/actionable failure in a read-only directory without sidecars,
+success in a read-only directory with usable sidecars and no open setup
+connection, and success plus WAL/SHM creation in a writable directory without
+sidecars. They verify unchanged main database bytes and no daemon lock.
+[retention_cli.py:53](../../subfleet/retention_cli.py#L53) catches the named
+lookup errors. Six cases in
+[test_retention_outcomes.py:241](../../tests/unit/test_retention_outcomes.py#L241)
+exercise a real zero-budget lookup through the sole production caller,
+`cmd_retention`, and both entrypoints, `cli.main` and `compat.dispatch`, in
+text and JSON modes: exit **1**, named deadline on stderr, empty stdout.
+
+**Measurements.** Fixture construction was excluded. Three serial samples
+per size requested a session with no matching events; all **12 lookups
+succeeded, 0 failed**. Seconds below come from
+[measurements.json](2026-11-05-notice-keep-r3-data/measurements.json).
+
+| Retirement events | Complete lookup median | Complete lookup range | Query materialization median | Slowest page |
+| ---: | ---: | ---: | ---: | ---: |
+| 6,000 | 0.054013 | 0.050893–0.610294 | 0.021132 | 0.013810 |
+| 100,000 | 0.764142 | 0.600554–3.118543 | 0.290871 | 0.304296 |
+| 1,000,000 | 7.700736 | 5.070311–11.396707 | 3.135441 | 0.222367 |
+| 3,000,000 | 13.521442 | 11.631101–25.679227 | 5.639037 | 0.244146 |
+
+r3 measured unrestricted materialization at **1.875/6.971 s** for
+one/three million events (complete lookups **3.621/12.639 s**), and
+**44.37 s** with the injected slow reader,
+holding checkpoints back **44.29 s**. Different loads prevent a speed
+conclusion; releasing each page's snapshot is the intended improvement.
+An initial probe succeeded at 6,000 events in **1.165777583 s**, maximum page
+**0.025455917 s**, then failed explicitly at 100,000 events on the one-second
+statement deadline, exit **1**. That aborted probe retained no JSON and is
+reported separately from the 12 completed measurements. Listing was untouched
+and not benchmarked; question 18 remains out of scope.
+
+**Mutants.** The
+[runner receipts](2026-11-05-notice-keep-r3-data/mutants/summary.json) show
+**4 passing controls, 4 kills, 0 survivors, 0 invalid**, exit **0**. Each fault
+was applied alone to a private source copy, restored from pristine bytes and
+checked byte-for-byte and by SHA-256. Worktree source hashes stayed unchanged;
+the lookup source hash is
+`9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1`.
+Every kill is a call-phase assertion failure, without collection/setup/teardown
+errors. The `LIMIT 1` fault replaces the existing paged limit; bindings were
+adjusted so every mutant executes valid SQL.
+
+| Mutant | Killer |
+| --- | --- |
+| Remove page limit | `test_lookup_pages_never_exceed_1000_events` |
+| Drop captured upper id | `test_events_arriving_between_pages_stay_past_captured_upper_id` |
+| Return partial history on deadline | `test_overall_deadline_never_returns_pages_read_so_far` |
+| r3's `LIMIT 1` | `test_outcomes_cli_has_json_and_readable_offline_output` |
+
+**Commands and verification.** Full available inspection/setup/build commands,
+results and staging lists are in
+[inspection-commands.md](2026-11-05-notice-keep-r3-data/inspection-commands.md).
+Default-cache `uv sync --group dev` exited **2** (`Operation not permitted`);
+the permitted `sf-nk-f3` cache fallback exited **0**, installing **9 packages**
+with **Python 3.15.2**. Seven files passed `py_compile`; `git diff --check`
+passed. Final explicit-cache sync, eight-file compilation, ten-file whitespace
+checks, source-hash verification and contiguous-changelog checks also passed;
+see [final-checks.json](2026-11-05-notice-keep-r3-data/final-checks.json).
+Initial page tests: **8 passed in 119.11 s**, exit **0**.
+
+```sh
+.venv/bin/python tools/notice_keep_round3_measure.py --samples 3 --output docs/reports/2026-11-05-notice-keep-r3-data/measurements.json
+.venv/bin/python tools/notice_keep_round3_mutants.py --output-dir docs/reports/2026-11-05-notice-keep-r3-data/mutants
+.venv/bin/python tools/notice_keep_round3_verify.py --label final-r3 --output-dir docs/reports/2026-11-05-notice-keep-r3-data
+```
+
+All three commands exited **0**. The final regression passed **1,065 tests in
+2,025.12 s (33m45s)**, with **0 failures, 0 errors and 0 skips**. It runs the brief's **16 files**, `test_pin_notice_identity.py`
+and the two new modules, **19 files individually**, at most four workers,
+with fresh permitted basetemps. Its
+[generated exact commands/results](2026-11-05-notice-keep-r3-data/final-r3-commands.json)
+link each log and JUnit receipt. Whole-suite execution remains CI's job.
+
+| File | Passed | Seconds | Exit |
+| --- | ---: | ---: | ---: |
+| `tests/unit/test_notice_keep.py` | 49 | 122.36 | 0 |
+| `tests/unit/test_retention_outcomes.py` | 22 | 57.00 | 0 |
+| `tests/fake/test_notice_keep_delivery.py` | 8 | 42.60 | 0 |
+| `tests/unit/test_policy.py` | 242 | 73.91 | 0 |
+| `tests/unit/test_retention_archive.py` | 109 | 771.29 | 0 |
+| `tests/unit/test_retention_archive_properties.py` | 2 | 133.76 | 0 |
+| `tests/unit/test_notice_rendering.py` | 40 | 18.05 | 0 |
+| `tests/unit/test_operator_notices.py` | 79 | 35.12 | 0 |
+| `tests/fake/test_notice_delivery.py` | 15 | 101.08 | 0 |
+| `tests/fake/test_notice_header.py` | 24 | 114.98 | 0 |
+| `tests/unit/test_timers_retention.py` | 20 | 118.99 | 0 |
+| `tests/fake/test_retention_dormant.py` | 7 | 56.77 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 65.33 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 21.82 | 0 |
+| `tests/unit/test_invariants_index.py` | 25 | 21.54 | 0 |
+| `tests/unit/test_handler_refusals.py` | 360 | 68.22 | 0 |
+| `tests/unit/test_pin_notice_identity.py` | 12 | 60.27 | 0 |
+| `tests/unit/test_retention_outcome_pages.py` | 10 | 84.14 | 0 |
+| `tests/unit/test_retention_outcome_permissions.py` | 3 | 57.85 | 0 |
+| **Total: 19 files** | **1,065** | **2025.12** | **0** |
+
+**Deviations and commits.** No test state root outside permitted scratch was needed. Framework caches
+were created in the worktree outside scratch; all 13 paths are recorded in
+[worktree-cache-cleanup.json](2026-11-05-notice-keep-r3-data/worktree-cache-cleanup.json)
+before relocation to guarded `sf-nk-f3` names and deletion. Scratch cleanup completed with guarded `shutil.rmtree`, asserting `sf-nk-f3`
+in the path and its exact basename/parent. Its first attempt exited **1**
+because an archive fixture left a directory read-only; restoring owner
+permissions on that one owned directory allowed retry exit **0**.
+[cleanup.json](2026-11-05-notice-keep-r3-data/cleanup.json) records both attempts.
+All owned test, benchmark, mutation and cleanup processes were waited to
+completion. Permanent evidence remains in the assigned worktree under
+`docs/reports/2026-11-05-notice-keep-r3-data/`. Execution deviations were the denied default cache, framework caches outside
+scratch, the cleanup retry for a read-only fixture and Git's administrative
+index lock. Named runtime staging and later tooling/evidence
+staging each exited **128**, denied at
+`/Users/maxghenis/subfleet-v2/.git/worktrees/20261113-070657-nk-fix-r3/index.lock`.
+The runtime commit attempt exited **1** because unstaged new files were unknown
+pathspecs. Final named report/evidence staging also exited **128** at the same lock;
+[final-stage.json](2026-11-05-notice-keep-r3-data/final-stage.json) records the
+explicit file list and error. Git has produced no commit. Changes remain in the assigned workspace; no live
+state, push or history rewrite was involved.
+
+Built head: `e8d32cca6aef761966b8f7db89bd2fff6c6ce320`.

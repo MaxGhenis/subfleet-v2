@@ -1,0 +1,3 @@
+.slow-reader snapshots_s=[1.048569375067018]; fetched_rows=[30]; writer_commits=1; checkpoint_backlogs=1
+.........
+10 passed in 56.86s

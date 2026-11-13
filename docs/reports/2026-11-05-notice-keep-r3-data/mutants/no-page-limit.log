@@ -1,0 +1,36 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_lookup_pages_never_exceed_1000_events __________________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-page-limit-basetemp/test_lookup_pages_never_exceed0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b196780>
+
+    def test_lookup_pages_never_exceed_1000_events(tmp_path, monkeypatch):
+        root, writer, _ = _ledger(tmp_path, 2503)
+        real_query = Store.query
+        pages = []
+    
+        def observe_page(reader, sql, params=()):
+            rows = real_query(reader, sql, params)
+            if _is_page(reader, sql):
+                pages.append([row["event_id"] for row in rows])
+                assert not reader.connection.in_transaction
+            return rows
+    
+        monkeypatch.setattr(Store, "query", observe_page)
+        try:
+            report, error = _lookup_result(root)
+            assert error is None, error
+            assert report["errors"] == []
+            assert len(report["outcomes"]) == 2503
+>           assert [len(page) for page in pages] == [1000, 1000, 503]
+E           assert [2503] == [1000, 1000, 503]
+E             
+E             At index 0 diff: 2503 != 1000
+E             Right contains 2 more items, first extra item: 1000
+E             Use -v to get more diff
+
+tests/unit/test_retention_outcome_pages.py:71: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_outcome_pages.py::test_lookup_pages_never_exceed_1000_events
+1 failed in 43.65s

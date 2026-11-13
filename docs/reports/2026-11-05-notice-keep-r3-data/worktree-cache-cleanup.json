@@ -1,0 +1,71 @@
+{
+  "folders": [
+    {
+      "original": ".pytest_cache",
+      "guarded_path": ".sf-nk-f3-pytest_cache",
+      "removed": true
+    },
+    {
+      "original": ".hypothesis",
+      "guarded_path": ".sf-nk-f3-hypothesis",
+      "removed": true
+    },
+    {
+      "original": "subfleet/__pycache__",
+      "guarded_path": "subfleet/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "subfleet/adapters/__pycache__",
+      "guarded_path": "subfleet/adapters/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "subfleet/sessions/__pycache__",
+      "guarded_path": "subfleet/sessions/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "subfleet/conversations/__pycache__",
+      "guarded_path": "subfleet/conversations/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "subfleet/gate/__pycache__",
+      "guarded_path": "subfleet/gate/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "subfleet/guard/__pycache__",
+      "guarded_path": "subfleet/guard/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "tests/__pycache__",
+      "guarded_path": "tests/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "tests/unit/__pycache__",
+      "guarded_path": "tests/unit/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "tests/fake/__pycache__",
+      "guarded_path": "tests/fake/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "tools/__pycache__",
+      "guarded_path": "tools/.sf-nk-f3-__pycache__",
+      "removed": true
+    },
+    {
+      "original": "docs/reports/2026-11-05-notice-keep-r3-data/mutants/plugin/__pycache__",
+      "guarded_path": "docs/reports/2026-11-05-notice-keep-r3-data/mutants/plugin/.sf-nk-f3-__pycache__",
+      "removed": true
+    }
+  ],
+  "removed": 13,
+  "at": "2026-11-13T13:40:43.881342+00:00"
+}
