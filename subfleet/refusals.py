@@ -61,6 +61,14 @@ CHECKOUT_REFUSALS = {
     "object-changed": ("baseline object changed while copying", "wait for checkout writes to finish and resubmit"),
 }
 
+#: The fix of `claude-subscription-refused`: `claude.ORG_BLOCK_CAUSES` word for word
+#: (a test compares them). Both known causes, neither asserted, and no promised outcome.
+CLAUDE_REFUSAL_CAUSES = (
+    "Either the account's subscription lapsed or was cancelled, or an org admin "
+    "disabled Claude Code; once the account is subscribed with Claude Code allowed, "
+    "run `subfleet lanes enroll` again."
+)
+
 # reason -> (message, fix), the most specific form. `{name}` is a checked value.
 HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     # Jobs, requests and lists.
@@ -287,8 +295,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "claude-authenticate": ("claude: the credential did not authenticate",
                             "run claude setup-token while signed into the lane account, then store it "
                             "in the enrolled keychain item"),
-    "claude-org-disabled": ("claude: the organisation has disabled Claude Code subscription access for this account",
-                            "ask the account's admin to enable Claude Code access"),
+    # C-9.3: Claude Code's refusal, its causes unasserted. The line is quoted only when it
+    # is one Claude Code was recorded printing, and the fix is `claude.ORG_BLOCK_CAUSES`.
+    "claude-subscription-refused": ('claude: Claude Code refused subscription access for this account: '
+                                    '"{claude_refusal}" (error kind {error_kind})', CLAUDE_REFUSAL_CAUSES),
     "claude-account-mismatch": ("claude: the credential reference and the signed-in account do not match",
                                 "rebind the lane to the account its credential really holds (C-1.3)"),
     "claude-account-missing": ("claude: cannot determine the account for the credential",
@@ -420,6 +430,12 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
                               ("unknown lane", "subfleet lanes list")),
     "sessions-id": (("sessions: session_id is required", None),),
     "unknown-task": (("tasks: unknown task", HANDLER_MESSAGES["unknown-task"][1]),),
+    "claude-subscription-refused": (
+        ('claude: Claude Code refused subscription access for this account: "{claude_refusal}"',
+         CLAUDE_REFUSAL_CAUSES),
+        ("claude: Claude Code refused subscription access for this account (error kind {error_kind})",
+         CLAUDE_REFUSAL_CAUSES),
+        ("claude: Claude Code refused subscription access for this account", CLAUDE_REFUSAL_CAUSES)),
 }
 
 FALLBACK: tuple[str, None] = ("operation: request was refused", None)
@@ -448,6 +464,8 @@ GUARD_REPAIRS = {
 
 
 def _choices() -> dict[str, tuple[str, ...]]:
+    from .adapters.claude import SUBSCRIPTION_REFUSAL_LINES
+    from .adapters.claude_stream import AUTH_ERROR_KINDS
     from .adapters.isolation import CODEX_LAYERS, MANAGED_ENV
     from .launch_env import ALLOWED_NAMES, SESSION_PROBE_NAMES, TEST_SESSION_NAMES, refused_reference
     return {
@@ -466,6 +484,10 @@ def _choices() -> dict[str, tuple[str, ...]]:
         "checkout_problem": tuple(message for message, _ in CHECKOUT_REFUSALS.values()),
         "checkout_fix": tuple(fix for _, fix in CHECKOUT_REFUSALS.values()),
         "errno_name": tuple(errno.errorcode.values()),
+        # C-9.3: a Claude credential or organisation error kind, and a refusal line a
+        # recorded stream shows Claude Code printing, each matched whole, never free text.
+        "error_kind": AUTH_ERROR_KINDS,
+        "claude_refusal": SUBSCRIPTION_REFUSAL_LINES,
         # D-ENV2: a held lane's variable, a name and never a value: each listed,
         # session or probe name that is refused. A harness hook is not listed, so
         # its refusal takes the next form, which names none.

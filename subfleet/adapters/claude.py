@@ -255,6 +255,19 @@ ORG_BLOCK_CAUSES = (
     "run `subfleet lanes enroll` again."
 )
 
+#: The refusal lines recorded streams show Claude Code printing, verbatim and whole:
+#: the only refusal words the enrolment refusal's public template may quote (C-25.7,
+#: `refusals`, value `claude_refusal`). A line is added only from a recorded stream.
+#: The one so far: the 2026-09-30 claude-5 streams (Claude Code 2.1.284, 37 attempts,
+#: fixture `tests/fixtures/claude/org-block-recorded`, and `org-block-synthetic` built
+#: from their shape) carried it in the placeholder frame stamped
+#: `oauth_org_not_allowed` and in the error result; fixture `org-block` has the same
+#: sentence from the Claude Code 2.1.260 string table.
+SUBSCRIPTION_REFUSAL_LINES = (
+    "Your organization has disabled Claude subscription access for Claude Code · "
+    "Use an Anthropic API key instead, or ask your admin to enable access",
+)
+
 # Credential-shaped signatures. On their own these are NOT enough: C-9.3 requires a
 # 401 from a usage endpoint, an organisation block, or a revoked refresh token, and
 # a limit-looking phrase alongside a successful `system/init` is `limited`.
@@ -969,8 +982,11 @@ class ClaudeAdapter(Adapter):
         # are quoted, and the cause is not guessed (`ORG_BLOCK_CAUSES`).
         refusal = _subscription_refusal(corpus, summary)
         if refusal is not None:
-            raise AdapterError(f"claude: {refusal.statement()}", code=5,
-                               fix=ORG_BLOCK_CAUSES, reason="claude-org-disabled")
+            # C-25.7: the client reads the reason's template, which quotes the line
+            # and names the kind only when they pass their closed checks; this
+            # message, with every word and kind, reaches daemon.log only.
+            raise AdapterError(f"claude: {refusal.statement()}", code=5, fix=ORG_BLOCK_CAUSES,
+                               reason="claude-subscription-refused", details=refusal.details())
         if not summary.has_init:
             detail = _first_auth_phrase(corpus) or f"rc {rc}, no system/init in the stream"
             raise AdapterError(
@@ -2123,6 +2139,16 @@ class SubscriptionRefusal:
             "Claude Code refused subscription access for this account "
             f"({'; '.join(evidence)})"
         )
+
+    def details(self) -> dict[str, str | None]:
+        """The enrolment refusal's `details` (C-25.7): the line as quoted, and the
+        kind that made it a refusal (`oauth_org_not_allowed` when stamped, else the
+        first credential kind, else none). `refusals.render` shows each only when it
+        passes its closed check: the line one of `SUBSCRIPTION_REFUSAL_LINES`, the
+        kind one of `AUTH_ERROR_KINDS`."""
+        kind = (ORG_BLOCK_ERROR_KIND if ORG_BLOCK_ERROR_KIND in self.error_kinds
+                else next((k for k in self.error_kinds if k in AUTH_ERROR_KINDS), None))
+        return {"claude_refusal": self.line, "error_kind": kind}
 
 
 def _provider_error_texts(summary: StreamSummary) -> tuple[str, ...]:
