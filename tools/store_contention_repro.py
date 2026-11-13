@@ -65,6 +65,10 @@ import collections, json, os, signal, sys, threading, time
 from pathlib import Path
 from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon
+try:
+    from subfleet.daemon import ADMISSION_EVENT     # C-3.8: the name admission's transaction opens under
+except ImportError:                                 # a checkout before C-3.8 opened it as the reservation
+    ADMISSION_EVENT = "attempt.reserved"
 from tests.fake import profile as fake_profile
 from tests.fake_adapter import FakeAdapter
 register("codex", FakeAdapter)
@@ -110,7 +114,7 @@ if os.environ.get("SFR_SAMPLE"):
     signal.signal(signal.SIGUSR2, lambda *_: gathering.set())
 
 # Admission (2026-09-26): every outermost store-lock hold made by an admission
-# pass, those of the `attempt.reserved` transaction apart; every thread's wait
+# pass, those of its reserving transaction (`ADMISSION_EVENT`) apart; every thread's wait
 # for the store lock; and each turn job's time from being queued to being
 # reserved. Holds and waits are counted once SIGUSR2 has said measuring began.
 import contextlib
@@ -158,7 +162,7 @@ daemon._admit_pass = admit_pass
 real_tx = daemon.store.transaction
 @contextlib.contextmanager
 def transaction(kind="state.changed", **options):
-    mark = kind == "attempt.reserved"
+    mark = kind == ADMISSION_EVENT
     if mark:
         local.reserving = True
     try:
