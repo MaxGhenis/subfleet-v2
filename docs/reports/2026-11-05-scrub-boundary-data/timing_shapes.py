@@ -5,7 +5,8 @@ Run from the root of the tree to time:
 `python docs/reports/2026-11-05-scrub-boundary-data/timing_shapes.py LABEL [SHAPE ...]`. The tree's
 own `subfleet` is imported first (the script puts the working directory on `sys.path`), so a
 `git archive` of another commit is timed by running this file from inside it. Prints one JSON line per
-shape, with the 1-minute load average read before and after each time.
+shape, with the 1-minute load average read before and after each time. `TIMING_RUNS_TEN=1` times
+the ten-times text once (review r1 timed 13fd1c8bc's so).
 """
 
 from __future__ import annotations
@@ -25,10 +26,9 @@ _TIMING = os.path.join(os.path.dirname(os.path.abspath(__file__)), "timing.py")
 
 def _fixed(total: int) -> str:
     """The build's `timing.py` text."""
-    namespace: dict = {}
+    namespace: dict = {"handoff": handoff, "__name__": "timing"}
     source = open(_TIMING).read().split("def best(")[0]
-    exec(compile(source.replace("from subfleet.sessions import handoff", ""), _TIMING, "exec"),
-         {"handoff": handoff, "__name__": "timing"} | namespace, namespace)
+    exec(compile(source.replace("from subfleet.sessions import handoff", ""), _TIMING, "exec"), namespace)
     return namespace["text_of"](total)
 
 
@@ -69,7 +69,9 @@ def main() -> None:
             text = make(total)
             assert len(text) == total
             before = os.getloadavg()[0]
-            row[size] = round(best(lambda: handoff.scrub_bounded(text, None, strip_reminders=strip)), 4)
+            runs = int(os.environ.get("TIMING_RUNS_TEN", "3")) if size == "ten_times" else 3
+            row[size] = round(best(lambda: handoff.scrub_bounded(text, None, strip_reminders=strip), runs), 4)
+            row[f"runs_{size}"] = runs
             row[f"load_{size}"] = [round(before, 1), round(os.getloadavg()[0], 1)]
         row["ratio"] = round(row["ten_times"] / row["budget"], 2)
         print(json.dumps(row), flush=True)

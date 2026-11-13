@@ -98,10 +98,10 @@ every run would go (fail closed). A differential test shows they agree.
 `_head_scrub_bounded`, the head's own bounded mode, uses the same step.
 
 **Work bound.** Block resolution stays linear: per block, a constant number of C scans in Python,
-as `_linear_sub` already does. The quoted-value rule reads only windows:
+as `_linear_sub` already does. *(Corrected in fix round 1: the split step was not linear on 13fd1c8bc; see "Corrected claims".)* The quoted-value rule reads only windows:
 
 - at most 16,384 characters each (`_SPLIT_WINDOW_MAX`);
-- at most 131,072 in all per text (`_SPLIT_READ_MAX`, one excerpt's worth);
+- at most 131,072 in all per text (`_SPLIT_READ_MAX`, one excerpt's worth); *(corrected in fix round 1: per `_split_masks` call; `scrub_bounded` makes up to three)*
 - past either limit it fails closed: the rest of the line goes, and a private key or reminder
   runs on to its next closer.
 
@@ -245,3 +245,184 @@ PYTHONPATH`, and `--basetemp` under the job's temp folder.
    covers such a cascade.
 4. **This report is a new artifact.** It still needs the independent review the hub runs before
    merge.
+
+## Fix round 1 (review r1)
+
+Job 20261107-205221-sb-fix-r1, run 2026-11-13 18:29–21:29 UTC on 13fd1c8bc. Commits: `7fb040764` (fix),
+`244bd73d5` (tests, timing script, a line-start fix), then this report and the contract. Host load ran
+100–377 throughout. One test run stalled the host's processes for 57 minutes (20:19–21:17), which
+cost most of the verification time. See "What didn't run".
+
+### P1: linear split work
+
+**Cause** (as review r1 found): `_line_start`'s `rfind("\r", 0, at)` read back to offset 0 for every
+block. `_data_uri_splits` found that line start before checking the read budget. `_run_start`'s last
+step copied `text[:end]` once a run passed 16,320 characters, which a key word or a run of spaces and
+`=` past that length reaches (`datauri-longword-many`).
+
+**Fix** (`subfleet/sessions/handoff.py`). The split code no longer calls `_run_start`, `_line_start`
+or `_last_visible`. `_run_start` and `_last_visible` keep their behaviour for the other rules.
+`_line_start` and `_line_end` were split-only, so they are gone.
+- `_run_back` reads a run back to a floor, at most `_SPLIT_WINDOW_MAX` characters.
+- `_Lines.start` reads back at most as far as the read budget allows; where a line starts further
+  back, the window would be too long, so it fails closed. `_Lines.end` stores each line end it finds
+  with the earliest position known to be on its line, so no character is read twice looking for ends.
+- `_Ahead` reuses the last closer search wherever it answers.
+- A run-on stops at a closer an earlier block's run-on already read from. So each closer is read once
+  as a run-on step, and once as its own block's closer.
+- `_data_uri_splits` checks `reader.room()` before it finds a window. Two cases now fail closed:
+  - a run of spaces and `=` longer than a window, even with no key before it (13fd1c8bc kept the line
+    when no key preceded the run);
+  - a key word longer than a window that ends in a credential word (13fd1c8bc failed closed here too,
+    because its window was too long).
+- `_closer_value_end` keeps 13fd1c8bc's checks: the quote on the closer's line, two lines above for a
+  key, and the window clamped at the block's inner. One look-back is not bounded by a constant. Where
+  the block's part of the closer's line is longer than a window, and the last window's worth of it
+  holds no quote, `_quote_on_line` reads back to the nearest quote or line break, within the block.
+  So that read is bounded by the block's length, not its offset. Failing closed there instead would
+  run a reminder on to its next closer over a long unquoted line, hiding far more text.
+
+**Timings.** `docs/reports/2026-11-05-scrub-boundary-data/timing_shapes.py`, process CPU of
+`scrub_bounded(text, None)`, best of 3 (13fd1c8bc at 10×: one run, as review r1 timed it). Base is a
+`git archive` of a8624a489. The loads shown are the 1-minute averages before and after each time.
+
+| Shape | base: budget / 10× | 13fd1c8bc: budget / 10× | change: budget / 10× | change ÷ base | load (base; head; change) |
+|---|---|---|---|---|---|
+| `fixed` | 0.401 / 0.448 (1.12) | 0.399 / 0.452 (1.14) | 0.412 / 0.465 (1.13) | 1.03 / 1.04 | 105–108; 118–129; 133–143 |
+| `pem-many` | 0.161 / 0.485 (3.01) | 0.317 / 15.74 (49.7) | 0.169 / 0.737 (4.36) | 1.05 / 1.52 | 108–118; 129–171; 125–135 |
+| `reminder-many` (stripped) | 0.071 / 0.442 (6.2) | 0.276 / 20.08 (72.7) | 0.083 / 0.644 (7.78) | 1.16 / 1.46 | 118–126; 171–190; 127–135 |
+| `datauri-key-many` | 0.154 / 0.436 (2.83) | 0.332 / 13.43 (40.4) | 0.198 / 0.712 (3.59) | 1.29 / 1.63 | 125–130; 162–231; 116–127 |
+| `pem-sparse` | 0.382 / 0.402 (1.05) | 0.376 / 0.654 (1.74) | 0.371 / 0.417 (1.12) | 0.97 / 1.04 | 125–129; 224–231; 109–116 |
+| `datauri-longword-many` | 0.0081 / 0.0469 (5.79) | 0.0106 / 0.154 (14.5) | 0.0093 / 0.0969 (10.4) | 1.15 / **2.07** | 127; 220–224; 109 |
+
+Raw lines: `.fix1/timing-{base,head,change}.jsonl` in the job's checkout (not committed).
+
+Every pair is within 2× of base but one: `datauri-longword-many` at 10× (2.07×, 0.05 s more in
+absolute terms). Base has no split step. On this shape the change reads each 20,000-character key
+word back one window (16,384) through `_run_back`'s stepped scans before it fails closed. That is
+linear (ratio 10.4 for 10× the text) but costs about a window of `rstrip` per block. The growth test
+is the gate, not this time.
+
+### P2: a masked closer ends no block
+
+**The rule.** `_split_masks` passes the earlier layers' masks (in the coordinates of the text the
+private-key layer reads) to `_closer_splits` (`_Covers`).
+- A closer that a mask covers, even in part, no longer ends a block. The block runs on to the next
+  closer outside every mask, the run-on is masked, and the split check runs there.
+- A mask from an earlier split of the same block counts too: the next closer is searched from the
+  value's end, as before.
+- If no closer stands past the masks, nothing more is masked. In that case the whole-text scrub's
+  block never closes, so it shows more than release, which ends the block at the covered closer.
+- The opener side is unchanged.
+- Release's resolved text is unchanged (`mine != resolved` still passes); only the masks grow.
+
+**Rows it fixes.** Review r1's row (b) with reminders stripped: `Zq3x200005` no longer shows, within
+the budget or at either excerpt edge. 13fd1c8bc showed it in all three placements (checked on its
+archive). Row (b) without a second END and rows (a), (c) and (d) leaked on neither side, and still
+don't.
+
+### P3 gaps, as fixed
+
+- **R1:** review r1's two probe rows are in `SPLITS` (`private-key-key-a-line-above`,
+  `reminder-key-a-line-above`), so `test_no_block_leaves_the_rest_of_a_value_it_splits` checks them,
+  short and long, in both modes.
+- **R2:** `test_the_split_windows_stop_at_the_read_cap` uses eight windows of 16,380, then a ninth of
+  32 (read: `KEEPC` kept) or 33 (not read: `KEEPC` goes). It found a bug in my first version: the
+  ninth of 32 wasn't read, because `_Lines.start` missed a line break at `low - 1` when the read room
+  was exactly used. Fixed in `244bd73d5`.
+- **Differential:** `test_the_head_resolves_drawn_blocks_as_release_does` is a Hypothesis property
+  (300 examples, derandomized) over drawn parts. It draws private keys (with a type and with `BLOCK`),
+  reminder tags in any case, openers without closers, values that hold a closer, data URIs, and every
+  layer inside or across another. `test_the_head_resolves_each_cascade_as_release_does` holds the
+  cascade rows as fixed cases.
+- **Cascade rows:** `CASCADES` holds (b) as review r1 gives it. I rebuilt (a), (c) and (d) and the
+  variants from review r1's descriptions, because its texts aren't in the review.
+  `test_a_closer_an_earlier_layer_masks_ends_no_block` runs each one:
+  - within the budget, at budget + 4,096 ending at the head excerpt's edge, and on the tail's first
+    line;
+  - through `assert_keeps_only_what_the_whole_scrub_keeps` (both modes, limits None/0/40/2,048).
+- **Report:** lines 100 and 104 are marked corrected below.
+
+### Corrected claims
+
+- **Line 100.** Block resolution itself is linear, but the split step on 13fd1c8bc was not. The split
+  step now costs a constant per block (look-backs within `_SPLIT_WINDOW_MAX`, windows within the read
+  budget) plus linear scans. Those scans are line ends and closer searches, each read once, and one
+  look-back bounded by the block's own length.
+- **Line 104.** The windows read at most 131,072 characters **per `_split_masks` call**. Over the
+  budget, `scrub_bounded` makes up to three calls: the whole text, then each excerpt's `_scrub`.
+
+### Invariants and their tests
+
+1. **No masked run shows.** `assert_keeps_only_what_the_whole_scrub_keeps` checks it on the cascade
+   rows, the build's rows and the stored example; the split tests check the split shapes. The
+   property test is unchanged.
+2. **Within the budget, `scrub_bounded` is exactly `truncate(scrub_secrets(text), limit)`.** The same
+   helper checks this on every short cascade row. The structure is unchanged: both sides run
+   `_guarded_blocks`.
+3. **Superset.** `.fix1/rows.py` dumped `_split_masks` for 73 fixed rows × 2 modes on 13fd1c8bc and on
+   the change. The rows are the stored example, rows 2–4 at four lengths, the six edge rows, 11 split
+   shapes short and long, 8 cascades × 3 placements, the two read-cap rows, and the six timing shapes
+   at the budget. Within the budget it also dumped the `[REDACTED]` runs of `scrub_bounded(text, None)`.
+   Result: the change's masked characters ⊇ 13fd1c8bc's on all 146 pairs. 143 were identical; 3 grew
+   (row (b) stripped, +37 characters in each placement); none lost. No `[REDACTED]` run was lost.
+4. **Linear work.** `test_the_split_step_s_work_is_linear_in_the_blocks` runs four shapes in a child
+   process, at 2× and 8× the budget. It uses `fewest_instructions` under `COUNT_GROWTH_MAX` where
+   `counts_instructions()` holds, and `best_cpu_ratio` under `GROWTH_RATIO_MAX` elsewhere. **Not
+   shown to fail on 13fd1c8bc** (see below); the timing table shows 13fd1c8bc's 40–73× growth on the
+   three shapes it covers.
+5. **The count** is unchanged in form: `max(release's, head's)`, checked by
+   `assert_keeps_only_what_the_whole_scrub_keeps` on the over-budget cascade rows.
+6. **Same resolution:** the two differential tests above.
+
+### Mutants
+
+**Not run.** The host stall used the time they were budgeted. Expected killers, by reading:
+- mutant 1 (`_Lines.start` reading back to offset 0): the growth test;
+- mutant 2 (an empty `_Covers`): `test_row_b_hides_what_the_whole_scrub_hides` and the row (b)
+  cascade cases;
+- mutant 3 (R1): the two new `SPLITS` rows;
+- mutant 4 (R2): the read-cap case of 33;
+- mutant 5 (R3): unknown; review r1 expected it only to leave a placeholder visible.
+
+The pristine copy for restoring is `handoff.change.py` in the job's scratch folder.
+
+### Commands and results
+
+Every run used `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and `unset PYTHONPATH`.
+- **Sync.** `uv sync --group dev --extra api` fails (`Extra api is not defined`); `uv sync --group dev`
+  succeeded.
+- **The shared cache was broken.** The shared `$TMPDIR/uv-cache` overlay for
+  `--with 'pytest-xdist>=3.6'` had no `xdist`. A private cache, `$TMPDIR/sf-sb-fix1/uv-cache`, built
+  it, which took 20 minutes at that load.
+- **Probes.** Row (b) and the R1 rows with `.fix1/probe.py`: no leak on the change. 13fd1c8bc
+  leaks `Zq3x200005` with reminders stripped, short and at the head edge.
+- **xdist, first run.** `pytest -n 4 -k "<new tests>"`: stopped by its 580 s alarm after 3 passes.
+- **Serial run.** `pytest -k "read_cap or row_b or each_cascade or drawn_blocks"`: 19 passed and
+  1 failed (the read-cap case of 32: the line-start bug, then fixed), in 61 s.
+- **After the fix.** `pytest -k "read_cap or row_b or splits or quoted_data_uri or resolves_the_blocks"`:
+  16 passed, then the 560 s alarm stopped it (5% CPU share).
+- **xdist, last run.** `pytest -n 4 -k "<all new and changed tests>"` (20:19): the host stalled it for
+  57 minutes, and it ended with no summary line, only xdist's teardown `OSError`. Result unknown.
+- **Superset and timings:** above.
+
+### What didn't run, and deviations
+
+- **Not run:**
+  - `test_a_closer_an_earlier_layer_masks_ends_no_block` and the growth test, through pytest to a
+    result;
+  - the excerpts file whole, every `tests/unit/test_scrub*.py`, the other `tests/unit/test_sessions_*`
+    files, and the four guard files;
+  - the growth test on 13fd1c8bc, and all five mutants.
+
+  CI's run is the check for these.
+- **Rows (a), (c), (d):** rebuilt from review r1's descriptions, as above.
+- **Timings:** 13fd1c8bc at 10× was timed once per shape, not best of 3.
+- **Behaviour changes beyond the brief, all toward hiding more:** the long spaces-and-`=` run fails
+  closed, and a closer whose block-part of its line passes a window fails closed when a quote stands
+  in its last window. A later block's run-on stops at a closer an earlier run-on read from. Within one
+  block, a run-on step's result can differ from 13fd1c8bc's only where that block's opener sits within
+  the window above the closer. The superset check shows no loss on the fixed rows.
+- **Scratch:** `$TMPDIR/sf-sb-fix1` (archives, the private uv cache, basetemps) is not yet removed.
+
+Built head: see the final answer.
