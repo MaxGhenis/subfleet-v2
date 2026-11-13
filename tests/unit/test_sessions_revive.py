@@ -417,7 +417,7 @@ def test_a_dry_run_decides_everything_and_submits_nothing(world, policy, tmp_pat
     daemon = fx.FakeSessions()
     result = attempt(daemon, policy, COLD, tmp_path, opt_in=True, dry_run=True)
     assert daemon.submits == []
-    assert "would revive on claude-fable-5-1" in result.reason
+    assert result.reason == "would revive on fable: claude-fable-5-1 is retired; its tier is now fable"
 
 
 # --- the cold sweep -----------------------------------------------------------

@@ -32,7 +32,7 @@ def test_a_turn_refuses_a_lane_that_needs_a_probe(reserve_policy):
     detached job takes the lane (and is probed), a turn does not."""
     lanes = [lane("claude-1")]
     rows = [reading("claude-1", .3, source="usage"), reading("claude-1", .3, scope="claude-opus-5-5", source="usage")]
-    snapshot = view(lanes, rows, closures=[closure("claude-1", "claude-fable-5-1")])
+    snapshot = view(lanes, rows, closures=[closure("claude-1", "claude-fable-5-2")])
     detached = evaluate(reserve_policy, snapshot, job(pinned_model="opus", task=None, tier=None))
     turn = evaluate(reserve_policy, snapshot, job(pinned_model="opus", task=None, tier=None, kind="turn"))
     assert detached.chosen_lane == "claude-1"

@@ -148,7 +148,7 @@ def test_desktop_last_and_a_turns_affinity_first_before_weekly_preferences(provi
 def test_claude_stranded_term_remains_before_measured_and_reserve_preferences(when, load, weekly, five):
     """(d) C-23.37 still prefers the stranded lane before the new reserve keys."""
     specs = [(weekly / 1000, five / 1000, reset(when + 1), load), (.9, .9, reset(when), load)]
-    closure = {"lane_id": "claude-0", "scope": "claude-fable-5-1", "until_at": reset(when),
+    closure = {"lane_id": "claude-0", "scope": "claude-fable-5-2", "until_at": reset(when),
                "reason": "provider-limit", "source_event": "limited", "clock_source": "reported"}
     assert order(fleet("claude", specs, closures=[closure])) == ["claude-0", "claude-1"]
     # It also precedes measured/unmeasured, just as the old comparator did.
@@ -168,7 +168,7 @@ def test_load_band_precedes_measured_and_weekly_preferences(provider, model, spr
     case[1]["readings"] = [row for row in case[1]["readings"] if row["lane_id"] != f"{provider}-0"]
     if provider == "claude":
         # A stranded lane also cannot jump over a lower load band.
-        case[1]["closures"].append({"lane_id": "claude-1", "scope": "claude-fable-5-1",
+        case[1]["closures"].append({"lane_id": "claude-1", "scope": "claude-fable-5-2",
                                     "until_at": reset(when), "reason": "provider-limit"})
     assert order(case) == [f"{provider}-0", f"{provider}-1"]
 

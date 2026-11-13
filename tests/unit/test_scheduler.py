@@ -157,12 +157,12 @@ def test_claude_weekly_headroom_then_in_flight_then_id(policy):
 
 
 def test_fable_model_scoped_closure_leaves_opus_eligible(policy):
-    """C-11.2, C-9.6: claude-fable-5-1 admission closure preserves Opus on the account."""
-    snapshot = view([lane()], closures=[closure("claude-1", "claude-fable-5-1")])
+    """C-11.2, C-9.6: claude-fable-5-2 admission closure preserves Opus on the account."""
+    snapshot = view([lane()], closures=[closure("claude-1", "claude-fable-5-2")])
     assert evaluate(policy, snapshot, job(pinned_model="opus")).chosen_lane == "claude-1"
     denied = evaluate(policy, snapshot, job(pinned_model="fable"))
     assert exit_code(denied) == Exit.NO_LANE
-    assert denied.evaluations[0]["rejections"][0]["reason"] == f"closed:claude-fable-5-1:{TOMORROW}"
+    assert denied.evaluations[0]["rejections"][0]["reason"] == f"closed:claude-fable-5-2:{TOMORROW}"
 
 
 @pytest.mark.parametrize("model", ["opus", "fable"])
@@ -253,7 +253,7 @@ def test_unknown_model_names_input_key(policy):
 def test_fable_only_chains_never_leave_claude_provider(policy, task):
     """C-11.1–2, C-21: authored prose, strategy, and adjudication remain Fable-only."""
     snapshot = view([lane(), lane("codex-1")], [reading("codex-1")],
-                    [closure("claude-1", "claude-fable-5-1")])
+                    [closure("claude-1", "claude-fable-5-2")])
     decision = evaluate(policy, snapshot, job(task=task, tier="trivial"))
     assert decision.chain == ("fable",)
     assert exit_code(decision) == Exit.NO_LANE
@@ -307,7 +307,7 @@ def test_parent_descendants_share_one_concurrency_bound(policy):
 
 def test_decision_records_consulted_evidence_and_policy_hash_without_mutation(policy):
     """C-11.5: decisions serialize consulted scoped evidence and the job's policy hash."""
-    snapshot = view([lane()], [reading("claude-1")], [closure("claude-1", "claude-fable-5-1")])
+    snapshot = view([lane()], [reading("claude-1")], [closure("claude-1", "claude-fable-5-2")])
     original = copy.deepcopy(snapshot)
     result = evaluate(policy, snapshot, job(pinned_model="opus", policy_hash="job-policy-sha"))
     data = json.loads(json.dumps(asdict(result)))
@@ -336,7 +336,7 @@ def test_lane_pin_provider_absent_from_valid_policy_is_key_named_invalid_input(p
 
 def test_decision_records_other_model_reading_that_grants_second_lane_slot(policy):
     """C-6.4, C-11.5: cross-model slot evidence is recorded without becoming requested quota."""
-    snapshot = view([lane()], [reading("claude-1", .95, scope="claude-fable-5-1")],
+    snapshot = view([lane()], [reading("claude-1", .95, scope="claude-fable-5-2")],
                     attempts=[attempt("claude-1")])
     decision = evaluate(policy, snapshot, job(pinned_model="opus"))
     assert decision.chosen_lane == "claude-1"
@@ -397,7 +397,7 @@ def test_c17_2_an_email_pin_still_resolves_when_the_key_is_two_uuids(policy):
 
 # --- C-11.7: the reserve rule ------------------------------------------------
 
-FABLE = "claude-fable-5-1"
+FABLE = "claude-fable-5-2"
 OPUS = "claude-opus-5-5"
 
 

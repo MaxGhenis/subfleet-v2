@@ -772,7 +772,7 @@ def test_scoped_limits_become_admission_observed_rows_without_a_percentage(v1):
     run_import(v1)
     scoped = rows(v1["root"], "SELECT * FROM readings WHERE label='admission-observed' "
                               "AND source='oauth-usage'")
-    assert [row["scope"] for row in scoped] == ["claude-fable-5-1"]
+    assert [row["scope"] for row in scoped] == ["claude-fable-5-2"]
     assert scoped[0]["utilization"] is None
     assert scoped[0]["window"] == "admission"                  # C-9.8
 
