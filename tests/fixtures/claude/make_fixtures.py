@@ -774,7 +774,7 @@ def build() -> None:
             "class": "auth-dead",
             "detail_contains": "organization has disabled",
             "evidence": {
-                "auth": "organisation block, in the placeholder frame and the error result",
+                "auth": "subscription access refused (error-kind)",
                 "admission": "not reached",
                 "quota": "not reached",
                 "model_answered": False,
