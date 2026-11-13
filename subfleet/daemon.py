@@ -77,6 +77,7 @@ from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as
                      disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, startup_notes,
                      resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
+from . import retention_delete
 from .retention_git import discard_registration, gitfile_admin, registration_of
 from .salvage import (
     SalvageError, _failure, _git_env, _transient_git, git_common_dir, git_head, git_toplevel, git_tree, os_error_text, path_text, pin_baseline,
@@ -1014,6 +1015,9 @@ class Daemon:
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         self.store.watch_admission(self._wake_admission)
+        # C-8.7 (d2660): the operator's delete path; its request and journals
+        # are read back here, and it steps on the retention worker.
+        self._retention_delete = retention_delete.DeletePath(self.store, self.root, log=self.log)
         self._attempt_temp = AttemptTemp(self.root, log=self.log)
         # C-12.10: holders whose census found members, with the state it was
         # taken in. No census is taken again until that state changes.
@@ -4258,6 +4262,10 @@ class Daemon:
         if op == "operations":
             from . import operations
             return operations.dispatch(self, protocol.coerce_args(protocol.OperationsArgs, args))
+        if op == "retention.delete":
+            return retention_delete.handle(self._retention_delete,
+                                           protocol.coerce_args(protocol.RetentionDeleteArgs, args),
+                                           dormant=os.environ.get(RETENTION_DORMANT_ENV) == "1")
         if op in ("gate.start", "gate.poll", "gate.continue"):
             from .gate.service import dispatch
             return dispatch(self, op, args)
@@ -5805,7 +5813,7 @@ class Daemon:
                     self.timers.tick()
                 else:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
-                if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
+                if self._retention_due():
                     self._schedule("retention", self._retention, paced=True)
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
@@ -5895,7 +5903,40 @@ class Daemon:
         return set(pins) | {row["job_id"] for row in self._ramp_rows(since)
                             if _seconds_between(row["reserved_at"], now) < cfg["window_s"]}
 
+    def _retention_due(self) -> bool:
+        """The retention worker has a turn: the hourly pass is due, or the
+        operator's delete path has a step due (C-8.7)."""
+        return time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S or self._retention_delete_ready()
+
+    def _retention_delete_ready(self) -> bool:
+        """C-8.7: the delete path has a job or a journal due, and retention is not dormant."""
+        return os.environ.get(RETENTION_DORMANT_ENV) != "1" and self._retention_delete.pending()
+
+    def _retention_delete_turn(self) -> bool:
+        """C-8.7 (d2660): one step of the operator's delete path (one job, after
+        any journal a restart left), when one is due and the hourly pass is not.
+        It runs on the retention key under `_unrun_lock`, so it never overlaps a
+        pass, and a due pass goes first; it leaves the pass's clock alone. A
+        step that raises what the path did not expect ends the request."""
+        if not self._retention_delete_ready() or time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
+            return False
+        budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
+        try:
+            with self._unrun_lock:
+                self._retention_delete.step(pins=self._retention_pins,
+                                            turn_keep_s=float(budget["turn_keep_days"]) * 86400,
+                                            remote_less_history_bytes=int(budget["remote_less_history_bytes"]),
+                                            cancel=self.timers.cancel)
+        except Exception as exc:
+            self.log.error("retention delete: a step failed: %s", type(exc).__name__)
+            self._retention_delete.fail(f"step: {type(exc).__name__}")
+        if self._unrun_dirty:
+            self._sweep_unrun_worktrees()
+        return True
+
     def _retention(self):
+        if self._retention_delete_turn():
+            return
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
         # conversation service pins the turn jobs it still needs (IR-17). d635:
         # retirement archives before it deletes; a pass retires a bounded batch,
