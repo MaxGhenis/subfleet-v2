@@ -1,4 +1,4 @@
--- subfleet v2 store schema, version 10 (a job's requested provider QoS).
+-- subfleet v2 store schema, version 11 (caller family and review subjects/rounds).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
@@ -106,7 +106,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   mcp_servers TEXT NOT NULL DEFAULT '[]',
   parent_job_id TEXT REFERENCES jobs(job_id),
   caller_session TEXT,
+  caller_family TEXT CHECK (caller_family IS NULL OR caller_family IN ('claude','codex')),
   caller_pid INTEGER,
+  review_subject TEXT,
+  review_round INTEGER CHECK (review_round IS NULL OR review_round BETWEEN 1 AND 4),
   name TEXT,
   policy_hash TEXT,
   max_attempts INTEGER NOT NULL DEFAULT 3,
@@ -122,6 +125,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state, created_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_caller ON jobs(caller_session, created_at DESC);
+CREATE INDEX IF NOT EXISTS jobs_review_subject ON jobs(review_subject) WHERE review_subject IS NOT NULL;
 CREATE INDEX IF NOT EXISTS jobs_parent ON jobs(parent_job_id);
 -- C-3.7: the capacity snapshot reads every job in this order; without an index
 -- SQLite sorts the table in a temp file (about 3 MB a snapshot on the live store).

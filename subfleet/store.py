@@ -43,7 +43,8 @@ from .lockwatch import WatchedLock, thread_name
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
 PROVIDER_QOS_MIGRATION = 10
-SCHEMA_VERSION = PROVIDER_QOS_MIGRATION
+REVIEW_SUBJECT_MIGRATION = 11
+SCHEMA_VERSION = REVIEW_SUBJECT_MIGRATION
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -129,6 +130,15 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
     ),
+    # D-REVIEW-SUBJECT1: caller attribution and a review's durable subject/round.
+    # The schema file creates jobs_review_subject after these columns exist.
+    REVIEW_SUBJECT_MIGRATION: (
+        "ALTER TABLE jobs ADD COLUMN caller_family TEXT "
+        "CHECK (caller_family IS NULL OR caller_family IN ('claude','codex'))",
+        "ALTER TABLE jobs ADD COLUMN review_subject TEXT",
+        "ALTER TABLE jobs ADD COLUMN review_round INTEGER "
+        "CHECK (review_round IS NULL OR review_round BETWEEN 1 AND 4)",
+    ),
 }
 
 
@@ -146,10 +156,14 @@ def job_flags(row: Mapping[str, Any]) -> Row:
     (C-5.1, D-QOS-BOOKED1). NULL, which every job from before the column has, is
     `utility`, the clamp; so is a missing column, as a read-only Store reads a schema-9
     file it may not migrate (#277 review r1, P2). Attempt rows take `shell_flags` alone,
-    so they gain no job field; raw SQL still reads NULL."""
+    so they gain no job field; raw SQL still reads NULL. Review metadata absent
+    from an older schema reads as NULL, as it does after migration."""
     value = shell_flags(row)
     if value.get("provider_qos") is None:
         value["provider_qos"] = "utility"
+    # A read-only handle may open an older store without migrating it.
+    for key in ("caller_family", "review_subject", "review_round"):
+        value.setdefault(key, None)
     return value
 
 

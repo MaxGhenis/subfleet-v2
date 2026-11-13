@@ -107,7 +107,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
                    unmeasured_reserve_reason: str | None = None,
                    mcp_servers: Collection[str] = (), push_branch: str | None = None,
                    push_remote: str | None = None, needs_shell: bool = False,
-                   provider_qos: str | None = None) -> str:
+                   provider_qos: str | None = None,
+                   review_subject: str | None = None, review_round: int | None = None) -> str:
     """Hash the exact C-6.2 payload, excluding caller identity and display name.
 
     A mapping is accepted for callers that have already assembled these canonical
@@ -148,6 +149,10 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
             payload["provider_qos"] = provider_qos
         if push_branch is not None:
             payload.update(push_branch=push_branch, push_remote=push_remote)
+        if review_subject is not None:
+            # The requested round belongs to the payload, the assigned round
+            # does not: retrying an automatic request keeps its original job.
+            payload.update(review_subject=review_subject, review_round=review_round)
     return hashlib.sha256(canonical_json(payload)).hexdigest()
 
 

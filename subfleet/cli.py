@@ -139,7 +139,30 @@ def fail(code: Exit | int, message: str, fix: str | None = None) -> int:
 
 def session_id(env: dict[str, str] | None = None) -> str | None:
     env = os.environ if env is None else env
-    return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID") or "").strip() or None
+    return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID")
+            or env.get("CODEX_THREAD_ID") or env.get("CODEX_SESSION_ID") or "").strip() or None
+
+
+def caller_family(explicit: str | None = None,
+                  env: dict[str, str] | None = None) -> str | None:
+    """The submitting model's family, with caller overrides before detection.
+
+    Codex CLI 0.159.0 injects CODEX_THREAD_ID and CODEX_SESSION_ID into every
+    command after its shell environment policy (unified_exec/process_manager.rs).
+    Homes and package-manager markers identify an installation, not a caller.
+    """
+    env = os.environ if env is None else env
+    value = explicit if explicit is not None else env.get("SUBFLEET_CALLER_FAMILY")
+    if value is not None:
+        if value not in ("claude", "codex"):
+            source = "--caller-family" if explicit is not None else "SUBFLEET_CALLER_FAMILY"
+            raise ValueError(f"{source}: invalid caller family {value!r}; choose claude or codex")
+        return value
+    if "CLAUDECODE" in env or "CLAUDE_CODE_SESSION_ID" in env:
+        return "claude"
+    if "CODEX_THREAD_ID" in env or "CODEX_SESSION_ID" in env:
+        return "codex"
+    return None
 
 
 def cmd_wake(args: argparse.Namespace) -> int:
@@ -394,6 +417,10 @@ def job_row(row: dict[str, Any]) -> dict[str, Any]:
         "duration_s": merged.get("duration_s"),
         "notice": _first(merged, "notice", "notify", "notice_state"),
         "caller_session": merged.get("caller_session"),
+        "caller_family": merged.get("caller_family"),
+        "review_subject": merged.get("review_subject"),
+        "review_round": merged.get("review_round"),
+        "task": merged.get("task"),
         "workdir": merged.get("workdir"),
         "outcome_class": merged.get("outcome_class"),
         "receipts": merged.get("receipts") or {},
@@ -412,11 +439,17 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
     if not normalised:
         return "no recorded jobs"
     id_width = max(24, *(len(str(row["id"] or "-")) for row in normalised))
+    names = [str(row["name"] or "-")
+             + (f" [round {row['review_round']}]"
+                if row["task"] == "review" and row["review_round"] is not None else "")
+             for row in normalised]
+    name_width = max(16, *(len(name) for name in names))
     lines = [
         f"{'id':<{id_width}} {'family':<7} {'model':<16} {'lane':<12} "
-        f"{'rc':>9} {'bytes':>9} {'seconds':>8} {'notice':<10} {'caller':<10} workdir"
+        f"{'rc':>9} {'bytes':>9} {'seconds':>8} {'notice':<10} {'caller':<10} "
+        f"{'name':<{name_width}} workdir"
     ]
-    for row in normalised:
+    for row, name in zip(normalised, names):
         state = row["state"]
         if state in LIVE_STATES and "exit" in (row["receipts"] or {}):
             # C-17.5: the guardian's receipt says it finished; the row has not
@@ -438,6 +471,7 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
             f"{str(row['lane'] or '-'):<12.12} "
             f"{rc:>9.9} {int(as_number(row['out_bytes']) or 0):>9} {duration:>8} "
             f"{str(row['notice'] or '-'):<10.10} {(caller[:8] or '-'):<10.10} "
+            f"{name:<{name_width}} "
             f"{row['workdir'] or '-'}"
         )
     return "\n".join(lines)
@@ -842,6 +876,13 @@ def _prompt_path(args: argparse.Namespace, request_id: str,
 
 def _validate_run(args: argparse.Namespace) -> tuple[str | None, int | None]:
     """Client-side admission checks that never need a daemon (C-6.1, C-6.5)."""
+    review_fields = getattr(args, "subject", None) is not None or getattr(args, "round", None) is not None
+    if review_fields and args.task != "review":
+        return None, fail(Exit.INVALID_INPUT, "run: --subject and --round require --task review")
+    if getattr(args, "round", None) is not None and getattr(args, "subject", None) is None:
+        return None, fail(Exit.INVALID_INPUT, "run: --round requires --subject")
+    if getattr(args, "round", None) is not None and args.round < 1:
+        return None, fail(Exit.INVALID_INPUT, "run: --round must be at least 1")
     if args.task and not args.tier:
         return None, fail(Exit.INVALID_INPUT, "run: --tier is required with --task")
     if args.tier and not args.task:
@@ -914,6 +955,10 @@ def _prepare_submit(args: argparse.Namespace,
             return None, fail(Exit.INVALID_INPUT,
                               "run: --allow-unmeasured-reserve requires a nonblank reason of at most 2000 characters")
     _apply_deprecations(args)
+    try:
+        family = caller_family(getattr(args, "caller_family", None))
+    except ValueError as exc:
+        return None, fail(Exit.INVALID_INPUT, f"run: {exc}")
     workdir, error = _validate_run(args)
     if error is not None:
         return None, error
@@ -949,6 +994,9 @@ def _prepare_submit(args: argparse.Namespace,
         independent=bool(args.independent),
         parent_job_id=args.parent or os.environ.get("SUBFLEET_TURN_JOB"),
         caller_session=session_id(),
+        caller_family=family,
+        review_subject=getattr(args, "subject", None),
+        review_round=getattr(args, "round", None),
         caller_pid=caller_pid(),
         no_preamble=bool(args.no_preamble),
         dry_run=bool(args.dry_run or args.why),
@@ -1630,8 +1678,8 @@ def cmd_wait(args: argparse.Namespace) -> int:
         mine = session_id()
         if mine is None:
             return fail(Exit.INVALID_INPUT,
-                        "wait: --mine needs CLAUDE_CODE_SESSION_ID "
-                        "(run it from a Claude session)")
+                        "wait: --mine needs CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, "
+                        "CODEX_SESSION_ID or SUBFLEET_SESSION_ID")
     if not ids and not args.mine and not args.last:
         return fail(Exit.INVALID_INPUT, "wait: name a job id, or use --mine or --last")
     if ids and not getattr(args, "json", False):
@@ -1704,8 +1752,8 @@ def cmd_runs(args: argparse.Namespace) -> int:
         mine = session_id()
         if mine is None:
             return fail(Exit.INVALID_INPUT,
-                        "runs: --mine needs CLAUDE_CODE_SESSION_ID "
-                        "(run it from a Claude session)")
+                        "runs: --mine needs CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, "
+                        "CODEX_SESSION_ID or SUBFLEET_SESSION_ID")
     offline = False
     honoured = True
     try:
@@ -2187,6 +2235,10 @@ def _source_lane(source: dict[str, Any]) -> str | None:
 def cmd_resume(args: argparse.Namespace) -> int:
     """Continue a job on the lane that owns its provider-side thread."""
     try:
+        family = caller_family()
+    except ValueError as exc:
+        return fail(Exit.INVALID_INPUT, f"resume: {exc}")
+    try:
         client = _client(args)
         source = client.call("show", _asdict(protocol.ShowArgs(job_id=args.id)))
     except DaemonUnavailable as exc:
@@ -2233,6 +2285,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
         parent_job_id=args.id,
         independent=True,  # a continuation may follow an explicitly cancelled job
         caller_session=session_id(),
+        caller_family=family,
         caller_pid=caller_pid(),
     )
     minted = not args.request_id
@@ -3589,6 +3642,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help=argparse.SUPPRESS)          # deprecated (C-17.2)
     p_run.add_argument("--tier", choices=TIER_CHOICES,
                        help="minimum capability for --task")
+    p_run.add_argument("--caller-family", choices=("claude", "codex"),
+                       help="submitting model family (overrides SUBFLEET_CALLER_FAMILY and detection)")
+    p_run.add_argument("--subject", metavar="TEXT",
+                       help="review subject: a GitHub PR URL or caller key (requires --task review)")
+    p_run.add_argument("--round", type=int, metavar="N",
+                       help="review round, 1 to 4 (default: next accepted round for --subject)")
     p_run.add_argument("-m", dest="m", metavar="MODEL",
                        help="pin a live policy model (" + ", ".join(MODEL_CHOICES) + "); never falls back (sol is retired → astra)")
     pins = p_run.add_mutually_exclusive_group()

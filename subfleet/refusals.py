@@ -83,6 +83,14 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "reserve-reason": ("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence", None),
     "reserve-dispatch": ("unmeasured reserve authorization requires a fresh dispatch with explicit "
                          "pinned_lane and pinned_model", None),
+    "caller-family": ("caller_family must be claude, codex or null", None),
+    "review-fields": ("--subject and --round require --task review; --round also requires --subject", None),
+    "review-subject": ("review_subject must contain 1 to 2000 printable characters", None),
+    "review-round": ("review_round must be a positive whole number from 1 to 4", None),
+    "review-round-limit": ("review: {review_subject} has had 4 rounds; a fifth needs a person. "
+                           "Hand the PR to its hub (~/reviews/hubs.md) or queue a decision for Max.", None),
+    "review-round-held": ("review: the next round is held by active job {job_id}",
+                           "wait for that review to finish, then submit again"),
     # Where a job writes (C-6.5, C-11.1, C-13.2).
     "workdir-tmp": ("workdir is under /tmp", "pass --allow-tmp or use a durable workdir"),
     "policy-workdir": ("{task} jobs write by policy, and {repository}",
@@ -376,6 +384,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
 # reason -> less specific forms, tried in order when a value fails its check.
 # The last form of every reason that names a value names none.
 LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
+    "review-round-held": (("review: the next round is held by an active job",
+                            "wait for that review to finish, then submit again"),),
+    "review-round-limit": (("review: this subject has had 4 rounds; a fifth needs a person. "
+                            "Hand the PR to its hub (~/reviews/hubs.md) or queue a decision for Max.", None),),
     "conversation-session": (("session belongs to a conversation and continues only in its conversation", CONVERSATION_FIX),),
     "push-location": (("workspace refused: {checkout_problem}", "{checkout_fix}"),
                       ("workspace refused; the daemon log names the check", "choose a committed feature branch in a full clone")),
@@ -438,6 +450,7 @@ BY_POLICY = "by_policy"
 _BY_POLICY_FIX = "pass -s read-only"
 
 _SHAPES = {
+    "review_subject": re.compile(r"[^\x00-\x1f\x7f]{1,2000}\Z"),
     "job_id": re.compile(r"[0-9]{8}-[0-9]{6}-[a-z0-9-]{1," + str(JOB_ID_SLUG_MAX) + r"}\Z"),
     "lane_id": re.compile(r"(?:codex|claude)-[1-9][0-9]{0,8}\Z"),
     # A policy task name; the policy file is the operator's, the value still has a shape.
@@ -503,6 +516,8 @@ def checked(name: str, value: Any) -> bool:
     if name in _COUNTS:
         return type(value) is int and 0 <= value < 10 ** 9
     if type(value) is not str:
+        return False
+    if name == "review_subject" and not value.isprintable():
         return False
     choices = _choices()
     if name in choices:

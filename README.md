@@ -149,6 +149,21 @@ bin/sf2 runs show JOB_ID --out
 bin/sf2 resume JOB_ID 'Continue with these additional instructions.'
 ```
 
+Review and caller flags:
+
+| Command | Behavior |
+| --- | --- |
+| `subfleet run --caller-family claude -C DIR -p PROMPT --task research` | Record the requesting family; overrides `SUBFLEET_CALLER_FAMILY` and detection. |
+| `subfleet run --task review --subject PR_URL -C DIR -p PROMPT` | Normalize a GitHub PR URL and assign its next review round, up to four. |
+| `subfleet run --task review --subject KEY --round 2 -C DIR -p PROMPT` | Keep the caller-chosen round, including a re-run of an earlier round. |
+
+`--subject` and `--round` require `--task review`; `--round` also requires a
+subject. A fifth round requires a person. A review with no subject keeps its
+ordinary behavior. `runs --json` and `runs show --json` include `caller_family`,
+`review_subject` and `review_round`; readable `runs` labels review rounds.
+`runs --mine` and `wait --mine` recognize Codex's `CODEX_THREAD_ID` (then
+`CODEX_SESSION_ID`), after `CLAUDE_CODE_SESSION_ID` and `SUBFLEET_SESSION_ID`.
+
 Writable detached Claude jobs start with no MCP servers. Opt one job into the
 servers it needs by repeating `--mcp NAME`:
 
