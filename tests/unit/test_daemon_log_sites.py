@@ -907,9 +907,11 @@ TRACEBACK_PRINTERS = frozenset({"traceback.print_exc", "traceback.print_exceptio
                                 "traceback.print_tb", "traceback.print_stack"})
 #: Front ends whose stdout and stderr are a person's terminal or a hook's caller, never
 #: daemon.log: the CLIs, the v1 shim and the hook entry point, each run in its own
-#: process. A daemon loads none of them at start, and each writes its streams.
+#: process. A daemon loads none of them at start, and each writes its streams. C-3.8's
+#: offline pass (`python -m subfleet.compact_store`) runs only while the daemon is stopped.
 TERMINAL_MODULES = frozenset({"subfleet/cli.py", "subfleet/compat.py", "subfleet/hooks.py", "subfleet/importer.py",
-                              "subfleet/prune_decisions.py", "subfleet/gate/cli.py", "subfleet/sessions/cli.py"})
+                              "subfleet/prune_decisions.py", "subfleet/gate/cli.py", "subfleet/sessions/cli.py",
+                              "subfleet/compact_store.py"})
 #: The writer: what it writes to stderr itself is the formatter's output or fixed words.
 WRITER = "subfleet/daemon_log.py"
 #: Entry points that run only in a process of their own (#221 review r6, P2-1): the

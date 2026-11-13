@@ -1,0 +1,90 @@
+{
+  "pristine_sha256": "1e1e8facc9dbe1d0f05f5ba656137a9ad6b23f035269a9417dcb72c2c03bafad",
+  "mutants": [
+    {
+      "mutant": "digest",
+      "test": "test_valid_output_with_changed_value_is_never_published",
+      "argv": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/unit/test_compact_store.py",
+        "-k",
+        "test_valid_output_with_changed_value_is_never_published",
+        "-x",
+        "--tb=short",
+        "--timeout=120",
+        "--basetemp",
+        "/private/tmp/store-compact-217/pytest-mutant-digest"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "log": "F\n=================================== FAILURES ===================================\n___________ test_valid_output_with_changed_value_is_never_published ____________\ntests/unit/test_compact_store.py:504: in test_valid_output_with_changed_value_is_never_published\n    with pytest.raises(compact_store.CompactVerificationError, match=\"digest|content|differ\"):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   Failed: DID NOT RAISE CompactVerificationError\n=========================== short test summary info ============================\nFAILED tests/unit/test_compact_store.py::test_valid_output_with_changed_value_is_never_published\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 45 deselected in 159.93s (0:02:39)\n"
+    },
+    {
+      "mutant": "rename-before-fsync",
+      "test": "test_temp_database_is_fsynced_before_rename",
+      "argv": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/unit/test_compact_store.py",
+        "-k",
+        "test_temp_database_is_fsynced_before_rename",
+        "-x",
+        "--tb=short",
+        "--timeout=120",
+        "--basetemp",
+        "/private/tmp/store-compact-217/pytest-mutant-rename-before-fsync"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "log": "F\n=================================== FAILURES ===================================\n_________________ test_temp_database_is_fsynced_before_rename __________________\ntests/unit/test_compact_store.py:374: in test_temp_database_is_fsynced_before_rename\n    compact_store.compact(tmp_path, apply=True)\nsubfleet/compact_store.py:537: in compact\n    os.replace(temporary, database)\ntests/unit/test_compact_store.py:368: in publish\n    assert (stat.st_dev, stat.st_ino) in fsynced, \"published before fsync\"\nE   AssertionError: published before fsync\nE   assert (16777233, 2909859548) in {(16777233, 2909858002), (16777233, 2909858330)}\n=========================== short test summary info ============================\nFAILED tests/unit/test_compact_store.py::test_temp_database_is_fsynced_before_rename\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 45 deselected in 101.78s (0:01:41)\n"
+    },
+    {
+      "mutant": "daemon-check",
+      "test": "test_daemon_lock_refusal_changes_no_byte",
+      "argv": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/unit/test_compact_store.py",
+        "-k",
+        "test_daemon_lock_refusal_changes_no_byte",
+        "-x",
+        "--tb=short",
+        "--timeout=120",
+        "--basetemp",
+        "/private/tmp/store-compact-217/pytest-mutant-daemon-check"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "log": "F\n=================================== FAILURES ===================================\n_______________ test_daemon_lock_refusal_changes_no_byte[False] ________________\ntests/unit/test_compact_store.py:202: in test_daemon_lock_refusal_changes_no_byte\n    with pytest.raises(compact_store.CompactRefused, match=\"daemon|lock\"):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   Failed: DID NOT RAISE CompactRefused\n=========================== short test summary info ============================\nFAILED tests/unit/test_compact_store.py::test_daemon_lock_refusal_changes_no_byte[False]\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 44 deselected in 105.62s (0:01:45)\n"
+    },
+    {
+      "mutant": "auto-vacuum",
+      "test": "test_compact_preserves_every_table_and_index_and_enables_incremental",
+      "argv": [
+        "/Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/unit/test_compact_store.py",
+        "-k",
+        "test_compact_preserves_every_table_and_index_and_enables_incremental",
+        "-x",
+        "--tb=short",
+        "--timeout=120",
+        "--basetemp",
+        "/private/tmp/store-compact-217/pytest-mutant-auto-vacuum"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "log": "F\n=================================== FAILURES ===================================\n_____ test_compact_preserves_every_table_and_index_and_enables_incremental _____\ntests/unit/test_compact_store.py:161: in test_compact_preserves_every_table_and_index_and_enables_incremental\n    report = compact_store.compact(tmp_path, apply=True)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsubfleet/compact_store.py:512: in compact\n    report.after = _verify(target, before)\n                   ^^^^^^^^^^^^^^^^^^^^^^^\nsubfleet/compact_store.py:434: in _verify\n    raise CompactVerificationError(\"compacted auto_vacuum is not INCREMENTAL\")\nE   subfleet.compact_store.CompactVerificationError: compacted auto_vacuum is not INCREMENTAL\n=========================== short test summary info ============================\nFAILED tests/unit/test_compact_store.py::test_compact_preserves_every_table_and_index_and_enables_incremental\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 45 deselected in 187.38s (0:03:07)\n"
+    }
+  ],
+  "restored_sha256": "1e1e8facc9dbe1d0f05f5ba656137a9ad6b23f035269a9417dcb72c2c03bafad"
+}

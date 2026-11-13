@@ -1018,6 +1018,9 @@ class Timers:
     def probe_cycle(self):
         if self.cancel.is_set():
             return
+        # C-3.8: one bounded free-page step per existing probe cycle (normally
+        # 60 s), before provider work. NONE stores return without issuing SQL.
+        self.store.incremental_vacuum(cancel=self.cancel)
         self._cycle_error = None
         self._identities()
         # An immediately requested next cycle may inherit spacing from its

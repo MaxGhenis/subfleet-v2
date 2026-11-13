@@ -1,0 +1,100 @@
+{
+  "regression-final-1": {
+    "tests": 851,
+    "passed": 836,
+    "failed": 15,
+    "failures": [
+      {
+        "test": "tests.unit.test_store_incremental_vacuum.test_each_step_reclaims_at_most_128_pages",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_store_incremental_vacuum.test_further_deletes_shrink_the_file_through_passive_checkpoints",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_store_readers.test_a_snapshot_proceeds_while_a_transaction_is_open",
+        "message": "assert (464041.497432833 - 464038.565488333) < 2\n +  where 464041.497432833 = <built-in function monotonic>()\n +    where <built-in function monotonic> = time.monotonic"
+      },
+      {
+        "test": "tests.unit.test_store_readers.test_more_snapshots_than_connections_leave_one_statement_reads_a_connection",
+        "message": "assert (464105.540079208 - 464105.274788625) < 0.25\n +  where 464105.540079208 = <built-in function monotonic>()\n +    where <built-in function monotonic> = time.monotonic"
+      },
+      {
+        "test": "tests.unit.test_store_readers.test_a_long_snapshot_holds_the_wal_back_without_holding_a_commit_and_it_shrinks_after",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_handler_refusals.test_every_refusal_the_daemon_builds_names_a_known_reason",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_handler_refusals.test_a_refusal_reads_its_most_specific_checked_form_and_never_its_exception",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_handler_refusals.test_constant_refusal_text_and_its_template_say_the_same_thing",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_handler_refusals.test_a_checked_value_has_its_shape_and_no_free_text",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_handler_refusals.test_the_wire_shows_what_render_says",
+        "message": "_WrappedBaseException() [single exception in FlakyFailure]"
+      },
+      {
+        "test": "tests.unit.test_prune_restore.test_restore_recipe_preserves_backup_and_displaced_files",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_prune_decisions.test_a_report_that_cannot_be_saved_changes_nothing_but_where_it_is",
+        "message": "Failed: Timeout (>120.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.fake.test_state_contract.test_c16_1_state_socket_handler_recovers_after_malformed_line",
+        "message": "TimeoutError: timed out"
+      },
+      {
+        "test": "tests.unit.test_timers_probe.test_tick_is_nonblocking_and_does_not_overlap_one_cycle",
+        "message": "assert (465255.392107125 - 465254.248383083) < 0.2\n +  where 465255.392107125 = <built-in function monotonic>()\n +    where <built-in function monotonic> = time.monotonic"
+      },
+      {
+        "test": "tests.unit.test_timers_probe.test_usage_timeout_does_not_block_cycle_or_shutdown",
+        "message": "assert (465302.0775825 - 465299.011388208) < 0.4\n +  where 465302.0775825 = <built-in function monotonic>()\n +    where <built-in function monotonic> = time.monotonic"
+      }
+    ]
+  },
+  "regression-retry-2": {
+    "tests": 13,
+    "passed": 7,
+    "failed": 6,
+    "failures": [
+      {
+        "test": "tests.unit.test_store_readers.test_a_long_snapshot_holds_the_wal_back_without_holding_a_commit_and_it_shrinks_after",
+        "message": "AssertionError: 20.135887207987253\nassert 20.135887207987253 < 2.0"
+      },
+      {
+        "test": "tests.unit.test_handler_refusals.test_a_refusal_reads_its_most_specific_checked_form_and_never_its_exception",
+        "message": "Failed: Timeout (>300.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.unit.test_handler_refusals.test_every_refusal_the_daemon_builds_names_a_known_reason",
+        "message": "Failed: Timeout (>300.0s) from pytest-timeout."
+      },
+      {
+        "test": "tests.fake.test_state_contract.test_c16_1_state_socket_handler_recovers_after_malformed_line",
+        "message": "TimeoutError: timed out"
+      },
+      {
+        "test": "tests.unit.test_prune_restore.test_restore_recipe_preserves_backup_and_displaced_files",
+        "message": "hypothesis.errors.FlakyFailure: Inconsistent results from replaying a test case!\n  last: INTERESTING from Failed at /private/tmp/store-compact-217/uv-cache/archive-v0/VdCBuAITWWl39bwv/lib/python3.13/site-packages/_pytest/outcomes.py:162\n  this: INTERESTING from FlakyStrategyDefinition at /Users/maxghenis/.subfleet/worktrees/20261107-111405-store-compact-build/.venv/lib/python3.13/site-packages/hypothesis/internal/conjecture/datatree.py:1108 (2 sub-exceptions)"
+      },
+      {
+        "test": "tests.unit.test_timers_probe.test_usage_timeout_does_not_block_cycle_or_shutdown",
+        "message": "assert (467862.282980875 - 467858.008504291) < 0.4\n +  where 467862.282980875 = <built-in function monotonic>()\n +    where <built-in function monotonic> = time.monotonic"
+      }
+    ]
+  }
+}
