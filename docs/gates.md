@@ -28,6 +28,8 @@ A peer round is an ordinary `gate-review` job, pinned to the selected model with
 
 Schema 3 adds `isolated_review`, `review_root`, and `round_lease` to jobs. The ordinary attempt admission transaction reserves `gate:<id>:round:<n>` with holder `gate-round:<job-id>`. The distinct holder survives normal terminal export. Gate consumption checks the accepted attempt's model attestation and artifact hash, re-captures the artifact revision, then checks and releases the round lease in the same transaction that records the verdict. A missing or replaced lease discards the output. A client disconnect does not cancel its durable peer job.
 
+Every verdict the gate accepts can be certified (C-23.9, D-GATE-CERT1). `parse_verdict` refuses a number past float range, naming where it sits, because `json.loads` turns `1e1000` into infinity and the certificate's strict re-parse could not read it back. `wrap_verdict` writes each sentinel's first hyphen inside a payload as `\u002d` wherever the gate wraps a verdict in sentinels again: `certificate()` (and so `replay()`) and the peer prompt's template and context. A peer may quote a sentinel in its summary by escaping it; the verdict keeps the decoded text and still certifies.
+
 Unattested or mismatched rounds, and any downgrade record, are discarded and re-run. These physical rounds consume the policy budget. `caps.gate_max_rounds` defaults to 4; a CLI `--max-rounds` can reduce that limit, and the v1 spelling `0` uses the policy limit. A stopped gate names the last verdict or explains why output was not a verdict.
 
 ## Merge actions
