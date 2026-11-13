@@ -29,6 +29,10 @@ class Clock:
         at = datetime(2026, 10, 22, 11, tzinfo=timezone.utc) + timedelta(seconds=self.wall_seconds)
         return at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
+    def age(self, stamp):
+        return (datetime.fromisoformat(self.stamp().replace("Z", "+00:00"))
+                - datetime.fromisoformat(stamp.replace("Z", "+00:00"))).total_seconds()
+
     def set(self, seconds, *, wall=None):
         self.seconds = seconds
         self.wall_seconds = seconds if wall is None else wall
@@ -48,6 +52,12 @@ def evidence(core):
 
 def liveness_events(core):
     return [row for row in core.store.list_events(JOB) if row["kind"] == "attempt.observed_alive"]
+
+
+def saved_liveness_age(core, clock):
+    saved = datetime.fromisoformat(evidence(core)["last_observed_alive_at"].replace("Z", "+00:00"))
+    current = datetime.fromisoformat(clock.stamp().replace("Z", "+00:00"))
+    return (current - saved).total_seconds()
 
 
 def test_liveness_writes_at_the_minute_boundary_and_keeps_writing(daemon, monkeypatch):
@@ -136,6 +146,77 @@ def test_liveness_wall_clock_rollback_never_moves_saved_observation_backwards(da
     assert evidence(daemon)["last_observed_alive_at"] == clock.stamp()
 
 
+def test_rollback_floor_can_increase_lost_charge_relative_to_old_implementation(
+        daemon, monkeypatch, tmp_path):
+    clock = Clock(monkeypatch)
+    monkeypatch.setattr(daemon_module, "age", clock.age)
+    daemon.store.update_attempt(ATTEMPT, started_at=clock.stamp())
+    reference_store = Store(tmp_path / "reference.sqlite3")
+    daemon.store.connection.backup(reference_store.connection)
+    # _lost records the charge endpoint before finalization; isolate that
+    # decision from stream capture, salvage and terminal-state publication.
+    reference = SimpleNamespace(store=reference_store, _finalize=lambda *args, **kwargs: None)
+    monkeypatch.setattr(daemon, "_finalize", lambda *args, **kwargs: None)
+    try:
+        for monotonic, wall in ((100, 100), (160, 95)):
+            clock.set(monotonic, wall=wall)
+            snapshot = table()
+            _record_owned_before_pacing(reference, attempt(reference), snapshot)
+            daemon._record_owned(attempt(daemon), snapshot)
+        clock.set(170, wall=110)
+        daemon_module.Daemon._lost(reference, attempt(reference), census=EMPTY)
+        daemon._lost(attempt(daemon), census=EMPTY)
+        assert daemon_module.Daemon._running_s(reference, JOB) == 95
+        assert daemon._running_s(JOB) == 100
+        assert attempt(reference)["finished_at"] == evidence(reference)["last_observed_alive_at"]
+        assert attempt(daemon)["finished_at"] == evidence(daemon)["last_observed_alive_at"]
+    finally:
+        reference_store.close()
+
+
+def test_rollback_future_saved_observation_caps_lost_charge_at_current_wall_time(daemon, monkeypatch):
+    clock = Clock(monkeypatch)
+    monkeypatch.setattr(daemon_module, "age", clock.age)
+    daemon.store.update_attempt(ATTEMPT, started_at=clock.stamp())
+    monkeypatch.setattr(daemon, "_finalize", lambda *args, **kwargs: None)
+    clock.set(100)
+    daemon._record_owned(attempt(daemon), table())
+    saved = evidence(daemon)["last_observed_alive_at"]
+    clock.set(101, wall=90)
+    daemon._record_owned(attempt(daemon), table())
+    assert evidence(daemon)["last_observed_alive_at"] == saved
+    assert clock.age(saved) == -10
+    daemon._lost(attempt(daemon), census=EMPTY)
+    assert attempt(daemon)["finished_at"] == clock.stamp()
+    assert daemon._running_s(JOB) == 90
+
+
+@pytest.mark.parametrize("refresh_after_step", [False, True], ids=["before-refresh", "after-refresh"])
+def test_forward_wall_clock_step_has_no_minute_freshness_or_charge_bound(
+        daemon, monkeypatch, refresh_after_step):
+    clock = Clock(monkeypatch)
+    monkeypatch.setattr(daemon_module, "age", clock.age)
+    daemon.store.update_attempt(ATTEMPT, started_at=clock.stamp())
+    monkeypatch.setattr(daemon, "_finalize", lambda *args, **kwargs: None)
+    daemon._record_owned(attempt(daemon), table())
+    # Monotonic time advances normally, while the observation's wall clock
+    # jumps forward. Pacing therefore cannot give a wall-clock freshness bound.
+    clock.set(1, wall=3600)
+    daemon._record_owned(attempt(daemon), table())
+    assert saved_liveness_age(daemon, clock) == 3600
+    assert not liveness_events(daemon)
+    if refresh_after_step:
+        clock.set(60, wall=3659)
+        daemon._record_owned(attempt(daemon), table())
+        assert saved_liveness_age(daemon, clock) == 0
+        assert len(liveness_events(daemon)) == 1
+    daemon._lost(attempt(daemon), census=EMPTY)
+    # A loss before refresh retains the old endpoint. A loss after refresh
+    # includes the wall-clock step in its charge, despite only 60 monotonic s.
+    assert daemon._running_s(JOB) == (3659 if refresh_after_step else 0)
+    assert attempt(daemon)["finished_at"] == evidence(daemon)["last_observed_alive_at"]
+
+
 def test_liveness_first_fresh_observation_after_restart_writes(daemon, monkeypatch):
     clock = Clock(monkeypatch)
     daemon._record_owned(attempt(daemon), table())
@@ -183,8 +264,57 @@ def test_failed_liveness_commit_retries_the_same_table_and_observation(daemon, m
 
 
 
-def test_liveness_pace_starts_after_a_slow_successful_commit(daemon, monkeypatch):
+@pytest.mark.parametrize(
+    ("kind", "changed"),
+    [("attempt.processes_recorded", {"extra_owned": True}),
+     ("attempt.counted_recorded", {"escaped": (4400, 4401)})],
+    ids=["owned", "counted"],
+)
+def test_failed_identity_commit_does_not_consume_pace(daemon, monkeypatch, kind, changed):
     clock = Clock(monkeypatch)
+    daemon._record_owned(attempt(daemon), table())
+    original_pace = dict(daemon._last_observed_alive_write)
+    saved = evidence(daemon)
+    previous_table = daemon._counted_tables[ATTEMPT]
+    snapshot = table(**changed)
+    clock.set(59)
+    real_transaction = daemon.store.transaction
+
+    @contextmanager
+    def fail_at_commit(event_kind="state.changed", **kwargs):
+        with real_transaction(event_kind, **kwargs) as tx:
+            yield tx
+            if event_kind == kind:
+                raise sqlite3.OperationalError("injected identity commit refusal")
+
+    monkeypatch.setattr(daemon.store, "transaction", fail_at_commit)
+    a = attempt(daemon)
+    with pytest.raises(sqlite3.OperationalError, match="injected identity commit refusal"):
+        daemon._record_owned(a, snapshot)
+    assert daemon._last_observed_alive_write == original_pace
+    assert evidence(daemon) == saved
+    assert json.loads(a["evidence_json"]) == saved
+    assert daemon._counted_tables[ATTEMPT] is previous_table
+
+    monkeypatch.setattr(daemon.store, "transaction", real_transaction)
+    daemon._record_owned(a, snapshot)
+    assert evidence(daemon)["last_observed_alive_at"] == clock.stamp()
+    assert daemon._last_observed_alive_write[ATTEMPT] == 59
+    assert daemon._counted_tables[ATTEMPT] is snapshot
+    clock.set(60)
+    daemon._record_owned(attempt(daemon), table(**changed))
+    assert not liveness_events(daemon)
+    clock.set(119)
+    daemon._record_owned(attempt(daemon), table(**changed))
+    assert evidence(daemon)["last_observed_alive_at"] == clock.stamp()
+    assert len(liveness_events(daemon)) == 1
+
+
+def test_liveness_pace_starts_at_observation_before_a_slow_successful_commit(daemon, monkeypatch):
+    clock = Clock(monkeypatch)
+    monkeypatch.setattr(daemon_module, "age", clock.age)
+    daemon.inspect_interval_s = 1
+    daemon.store.update_attempt(ATTEMPT, started_at=clock.stamp())
     daemon._record_owned(attempt(daemon), table())
     real_transaction = daemon.store.transaction
     delayed = False
@@ -196,19 +326,62 @@ def test_liveness_pace_starts_after_a_slow_successful_commit(daemon, monkeypatch
             yield tx
             if kind == "attempt.observed_alive" and not delayed:
                 delayed = True
-                clock.set(70)  # The observation at60 does not commit until70.
+                clock.set(70)  # The observation at 60 does not commit until 70.
 
     monkeypatch.setattr(daemon.store, "transaction", slow_commit)
     clock.set(60)
     daemon._record_owned(attempt(daemon), table())
     assert len(liveness_events(daemon)) == 1
-    clock.set(120)
-    daemon._record_owned(attempt(daemon), table())
-    assert len(liveness_events(daemon)) == 1
-    clock.set(130)
-    daemon._record_owned(attempt(daemon), table())
+    assert saved_liveness_age(daemon, clock) == 10
+    for seconds in range(71, 130):
+        clock.set(seconds)
+        daemon._record_owned(attempt(daemon), table())
+        assert saved_liveness_age(daemon, clock) <= 60 + daemon.inspect_interval_s
     assert len(liveness_events(daemon)) == 2
-    assert evidence(daemon)["last_observed_alive_at"] == clock.stamp()
+    assert saved_liveness_age(daemon, clock) == 9
+    monkeypatch.setattr(daemon, "_finalize", lambda *args, **kwargs: None)
+    daemon._lost(attempt(daemon), census=EMPTY)
+    assert daemon._running_s(JOB) == 120
+
+
+def test_replacing_commit_latency_is_included_in_saved_observation_age(daemon, monkeypatch):
+    clock = Clock(monkeypatch)
+    daemon.inspect_interval_s = 1
+    daemon._record_owned(attempt(daemon), table())
+    real_transaction = daemon.store.transaction
+    durable_ages = []
+    reader = sqlite3.connect(daemon.store.path.resolve().as_uri() + "?mode=ro", uri=True)
+
+    @contextmanager
+    def slow_commit(kind="state.changed", **kwargs):
+        with real_transaction(kind, **kwargs) as tx:
+            yield tx
+            if kind == "attempt.observed_alive":
+                clock.set(70 if not durable_ages else 129)
+                saved = json.loads(reader.execute(
+                    "SELECT evidence_json FROM attempts WHERE attempt_id=?", (ATTEMPT,)
+                ).fetchone()[0])["last_observed_alive_at"]
+                age = (datetime.fromisoformat(clock.stamp().replace("Z", "+00:00"))
+                       - datetime.fromisoformat(saved.replace("Z", "+00:00"))).total_seconds()
+                durable_ages.append(age)
+                # The old observation remains durable while its replacement
+                # commits, so that write's latency belongs in the bound.
+                assert age <= 60 + daemon.inspect_interval_s + 10
+                if len(durable_ages) == 2:
+                    clock.set(130)
+
+    monkeypatch.setattr(daemon.store, "transaction", slow_commit)
+    try:
+        clock.set(60)
+        daemon._record_owned(attempt(daemon), table())
+        for seconds in range(71, 121):
+            clock.set(seconds)
+            daemon._record_owned(attempt(daemon), table())
+        assert durable_ages == [70, 69]
+        assert saved_liveness_age(daemon, clock) == 10
+        assert len(liveness_events(daemon)) == 2
+    finally:
+        reader.close()
 
 
 def test_repeated_table_cannot_advance_saved_liveness_even_after_minute(daemon, monkeypatch):

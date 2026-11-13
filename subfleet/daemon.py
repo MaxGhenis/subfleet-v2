@@ -862,7 +862,7 @@ class Daemon:
         self._cwd_settle: dict[str, float] = {}
         self._cwd_recheck_next: dict[str, float] = {}
         self._counted_tables: dict[str, procs.ProcessTable] = {}
-        # C-5.12: monotonic time of each attempt's last committed observation.
+        # C-5.12: monotonic sampling time of each attempt's last committed observation.
         # A restart forgets this pace, so its first fresh observation writes.
         self._last_observed_alive_write: dict[str, float] = {}
         # C-26.14: attempt id -> transient failures of its end snapshot so far.
@@ -10740,6 +10740,8 @@ class Daemon:
         # Retrying the same shared table must neither move that bound nor age
         # a counted identity twice, even if the clock has advanced meanwhile.
         observed = utcnow_ms() if previous_table is not table else None
+        # Anchor the pace to the observation, so commit latency cannot
+        # postpone the next refresh. Publish it only after a successful commit.
         observed_at = time.monotonic()
         writes = self.__dict__.setdefault('_last_observed_alive_write', {})
         wrote = False
@@ -10786,7 +10788,7 @@ class Daemon:
                            (encoded, a["attempt_id"]))
             a["evidence_json"] = encoded
             if observed is not None:
-                writes[a['attempt_id']] = time.monotonic()
+                writes[a['attempt_id']] = observed_at
             wrote = True
         if (not wrote and observed is not None
                 and (a['attempt_id'] not in writes
@@ -10802,7 +10804,7 @@ class Daemon:
                 tx.execute('UPDATE attempts SET evidence_json=? WHERE attempt_id=?',
                            (encoded, a['attempt_id']))
             a['evidence_json'] = encoded
-            writes[a['attempt_id']] = time.monotonic()
+            writes[a['attempt_id']] = observed_at
         # A failed write must repeat this observation, rather than publishing
         # a table whose first-miss state never reached the store.
         history[a['attempt_id']] = table
