@@ -9,6 +9,8 @@ left a job waiting recorded one, because admission's transaction opened as
 writes the values the row already holds.
 """
 
+import json
+
 import pytest
 
 from subfleet.adapters.registry import register
@@ -150,3 +152,138 @@ def test_c3_8_a_pair_that_changed_after_its_probe_records_the_wait(fleet, monkey
     assert service._holds[job_id]["reason"] == "probe-pending"
     assert ADMISSION_EVENT in kinds(service, job_id) and RESERVATION_EVENT not in kinds(service, job_id)
     assert service.store.list_attempts(job_id) == []
+    data = [row for row in service.store.list_events(job_id) if row["kind"] == ADMISSION_EVENT]
+    hold = service._holds[job_id]
+    assert json.loads(data[-1]["data_json"]) == {
+        "reason": "probe-pending", "next_check_at": service.store.get_job(job_id)["next_check_at"],
+        **{key: hold[key] for key in ("lane", "model") if hold.get(key)}}
+
+
+# --- C-3.8: a repeated wait records nothing ---------------------------------------------------
+
+def waits(daemon, job_id):
+    return [json.loads(row["data_json"]) for row in daemon.store.list_events(job_id) if row["kind"] == ADMISSION_EVENT]
+
+
+class Restartable:
+    """The service fixture's daemon, which a test may stop and start again on the same root."""
+
+    def __init__(self, harness, monkeypatch):
+        self.harness, self.monkeypatch, self.daemon = harness, monkeypatch, None
+        self.start()
+
+    def start(self):
+        self.daemon = Daemon(self.harness.root, desktop_prober=lambda: None)
+        self.monkeypatch.setattr(self.daemon, "_launch", lambda *args: pytest.fail("nothing here may launch a guardian"))
+        return self.daemon
+
+    def restart(self):
+        self.daemon.close()
+        return self.start()
+
+
+@pytest.fixture
+def restartable(tmp_path, monkeypatch, process_inspection_available):
+    root = tmp_path / "state"
+    root.mkdir()
+    harness = Harness(root)
+    register("codex", FakeAdapter)
+    holder = Restartable(harness, monkeypatch)
+    holder.daemon.store.add_reading(Reading("codex-1", "account", "seven_day", .2, after(86400),
+                                            ReadingLabel.PROVIDER, "fixture", utcnow()))
+    try:
+        yield holder
+    finally:
+        holder.daemon.close()
+
+
+def test_c3_8_a_hundred_looks_at_one_verdict_record_one_wait(service):
+    """C-3.8, C-6.10 a hundred passes that reach one verdict record one `job.capacity_waiting`.
+
+    Its data is the hold's reason and the next look, never the decision (its row holds
+    that). Before C-3.8 each look recorded an `attempt.reserved` with no attempt id."""
+    daemon, harness = service
+    close_lane(daemon)
+    job = daemon.dispatch("submit", harness.submit_args())["job_id"]
+    for _ in range(100):
+        daemon._admit()
+        due(daemon)
+    assert daemon.store.get_job(job)["state"] == "waiting" and daemon.store.list_attempts(job) == []
+    recorded = waits(daemon, job)
+    assert len(recorded) == 1, recorded
+    assert set(recorded[0]) == {"reason", "next_check_at"}, recorded
+    assert RESERVATION_EVENT not in kinds(daemon, job)
+    assert len(daemon.store.list_decisions(job)) == 1        # C-6.10: one decision row, as one event
+
+
+def test_c3_8_a_new_verdict_records_a_new_wait_and_a_reservation_ends_them(restartable):
+    """C-3.8, C-6.10, C-6.5 a closed lane, then an output another job holds, then a free lane:
+    two waits (one per verdict, each recorded once), then one real reservation."""
+    daemon, harness = restartable.daemon, restartable.harness
+    close_lane(daemon)
+    out = str(harness.root / "report.md")
+    job = daemon.dispatch("submit", harness.submit_args(out_path=out))["job_id"]
+    for _ in range(3):
+        daemon._admit()
+        due(daemon)
+    with daemon.store.transaction("fixture.reopen") as tx:
+        tx.execute("DELETE FROM closures")
+        tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                   (f"out:{out}", "some-other-job", utcnow()))
+    for _ in range(3):
+        daemon._admit()
+        due(daemon)
+    assert [data["reason"] for data in waits(daemon, job)][1:] == ["lease-held"]
+    assert len(waits(daemon, job)) == 2
+    with daemon.store.transaction("fixture.free") as tx:
+        tx.execute("DELETE FROM leases WHERE holder='some-other-job'")
+    daemon._admit()
+    attempt = daemon.store.list_attempts(job)[-1]
+    assert [row for row in events(daemon, job) if row[0] == RESERVATION_EVENT] == [
+        (RESERVATION_EVENT, attempt["attempt_id"], "codex-1")]
+    assert len(waits(daemon, job)) == 2
+    assert_reservations_are_real(daemon)
+
+
+def test_c3_8_a_restart_forgets_the_verdict_so_each_waiting_job_records_one_more(restartable):
+    """C-3.8, C-6.10 the record of the last verdict is memory: after a restart the first look
+    records the wait again, once, and the looks after it record nothing."""
+    close_lane(restartable.daemon)
+    job = restartable.daemon.dispatch("submit", restartable.harness.submit_args())["job_id"]
+    for _ in range(4):
+        restartable.daemon._admit()
+        due(restartable.daemon)
+    assert len(waits(restartable.daemon, job)) == 1
+    daemon = restartable.restart()
+    for _ in range(4):
+        daemon._admit()
+        due(daemon)
+    assert len(waits(daemon, job)) == 2
+    assert RESERVATION_EVENT not in kinds(daemon, job)
+
+
+def test_c3_8_a_wait_that_changes_the_job_s_exclusions_records_it(fleet):  # noqa: F811
+    """C-3.8, C-4.5 a look under a repeated verdict that writes new `exclusions` records the
+    wait; the next, writing the same exclusions again, records nothing."""
+    service, harness = fleet
+    service.store.put_closure(Closure("codex-1", "account", after(3600), ClosureReason.PROVIDER_LIMIT,
+                                      ClockSource.REPORTED, "fixture"))
+    job = service.dispatch("submit", harness.submit_args(pinned_model="astra", pinned_lane="codex-1"))["job_id"]
+    service._admit()
+    due(service)
+    service._admit()
+    due(service)
+    assert len(waits(service, job)) == 1
+    # A limited attempt on another lane: C-4.5 excludes that lane from the job from now on.
+    service.store.add_attempt(attempt_id=job + "/a1", job_id=job, seq=1, lane_id="claude-a",
+                              model_requested="claude-opus", state="failed", outcome_class="limited")
+    before = service.store.get_job(job)["exclusions"]
+    service._admit()
+    due(service)
+    after_look = service.store.get_job(job)
+    assert after_look["exclusions"] != before and "claude-a" in json.loads(after_look["exclusions"])
+    assert after_look["state"] == "waiting" and service._capacity_waits[job]["rechecks"] >= 1
+    assert len(waits(service, job)) == 2
+    service._admit()
+    due(service)
+    assert len(waits(service, job)) == 2

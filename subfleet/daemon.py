@@ -7412,6 +7412,25 @@ class Daemon:
             "lane_wait": lane_wait}
         return self._capacity_waits[job_id]["rechecks"]
 
+    def _audit_wait(self, opened: tuple, job: dict, rechecks: int | None, hold: dict, next_check: str | None, *,
+                    state: str | None = "waiting", wait_reason: str | None = "capacity") -> None:
+        """C-3.8: the event of admission's transaction for a look that left `job` waiting.
+
+        `job.capacity_waiting` (`ADMISSION_EVENT`) when the look reached a new verdict
+        (`rechecks` 0, C-6.10) or changed something besides the job's clock: its `state`,
+        `wait_reason` or `exclusions`, against `opened`, the (state, wait_reason, exclusions)
+        the transaction first read. Its data is the hold's reason and the job's next look,
+        with the lane and model the hold names; never the decision, whose row holds it.
+        Otherwise none (`audit_as(None)`): a repeated verdict that only moved the clock adds
+        no event, as it adds no decision row. `rechecks` None is a look that reached no
+        verdict (a folder absent, a ramp hold): only an exclusions change records it.
+        `_capacity_waits` is memory, so after a restart each waiting job records one."""
+        if rechecks == 0 or opened != (state, wait_reason, job["exclusions"]):
+            self.store.audit_as(ADMISSION_EVENT, {"reason": hold["reason"], "next_check_at": next_check,
+                                                  **{key: hold[key] for key in ("lane", "model") if hold.get(key)}})
+        else:
+            self.store.audit_as(None)
+
     def _refresh_hold(self, job_id: str, hold: dict) -> None:
         """C-6.11: a look that changed no verdict and no clock still reports what it found."""
         wait = self._capacity_waits.get(job_id)
@@ -8427,6 +8446,9 @@ class Daemon:
                             self.store.transaction(ADMISSION_EVENT, job_id=job["job_id"]) as tx:
                         read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
                         job = self._job(job["job_id"])
+                        # C-3.8: what a wait compares with to learn whether it changed anything
+                        # besides the job's clock (`job["exclusions"]` is replaced below).
+                        opened = (job["state"], job["wait_reason"], job["exclusions"])
                         if job["cancel_requested_at"] or job["state"] in TERMINAL:
                             status = "gone"
                             break
@@ -8483,6 +8505,7 @@ class Daemon:
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
                                        (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
@@ -8615,6 +8638,8 @@ class Daemon:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
                                        (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, waiting["next_check_at"],     # C-3.8
+                                             wait_reason=waiting["wait_reason"])
                             holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
                             status = "held"
                             if kind == "turn":
@@ -8633,6 +8658,7 @@ class Daemon:
                             rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
@@ -8821,10 +8847,14 @@ class Daemon:
                                                            blocked=blocked)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
                         if absent is not None:
+                            # C-3.8: only the exclusions write above may have run; an unchanged one is no event.
+                            self._audit_wait(opened, job, None, {"reason": "workspace"}, None,
+                                             state=opened[0], wait_reason=opened[1])
                             status = "absent"           # no row on a folder that is not there now
                             break
                         reserved_at = None
@@ -8837,6 +8867,8 @@ class Daemon:
                             self._begin_ramp_pass(now=reserved_at, read=read)
                             hold = self._ramp.hold(klass, reserved_at)
                             if hold:
+                                # C-3.8: as a folder that is absent, above.
+                                self._audit_wait(opened, job, None, hold, None, state=opened[0], wait_reason=opened[1])
                                 ramp_hold = holds[job["job_id"]] = hold
                                 status = "held"
                                 break
