@@ -1,4 +1,4 @@
-# The containment marker under a state root that is not printable ASCII (2026-09-27, revised 2026-10-10)
+# The containment marker under a state root that is not printable ASCII (2026-09-27, revised 2026-10-10 and 2026-11-13)
 
 C-5.5's third source reads `ps -axEww -o pid=,command=` and keeps the processes whose environment carries `SUBFLEET_ATTEMPT=<attempt id>` and `SUBFLEET_ROOT=<state root>`. It matched the root as written. `procs._read` runs `ps` with `LC_ALL=C`, and in the C locale `ps` prints every byte that is not printable ASCII in vis(3) notation, so under `/tmp/subfleet-José-root` the root marker never matched, a marked process that had left its group and its parent chain was in no source, and a census could come back verified empty while it lived. The shipped root, `~/.subfleet`, is ASCII, so this was latent for the one installation, and live for any user whose home path is not ASCII.
 
@@ -10,7 +10,7 @@ C-5.5's third source reads `ps -axEww -o pid=,command=` and keeps the processes 
 - The census stripped both ends of each row. A root that ends in a space ends the row when `SUBFLEET_ROOT` is the last variable, and the strip removed it, so that root never matched either. `peers.process_chain` (C-25.6) stripped the same way.
 - Every launch path sets the markers from `str(self.root)`: attempts and conversation turns (`Daemon._launch`), admission probes, and a Claude lane's enrolment turn. Each census asks with `root=str(self.root)`.
 - Two findings outside this change:
-  - `ps -E` prints no environment for Apple's own executables (`/bin/sh`, `/bin/sleep`, `/usr/bin/env`), as measured here and by the review. That gap is known, with a fix on the unmerged branch `fix/containment-marker-gap` (f715cb14).
+  - `ps -E` prints no environment for Apple's own executables (`/bin/sh`, `/bin/sleep`, `/usr/bin/env`), as measured here and by the review. On release/217, C-5.5's D-KILL2 text records this: the kernel returns a platform, hardened-runtime binary's buffer with no environment strings, so the census finds such a process by the group, the walk, responsibility or a recorded identity, never by its marker. `fix/containment-marker-gap` (f715cb14) was never merged; it survives only as `origin/wip/backup-2026-10/fix/containment-marker-gap--containment-marker-gap`.
   - Once, on 2026-09-27 at a load average near 130, a `ps` read taken as soon as `Popen` returned also printed the kernel's `apple[]` strings (`ptr_munge=`, `stack_guard=` and the like) after the environment. A rerun of the same example did not. The review's 801 early reads, some of a child still suspended before its first instruction, never did. Why it happened is not established. Those strings carry no marker, so the census is unaffected either way.
 
 ## Options
@@ -30,7 +30,7 @@ Why (a) is the smallest change that is correct for every root:
 
 What (a) accepts:
 
-- A process counts when its printed line holds both markers as space-bounded tokens, wherever they come from. That covers two roots that print alike (`é` and the text `M-CM-)`; a newline and the text `\012`), a marker inside a longer root that holds a space, a marker in another variable's value, and a marker in argv. All but the first predate this change. Each needs the same attempt id too, the collision C-5.5's second half guards. Each errs toward holding on: no pid that only the marker source found is ever signalled. C-5.6 signals the recorded group and the members recorded as owned, which are taken only from the group while the recorded leader lives (`Daemon._kill_attempt`, `_contain_probe`). The unit tests label these cases intended.
+- A caller's line counts as carrying the root when it holds `SUBFLEET_ROOT=` and the printed root as a substring, wherever they come from. That covers two roots that print alike (`é` and the text `M-CM-)`; a newline and the text `\012`), a root that begins a longer one, a marker inside another variable's value, and a marker in argv. Roots that print alike predated this change in one direction: a check for the ASCII root `/tmp/aM-CM-)` already matched a process whose root is `/tmp/aé` (review r2 finding 4); the change adds the reverse. Since D-CEN1 these cases are C-25.6's alone, where each errs toward refusing a person-only request. The census compares bytes whole and has none of them (section of 2026-11-13).
 - If a later macOS changed the vis flags `ps` passes, matching would break for roots whose bytes those flags treat differently. The process tests fail on such a machine. Nothing makes them run there before a daemon starts, though: CI runs on another host, an installed daemon keeps running across a macOS update, and `daemon install` runs no tests. A runtime canary at daemon start would close that gap: spawn a child with known bytes, compare its `ps` line with `ps_text`, and on a mismatch make the marker source unavailable, so censuses are unverifiable rather than silently empty. It is left as a follow-up, because it adds a process start and a fail-closed lever to every daemon start.
 
 A root or an attempt id that no environment can hold (one with a NUL, or one `os.fsencode` cannot encode) is carried by no process. `ps_text` raises for it, so the census reports its marker source unavailable and the result is unverifiable rather than empty.
@@ -66,3 +66,17 @@ It asked for these documentation fixes, all made in this revision:
 - this fail-before list.
 
 It also suggested a test of the attempt id's rendering (368cf3c) and a refusal of a NUL (done).
+
+## Rebased onto release/217 (2026-11-13)
+
+- **D-CEN1 overtook the census half.** D-CEN1 (8d9fe7e42, 2026-10-13) replaced the `ps -axEww` marker read with in-process `KERN_PROCARGS2` reads. `procs.marker_strings` builds `SUBFLEET_ATTEMPT=` and `SUBFLEET_ROOT=` with `os.fsencode` and refuses a NUL, and `procargs_marked` compares whole strings exactly. Launches write the markers with `os.fsencode` too (`subprocess.py:1904-1907` in CPython 3.14.7; `procs.spawn_disclaimed`). Both sides are the same bytes, with no printing and no strip, so that reader needs no notation. This branch changes no census code: `procs.py` is release/217's byte for byte. `tests/unit/test_census_procargs.py` and `tests/process/test_census_root_bytes_process.py` pin it for every root.
+- **What remains is C-25.6.** `peers.process_chain` reads `ps -Ewwp <pid> -o command=` through `_ps` in the C locale. `_ps_byte`, `PS_BYTES` and `ps_text` now live in `peers.py`; the chain strips only the newline; `judge` looks for the root as `ps` prints it; a root no environment can hold is a refusal (exit 7). Design (a) stays.
+- **Round 2's findings.**
+  1. CI red under a framework Python: the rendering tests read through `peers._ps`, assert a contiguous run bounded by spaces, and check the root-last precondition or skip.
+  2. The signal sentence is cut. Round 2's replacement does not hold on release/217 either: since D-KILL4, C-5.4 and C-5.5 make marked members signal targets in any census ("Markers are signal authority wherever the process runs").
+  3. Fail-before: see the report (`docs/reports/2026-11-13-marker-non-ascii-root-217.md`).
+  4. "All but the first predate this change" is corrected above.
+  5. NFD, a variable after the root, and values over 256 bytes now have tests.
+  6. `judge` returns a refusal for an unholdable root; `_person` answers exit 7.
+  7. Wording fixed in the tests and this record.
+- **Follow-up.** Switching C-25.6 to the raw reader would retire both the notation and the runtime canary. Until then the canary is C-25.6's alone: at daemon start, compare one child's `ps` line with `ps_text`, and on a mismatch refuse person-only requests with a named reason. It is not in this branch, because #88 rewrites the same reader and a new reader for a person-only check deserves its own review.
