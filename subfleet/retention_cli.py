@@ -46,11 +46,11 @@ def cmd_retention(args: argparse.Namespace) -> int:
     command = args.retention_command
     as_json = getattr(args, "json", False)
     if command == "outcomes":
-        from .retention_notices import archived_outcomes
+        from .retention_notices import OutcomesLookupError, archived_outcomes
         import sqlite3
         try:
             result = archived_outcomes(root, args.session)
-        except (OSError, ValueError, sqlite3.Error) as exc:
+        except (OutcomesLookupError, OSError, ValueError, sqlite3.Error) as exc:
             return fail(Exit.OPERATIONAL, f"retention outcomes: {exc}")
         if as_json:
             emit(result)

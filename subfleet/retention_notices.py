@@ -40,8 +40,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import Any, Sequence
 
 #: The event that names an outcome notice (its id, session and creation time) and the job.
@@ -50,6 +52,95 @@ RETIRED_EVENT = "retention.notice_retired"
 EXPIRED_EVENT = "retention.notice_outcome_expired"
 #: The unread notices that can pin, in SQL: some session can still read them (IR-17).
 UNREAD_TO_A_SESSION = "state IN ('pending','offered') AND session_id IS NOT NULL AND session_id <> ''"
+
+# Each autocommit SELECT releases its WAL snapshot before the next page.
+OUTCOME_PAGE_SIZE = 1000
+OUTCOME_STATEMENT_TIMEOUT_S = 1.0
+OUTCOME_LOOKUP_TIMEOUT_S = 30.0
+
+
+class OutcomesLookupError(RuntimeError):
+    """An explicit failure to read complete archived outcome history."""
+
+
+class OutcomesLookupDeadlineError(OutcomesLookupError):
+    """The statement or whole lookup exceeded its time budget."""
+
+
+class OutcomesLookupDirectoryError(OutcomesLookupError):
+    """SQLite could not use its WAL coordination files."""
+
+
+def _check_outcome_deadline(deadline: float) -> None:
+    if monotonic() >= deadline:
+        raise OutcomesLookupDeadlineError(
+            f"OUTCOMES_LOOKUP_DEADLINE: overall lookup exceeded {OUTCOME_LOOKUP_TIMEOUT_S:g} s; "
+            "no complete history returned; retry when the store or filesystem is less busy")
+
+
+def _outcome_query(store: Any, sql: str, params: Sequence[Any], deadline: float) -> list[dict[str, Any]]:
+    """Bound SQLite execution and materialization, without an explicit transaction."""
+    _check_outcome_deadline(deadline)
+    statement_deadline = monotonic() + OUTCOME_STATEMENT_TIMEOUT_S
+    expired = None
+
+    def progress() -> int:
+        nonlocal expired
+        now = monotonic()
+        if now >= deadline:
+            expired = "overall lookup"
+        elif now >= statement_deadline:
+            expired = "statement"
+        return int(expired is not None)
+
+    store.connection.set_progress_handler(progress, 100)
+    try:
+        try:
+            rows = store.query(sql, params)
+        except sqlite3.OperationalError as exc:
+            # SQLite does not call progress while waiting for a lock or I/O.
+            progress()
+            if expired is None:
+                raise
+            budget = OUTCOME_LOOKUP_TIMEOUT_S if expired == "overall lookup" else OUTCOME_STATEMENT_TIMEOUT_S
+            raise OutcomesLookupDeadlineError(
+                f"OUTCOMES_LOOKUP_DEADLINE: {expired} exceeded {budget:g} s; "
+                "no complete history returned; retry when the store or filesystem is less busy") from exc
+        _check_outcome_deadline(deadline)
+        if monotonic() >= statement_deadline:
+            raise OutcomesLookupDeadlineError(
+                f"OUTCOMES_LOOKUP_DEADLINE: statement exceeded {OUTCOME_STATEMENT_TIMEOUT_S:g} s; "
+                "no complete history returned; retry when the store or filesystem is less busy")
+        return rows
+    finally:
+        store.connection.set_progress_handler(None, 0)
+
+
+def _outcome_events(store: Any, session_id: str, deadline: float) -> list[dict[str, Any]]:
+    # events_kind(kind,event_id DESC) supports the upper bound and keyset pages.
+    # session_id lives only in JSON; no existing index can narrow it by session.
+    upper = _outcome_query(store, "SELECT COALESCE(MAX(event_id), 0) AS upper_event_id "
+                           "FROM events WHERE kind=?", (RETIRED_EVENT,), deadline)[0]["upper_event_id"]
+    last = 0
+    events = []
+    while last < upper:
+        page = _outcome_query(store, "SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? "
+                              "AND event_id>? AND event_id<=? ORDER BY event_id LIMIT ?",
+                              (RETIRED_EVENT, last, upper, OUTCOME_PAGE_SIZE), deadline)
+        if not page:
+            break
+        last = page[-1]["event_id"]
+        for event in page:
+            _check_outcome_deadline(deadline)
+            try:
+                record = json.loads(event["data_json"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(record, dict) and record.get("session_id") == session_id:
+                events.append(event)
+        if len(page) < OUTCOME_PAGE_SIZE:
+            break
+    return events
 
 
 def stamp(moment: datetime) -> str:
@@ -201,21 +292,37 @@ def archived_outcomes(root: Path, session_id: str) -> dict[str, Any]:
     daemon.lock or deletes state-root files, and leaves the main database bytes
     unchanged. It allocates no database copy and starts no helper process.
     `read_only=true` and `read_only_scope=records` describe this record-only promise.
+    The folder must be writable when SQLite needs to create WAL/SHM files;
+    usable existing sidecars also permit a read-only folder. Events are read in
+    pages of at most 1,000, with separate snapshots, up to an id captured once
+    before paging. Later events are excluded. A statement has a one-second
+    progress deadline and the whole lookup has a 30-second deadline; exceeding
+    either raises OutcomesLookupDeadlineError, never a partial history.
     An unavailable archive is reported explicitly rather than losing its outcome.
     """
     from . import retention_fs as rfs
     from .store import Store
 
+    deadline = monotonic() + OUTCOME_LOOKUP_TIMEOUT_S
     root = Path(root).resolve()
     database = root / "state.sqlite3"
     if database.resolve().parent != root:
         raise ValueError("state.sqlite3 is outside the state root")
     report: dict[str, Any] = {"session_id": session_id, "read_only": True, "read_only_scope": "records",
                               "outcomes": [], "errors": []}
-    with Store(database, read_only=True) as store:
-        events = store.query("SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id",
-                             (RETIRED_EVENT,))
+    try:
+        with Store(database, read_only=True) as store:
+            store.connection.execute("PRAGMA busy_timeout=1000")
+            events = _outcome_events(store, session_id, deadline)
+    except sqlite3.OperationalError as exc:
+        if (getattr(exc, "sqlite_errorcode", 0) & 0xff) == sqlite3.SQLITE_READONLY:
+            raise OutcomesLookupDirectoryError(
+                f"OUTCOMES_LOOKUP_READONLY_DIRECTORY: SQLite cannot use -wal/-shm coordination files in {root}; "
+                "make the state directory writable so SQLite can create them, or provide usable existing "
+                "state.sqlite3-wal and state.sqlite3-shm files, then retry") from exc
+        raise
     for event in events:
+        _check_outcome_deadline(deadline)
         try:
             record = json.loads(event["data_json"])
         except (TypeError, ValueError):
@@ -258,4 +365,5 @@ def archived_outcomes(root: Path, session_id: str) -> dict[str, Any]:
             })
         except (OSError, ValueError, KeyError, TypeError) as exc:
             report["errors"].append({"job_id": event["job_id"], "error": str(exc)})
+    _check_outcome_deadline(deadline)
     return report

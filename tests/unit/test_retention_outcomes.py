@@ -5,6 +5,7 @@ recreates no notice and pins no job. All state roots here are disposable.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import sqlite3
@@ -15,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from subfleet import cli, retention
+from subfleet import cli, compat, retention, retention_cli
 from subfleet import retention_notices as rnotices
 from subfleet.store import Store
 
@@ -71,7 +72,7 @@ def test_outcomes_writer_opens_and_commits_while_original_database_read_is_held(
     writer_commits = []
 
     def query_with_starting_writer(reader, sql, params=()):
-        if reader.read_only and "FROM events WHERE kind=?" in sql:
+        if reader.read_only and "SELECT event_id, ts, job_id, data_json FROM events" in sql:
             assert reader.path == root / "state.sqlite3"
             reader.connection.execute("BEGIN")
             try:
@@ -156,7 +157,7 @@ def test_outcomes_opens_store_read_only_and_sqlite_rejects_writes(retired, monke
 
     monkeypatch.setattr(Store, "query", query_read_only)
     report = rnotices.archived_outcomes(root, "s-one")
-    assert checked == [True]
+    assert checked == [True, True]  # Captured upper id, then the only event page.
     assert report["errors"] == []
     assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-one"]]]
 
@@ -233,6 +234,34 @@ def test_outcomes_cli_has_json_and_readable_offline_output(retired, monkeypatch,
     assert cli.main(["retention", "outcomes", "--session", "no-such-session", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["outcomes"] == []
     assert store.query("SELECT * FROM service_notices") == []
+
+
+@pytest.mark.parametrize("entrypoint", ["retention-handler", "cli-main", "compat-dispatch"])
+@pytest.mark.parametrize("as_json", [False, True], ids=["text", "json"])
+def test_outcomes_every_entrypoint_reports_a_real_deadline_failure(retired, monkeypatch, capsys,
+                                                                  entrypoint, as_json):
+    root, _, _ = retired
+    monkeypatch.setenv("SUBFLEET_HOME", str(root))
+    # Exercise the real deadline check instead of replacing the lookup with an
+    # exception stub. Every route must report failure before emitting history.
+    monkeypatch.setattr(rnotices, "OUTCOME_LOOKUP_TIMEOUT_S", 0.0)
+    argv = ["retention", "outcomes", "--session", "s-one"]
+    if as_json:
+        argv.append("--json")
+    capsys.readouterr()
+    if entrypoint == "retention-handler":
+        code = retention_cli.cmd_retention(argparse.Namespace(
+            retention_command="outcomes", session="s-one", json=as_json))
+    elif entrypoint == "cli-main":
+        code = cli.main(argv)
+    else:
+        code = compat.dispatch(argv, env={})
+    captured = capsys.readouterr()
+    assert code == 1
+    assert captured.out == ""
+    assert "retention outcomes:" in captured.err
+    assert "OUTCOMES_LOOKUP_DEADLINE" in captured.err
+    assert "no complete history returned" in captured.err
 
 
 def test_outcomes_lookup_never_creates_a_missing_state_root(tmp_path, monkeypatch, capsys):
