@@ -33,6 +33,11 @@ from subfleet.contracts import (
 from subfleet.credentials import install_keychain_exec_guard
 
 TESTS = Path(__file__).resolve().parent
+#: C-10.9: the entry point a Claude desktop session carries. A suite run from a
+#: terminal inside the desktop app inherits it, and every hook test would then
+#: report an account; a test that means a desktop session builds that
+#: environment itself. Removed at configure and put back at unconfigure.
+DESKTOP_SESSION_NAMES = ("CLAUDE_CODE_ENTRYPOINT",)
 FIXTURES = TESTS / "fixtures" / "claude"
 FAKE_CLAUDE = TESTS / "bin" / "claude"
 
@@ -51,7 +56,7 @@ def pytest_configure(config):
     config._subfleet_original_home_env = {
         name: None if credential_shaped(name) else os.environ.get(name)
         for name in ("HOME", "PATH", "UV_CACHE_DIR", PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
-                     *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
+                     *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS, *DESKTOP_SESSION_NAMES)
     }
     # D-PRR1: the credentials the session inherited leave its environment, and
     # every child's that inherits it, until unconfigure; the store that keeps
@@ -65,7 +70,7 @@ def pytest_configure(config):
     os.environ[PYTEST_MARKER] = "1"
     os.environ[PYTEST_SESSION] = str(base)
     os.environ[PYTEST_SESSION_ID] = f"{found.st_dev}:{found.st_ino}:{token}"
-    for name in SAFE_ENV_REMOVALS:
+    for name in (*SAFE_ENV_REMOVALS, *DESKTOP_SESSION_NAMES):
         os.environ.pop(name, None)
     config._subfleet_safe_home_base = base
     os.environ.update({name: str(base / relative)

@@ -252,6 +252,8 @@ def status(view: Mapping[str, Any]) -> str:
         lines.append(disk_line(view["disk"]))
     if view.get("ramp") is not None:
         lines.append(ramp_line(view["ramp"]))
+    if isinstance(view.get("desktop_account"), Mapping):
+        lines.append(desktop_account_line(view["desktop_account"]))
     if view.get("task_holds"):
         # C-11.10: the operator's holds on tasks; lanes stay open to every other task.
         lines.append("Task holds: " + "; ".join(task_hold_line(hold) for hold in view["task_holds"]))
@@ -261,6 +263,7 @@ def status(view: Mapping[str, Any]) -> str:
         # to see that it was refused rather than merely quiet.
         flags = [name for name, enabled in (
             ("desktop", lane.get("desktop")),
+            ("desktop-possible", lane.get("desktop_possible")),
             ("disabled", not lane.get("enabled", True)),
             ("identity-mismatch", lane.get("identity_status") == "mismatch"),
             ("identity-unverified", lane.get("identity_status") == "unverified"),
@@ -375,6 +378,29 @@ def disk_floor_detail(reading: Mapping[str, Any]) -> str:
         if key in reading:
             parts.append(f"{key}: {reading[key]}")
     return "; ".join(parts)
+
+
+def desktop_account_line(account: Mapping[str, Any]) -> str:
+    """C-10.9: the desktop app's account in one line, shared by both status views:
+    its org (8 characters), its lanes ("no lane", or "not linked yet" when no
+    session has reported that org's email), and each signal's source and time,
+    with the usage file's weekly percent."""
+    if not account.get("linked"):
+        where = "not linked yet (Claude lanes not linked elsewhere sort last)"
+    else:
+        where = "on " + ", ".join(account.get("lanes") or ()) if account.get("lanes") else "no lane"
+    signals = []
+    sample, hook = account.get("app_file"), account.get("hook")
+    if isinstance(sample, Mapping):
+        weekly = sample.get("weekly_percent")
+        signals.append(f"app file {sample.get('at')}"
+                       + (f" (weekly {weekly:g}%)" if isinstance(weekly, (int, float)) else ""))
+    if isinstance(hook, Mapping):
+        other = f", org {hook.get('org_prefix')}" if hook.get("org_prefix") != account.get("org_prefix") else ""
+        signals.append(f"hook {hook.get('at')}{other}")
+    source = "app file" if account.get("source") == "app-file" else "hook"
+    return (f"desktop app: org {account.get('org_prefix')} ({source}) {where}; "
+            + ("; ".join(signals) or "no signal"))
 
 
 def ramp_line(reading: Mapping[str, Any]) -> str:

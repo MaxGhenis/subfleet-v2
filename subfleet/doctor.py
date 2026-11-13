@@ -142,6 +142,70 @@ def check_hook_entries(settings: Path | None = None) -> dict[str, Any]:
                "`subfleet daemon install --hooks`")
 
 
+#: C-10.9: a doctor row's patience for the newest `desktop.account` event.
+DESKTOP_REPORT_STALE_S = 24 * 3600
+
+
+def desktop_app_offline(root: Path) -> tuple[Any, list]:
+    """C-10.9: the desktop app's account as the daemon would read it, without one:
+    the usage file's newest sample and the store's `desktop.account` events
+    (read-only, the newest `desktop_app.EVENT_ROWS` rows). Returns the answer
+    (`desktop_app.AppAccount` or None) and the events."""
+    from . import desktop_app
+    events: list = []
+    try:
+        reader = Offline(root)
+        with reader.reading() as conn:
+            if "events" in reader._tables(conn):
+                events = desktop_app.account_events(conn.execute(
+                    "SELECT event_id,data_json FROM events WHERE kind=? ORDER BY event_id DESC LIMIT ?",
+                    (desktop_app.DESKTOP_ACCOUNT_EVENT, desktop_app.EVENT_ROWS)))
+    except (OfflineUnavailable, SchemaTooNew, OSError, ValueError, sqlite3.Error):
+        events = []
+    return desktop_app.resolve(desktop_app.read_app_usage(), events), events
+
+
+def check_desktop_app(root: Path, *, now: Any = None) -> dict[str, Any]:
+    """C-10.9: does a desktop session's report link the app's account to an email?
+
+    Pass when an event links the app's org and the newest event is under 24 h
+    old; unknown otherwise, with the fix that installs the hook. Says when
+    `~/.claude.json` names another account than the app's: routing follows the
+    app, and the hint decides nothing while the app answers."""
+    from datetime import datetime, timezone
+    from . import capacity, desktop_app
+    check = "desktop app's account linked to a lane"
+    fix = "open a session in the Claude desktop app; if none reports, `subfleet daemon install --hooks`"
+    try:
+        app, events = desktop_app_offline(root)
+    except Exception as exc:                           # noqa: BLE001 - a doctor never raises
+        return row(check, UNKNOWN, f"could not read the app's signals ({type(exc).__name__})", fix)
+    now = now or datetime.now(timezone.utc)
+    last = desktop_app.newest(events)
+    if app is None:
+        return row(check, UNKNOWN, "neither the desktop app's usage file nor a desktop session's report "
+                                   "answers; C-10.3 falls back on the profile and ~/.claude.json", fix)
+    hint = None
+    try:
+        hint = capacity.read_desktop_account()
+    except Exception:                                  # noqa: BLE001 - a hint is only a hint
+        hint = None
+    note = ""
+    if app.email and hint and hint.casefold() != app.email.casefold():
+        note = (f"; ~/.claude.json names {hint}, another account than the app's {app.email}: "
+                "routing follows the app (C-10.9)")
+    where = f"org {app.org[:8]} (from the {'usage file' if app.source == 'app-file' else 'hook'})"
+    age = (now - last.order[0]).total_seconds() if last is not None else None
+    if app.email is None:
+        return row(check, UNKNOWN, f"{where} is linked to no email: no desktop session has reported it yet, "
+                                   f"so every Claude lane not linked elsewhere is desktop_possible{note}", fix)
+    if age is None or age > DESKTOP_REPORT_STALE_S:
+        return row(check, UNKNOWN, f"{where} is {app.email}, but no desktop session has reported in 24 h "
+                                   f"(newest {last.observed_at if last else 'never'}){note}", fix)
+    return row(check, PASS, f"{where} is {app.email}, reported {last.observed_at}{note}",
+               "`subfleet status` shows its lanes")
+
+
 def check_symlink() -> dict[str, Any]:
     """Which `subfleet` a session actually runs, and which version it reports."""
     found = shutil.which("subfleet")
@@ -770,6 +834,7 @@ def checks(root: Path, *, live: bool = False,
     rows = [
         check_compat_table(),
         check_hook_entries(settings),
+        check_desktop_app(root),
         check_never_rules(settings),
         check_symlink(),
         check_pythonpath(),

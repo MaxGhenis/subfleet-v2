@@ -49,6 +49,10 @@ OPS = (
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
     "sessions", "pick", "operations", "tasks",
+    # C-10.9: a desktop session's hook reports the app's account. It writes, so it
+    # is not one of `daemon.LOOKUP_OPS`; `descriptors.OBSERVATION_OPS` says why a
+    # report whose client left is not run.
+    "desktop.report",
     *CONVERSATION_OPS,
 )
 

@@ -59,6 +59,10 @@ class Timers:
         # daemon supplies (`Daemon._desktop_in_use`); None judges the desktop lane
         # in use, as a view without the signal does.
         self.desktop_in_use = None
+        # C-10.9: the desktop app's own account (`Daemon._desktop_app`), a callable
+        # the daemon supplies; None, or a call that answers None, leaves the view
+        # judged as before, by the lanes' recorded flags.
+        self.desktop_app = None
         # C-18.1: a probe holder's newest record (the daemon's), for the state
         # status.json shows beside a lane that probe holds; None reads none.
         self.probe_record = None
@@ -941,11 +945,26 @@ class Timers:
         # admission does (review of PR #72's plan: without the signal it read the
         # lane excluded while admission placed work there).
         in_use = self.desktop_in_use() if self.desktop_in_use is not None else None
+        # C-10.9: while the app's own signals answer, status.json and the alerts
+        # judge the desktop lanes by them, as admission does.
+        app = self._desktop_app_answer()
+        desktop = capacity.DesktopIdentity("unverified", app=app) if app is not None else None
         view = capacity.build_view(**rows, now=at, reading_ttl_s=self.policy.get('caps', {}).get('reading_ttl_s', 120),
-                                   desktop_in_use=in_use)
+                                   desktop_in_use=in_use, desktop=desktop)
+        if app is not None:
+            view['desktop_account'] = {**app.summary(view['lanes']), 'in_use': in_use}
         view = self.enrich_view(view, extra)
         view['probe_rows'] = probes
         return view
+
+    def _desktop_app_answer(self):
+        """C-10.9: the daemon's answer, or None; a failure to read it is no answer."""
+        if self.desktop_app is None:
+            return None
+        try:
+            return self.desktop_app()
+        except Exception:   # noqa: BLE001 - the snapshot is published regardless
+            return None
 
     def view_rows(self, lanes=()):
         """What `enrich_view` reads from the store, to be read inside the snapshot

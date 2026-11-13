@@ -148,6 +148,11 @@ class DesktopIdentity:
     cached_label: str | None = None  # ~/.claude.json oauthAccount, a hint only
     last_label: str | None = None    # label of the last verified desktop identity
     detail: str | None = None        # the profile status that produced this
+    #: C-10.9: the app's own answer (`desktop_app.resolve`), or None when neither
+    #: its usage file nor a hook's report answers. While it answers it alone
+    #: decides which lanes are `desktop` (and `desktop_possible`); the profile
+    #: and the hint above are kept for `doctor` and decide nothing.
+    app: Any = None
 
     @property
     def verified(self) -> bool:
@@ -168,32 +173,45 @@ class DesktopIdentity:
     @property
     def decisive(self) -> bool:
         """Can this say anything at all? An identity nobody can name and no hint
-        to fall back on leaves the recorded desktop flags exactly as they were."""
-        return self.verified or bool(self.label_hints)
+        to fall back on leaves the recorded desktop flags exactly as they were.
+        The app's own answer always can (C-10.9)."""
+        return self.app is not None or self.verified or bool(self.label_hints)
 
     def owns(self, lane: Mapping[str, Any]) -> bool:
-        """C-10.3: is this lane the desktop app's own account?"""
+        """C-10.3: is this lane the desktop app's own account?
+
+        While the app answers (C-10.9), exactly the lanes whose account key is
+        `claude:<the app's org's email>`, and none when that org has no email."""
+        if self.app is not None:
+            return self.app.owns(lane)
         identity = lane.get("identity")
         if self.verified and identity:
             return str(identity) == self.identity
         return bool(lane_labels(lane) & self.label_hints)
 
+    def possible(self, lane: Mapping[str, Any]) -> bool:
+        """C-10.9: may this lane be the app's account? Only while the app answers
+        with an org no event links to an email: then every Claude lane that no
+        event links to another org. It orders candidates (C-11.3), never refuses one."""
+        return self.app is not None and self.app.possible(lane)
+
 
 def desktop_identity(profile: Any, *, cached_label: str | None = None,
-                     last_label: str | None = None) -> DesktopIdentity:
+                     last_label: str | None = None, app: Any = None) -> DesktopIdentity:
     """C-10.3: build the desktop identity from one profile answer.
 
     `profile` is anything shaped like the Claude adapter's `ProfileResult` — it is
     duck-typed so this module stays free of provider code. A profile that did not
-    answer leaves an unverified identity carrying only its fallbacks.
+    answer leaves an unverified identity carrying only its fallbacks. `app` is
+    the app's own answer (C-10.9), which decides whenever it is given.
     """
     identity = getattr(profile, "identity", None) if profile is not None else None
     email = getattr(profile, "email", None) if profile is not None else None
     detail = getattr(profile, "status", None) if profile is not None else None
     if identity:
         return DesktopIdentity("verified", str(identity), email, cached_label,
-                               last_label, detail)
-    return DesktopIdentity("unverified", None, None, cached_label, last_label, detail)
+                               last_label, detail, app)
+    return DesktopIdentity("unverified", None, None, cached_label, last_label, detail, app)
 
 
 def last_desktop_identity(events: Iterable[Any]) -> dict[str, Any] | None:
@@ -365,9 +383,12 @@ def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None
                  desktop_account: str | None = None, desktop_in_use: bool | None = None) -> dict[str, Any]:
     """C-10.3: set a lane row's `desktop` flag as a view does, and return the row.
 
-    Only a Claude lane is the desktop app's. `desktop` (the profile endpoint's
-    answer) decides when it can say anything; otherwise the recorded flag
-    stands. `desktop_account` is the bare hint, for callers that have only it.
+    Only a Claude lane is the desktop app's. `desktop` (the app's own answer
+    while it has one, C-10.9, else the profile endpoint's) decides when it can
+    say anything; otherwise the recorded flag stands. While the app answers with
+    an org no event links, `desktop_possible` is set on every Claude lane not
+    linked elsewhere, and removed from every other (C-10.9); without the app's
+    answer it is never set. `desktop_account` is the bare hint, for callers that have only it.
     `desktop_in_use` is whether Claude Code is using that login now
     (`sessions.registry.desktop_login_in_use`): it is put on the desktop lane as
     `desktop_in_use`, and a desktop lane without it is judged in use, as every
@@ -378,6 +399,10 @@ def mark_desktop(lane: dict[str, Any], *, desktop: DesktopIdentity | None = None
         if desktop is not None:
             if desktop.decisive:
                 lane["desktop"] = desktop.owns(lane)
+            if desktop.possible(lane):
+                lane["desktop_possible"] = True
+            else:
+                lane.pop("desktop_possible", None)
             lane["desktop_identity"] = desktop.status
         elif desktop_account is not None:
             lane["desktop"] = _account_matches(lane, desktop_account)

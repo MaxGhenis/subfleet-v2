@@ -720,7 +720,7 @@ def _unmeasured_reserve_reason(job: Mapping[str, Any]) -> str | None:
 #: can reject it. A lane whose values of these, readings, closures, attempts in
 #: flight and slot block are what they were is judged as it was.
 LANE_FACTS = ("lane_id", "provider", "account_key", "credential_ref", "credential_kind", "home", "owner",
-              "enabled", "desktop", "desktop_in_use", "identity_status", "label", "email")
+              "enabled", "desktop", "desktop_in_use", "identity_status", "label", "email", "desktop_possible")
 
 
 #: C-9.5: the kinds that continue one native session or are their conversation's to fail over.
@@ -1010,6 +1010,11 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     if lane.get("desktop"):
         # C-10.3, C-11.3: a desktop lane that is a candidate sorts after every other.
         detail["desktop"] = True
+    if lane.get("desktop_possible"):
+        # C-10.9, C-11.3: a lane that may be the desktop app's account (its org is
+        # linked to no email yet) sorts after the lanes known to be elsewhere. It
+        # orders candidates and refuses none.
+        detail["desktop_possible"] = True
     if _identities(lane) & setup["excluded"]:
         reasons.append("excluded")
     if desktop_excluded(lane) and not job.get("allow_desktop"):
@@ -1258,8 +1263,9 @@ def refused_for_good(policy: Mapping[str, Any], decision: Decision | Mapping[str
 def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mapping[str, Any]) -> tuple:
     """C-11.3, C-11.7, C-26.2, C-10.3: where a candidate lane stands; the least is chosen.
 
-    The desktop login's lane sorts after every other (C-10.3), then a turn's
-    affinity lane first (C-26.2), then the load band: attempts in flight in the
+    The desktop login's lane sorts after every other (C-10.3), then a lane that
+    may be the desktop app's account after those known to be elsewhere
+    (`desktop_possible`, C-10.9), then a turn's affinity lane first (C-26.2), then the load band: attempts in flight in the
     job's pool divided by `admission.lane_spread`, so with no per-lane cap lanes
     fill evenly, that many at a time, instead of one lane taking every job
     (C-11.3, 2026-09-27). Claude's stranded term retains its position before
@@ -1281,8 +1287,8 @@ def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mappin
     if affinity is not None:
         # C-26.2: a conversation keeps the account that served its last
         # turn while that account stays a candidate (prompt cache).
-        return (desktop, identity != affinity, *base)
-    return (desktop, *base)
+        return (desktop, bool(detail.get("desktop_possible")), identity != affinity, *base)
+    return (desktop, bool(detail.get("desktop_possible")), *base)
 
 
 def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: list[str],

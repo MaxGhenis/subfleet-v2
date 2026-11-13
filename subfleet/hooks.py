@@ -20,6 +20,12 @@ follow `docs/reference/claude-hooks.md` (fetched 2026-09-05) — not memory:
   re-reads the transcript after the delay and applies the age cap, the dedupe,
   the cooldown and the liveness re-check against what it can actually see.
 
+  Outside a Subfleet launch, in a session the Claude desktop app started
+  (`CLAUDE_CODE_ENTRYPOINT=claude-desktop`), both events also report the app's
+  account to the daemon (C-10.9, `desktop_report`): the three values the app
+  puts in that session's environment, in one call of at most 1 s whose failure
+  changes nothing the hook prints or returns.
+
   Inside a process Subfleet launched (C-26.13) — a conversation turn, a lane
   run, or a probe — both events behave differently. Every such process carries
   the C-5.1 markers (`launched_by_subfleet`), and Claude Code runs these hook
@@ -462,6 +468,40 @@ def suggest_hint(event: str, payload: dict[str, Any], env: Any = None) -> str | 
     return SUGGEST_HINT if source in SUGGEST_HINT_SOURCES else None
 
 
+def desktop_report(event: str, payload: dict[str, Any], env: Any = None) -> dict[str, str] | None:
+    """C-10.9: what a desktop-app session reports of its account, or None.
+
+    Only on SessionStart and UserPromptSubmit, never inside a process Subfleet
+    launched (C-26.13: any C-5.1 marker), and only when `CLAUDE_CODE_ENTRYPOINT`
+    is `claude-desktop`. It reads `desktop_app.ACCOUNT_NAMES` and no other name,
+    and carries exactly those three values, validated, with the payload's
+    session id and the time; a missing or malformed value sends nothing. Nothing
+    here logs, prints or stores the environment."""
+    from . import desktop_app
+    if event not in SESSION_EVENTS:
+        return None
+    values = os.environ if env is None else env
+    if launched_by_subfleet(values) is not None:
+        return None
+    session = payload.get("session_id") if isinstance(payload, dict) else None
+    return desktop_app.report_from_environment(values, session.strip() if isinstance(session, str) else None)
+
+
+def send_desktop_report(root: Path, report: dict[str, str], client: Client | None = None) -> None:
+    """C-10.9: one round trip of at most `desktop_app.REPORT_TIMEOUT_S` (1 s).
+
+    A refusal, a busy or absent daemon, a timeout or anything else drops the
+    report without a word: it never changes the hook's output, notices or exit
+    code, and never makes it exit 2."""
+    from . import desktop_app
+    try:
+        reporter = (Client(root, verify_lock=False, retry_busy=False, timeout=desktop_app.REPORT_TIMEOUT_S)
+                    if client is None else client)
+        reporter.call(desktop_app.REPORT_OP, dict(report), timeout=desktop_app.REPORT_TIMEOUT_S, retry_busy=False)
+    except Exception:                                   # noqa: BLE001 - a report is never worth a word
+        pass
+
+
 def session_event(event: str, payload: dict[str, Any], root: Path,
                   *, client: Client | None = None,
                   stdout: Any = None, env: Any = None) -> int:
@@ -488,6 +528,14 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         except Exception:                               # noqa: BLE001 - see below
             pass    # Exit 2 here blocks the session from starting; a missed
                     # nudge is recoverable and a blocked session is not.
+    if not launched:
+        # C-10.9: a desktop session tells the daemon which account the app is on.
+        try:
+            report = desktop_report(event, payload, env)
+            if report is not None:
+                send_desktop_report(root, report, client)
+        except Exception:                               # noqa: BLE001 - never a word, never exit 2
+            pass
     marked = True
     try:
         # C-15.6: no lock check. C-16.7: a busy daemon is read offline below at

@@ -111,6 +111,14 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
         if condition:
             add(**condition)
 
+    # C-10.9: the desktop app's account unlinked for 10 minutes while its login is
+    # in use, or a newer session report naming another org than the usage file.
+    from .desktop_app import alert_conditions as desktop_conditions
+    account = snapshot.get("desktop_account")
+    if isinstance(account, Mapping):
+        for condition in desktop_conditions(account, in_use=account.get("in_use"), now=at):
+            add(**condition)
+
     expiry = snapshot.get("capacity_expiry") or {}
     unused = expiry.get("projected_unused_windows_raw", expiry.get("projected_unused_windows"))
     if not _number(unused):
