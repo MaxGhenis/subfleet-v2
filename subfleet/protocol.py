@@ -52,7 +52,7 @@ OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
-    "sessions", "pick", "operations", "tasks",
+    "sessions", "pick", "operations", "tasks", "retention.delete",
     *CONVERSATION_OPS,
 )
 
@@ -364,6 +364,16 @@ class TasksArgs:
     note: str | None = None
     if_note_prefix: str | None = None
     sandbox: str | None = None
+
+
+@dataclass
+class RetentionDeleteArgs:
+    """`retention.delete` (C-8.7, d2660): `dry-run` or `apply` an operator's
+    request (the request file's JSON), read its `status`, or `stop` it at the
+    next job boundary. `limit` ends an apply after that many deletions."""
+    action: str
+    request: dict[str, Any] | None = None
+    limit: int | None = None
 
 
 @dataclass
