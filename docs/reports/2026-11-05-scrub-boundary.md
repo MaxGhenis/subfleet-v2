@@ -406,15 +406,17 @@ Every run used `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and `unset PYTHONPATH`
   16 passed, then the 560 s alarm stopped it (5% CPU share).
 - **xdist, last run.** `pytest -n 4 -k "<all new and changed tests>"` (20:19): the host stalled it for
   57 minutes, and it ended with no summary line, only xdist's teardown `OSError`. Result unknown.
+- **Final runs, load about 18–25:**
+  - `pytest -n 4 tests/unit/test_sessions_handoff_excerpts.py::test_the_split_step_s_work_is_linear_in_the_blocks tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_cpu_scaling.py`: **74 passed in 42.1 s** (the growth test passes on all four shapes).
+  - `pytest -n 4 -k "earlier_layer or row_b or read_cap or drawn_blocks or each_cascade or splits or quoted_data_uri or resolves_the_blocks"` on the excerpts file: **72 passed in 34.3 s**. That covers every new and changed test.
+  - The rest of the excerpts file, without the 80-example property, hit its 200 s alarm with no summary line. Result unknown.
 - **Superset and timings:** above.
 
 ### What didn't run, and deviations
 
 - **Not run:**
-  - `test_a_closer_an_earlier_layer_masks_ends_no_block` and the growth test, through pytest to a
-    result;
-  - the excerpts file whole, every `tests/unit/test_scrub*.py`, the other `tests/unit/test_sessions_*`
-    files, and the four guard files;
+  - the excerpts file's other tests (one run hit its alarm) and its 80-example property, every `tests/unit/test_scrub*.py`, the other `tests/unit/test_sessions_*`
+    files;
   - the growth test on 13fd1c8bc, and mutants 1 and 5.
 
   CI's run is the check for these.
