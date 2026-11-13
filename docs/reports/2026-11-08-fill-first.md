@@ -100,3 +100,100 @@ The added fill store accessor took 0.042736 s median versus 0.029042 s for the e
 The full suite is reserved for CI. No live daemon, provider API, native app or live store was used; tests used temporary isolated state and fake adapters. The separate desktop-org and ramp changes are outside this build. Replay conclusions are limited as stated above. Git staging/commits and the branch switch are blocked by the denied shared index lock; no private Git metadata workaround was used.
 
 Head: `266c3ab8b0be2548fbe0abc77273fa1ccd7fa9a9`
+
+## CI fix r1 (2026-11-13)
+
+### Cause
+
+`tests/unit/test_store_contention_queries.py::test_a_view_from_the_store_matches_one_from_every_reading` (C-3.7) failed on both Pythons. `capacity.store_rows` takes `Store.fill_reading_candidates(now=now)` when the store has it and every reading otherwise, and `build_view` copied whichever it got into `view["fill_readings"]`. The SQL drops each key's canonical provider history before its latest observation; every reading keeps it. So the two views held different raw rows. Reproduced at 0e5edeba5: 1 failed, 211 passed.
+
+### Consumer audit
+
+Every reader of `fill_readings` in `subfleet/` and `tools/` (`grep -rln "fill_readings\|fill_reading_candidates\|fill_candidates" subfleet tools app bin`: store, picker, capacity, scheduler, daemon, route_check):
+
+| Reader | What it reads, at which clock | Rows that are neither the latest numeric provider observation at or before that clock, nor after it, change its result? |
+| --- | --- | --- |
+| `scheduler.evaluate` → `judge_lane` → `fill_ranking_usage` (`scheduler.py:1399`, `:1048`, `:971`) | `view["fill_readings"]` by lane and scope, at `view["now"]`, the view's clock in whole seconds | No. Per scope and window it takes the latest numeric provider row at or before its clock, then checks its reset. Every tie at that instant and every later row is kept. Fully tied rows give the same output fields. |
+| `picker.pick` (`picker.py:139`) | `fill_ranking_usage` at `view["now"]` | No, for the same reason. |
+| `route_check.still_stands` (`route_check.py:187`) | `fill_candidates`, which the daemon passes as the raw `basis["rows"]["view"]["fill_readings"]`, at the reservation's clock, never earlier than the view's | Not affected: it reads the store's raw rows, not the view's. With no `fill_candidates`, it reads the view's rows at a later clock, and the later rows are kept. |
+| `Daemon._capacity_rows` (`daemon.py:2197`) | reads `fill_reading_candidates()` at the snapshot's `utc_now()` | It is the source and is unchanged. |
+| `Daemon._pick` (`daemon.py:2747`) | drops overridden lanes' rows | Dropping by lane commutes with a reduction by lane, scope and window. |
+| `Daemon._route_rows` (`daemon.py:9096`) | reading ids of the raw rows in `rows["view"]` | Not affected: raw rows. |
+| `capacity.lane_horizons` (`capacity.py`, called only from `Daemon._pick`; `decision_horizon` has no production caller) | every fill-order provider row: a future `observed_at`, else a reset after the view's clock, and the start of the expiring tier | **Yes.** It notes the reset (and expiring start) of any numeric provider row whose window is still open, including a row that a later observation has replaced. No evaluation at any clock reads that row again, so the clock is spurious, and dropping the row moves the lane's horizon later. No decision changes (`test_decision_horizon.py`'s property: the same decision at every instant up to the horizon). The `rejudged` route counter (`_count_route`) can fall. |
+| `tools/replay_weekly_ranking.py` | its own SQL and its own fill selection (`fill_latest`) | Never reads a view. |
+| `render.status`, `policy` compatibility entry (`policy.py:1041`), `Actions` (`actions.py:820`), `Timers.snapshot` | build views from given rows; only the policy entry calls `evaluate` | `evaluate` is unaffected, as above; none calls `lane_horizons`. `status.json` never serializes `fill_readings`. |
+
+So the reduction the brief prefers, to exactly the rows that can bind fill by parsed time, gives `capacity.lane_horizons` a different result whenever the snapshot holds a replaced provider row with an open window. The query keeps such a row when its timestamp is noncanonical; a view built from every reading keeps every such row. I didn't check which writers store noncanonical timestamps: the importer and the adapters pass `observed_at` through from their callers. As the brief directs, I did not apply that reduction.
+
+### Fix
+
+`capacity.fill_candidates(readings, now=)` applies `Store.fill_reading_candidates`' own rule in Python, and `build_view` runs it on the fill rows it is given (`fill_readings`, else `readings`), at the view's clock in whole seconds:
+- it keeps `provider` and `stale-provider` rows with finite numeric utilization;
+- per lane, scope and window, it keeps the ties at the greatest canonical timestamp at or before that clock;
+- it keeps every later canonical row and every row with another timestamp shape;
+- rows stay in their input order.
+
+The query's rows come back from it unchanged. Views built from the store therefore carry exactly what they carried before, and every reader above returns the same result, `lane_horizons` included. A view built from every reading now carries the same rows. That changes nothing for the callers that build views from every reading: render and status don't read fill rows, and the policy entry's `evaluate` reads only the latest rows.
+
+One case remains. The daemon reads the query at the snapshot's second and builds the view at a later instant. If a reading stamped after the snapshot's second becomes current before the view's second, the view drops the replaced rows that the query still held. That needs a reading stamped in the future, and its only effect is the same spurious-clock removal described for `lane_horizons`.
+
+To switch to the parsed-time reduction, replace the canonical-string comparison in `fill_candidates` with a comparison of parsed times. The cost is the `lane_horizons` difference in the table, and the decision on that is Max's. The test assertion is unchanged.
+
+Commits: `334a91962` (fix), `6b76c4203` (tests), on `fix/fill-first-ci-r1` from 0e5edeba5.
+
+### Property test and mutant
+
+- `tests/unit/test_fill_evidence.py::test_fill_rows_chosen_from_the_store_query_match_those_from_every_reading` uses Hypothesis with 100 derandomized examples, each on a real `Store`. Each example generates up to 16 readings over two lanes, two scopes and two windows:
+  - canonical, `+00:00`, fractional and `+02:00` timestamps;
+  - rows from 2 hours before the view's clock to 10 minutes after it;
+  - a view clock with and without a fraction;
+  - null, 0, 0.2, 0.8, 1, -0.5, infinite and text utilization (the last three inserted under `PRAGMA ignore_check_constraints`);
+  - every label plus an unknown one;
+  - no reset, a past reset or a future reset.
+
+  It asserts three things:
+  - `fill_candidates(query rows) == fill_candidates(every row)`;
+  - `fill_candidates(query rows) == query rows`;
+  - per lane, `fill_ranking_usage` on the chosen rows equals it on every row at the view's clock and at +1 s, +30 s, +600 s and +50,000 s.
+- `test_a_view_from_every_reading_keeps_the_rows_a_later_clock_reads` builds a view from every reading with two future rows, checks that it equals the store's view, and checks that fill's weekly use reads 0.5, 0.2 and 0.3 at +0 s, +10 s and +20 s.
+- Mutant: keep only rows observed at or before the clock (drop canonical rows after it, and noncanonical rows whose parsed time is after it), applied to a copy in scratch. Both new tests kill it: 2 failed, 14 passed. The original view test passes under it, because both of its sides lose the same rows.
+
+### Commands and results
+
+Setup: `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)` and `UV_CACHE_DIR=$TMPDIR/uv-cache`, then `uv sync --group dev`, which passed. `uv run --no-sync --with 'pytest-xdist>=3.6'` then failed with `unrecognized arguments: -n`. The shared cache's xdist archive has lost its `METADATA` and `entry_points.txt` (its dist-info holds only `licenses/`), so pytest never sees the plugin. Every xdist run below therefore used `uv run --no-sync --cache-dir $TMPDIR/sf-ff-ci1/uv-cache --with 'pytest-xdist>=3.6' python -m pytest <file> -n 4 --basetemp $TMPDIR/sf-ff-ci1/bt-<n> -q -p no:cacheprovider`. Small files ran serially with `.venv/bin/python -m pytest` and their own basetemp. Each file ran alone.
+
+| Run | Target | Result |
+| --- | --- | --- |
+| bt-01, at 0e5edeba5 | `tests/unit/test_store_contention_queries.py` | 1 failed (the view test), 211 passed, 224 s |
+| bt-02, fix only | that view test plus `tests/unit/test_fill_evidence.py` | 14 passed |
+| bt-03, fix and new tests | `tests/unit/test_fill_evidence.py` | 15 passed, 98 s |
+| bt-mut1, mutant copy | `tests/unit/test_fill_evidence.py` plus the view test | 2 failed (both new tests), 14 passed |
+| bt-11 | `tests/unit/test_store_contention_queries.py` | 212 passed, 212 s |
+| bt-12 | `tests/unit/test_invariants_index.py` | 25 passed |
+| bt-21 | `tests/unit/test_decision_horizon.py` | 7 passed, 129 s |
+| bt-22 | `tests/unit/test_route_check.py` (`-n 4`, Hypothesis with 1,500 examples) | Stopped unfinished after about 12 min, with no result; the host's load average was 97 |
+| bt-41 | `tests/unit/test_scheduler_fill.py` (serial) | 38 passed, 396 s |
+| bt-42 | `tests/unit/test_fill_routing.py` (serial) | 7 passed |
+| bt-43 | `tests/unit/test_policy_fill.py` (serial) | 43 passed |
+| bt-51 | `tests/fake/test_state_contract.py` | 37 passed, 104 s |
+| bt-61 | `tests/unit/test_replay_weekly_fill.py` (serial) | 20 passed |
+| bt-62 | `tests/unit/test_scheduler_weekly.py` (serial) | 33 passed, 342 s |
+
+Under the 2-hour limit and that load, these test files the PR changes were not run locally:
+- `test_route_check.py` (stopped, as above);
+- `test_scheduler.py`, `test_scheduler_split.py`, `test_scheduler_tier_preferences.py`;
+- `test_provider_active_cap.py`, `test_policy.py`, `test_policy_ramp.py`;
+- `tests/fake/test_review_needs_shell.py`.
+
+CI runs them. No run failed after the fix.
+
+Other commands:
+- `git diff --name-only origin/release/217...HEAD` listed the PR's files.
+- Greps over `subfleet` and `tools` drove the consumer audit.
+- `date -u` gave the start time, 21:53:28Z.
+
+Deviations from the brief:
+- The view applies the query's rule, not the parsed-time reduction; the audit above says why.
+- xdist ran from a scratch uv cache, because the shared cache's xdist archive is damaged.
+- Some test files ran serially, without xdist.
+- The work is on a new branch, `fix/fill-first-ci-r1`, because the checkout was detached; nothing was pushed.
