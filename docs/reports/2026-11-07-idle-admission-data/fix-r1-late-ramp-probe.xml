@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="28.759" timestamp="2026-11-13T08:25:04.707980-05:00" hostname="MacBook-Pro-1306.local"><testcase classname="test_late_ramp_probe" name="test_late_ramp_keeps_release_until_guard_clears" time="4.241"><failure message="AssertionError: assert [] == ['reserved']&#10;  &#10;  Right contains one more item: 'reserved'&#10;  Use -v to get more diff">held_fleet = (&lt;subfleet.daemon.Daemon object at 0x10a330440&gt;, &lt;tests.fake.conftest.Harness object at 0x10a3302f0&gt;, 1, &lt;function clock.&lt;locals&gt;.advance at 0x10a555c70&gt;)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a23dcd0&gt;
+
+    def test_late_ramp_keeps_release_until_guard_clears(held_fleet, monkeypatch):
+        service, harness, closure, advance = held_fleet
+        hold, _ = door(service, monkeypatch, 'ramp')
+        job = long_wait(service, harness)
+        original_clock = service.store.get_job(job)['next_check_at']
+        hold()
+        advance(31)
+        real = service._workspace
+        jump = [True]
+        def workspace(candidate):
+            result = real(candidate)
+            if candidate['job_id'] == job and jump[0]:
+                jump[0] = False
+                advance(-20)
+            return result
+        monkeypatch.setattr(service, '_workspace', workspace)
+        release(service, closure)
+        service._admit()
+        assert service._holds[job]['reason'] == 'ramp'
+        assert service.store.get_job(job)['next_check_at'] == original_clock
+        advance(31)
+        service._admit()
+&gt;       assert [row['state'] for row in service.store.list_attempts(job)] == ['reserved']
+E       AssertionError: assert [] == ['reserved']
+E         
+E         Right contains one more item: 'reserved'
+E         Use -v to get more diff
+
+/private/tmp/sf-ia-f1/test_late_ramp_probe.py:28: AssertionError</failure></testcase></testsuite></testsuites>

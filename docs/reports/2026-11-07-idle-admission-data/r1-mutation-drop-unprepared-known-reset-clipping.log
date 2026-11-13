@@ -1,0 +1,21 @@
+bringing up nodes...
+bringing up nodes...
+
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_c6_10_known_operator_reset_still_beats_the_long_clock[True] _______
+[gw3] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python
+tests/fake/test_idle_capacity_events.py:242: in test_c6_10_known_operator_reset_still_beats_the_long_clock
+    assert service.store.get_job(job)["next_check_at"] == until
+E   AssertionError: assert '2026-11-13T13:07:47Z' == '2026-11-13T12:59:50Z'
+E     
+E     - 2026-11-13T12:59:50Z
+E     ?             ^ ^^ ^^
+E     + 2026-11-13T13:07:47Z
+E     ?             ^ ^^ ^^
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4491619904:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4491619904:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_events.py::test_c6_10_known_operator_reset_still_beats_the_long_clock[True]
+1 failed in 11.28s

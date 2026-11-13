@@ -1,0 +1,521 @@
+{
+  "purpose": "r1 question 8: compare starting HEAD 9e753f8fb7ef with the r1 fixes on all-unprepared due passes",
+  "fixture": {
+    "jobs": 129,
+    "operator_held_codex_lanes": 4,
+    "padding_events": 100000,
+    "initial_events_after_warmups": 101181,
+    "attempts": 0,
+    "ceiling_s": 600,
+    "job_sandbox": "workspace-write",
+    "pinned_model": "terra",
+    "reuse": "The same closed synthetic store was reopened serially; each run forces all jobs due and performs two warmups before seven profiles.",
+    "clock": "cProfile default wall clock; additional time.process_time around the profiled call for final, baseline-repeat and final-late-ramp; no controller/timed cadence run."
+  },
+  "environment": {
+    "TMPDIR": "/private/tmp/sf-ia-f1/test-tmp",
+    "UV_CACHE_DIR": "/private/tmp/sf-ia-f1/test-tmp/uv-cache",
+    "python": "3.15.2 (main, Oct 26 2026, 13:59:33) [Clang 23.1.3 ]"
+  },
+  "profile_helper": "fix-r1-profile-unprepared.py",
+  "profile_helper_sha256": "19f3783342623234f7e56f30d7c34ee900f49f1de128acec0e66dfeeee629028",
+  "source_snapshots": {
+    "baseline": {
+      "commit": "9e753f8fb7ef",
+      "path": "/private/tmp/sf-ia-f1/q8-base-runtime",
+      "daemon_sha256": "2c59b2d0f6277f5ccabebe5565d909073f830b6551d1559bd4acdd5717035113",
+      "creation": "git archive 9e753f8fb7ef subfleet tests pyproject.toml uv.lock; extract under scratch"
+    },
+    "final": {
+      "path": "/private/tmp/sf-ia-f1/q8-final-runtime",
+      "daemon_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583",
+      "creation": "Copy the baseline runtime tree, then replace subfleet/daemon.py byte for byte with the final workspace file; sibling source is unchanged. Updated daemon.py again after the two-line transactional-ramp saved-news restoration fix; bytes verified against current workspace."
+    },
+    "final_before_late_ramp": {
+      "path": "/private/tmp/sf-ia-f1/q8-final-runtime",
+      "daemon_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65",
+      "creation": "Copy the baseline runtime tree, then replace subfleet/daemon.py byte for byte with the final workspace file; sibling source is unchanged.",
+      "note": "Historical final source used for the retained final run; same snapshot path was replaced only after that process closed."
+    }
+  },
+  "runs": [
+    {
+      "argv": [
+        ".venv/bin/python",
+        "/private/tmp/sf-ia-f1/profile_existing_unprepared.py",
+        "--source",
+        "/private/tmp/sf-ia-f1/q8-base-runtime",
+        "--state-root",
+        "/private/tmp/sf-ia-f1/q8-baseline-01",
+        "--output",
+        "/private/tmp/sf-ia-f1/q8-baseline-series.json",
+        "--samples",
+        "7",
+        "--label",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "result": {
+        "label": "baseline",
+        "jobs": 129,
+        "samples": [
+          {
+            "index": 0,
+            "due_pass_s": 5.4537443340000005,
+            "route_calls": 129,
+            "route_cumulative_s": 0.503307623
+          },
+          {
+            "index": 1,
+            "due_pass_s": 4.317153,
+            "route_calls": 129,
+            "route_cumulative_s": 0.34257284000000005
+          },
+          {
+            "index": 2,
+            "due_pass_s": 0.6377960420000001,
+            "route_calls": 129,
+            "route_cumulative_s": 0.123261121
+          },
+          {
+            "index": 3,
+            "due_pass_s": 2.983553084,
+            "route_calls": 129,
+            "route_cumulative_s": 0.320674534
+          },
+          {
+            "index": 4,
+            "due_pass_s": 2.715282958,
+            "route_calls": 129,
+            "route_cumulative_s": 0.558548169
+          },
+          {
+            "index": 5,
+            "due_pass_s": 4.462425834,
+            "route_calls": 129,
+            "route_cumulative_s": 0.48278562
+          },
+          {
+            "index": 6,
+            "due_pass_s": 1.53158275,
+            "route_calls": 129,
+            "route_cumulative_s": 0.317283548
+          }
+        ],
+        "daemon_sha256": "2c59b2d0f6277f5ccabebe5565d909073f830b6551d1559bd4acdd5717035113",
+        "due_pass_s_median": 2.983553084,
+        "route_cumulative_s_median": 0.34257284000000005,
+        "summary": {
+          "due_pass_s": {
+            "min": 0.6377960420000001,
+            "median": 2.983553084,
+            "max": 5.4537443340000005,
+            "median_ms_per_job": 23.128318480620155
+          },
+          "route_cumulative_s": {
+            "min": 0.123261121,
+            "median": 0.34257284000000005,
+            "max": 0.558548169,
+            "median_ms_per_job": 2.6556034108527133
+          }
+        }
+      }
+    },
+    {
+      "argv": [
+        ".venv/bin/python",
+        "/private/tmp/sf-ia-f1/profile_existing_unprepared.py",
+        "--source",
+        "/private/tmp/sf-ia-f1/q8-final-runtime",
+        "--state-root",
+        "/private/tmp/sf-ia-f1/q8-baseline-01",
+        "--output",
+        "/private/tmp/sf-ia-f1/q8-final-series.json",
+        "--samples",
+        "7",
+        "--label",
+        "final"
+      ],
+      "exit_code": 0,
+      "result": {
+        "label": "final",
+        "jobs": 129,
+        "samples": [
+          {
+            "index": 0,
+            "process_cpu_s": 0.20454899999999987,
+            "due_pass_s": 0.5163301250000001,
+            "route_calls": 129,
+            "route_cumulative_s": 0.141198829
+          },
+          {
+            "index": 1,
+            "process_cpu_s": 0.2044760000000001,
+            "due_pass_s": 1.921622833,
+            "route_calls": 129,
+            "route_cumulative_s": 0.14111913
+          },
+          {
+            "index": 2,
+            "process_cpu_s": 0.19263199999999991,
+            "due_pass_s": 0.3918125,
+            "route_calls": 129,
+            "route_cumulative_s": 0.10609762900000001
+          },
+          {
+            "index": 3,
+            "process_cpu_s": 0.20286100000000018,
+            "due_pass_s": 0.817672959,
+            "route_calls": 129,
+            "route_cumulative_s": 0.162812958
+          },
+          {
+            "index": 4,
+            "process_cpu_s": 0.193878,
+            "due_pass_s": 0.531362875,
+            "route_calls": 129,
+            "route_cumulative_s": 0.12388675700000001
+          },
+          {
+            "index": 5,
+            "process_cpu_s": 0.1783109999999999,
+            "due_pass_s": 0.42652900000000005,
+            "route_calls": 129,
+            "route_cumulative_s": 0.087963626
+          },
+          {
+            "index": 6,
+            "process_cpu_s": 0.17293699999999967,
+            "due_pass_s": 0.229292875,
+            "route_calls": 129,
+            "route_cumulative_s": 0.083466038
+          }
+        ],
+        "daemon_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65",
+        "due_pass_s_median": 0.5163301250000001,
+        "route_cumulative_s_median": 0.12388675700000001,
+        "summary": {
+          "due_pass_s": {
+            "min": 0.229292875,
+            "median": 0.5163301250000001,
+            "max": 1.921622833,
+            "median_ms_per_job": 4.002559108527132
+          },
+          "route_cumulative_s": {
+            "min": 0.083466038,
+            "median": 0.12388675700000001,
+            "max": 0.162812958,
+            "median_ms_per_job": 0.9603624573643412
+          },
+          "process_cpu_s": {
+            "min": 0.17293699999999967,
+            "median": 0.193878,
+            "max": 0.20454899999999987,
+            "median_ms_per_job": 1.5029302325581395
+          }
+        }
+      }
+    },
+    {
+      "argv": [
+        ".venv/bin/python",
+        "/private/tmp/sf-ia-f1/profile_existing_unprepared.py",
+        "--source",
+        "/private/tmp/sf-ia-f1/q8-base-runtime",
+        "--state-root",
+        "/private/tmp/sf-ia-f1/q8-baseline-01",
+        "--output",
+        "/private/tmp/sf-ia-f1/q8-baseline-repeat-series.json",
+        "--samples",
+        "7",
+        "--label",
+        "baseline-repeat"
+      ],
+      "exit_code": 0,
+      "result": {
+        "label": "baseline-repeat",
+        "jobs": 129,
+        "samples": [
+          {
+            "index": 0,
+            "process_cpu_s": 0.20546799999999998,
+            "due_pass_s": 2.5751971250000003,
+            "route_calls": 129,
+            "route_cumulative_s": 0.143481038
+          },
+          {
+            "index": 1,
+            "process_cpu_s": 0.20829199999999992,
+            "due_pass_s": 1.796552042,
+            "route_calls": 129,
+            "route_cumulative_s": 0.124808209
+          },
+          {
+            "index": 2,
+            "process_cpu_s": 0.22679399999999994,
+            "due_pass_s": 4.367158041000001,
+            "route_calls": 129,
+            "route_cumulative_s": 0.14727741700000002
+          },
+          {
+            "index": 3,
+            "process_cpu_s": 0.21162599999999987,
+            "due_pass_s": 2.4347578330000004,
+            "route_calls": 129,
+            "route_cumulative_s": 0.11292954200000001
+          },
+          {
+            "index": 4,
+            "process_cpu_s": 0.19951600000000003,
+            "due_pass_s": 1.9091196670000001,
+            "route_calls": 129,
+            "route_cumulative_s": 0.13856053100000001
+          },
+          {
+            "index": 5,
+            "process_cpu_s": 0.24419499999999994,
+            "due_pass_s": 3.238979708,
+            "route_calls": 129,
+            "route_cumulative_s": 0.672541334
+          },
+          {
+            "index": 6,
+            "process_cpu_s": 0.23521099999999984,
+            "due_pass_s": 3.387177916,
+            "route_calls": 129,
+            "route_cumulative_s": 0.369431338
+          }
+        ],
+        "daemon_sha256": "2c59b2d0f6277f5ccabebe5565d909073f830b6551d1559bd4acdd5717035113",
+        "due_pass_s_median": 2.5751971250000003,
+        "route_cumulative_s_median": 0.143481038,
+        "summary": {
+          "due_pass_s": {
+            "min": 1.796552042,
+            "median": 2.5751971250000003,
+            "max": 4.367158041000001,
+            "median_ms_per_job": 19.962768410852714
+          },
+          "route_cumulative_s": {
+            "min": 0.11292954200000001,
+            "median": 0.143481038,
+            "max": 0.672541334,
+            "median_ms_per_job": 1.1122561085271319
+          },
+          "process_cpu_s": {
+            "min": 0.19951600000000003,
+            "median": 0.21162599999999987,
+            "max": 0.24419499999999994,
+            "median_ms_per_job": 1.6405116279069756
+          }
+        }
+      }
+    },
+    {
+      "argv": [
+        ".venv/bin/python",
+        "/private/tmp/sf-ia-f1/profile_existing_unprepared.py",
+        "--source",
+        "/private/tmp/sf-ia-f1/q8-final-runtime",
+        "--state-root",
+        "/private/tmp/sf-ia-f1/q8-baseline-01",
+        "--output",
+        "/private/tmp/sf-ia-f1/q8-final-late-ramp-series.json",
+        "--samples",
+        "7",
+        "--label",
+        "final-late-ramp"
+      ],
+      "exit_code": 0,
+      "result": {
+        "label": "final-late-ramp",
+        "jobs": 129,
+        "samples": [
+          {
+            "index": 0,
+            "process_cpu_s": 0.28896600000000006,
+            "due_pass_s": 3.5682110000000002,
+            "route_calls": 129,
+            "route_cumulative_s": 0.686568876
+          },
+          {
+            "index": 1,
+            "process_cpu_s": 0.283296,
+            "due_pass_s": 1.924772833,
+            "route_calls": 129,
+            "route_cumulative_s": 0.789552955
+          },
+          {
+            "index": 2,
+            "process_cpu_s": 0.34292199999999995,
+            "due_pass_s": 3.609375125,
+            "route_calls": 129,
+            "route_cumulative_s": 0.773975375
+          },
+          {
+            "index": 3,
+            "process_cpu_s": 0.3472940000000002,
+            "due_pass_s": 22.139799375000003,
+            "route_calls": 129,
+            "route_cumulative_s": 4.460714873000001
+          },
+          {
+            "index": 4,
+            "process_cpu_s": 0.35873299999999997,
+            "due_pass_s": 3.7485879160000004,
+            "route_calls": 129,
+            "route_cumulative_s": 0.9543577860000001
+          },
+          {
+            "index": 5,
+            "process_cpu_s": 0.3189479999999998,
+            "due_pass_s": 5.765622583000001,
+            "route_calls": 129,
+            "route_cumulative_s": 1.6309847050000001
+          },
+          {
+            "index": 6,
+            "process_cpu_s": 0.31667200000000006,
+            "due_pass_s": 7.367248417000001,
+            "route_calls": 129,
+            "route_cumulative_s": 1.365270199
+          }
+        ],
+        "daemon_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583",
+        "due_pass_s_median": 3.7485879160000004,
+        "route_cumulative_s_median": 0.9543577860000001,
+        "summary": {
+          "due_pass_s": {
+            "min": 1.924772833,
+            "median": 3.7485879160000004,
+            "max": 22.139799375000003,
+            "median_ms_per_job": 29.058821054263568
+          },
+          "route_cumulative_s": {
+            "min": 0.686568876,
+            "median": 0.9543577860000001,
+            "max": 4.460714873000001,
+            "median_ms_per_job": 7.398122372093025
+          },
+          "process_cpu_s": {
+            "min": 0.283296,
+            "median": 0.3189479999999998,
+            "max": 0.35873299999999997,
+            "median_ms_per_job": 2.4724651162790683
+          }
+        }
+      }
+    }
+  ],
+  "fixture_creation": {
+    "tool": "tools/benchmark_idle_admission.py",
+    "variant": "Set every submission sandbox to workspace-write instead of alternating; initially load pristine committed daemon through importlib (all sibling production source unchanged). The selected runtime archive then supplies equivalent complete baseline source for repeated profiles.",
+    "argv": [
+      ".venv/bin/python",
+      "/private/tmp/sf-ia-f1/benchmark_all_unprepared_local.py",
+      "--source",
+      "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1",
+      "--state-root",
+      "/private/tmp/sf-ia-f1/q8-baseline-01",
+      "--output",
+      "/private/tmp/sf-ia-f1/q8-baseline-01.json",
+      "--seconds",
+      "0",
+      "--jobs",
+      "129",
+      "--events",
+      "100000",
+      "--profile",
+      "--label",
+      "baseline-01"
+    ],
+    "exit_code": 0,
+    "due_pass_wall_s": 3.628441874985583,
+    "lstat_due": 24,
+    "route_calls": 129,
+    "route_cumulative_s": 0.24893861800000003,
+    "reproduction": "Generate the all-workspace-write variant from the committed tool and run it with --source pointing at the baseline runtime archive; then run fix-r1-profile-unprepared.py with the saved fixture root and each source snapshot."
+  },
+  "assessment": "The final source is now the two-line transactional-ramp news-restoration fix, SHA256 c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583. The transactional reservation branch is unreachable for this all-unprepared, operator-held fixture; the full _route cost remains unchanged structurally at 129 evaluations per pass. The latest seven final wall samples range from 1.925 to 22.140 seconds, with 3.749-second wall and 318.948-ms process-CPU medians, against 2.575-second wall and 211.626-ms CPU baseline medians. Previous final samples had 516.330-ms wall and 193.878-ms CPU medians with the same route-call count; all prior runs are retained. This host/registry-cache-sensitive variance does not establish a causal fix-size performance improvement or regression. These fixes do not optimize or remove the full routing cost measured by r1, and these contended runs cannot directly reproduce r1's 109.14-ms wall figure.",
+  "test": {
+    "command": "TMPDIR=/private/tmp/sf-ia-f1/test-tmp UV_CACHE_DIR=/private/tmp/sf-ia-f1/test-tmp/uv-cache uv --cache-dir /private/tmp/sf-ia-f1/test-tmp/uv-cache run --no-sync pytest tests/fake/test_idle_capacity_refresh_bound.py --basetemp /private/tmp/sf-ia-f1/refresh-bound-01 -q",
+    "exit_code": 0,
+    "passed": 2,
+    "seconds": 170.37
+  },
+  "other_commands": [
+    {
+      "command": "git show 9e753f8fb7ef:subfleet/daemon.py > /private/tmp/sf-ia-f1/q8-daemon-base.py",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check -- tests/fake/test_idle_capacity_refresh_bound.py",
+      "exit_code": 0
+    },
+    {
+      "command": "pgrep -fl 'q8-baseline-source|q8-base-runtime'",
+      "exit_code": 3,
+      "result": "sysmon request failed with error: sysmond service not found; pgrep: Cannot get process list"
+    },
+    {
+      "command": "Initial broad git archive 9e753f8fb7ef into BytesIO followed by tar extraction to q8-baseline-source",
+      "result": "Abandoned in favor of the small runtime-only archive. During extraction renamed only its scratch destination to q8-baseline-source-aborted and replaced the original path with a regular marker file, forcing the next tar extraction to fail. Its first tool result did not retain the session id; no host process enumeration was used to recover it."
+    },
+    {
+      "command": "Copy workspace subfleet/daemon.py bytes to /private/tmp/sf-ia-f1/q8-final-runtime/subfleet/daemon.py, then assert byte equality",
+      "exit_code": 0,
+      "result": {
+        "previous_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65",
+        "new_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583"
+      }
+    }
+  ],
+  "latest_final_run": "final-late-ramp",
+  "latest_comparison": {
+    "baseline_label": "baseline-repeat",
+    "final_label": "final-late-ramp",
+    "baseline_summary": {
+      "due_pass_s": {
+        "min": 1.796552042,
+        "median": 2.5751971250000003,
+        "max": 4.367158041000001,
+        "median_ms_per_job": 19.962768410852714
+      },
+      "route_cumulative_s": {
+        "min": 0.11292954200000001,
+        "median": 0.143481038,
+        "max": 0.672541334,
+        "median_ms_per_job": 1.1122561085271319
+      },
+      "process_cpu_s": {
+        "min": 0.19951600000000003,
+        "median": 0.21162599999999987,
+        "max": 0.24419499999999994,
+        "median_ms_per_job": 1.6405116279069756
+      }
+    },
+    "final_summary": {
+      "due_pass_s": {
+        "min": 1.924772833,
+        "median": 3.7485879160000004,
+        "max": 22.139799375000003,
+        "median_ms_per_job": 29.058821054263568
+      },
+      "route_cumulative_s": {
+        "min": 0.686568876,
+        "median": 0.9543577860000001,
+        "max": 4.460714873000001,
+        "median_ms_per_job": 7.398122372093025
+      },
+      "process_cpu_s": {
+        "min": 0.283296,
+        "median": 0.3189479999999998,
+        "max": 0.35873299999999997,
+        "median_ms_per_job": 2.4724651162790683
+      }
+    },
+    "jobs_per_pass": 129,
+    "route_calls_per_pass": 129,
+    "samples_per_variant": 7
+  }
+}

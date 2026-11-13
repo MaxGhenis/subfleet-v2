@@ -1,0 +1,225 @@
+{
+  "environment": {
+    "TMPDIR": "/private/tmp/sf-ia-f1/test-tmp",
+    "UV_CACHE_DIR": "/private/tmp/sf-ia-f1/test-tmp/uv-cache"
+  },
+  "results": [
+    {
+      "file": "tests/fake/test_capacity_wait_backoff.py",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "-n",
+        "4",
+        "-q",
+        "--tb=short",
+        "tests/fake/test_capacity_wait_backoff.py",
+        "--basetemp",
+        "/private/tmp/sf-ia-f1/verified-01-test_capacity_wait_backoff",
+        "--junitxml",
+        "/private/tmp/sf-ia-f1/verified-01-test_capacity_wait_backoff.xml"
+      ],
+      "returncode": 0,
+      "elapsed_s": 91.055,
+      "counts": {
+        "passed": 30,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "failures": []
+    },
+    {
+      "file": "tests/fake/test_admission_latency.py",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "-n",
+        "4",
+        "-q",
+        "--tb=short",
+        "tests/fake/test_admission_latency.py",
+        "--basetemp",
+        "/private/tmp/sf-ia-f1/verified-02-test_admission_latency",
+        "--junitxml",
+        "/private/tmp/sf-ia-f1/verified-02-test_admission_latency.xml"
+      ],
+      "returncode": 0,
+      "elapsed_s": 354.766,
+      "counts": {
+        "passed": 14,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "failures": []
+    },
+    {
+      "file": "tests/fake/test_admission_properties.py",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "-n",
+        "4",
+        "-q",
+        "--tb=short",
+        "tests/fake/test_admission_properties.py",
+        "--basetemp",
+        "/private/tmp/sf-ia-f1/verified-03-test_admission_properties",
+        "--junitxml",
+        "/private/tmp/sf-ia-f1/verified-03-test_admission_properties.xml"
+      ],
+      "returncode": 0,
+      "elapsed_s": 71.312,
+      "counts": {
+        "passed": 27,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 1
+      },
+      "failures": []
+    },
+    {
+      "file": "tests/fake/test_admission_stateful.py",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "-n",
+        "4",
+        "-q",
+        "--tb=short",
+        "tests/fake/test_admission_stateful.py",
+        "--basetemp",
+        "/private/tmp/sf-ia-f1/verified-04-test_admission_stateful",
+        "--junitxml",
+        "/private/tmp/sf-ia-f1/verified-04-test_admission_stateful.xml"
+      ],
+      "returncode": 0,
+      "elapsed_s": 1445.806,
+      "counts": {
+        "passed": 17,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "failures": []
+    },
+    {
+      "file": "tests/fake/test_admission_visibility.py",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "-n",
+        "4",
+        "-q",
+        "--tb=short",
+        "tests/fake/test_admission_visibility.py",
+        "--basetemp",
+        "/private/tmp/sf-ia-f1/verified-05-test_admission_visibility",
+        "--junitxml",
+        "/private/tmp/sf-ia-f1/verified-05-test_admission_visibility.xml"
+      ],
+      "returncode": 0,
+      "elapsed_s": 74.6,
+      "counts": {
+        "passed": 43,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "failures": []
+    },
+    {
+      "file": "tests/fake/test_admission_route_isolation.py",
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache",
+        "run",
+        "--no-sync",
+        "--with",
+        "pytest-xdist>=3.6",
+        "pytest",
+        "-n",
+        "4",
+        "-q",
+        "--tb=short",
+        "tests/fake/test_admission_route_isolation.py",
+        "--basetemp",
+        "/private/tmp/sf-ia-f1/resumed-07-test_admission_route_isolation",
+        "--junitxml",
+        "/private/tmp/sf-ia-f1/resumed-07-test_admission_route_isolation.xml"
+      ],
+      "returncode": 1,
+      "elapsed_s": 641.432,
+      "counts": {
+        "passed": 91,
+        "failed": 2,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0
+      },
+      "failures": [
+        {
+          "name": "test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again",
+          "message": "AssertionError: assert [(None, None)] == [('codex-1', ...T14:41:34Z'))]\n  \n  At index 0 diff: (None, None) != ('codex-1', ('act-1', '2026-11-13T14:41:34Z'))\n  Use -v to get more diff"
+        },
+        {
+          "name": "test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again",
+          "message": "AssertionError: assert [None] == ['codex-1']\n  \n  At index 0 diff: None != 'codex-1'\n  Use -v to get more diff"
+        }
+      ]
+    }
+  ],
+  "interrupted_runs": [
+    {
+      "file": "tests/fake/test_admission_liveness.py",
+      "runner_exit_code": 130,
+      "pytest_exit_code": null,
+      "reason": "Stopped the repeated run to preserve the three-hour deadline; initial complete run passed 32 tests.",
+      "completed_progress_dots": 31,
+      "log": "docs/reports/2026-11-07-idle-admission-data/fix-r1-liveness-repeat-interrupted.log"
+    },
+    {
+      "file": "tests/fake/test_task_hold_admission.py",
+      "runner_exit_code": 130,
+      "pytest_exit_code": null,
+      "reason": "Stopped the repeated file list to diagnose the two route-isolation freshness failures before the hard deadline."
+    }
+  ]
+}

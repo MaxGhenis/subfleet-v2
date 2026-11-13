@@ -1,0 +1,19 @@
+bringing up nodes...
+bringing up nodes...
+
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_release_news_survives_temporary_door_hold[long-machine] _________
+[gw0] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python
+tests/fake/test_idle_capacity_guard_news.py:73: in test_release_news_survives_temporary_door_hold
+    assert [row["state"] for row in service.store.list_attempts(job)] == ["reserved"]
+E   AssertionError: assert [] == ['reserved']
+E     
+E     Right contains one more item: 'reserved'
+E     Use -v to get more diff
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4507901904:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4507901904:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_temporary_door_hold[long-machine]
+1 failed in 52.75s

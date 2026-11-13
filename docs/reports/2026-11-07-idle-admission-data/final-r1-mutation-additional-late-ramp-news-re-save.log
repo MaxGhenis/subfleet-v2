@@ -1,0 +1,68 @@
+PLUGIN registered: <_pytest.config.PytestPluginManager object at 0x107203770>
+PLUGIN registered: <_pytest.config.Config object at 0x1073041a0>
+PLUGIN registered: <module '_pytest.mark' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/mark/__init__.py'>
+PLUGIN registered: <module '_pytest.main' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/main.py'>
+PLUGIN registered: <module '_pytest.runner' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py'>
+PLUGIN registered: <module '_pytest.fixtures' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/fixtures.py'>
+PLUGIN registered: <module '_pytest.helpconfig' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/helpconfig.py'>
+PLUGIN registered: <module '_pytest.python' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/python.py'>
+PLUGIN registered: <module '_pytest.terminal' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/terminal.py'>
+PLUGIN registered: <module '_pytest.debugging' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/debugging.py'>
+PLUGIN registered: <module '_pytest.unittest' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/unittest.py'>
+PLUGIN registered: <module '_pytest.capture' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/capture.py'>
+PLUGIN registered: <module '_pytest.skipping' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/skipping.py'>
+PLUGIN registered: <module '_pytest.legacypath' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/legacypath.py'>
+PLUGIN registered: <module '_pytest.tmpdir' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/tmpdir.py'>
+PLUGIN registered: <module '_pytest.monkeypatch' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/monkeypatch.py'>
+PLUGIN registered: <module '_pytest.recwarn' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/recwarn.py'>
+PLUGIN registered: <module '_pytest.pastebin' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/pastebin.py'>
+PLUGIN registered: <module '_pytest.assertion' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/assertion/__init__.py'>
+PLUGIN registered: <module '_pytest.junitxml' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/junitxml.py'>
+PLUGIN registered: <module '_pytest.doctest' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/doctest.py'>
+PLUGIN registered: <module '_pytest.setuponly' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/setuponly.py'>
+PLUGIN registered: <module '_pytest.setupplan' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/setupplan.py'>
+PLUGIN registered: <module '_pytest.unraisableexception' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/unraisableexception.py'>
+PLUGIN registered: <module '_pytest.threadexception' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/threadexception.py'>
+PLUGIN registered: <module '_pytest.warnings' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/warnings.py'>
+PLUGIN registered: <module '_pytest.logging' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/logging.py'>
+PLUGIN registered: <module '_pytest.reports' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/reports.py'>
+PLUGIN registered: <module '_pytest.faulthandler' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/faulthandler.py'>
+PLUGIN registered: <module '_pytest.subtests' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/subtests.py'>
+PLUGIN registered: <module 'xdist.plugin' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/xdist/plugin.py'>
+PLUGIN registered: <module 'xdist.looponfail' from '/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/xdist/looponfail.py'>
+PLUGIN registered: <module 'pytest_timeout' from '/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/.venv/lib/python3.15/site-packages/pytest_timeout.py'>
+PLUGIN registered: <module '_hypothesis_pytestplugin' from '/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/.venv/lib/python3.15/site-packages/_hypothesis_pytestplugin.py'>
+PLUGIN registered: <CaptureManager _method='fd' _global_capturing=<MultiCapture out=<FDCapture 1 oldfd=5 _state='suspended' tmpfile=<EncodedFile name="<_io.FileIO name=6 mode='wb+' closefd=True>" mode='w+' encoding='utf-8'>> err=<FDCapture 2 oldfd=7 _state='suspended' tmpfile=<EncodedFile name="<_io.FileIO name=8 mode='wb+' closefd=True>" mode='w+' encoding='utf-8'>> in_=<FDCapture 0 oldfd=3 _state='started' tmpfile=<_io.TextIOWrapper name='/dev/null' mode='r' encoding='utf-8'>> _state='suspended' _in_suspended=False> _capture_fixture=None>
+PLUGIN registered: <module 'tests.conftest' from '/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/source/tests/conftest.py'>
+PLUGIN registered: <module 'tests.fake.conftest' from '/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/source/tests/fake/conftest.py'>
+PLUGIN registered: <Session  exitstatus=<ExitCode.OK: 0> testsfailed=0 testscollected=0>
+PLUGIN registered: <_pytest.junitxml.LogXML object at 0x1074c9010>
+PLUGIN registered: <class '_pytest.legacypath.LegacyTmpdirPlugin'>
+PLUGIN registered: <_pytest.terminal.TerminalReporter object at 0x1076d34d0>
+PLUGIN registered: <_pytest.logging.LoggingPlugin object at 0x107877b60>
+PLUGIN registered: <xdist.dsession.TerminalDistReporter object at 0x10797d550>
+PLUGIN registered: <xdist.dsession.DSession object at 0x10797d160>
+PLUGIN registered: <_pytest.fixtures.FixtureManager object at 0x10797d6a0>
+bringing up nodes...
+PLUGIN registered: <xdist.workermanage.WorkerController.RemoteHook object at 0x10797e7b0>
+PLUGIN registered: <xdist.workermanage.WorkerController.RemoteHook object at 0x1079d5e50>
+PLUGIN registered: <xdist.workermanage.WorkerController.RemoteHook object at 0x1079d6ad0>
+PLUGIN registered: <xdist.workermanage.WorkerController.RemoteHook object at 0x107937360>
+bringing up nodes...
+
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_release_news_survives_ramp_recheck_after_clock_moves_back ________
+[gw3] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmp13j50I/bin/python
+tests/fake/test_idle_capacity_guard_news.py:161: in test_release_news_survives_ramp_recheck_after_clock_moves_back
+    assert [row["state"] for row in service.store.list_attempts(job)] == ["reserved"]
+E   AssertionError: assert [] == ['reserved']
+E     
+E     Right contains one more item: 'reserved'
+E     Use -v to get more diff
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4431766464:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4431766464:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_ramp_recheck_after_clock_moves_back
+1 failed in 56.28s
