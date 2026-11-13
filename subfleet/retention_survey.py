@@ -28,6 +28,7 @@ from . import retention as ret
 from . import retention_archive as rarch
 from . import retention_fs as rfs
 from . import retention_git as rgit
+from . import retention_marks as marks
 from .policy import RETENTION_DEFAULTS
 from .retention_holders import ScanFailed, Watch, lsof_holders
 from .store import Store
@@ -178,43 +179,14 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
             repositories.append(rarch.known_repositories(jobs, root))
         return repositories[0]
 
+    kept = marks.kept_for_good(root, [job["job_id"] for job in jobs])
     for job in jobs:
         job_id = job["job_id"]
-        info: dict[str, Any] = {"job_id": job_id, "pool": ret._pool(job), "created_at": job["created_at"],
-                                "state": job["state"], "kind": job["kind"], "pin": reasons.get(job_id)}
-        try:
-            worktree = ret._owned_worktree(job, root)
-        except ValueError as exc:
-            info["issue"] = f"worktree path: {exc}"
-            worktree = None
-        info["worktree"] = str(worktree) if worktree else None
-        info["worktree_exists"] = bool(worktree and os.path.isdir(worktree))
-        if job_id in journals:
-            info["journal"] = str(journals[job_id]["state"]) if isinstance(journals[job_id], dict) else "unreadable"
-        if sizes:
-            jobdir = _walk_sizes(root / "jobs" / job_id, None)
-            info["job_dir_bytes"] = jobdir["bytes"]
-            info["bytes"] = jobdir["bytes"]
-            info["manifest_bytes"] = jobdir["manifest_bytes"]
-        if worktree is not None and not info.get("pin"):
-            seen = journals[job_id].get("history_bytes") if isinstance(journals.get(job_id), dict) else None
-            _preflight(info, job, worktree, root, salvage.get(job_id, {}), remotes_cache, remote_less, seen,
-                       lambda h: any(w and os.path.realpath(w) == str(h) for w in live_trees), known)
-        if worktree is not None and info["worktree_exists"] and sizes:
-            wt = _walk_sizes(worktree, info.pop("_omit", None))
-            info.update(worktree_bytes=wt["bytes"], worktree_files=wt["files"],
-                        omittable_upper=wt["omittable_upper"] if not info.get("scratch") else 0)
-            info["bytes"] = info.get("bytes", 0) + wt["bytes"]
-            info["manifest_bytes"] = info.get("manifest_bytes", 0) + wt["manifest_bytes"]
-            if wt["error"]:
-                info.setdefault("issue", f"walk: {wt['error']}")
-            if wt["nested_gitfiles"] and not info.get("issue"):
-                admin = info.get("admin")
-                foreign = [g for g in wt["nested_gitfiles"] if not _into_admin(worktree / g, admin)]
-                if foreign:
-                    info["issue"] = f"nested-linked-worktree: {foreign[0]}"
-        info.pop("_omit", None)
-        rows[job_id] = info
+        rows[job_id] = job_info(job, root, pin=reasons.get(job_id), kept=kept.get(job_id),
+                                journal=journals.get(job_id), salvage_refs=salvage.get(job_id, {}),
+                                cache=remotes_cache, remote_less=remote_less,
+                                live=lambda h: any(w and os.path.realpath(w) == str(h) for w in live_trees),
+                                known=known, sizes=sizes)
     # Budgets, oldest first, as a pass decides them (no batch limit here).
     counts = Counter(r["pool"] for r in rows.values())
     totals = defaultdict(int)
@@ -227,6 +199,11 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         r = rows[job["job_id"]]
         pool = r["pool"]
         over = counts[pool] > budgets[pool][0] or totals[pool] > budgets[pool][1]
+        if job["job_id"] in kept:
+            # C-8.7: kept for good whatever the budget says, so it reads as
+            # deleted (or being deleted) even in a pool within its budget.
+            r["kept"] = kept[job["job_id"]]
+            continue
         if not over:
             r["kept"] = "within budget"
             continue
@@ -319,6 +296,61 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
                              and r.get("worktree_exists")]
     report["elapsed_s"] = round(time.monotonic() - started, 1)
     return report
+
+
+def job_info(job: dict[str, Any], root: Path, *, pin: str | None = None, kept: str | None = None,
+             journal: Any = None, salvage_refs: dict[str, str] | None = None, cache: dict[Any, Any] | None = None,
+             remote_less: int | None = None, live: Any = None, known: Any = None,
+             sizes: bool = True) -> dict[str, Any]:
+    """One job's row of the survey, read-only: its pin (`pin`, the reason
+    `_pin_reasons` gave), its sizes, and, for an unpinned job, the preflight of
+    `Retirement.begin` and the walk that finds nested linked worktrees, which
+    set `info["issue"]` when retention would keep the job. `retention_delete`
+    asks this again for one job, with no pin, just before it deletes (C-8.7,
+    gate 6). `kept` is why the delete path keeps the job (`retention_marks`):
+    such a job reads as pinned, and its tree, deleted or being deleted, is not
+    read. `journal` is the job's retention journal (an exception when it could
+    not be read); the other arguments are `_preflight`'s."""
+    job_id = job["job_id"]
+    info: dict[str, Any] = {"job_id": job_id, "pool": ret._pool(job), "created_at": job["created_at"],
+                            "state": job["state"], "kind": job["kind"], "pin": pin}
+    if kept is not None:
+        info["pin"] = pin or kept
+        if kept == marks.DELETED:
+            info["tree_deleted"] = marks.marker(root, job_id)
+    try:
+        worktree = ret._owned_worktree(job, root)
+    except ValueError as exc:
+        info["issue"] = f"worktree path: {exc}"
+        worktree = None
+    info["worktree"] = str(worktree) if worktree else None
+    info["worktree_exists"] = bool(worktree and os.path.isdir(worktree))
+    if journal is not None:
+        info["journal"] = str(journal["state"]) if isinstance(journal, dict) else "unreadable"
+    if sizes:
+        jobdir = _walk_sizes(root / "jobs" / job_id, None)
+        info["job_dir_bytes"] = jobdir["bytes"]
+        info["bytes"] = jobdir["bytes"]
+        info["manifest_bytes"] = jobdir["manifest_bytes"]
+    if worktree is not None and not info.get("pin"):
+        seen = journal.get("history_bytes") if isinstance(journal, dict) else None
+        _preflight(info, job, worktree, root, salvage_refs or {}, cache if cache is not None else {}, remote_less,
+                   seen, live, known)
+    if worktree is not None and info["worktree_exists"] and sizes and kept is None:
+        wt = _walk_sizes(worktree, info.pop("_omit", None))
+        info.update(worktree_bytes=wt["bytes"], worktree_files=wt["files"],
+                    omittable_upper=wt["omittable_upper"] if not info.get("scratch") else 0)
+        info["bytes"] = info.get("bytes", 0) + wt["bytes"]
+        info["manifest_bytes"] = info.get("manifest_bytes", 0) + wt["manifest_bytes"]
+        if wt["error"]:
+            info.setdefault("issue", f"walk: {wt['error']}")
+        if wt["nested_gitfiles"] and not info.get("issue"):
+            admin = info.get("admin")
+            foreign = [g for g in wt["nested_gitfiles"] if not _into_admin(worktree / g, admin)]
+            if foreign:
+                info["issue"] = f"nested-linked-worktree: {foreign[0]}"
+    info.pop("_omit", None)
+    return info
 
 
 def _into_admin(gitfile: Path, admin: str | None) -> bool:
