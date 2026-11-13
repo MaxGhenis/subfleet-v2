@@ -1611,7 +1611,11 @@ class Daemon:
         `task-held` for a hold that ended before this one began, with no pass and no commit
         between the two (a store a daemon before fix round 2 wrote), has that hold ended
         where it ended first, so the time between them counts against its grace, as time
-        with no hold does."""
+        with no hold does.
+
+        C-3.8: inside the caller's transaction (`tx`, admission's), that transaction records
+        `job.task_hold_moved` (`{task, until}`) when only the job's end moved, and nothing of
+        its own beside a take's `job.task_held` row."""
         job_id = job["job_id"]
         paused = None
         if not (job["state"] == "waiting" and job["wait_reason"] == "task-held"
@@ -1627,6 +1631,8 @@ class Daemon:
                        "AND wait_reason='task-held' AND cancel_requested_at IS NULL")
                 if tx is not None:
                     tx.execute(sql, (hold["until"], job_id))
+                    # C-3.8: the caller's transaction (admission's) says only the end moved.
+                    self.store.audit_as("job.task_hold_moved", {"task": hold["task"], "until": hold["until"]})
                 else:
                     with self.store.transaction("job.task_hold_moved", job_id=job_id,
                                                 data={"task": hold["task"], "until": hold["until"]}) as inner:
@@ -1637,6 +1643,9 @@ class Daemon:
                     hold = current
             elif tx is not None:
                 paused = self._take_for_hold(tx, job, hold)
+                # C-3.8: the take writes its own `job.task_held` row in `tx`; the caller's
+                # transaction records nothing beside it.
+                self.store.audit_as(None)
             else:
                 data: dict[str, Any] = {"task": hold["task"], "until": hold["until"]}
                 with self.store.transaction("job.task_held", job_id=job_id, data=data) as inner:
@@ -8459,6 +8468,8 @@ class Daemon:
                                 self._refuse_conversation_session(native_session, job["kind"])
                             except AdapterError as exc:
                                 self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
+                                # C-3.8: its nested `job.failed` names what happened; this one adds nothing.
+                                self.store.audit_as(None)
                                 status = "settled"
                                 break
                         if tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "

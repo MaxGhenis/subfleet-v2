@@ -20,6 +20,7 @@ from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
 from tests.fake.test_capacity_wait_backoff import fleet  # noqa: F401  (fixture)
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
+from tests.fake.test_state_contract import state_daemon  # noqa: F401  (fixture)
 
 
 @pytest.fixture
@@ -287,3 +288,60 @@ def test_c3_8_a_wait_that_changes_the_job_s_exclusions_records_it(fleet):  # noq
     service._admit()
     due(service)
     assert len(waits(service, job)) == 2
+
+
+# --- C-3.8: arms whose nested writes name them (task-held, inside admission's transaction) ----
+
+@pytest.fixture
+def held_task(state_daemon, monkeypatch):  # noqa: F811
+    from subfleet import daemon as daemon_module
+    from tests.fake.test_admission_ramp import fake_clock
+    monkeypatch.setattr(daemon_module, "git_head", lambda *args, **kwargs: None)
+    monkeypatch.setattr(daemon_module, "git_toplevel", lambda *args, **kwargs: None)
+    fake_clock(monkeypatch)
+    service, harness = state_daemon
+    return service, harness
+
+
+def admission_task_held(service, job_id):
+    """Admission's task-held arm (C-11.10, C-6.3), as its transaction runs it: the hold read
+    at the transaction's clock, then `_task_held(..., tx=tx)`. The events it left for the job."""
+    mark = service.store.one("SELECT COALESCE(MAX(event_id), 0) AS id FROM events")["id"]
+    with service.store.transaction(ADMISSION_EVENT, job_id=job_id) as tx:
+        row = service._job(job_id)
+        found = service._task_hold_for(row, service._task_holds_now(lambda sql, params: tx.execute(sql, params).fetchall()))
+        assert found is not None
+        service._task_held(row, found, {}, tx=tx)
+    return [(row["kind"], json.loads(row["data_json"])) for row in service.store.query(
+        "SELECT kind, data_json FROM events WHERE job_id=? AND event_id>? ORDER BY event_id", (job_id, mark))]
+
+
+def test_c3_8_a_take_inside_admission_records_only_the_take_s_task_held(held_task, monkeypatch):
+    """C-3.8, C-11.10 admission's transaction that takes the job for a hold records the take's
+    own `job.task_held` row and nothing of its own (neither admission name)."""
+    from tests.disk_floor_model import stamp
+    from tests.task_hold_support import hold, submit
+    service, harness = held_task
+    build = submit(service, harness, "build", "build-1")
+    monkeypatch.setattr(service, "_take_task_jobs", lambda *args, **kwargs: None)    # the hold's commit took nothing
+    hold(service, "build", stamp(3600))
+    recorded = admission_task_held(service, build)
+    assert [kind for kind, _ in recorded] == ["job.task_held"], recorded
+    assert recorded[0][1]["taken"] is True
+    assert service.store.get_job(build)["wait_reason"] == "task-held"
+
+
+def test_c3_8_a_moved_hold_end_inside_admission_records_task_hold_moved(held_task, monkeypatch):
+    """C-3.8, C-11.10 admission's transaction that only moves a held job's end records
+    `job.task_hold_moved` with the task and the new end, as `_task_held_at_write` names it."""
+    from tests.disk_floor_model import stamp
+    from tests.task_hold_support import hold, submit
+    service, harness = held_task
+    build = submit(service, harness, "build", "build-1")
+    hold(service, "build", stamp(3600))                         # its commit takes the job
+    assert service.store.get_job(build)["next_check_at"] == stamp(3600)
+    monkeypatch.setattr(service, "_take_task_jobs", lambda *args, **kwargs: None)
+    hold(service, "build", stamp(7200))                         # a replacement the job has not seen
+    recorded = admission_task_held(service, build)
+    assert recorded == [("job.task_hold_moved", {"task": "build", "until": stamp(7200)})], recorded
+    assert service.store.get_job(build)["next_check_at"] == stamp(7200)
