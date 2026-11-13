@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+created: 4/4 workers
+4 workers [282 items]
+
+........................................................................ [ 25%]
+........................................................................ [ 51%]
+........F..F...

@@ -1,0 +1,13 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0 -- /Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build/.venv/bin/python
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261107-104158-wall-retry-build
+configfile: pyproject.toml
+plugins: timeout-2.4.0, hypothesis-6.168.1
+collecting ... collected 20 items / 18 deselected / 2 selected
+
+tests/fake/test_lane_fault.py::test_c4_5_an_attempt_that_never_launched_after_a_lane_fault_is_counted_as_ever[1-failed] PASSED [ 50%]
+tests/fake/test_lane_fault.py::test_c4_5_an_attempt_that_never_launched_after_a_lane_fault_is_counted_as_ever[2-queued] PASSED [100%]
+
+================= 2 passed, 18 deselected in 122.70s (0:02:02) =================

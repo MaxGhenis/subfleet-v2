@@ -120,7 +120,7 @@ def test_quarantine_resolution_salvages_with_cwd_only_and_preserves_its_hold(dae
 
 def test_wall_dead_guardian_with_cwd_only_records_loss_without_a_kill(daemon, monkeypatch):
     daemon.store.update_job(JOB, max_wall_s=1, max_attempts=1)
-    daemon._running_s = lambda job_id: 2
+    daemon._running_s = lambda job_id, **kwargs: 2
     daemon._contain = lambda a: CWD
     monkeypatch.setattr(procs, "liveness", lambda *a: "dead")
     with_launch(daemon, monkeypatch)
