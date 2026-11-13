@@ -13,6 +13,29 @@ SCHEMA_VERSION = 1
 VERDICT_BEGIN = "---SUBFLEET-VERDICT-BEGIN---"
 VERDICT_END = "---SUBFLEET-VERDICT-END---"
 VERDICTS = frozenset({"approve", "changes_requested", "blocked"})
+# D-GATE-CERT1: where either sentinel starts. The lookahead finds every start,
+# overlapping ones too ("---SUBFLEET-VERDICT-BEGIN---SUBFLEET-VERDICT-END---").
+_SENTINEL_START = re.compile("-(?=" + "|".join(re.escape(sentinel[1:])
+                                               for sentinel in (VERDICT_BEGIN, VERDICT_END)) + ")")
+
+
+def escape_sentinels(json_text: str) -> str:
+    """JSON text holding no sentinel, decoding to the same value (D-GATE-CERT1).
+
+    For `json.dumps` output only. A sentinel's letters can sit only inside a
+    JSON string, where `\\u002d` decodes to the hyphen it replaces; and since the
+    escape adds no hyphen and none of the sentinels' letters, no new sentinel forms.
+    """
+    return _SENTINEL_START.sub(lambda _: "\\u002d", json_text)
+
+
+def wrap_verdict(value: Any, **dumps: Any) -> str:
+    """`value` as the one sentinel-delimited object that parse_verdict reads back as `value`.
+
+    A peer may quote a sentinel in a string by escaping it; the parsed value then
+    holds the sentinel, and writing it back literally would make two (C-23.9).
+    """
+    return f"{VERDICT_BEGIN}\n{escape_sentinels(json.dumps(value, **dumps))}\n{VERDICT_END}"
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

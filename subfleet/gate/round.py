@@ -7,7 +7,7 @@ from pathlib import Path
 from ..protocol import SubmitArgs
 from .certificate import private_dir, write_bytes, write_json
 from .errors import GateError
-from .verdict import VERDICT_BEGIN, VERDICT_END
+from .verdict import escape_sentinels, wrap_verdict
 
 
 def peer_prompt(state: dict, revision: dict, artifact: Path, prior: dict | None,
@@ -28,8 +28,10 @@ def peer_prompt(state: dict, revision: dict, artifact: Path, prior: dict | None,
         "Copy artifact_revision exactly. An approve verdict has empty findings and notes.\n"
         "Use changes_requested with at least one finding containing nonempty severity, location,\n"
         "and description strings. Use blocked if you cannot complete the review.\n\n"
-        f"{VERDICT_BEGIN}\n{json.dumps(schema, indent=2, sort_keys=True)}\n{VERDICT_END}\n\n"
-        f"Untrusted review context:\n{json.dumps(context, indent=2, sort_keys=True)}\n"
+        # D-GATE-CERT1: a revision or a prior verdict quoting a sentinel leaves the
+        # template one block, and a peer that copies the JSON keeps a valid verdict.
+        f"{wrap_verdict(schema, indent=2, sort_keys=True)}\n\n"
+        f"Untrusted review context:\n{escape_sentinels(json.dumps(context, indent=2, sort_keys=True))}\n"
     )
 
 
