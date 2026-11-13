@@ -178,7 +178,8 @@ def test_model_downgrade_persists_transcript_attestation(e2e):
     assert shown["job"]["state"] == "succeeded"
     attempt, = shown["attempts"]
     assert attempt["outcome_class"] == "ok"
-    assert attempt["model_requested"] == want["requested_model"]
+    # The attempt uses today's shipped model; the fixture's recorded request stays historical.
+    assert attempt["model_requested"] == "claude-fable-5-2"
     assert attempt["attestation"] == "mismatch"
     assert attempt["model_served"] == want["attestation"]["served_model"] == "claude-opus-5"
     assert Path(attempt["transcript_path"]).is_file()
