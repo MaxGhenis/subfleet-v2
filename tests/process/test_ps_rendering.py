@@ -1,16 +1,29 @@
-"""C-5.5 against the real `ps`: how it prints an environment, and the marker source.
+"""C-25.6 against the real `ps`: how it prints an environment, which `peers.ps_text`
+renders so the person check can find a state root in a caller's line.
+
+The census (C-5.5) reads raw argument buffers since D-CEN1 and needs no notation;
+its tests for every root are in tests/process/test_census_root_bytes_process.py.
 
 Every child here is started with an environment of the test's own making (PATH and
 test variables only, never the caller's), so what `ps -E` prints about it carries
 no credential and may appear in an assertion message. The children are Python, not
 `/bin/sleep`: `ps -E` prints no environment for Apple's own executables at all. Each
-is read only once it runs Python code. Once, on 2026-09-27 at a load average near
-130, a read taken as soon as `Popen` returned also printed the kernel's `apple[]`
-strings (`ptr_munge=`, `stack_guard=` and the like) after the environment, and a
-rerun of the same example did not; the review's 801 early reads (2026-09-27, some of
-a child still suspended before its first instruction) never did. Why is not
-established. It would cost the census nothing, since those strings carry no
-marker, but it would change the line compared exactly here.
+is read only once it runs Python code, through `peers._ps`, the reader C-25.6 uses.
+
+A framework build of Python (python.org's, which CI installs, and Homebrew's) runs
+`bin/python3.x` as a launcher that executes `Python.app/Contents/MacOS/Python` and
+adds `__CF_USER_TEXT_ENCODING=` and `__PYVENV_LAUNCHER__=` after the environment it
+was given (review r2 finding 1). So the line's argv[0] is not `sys.executable` and
+the given environment is not the line's end: each test checks that the given
+environment, after the argv, is one contiguous run bounded by spaces, and a test
+that needs a variable last checks that first.
+
+Once, on 2026-09-27 at a load average near 130, a read taken as soon as `Popen`
+returned also printed the kernel's `apple[]` strings (`ptr_munge=`, `stack_guard=`
+and the like) after the environment, and a rerun of the same example did not; the
+review's 801 early reads (2026-09-27, some of a child still suspended before its
+first instruction) never did. Why is not established. Those strings would follow
+the run these tests compare, so they would not change its result.
 """
 
 import json
@@ -31,7 +44,7 @@ from subfleet.conversations import peers
 SLEEPER = [sys.executable, "-c", "import os, time; os.write(1, b'r'); time.sleep(60)"]
 PATH = (b"PATH", b"/usr/bin:/bin")
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ps_vis_bytes.json"
-VALUE = st.binary(max_size=40).map(lambda raw: raw.replace(b"\0", b""))
+VALUE = st.binary(max_size=300).map(lambda raw: raw.replace(b"\0", b""))
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -66,25 +79,34 @@ def child(env):
 
 
 def printed(pid):
-    """What `ps -E` prints for `pid`, run as the census runs it (`procs._read`)."""
-    return procs._read(["/bin/ps", "-Ewwp", str(pid), "-o", "command="]).rstrip("\n")
+    """What `ps -E` prints for `pid`, read as C-25.6 reads it (`peers._ps`, which
+    gives `ps` the C locale), with only the newline stripped (`process_chain`)."""
+    return peers._ps(["/bin/ps", "-Ewwp", str(pid), "-o", "command="]).rstrip("\n")
 
 
-def expected(env):
-    """The same line from `peers.ps_text`: the argv, then each variable, spaced."""
-    words = [*SLEEPER, *(os.fsdecode(name + b"=" + value) for name, value in env)]
+def given_run(env):
+    """The argv after argv[0], then each given variable, as `peers.ps_text` prints
+    them, spaced: what the line must hold whatever argv[0] a framework Python shows
+    and whatever variables it adds after the environment."""
+    words = [*SLEEPER[1:], *(os.fsdecode(name + b"=" + value) for name, value in env)]
     return " ".join(peers.ps_text(word) for word in words)
 
 
-def test_ps_prints_every_byte_as_procs_expects():
-    """C-5.5: the real `ps`, in the C locale `procs._read` gives it, prints each of the
-    255 bytes an environment can hold as `peers.PS_BYTES` says, and as the recorded
-    measurement (tests/fixtures/ps_vis_bytes.json) did. On a macOS whose `ps` prints
-    differently this test fails; nothing runs it before a daemon there starts."""
+def holds_run(line, env):
+    """The given run is in `line` as one contiguous run bounded by spaces: a space
+    before it, and a space or the line's end after it."""
+    return f" {given_run(env)} " in f"{line} "
+
+
+def test_ps_prints_every_byte_as_ps_text_says():
+    """Invariant 3: the real `ps`, in the C locale `peers._ps` gives it, prints each of
+    the 255 bytes an environment can hold as `peers.PS_BYTES` says, and as the
+    recorded measurement (tests/fixtures/ps_vis_bytes.json) did. On a macOS whose `ps`
+    prints differently this test fails; nothing runs it before a daemon there starts."""
     env = [PATH, *((b"B%02X" % value, b"<" + bytes([value]) + b">") for value in range(1, 256))]
     with child(env) as process:
         line = printed(process.pid)
-    assert line == expected(env)
+    assert holds_run(line, env), line
     measured = json.loads(FIXTURE.read_text())["bytes"]
     assert all(f" B{name}=<{shown}>" in line for name, shown in measured.items())
 
@@ -93,22 +115,46 @@ def test_ps_prints_every_byte_as_procs_expects():
                      suppress_health_check=[hypothesis.HealthCheck.too_slow])
 @hypothesis.given(values=st.lists(VALUE, min_size=1, max_size=12))
 def test_ps_prints_any_environment_as_ps_text_says(values):
-    """C-5.5, differential: for arbitrary environment values (every byte but NUL, in
-    any sequence, trailing spaces included), the real `ps` prints the whole line as
-    `peers.ps_text` does, so a value's bytes are printed one at a time."""
+    """Invariant 3, differential: for arbitrary environment values (every byte but NUL,
+    in any sequence, trailing spaces included, up to 300 bytes), the real `ps` prints
+    the given run as `peers.ps_text` does, so a value's bytes are printed one at a
+    time."""
     env = [PATH, *((b"V%02d" % index, value) for index, value in enumerate(values))]
     with child(env) as process:
-        assert printed(process.pid) == expected(env)
+        line = printed(process.pid)
+    assert holds_run(line, env), line
 
 
-def test_the_person_check_finds_a_root_marker_as_ps_prints_it():
-    """C-25.6 with C-5.5: a caller whose environment carries SUBFLEET_ROOT, last and
-    ending in a space, under a root that is not printable ASCII, is refused for its
-    markers. The chain is cut to the child, so a test run inside a Subfleet attempt
+ROOT = "/tmp/subfleet-José-root "
+
+
+def test_the_person_check_finds_a_root_marker_with_a_variable_after_it():
+    """Invariant 5, one real process: a caller whose environment carries SUBFLEET_ROOT
+    under a root that is not printable ASCII and ends in a space, with another
+    variable after it, is refused for its markers even though its image is taken for
+    the app's. The chain is cut to the child, so a test run inside a Subfleet attempt
     judges the child and not its own ancestors."""
-    root = "/tmp/subfleet-José-root "
-    with child([PATH, (b"SUBFLEET_ROOT", os.fsencode(root))]) as process:
-        verdict = peers.judge(token(process.pid), chain=lambda pid: peers.process_chain(pid)[:1], root=root,
-                              executable=lambda pid: None)
-    assert not verdict.person
-    assert verdict.reason == "the caller carries Subfleet's attempt markers"
+    env = [PATH, (b"SUBFLEET_ROOT", os.fsencode(ROOT)), (b"HOME", b"/Users/fixture")]
+    with child(env) as process:
+        line = printed(process.pid)
+        verdict = peers.judge(token(process.pid), chain=lambda pid: peers.process_chain(pid)[:1], root=ROOT,
+                              executable=lambda token: peers.APP_EXECUTABLES[0])
+    assert holds_run(line, env), line
+    assert (verdict.person, verdict.reason) == (False, "the caller carries Subfleet's attempt markers")
+
+
+def test_the_person_check_finds_a_root_marker_that_ends_the_line():
+    """Invariant 5 with the root last: its trailing space ends the line, and
+    `process_chain` keeps it. A framework Python adds variables after the given
+    environment, so there the precondition does not hold and the case is skipped
+    (the unit tests fake `_ps` for it)."""
+    env = [PATH, (b"SUBFLEET_ROOT", os.fsencode(ROOT))]
+    with child(env) as process:
+        line = printed(process.pid)
+        if not line.endswith(f"SUBFLEET_ROOT={peers.ps_text(ROOT)}"):
+            assert holds_run(line, env), line
+            pytest.skip("this Python adds variables after the given environment, so the root is not last")
+        verdict = peers.judge(token(process.pid), chain=lambda pid: peers.process_chain(pid)[:1], root=ROOT,
+                              executable=lambda token: peers.APP_EXECUTABLES[0])
+    assert holds_run(line, env), line
+    assert (verdict.person, verdict.reason) == (False, "the caller carries Subfleet's attempt markers")
