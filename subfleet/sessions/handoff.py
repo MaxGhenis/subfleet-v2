@@ -2432,14 +2432,99 @@ def _merged(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return merged
 
 
-def _line_end(text: str, at: int) -> int:
-    """Where the line holding `at` ends, as the quoted-value rule ends one (`_LINE_END_RE`)."""
-    return _LINE_END_RE.search(text, at).start()
+def _run_back(text: str, end: int, chars: str | None, low: int) -> int:
+    """Where the run of `chars` (whitespace when None) that ends at `end` starts, reading back
+    no further than `low`: C scans of 64, 128, ... characters, and `low` when the run reaches
+    it. The split code's own reader (fix round 1, P1): `_run_start`, which other rules use,
+    copies the whole text before `end` once a run passes its stepped scans."""
+    step = 64
+    while True:
+        near = max(low, end - step)
+        kept = len(text[near:end].rstrip(chars))
+        if kept or near == low:
+            return near + kept
+        end, step = near, step * 2
 
 
-def _line_start(text: str, at: int) -> int:
-    """Where the line holding `at` starts (after its `\\n` or `\\r`)."""
-    return max(text.rfind("\n", 0, at), text.rfind("\r", 0, at)) + 1
+def _quote_on_line(text: str, low: int, high: int) -> bool:
+    """Whether a quote stands in `text[low:high]` with no line break after it before `high`:
+    read back from `high` in growing steps, stopping at the first quote or line break."""
+    step, end = 64, high
+    while end > low:
+        near = max(low, end - step)
+        chunk = text[near:end]
+        quote, brk = max(chunk.rfind('"'), chunk.rfind("'")), max(chunk.rfind("\n"), chunk.rfind("\r"))
+        if quote >= 0 or brk >= 0:
+            return quote > brk
+        end, step = near, step * 2
+    return False
+
+
+class _Lines:
+    """Line starts and ends in one text, as the split code reads them (`_split_masks`). A start
+    reads back no further than its caller allows; an end is the first `\\r` or `\\n` at or after
+    a position, or the text's end (`_LINE_END_RE`), and each end found is kept with the earliest
+    position known to be on its line, so no character is read twice in looking for ends."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.ends: list[int] = []
+        self.froms: dict[int, int] = {}
+
+    def start(self, at: int, floor: int, reach: int) -> int | None:
+        """Where the line holding `at` starts (after its `\\n` or `\\r`), or `floor` when that
+        is at or before `floor`, reading back at most `reach` characters: None when the line
+        starts further back than that (fail closed, as a window too long to read)."""
+        low = max(floor, at - reach)
+        newline = self.text.rfind("\n", low, at)
+        found = max(newline, self.text.rfind("\r", max(low, newline + 1), at))
+        if found >= 0:
+            return found + 1
+        return low if low == floor else None
+
+    def end(self, at: int) -> int:
+        """Where the line holding `at` ends."""
+        i = bisect.bisect_left(self.ends, at)
+        known = self.ends[i] if i < len(self.ends) else None
+        if known is not None and self.froms[known] <= at:
+            return known
+        upto = len(self.text) if known is None else self.froms[known]
+        end = _LINE_END_RE.search(self.text, at, upto).start()
+        if known is not None and end == upto:
+            self.froms[known] = at
+            return known
+        self.ends.insert(i, end)
+        self.froms[end] = at
+        return end
+
+
+class _Ahead:
+    """The first match of `pattern` at or after a position in one text. The last search answers
+    any position from where it started to where its match starts, since no match starts in
+    between, so a run of searches that moves forward reads the text once."""
+
+    def __init__(self, pattern: re.Pattern, text: str) -> None:
+        self.pattern, self.text, self.at, self.match = pattern, text, -1, None
+
+    def __call__(self, at: int) -> re.Match | None:
+        if 0 <= self.at <= at and (self.match is None or at <= self.match.start()):
+            return self.match
+        self.at, self.match = at, self.pattern.search(self.text, at)
+        return self.match
+
+
+class _Covers:
+    """The earlier layers' masks over one text, merged (`_split_masks`): which one covers part of
+    a closer (fix round 1, P2)."""
+
+    def __init__(self, ranges: list[tuple[int, int]]) -> None:
+        self.ranges = _merged(ranges)
+        self.starts = [a for a, _ in self.ranges]
+
+    def over(self, start: int, end: int) -> int | None:
+        """The end of the mask that covers part of `[start, end)`, or None."""
+        i = bisect.bisect_left(self.starts, end) - 1
+        return self.ranges[i][1] if i >= 0 and self.ranges[i][1] > start else None
 
 
 class _SplitReader:
@@ -2448,6 +2533,10 @@ class _SplitReader:
 
     def __init__(self) -> None:
         self.left = _SPLIT_READ_MAX
+
+    def room(self) -> int:
+        """The longest window `values` still reads."""
+        return min(_SPLIT_WINDOW_MAX, self.left)
 
     def values(self, text: str, start: int, end: int) -> list[tuple[int, int]] | None:
         """The ranges the quoted-value rule replaces in `text[start:end]`, in `text`'s
@@ -2467,20 +2556,31 @@ class _SplitReader:
 def _data_uri_splits(text: str, spans: list[tuple[int, int, int]], reader: _SplitReader) -> list[tuple[int, int]]:
     """The rest of each quoted value whose key a data URI's body ends in (`password = ` before
     the value's quote, `password` before its `:`, `api` before `_key`): from the body's end to
-    the value's end."""
+    the value's end. Each look-back reads at most `_SPLIT_WINDOW_MAX` characters: a run of
+    spaces and `=` longer than that, or a key word whose line starts further back than the read
+    budget allows, is a window too long to read, and the rest of the line goes (fail closed)."""
     masks: list[tuple[int, int]] = []
-    for _, end, _ in spans:
-        gap = _run_start(text, end, _BODY_GAP)
-        word_start = _run_start(text, gap, _BODY_WORD)
+    lines = _Lines(text)
+    for start, end, _ in spans:
+        low = max(start, end - _SPLIT_WINDOW_MAX)
+        gap = _run_back(text, end, _BODY_GAP, low)
+        if gap == low > start:
+            masks.append((end, lines.end(end)))        # any key is further back than a window
+            continue
+        low = max(start, gap - _SPLIT_WINDOW_MAX)
+        word_start = _run_back(text, gap, _BODY_WORD, low)
         if word_start == gap:
             continue
-        word = text[word_start:gap]
+        word = text[max(word_start, gap - 17):gap]     # the key's last 17 characters are all a suffix needs
         if gap == end and (more := _IDENTIFIER_RE.match(text, end)) is not None:
-            word += more.group()                       # the key runs on past the body (`api` `_key`)
-        if not _SENSITIVE_SUFFIX_RE.search(word[-17:]):
+            word = (word + more.group()[-17:])[-17:]   # the key runs on past the body (`api` `_key`)
+        if not _SENSITIVE_SUFFIX_RE.search(word):
             continue                                   # no key: no quoted value starts here
-        stop = _line_end(text, end)
-        values = reader.values(text, _line_start(text, word_start), stop)
+        stop = lines.end(end)
+        room = reader.room()                           # the read budget, before any window is found
+        line = (None if word_start == low > start or stop - word_start > room
+                else lines.start(word_start, 0, room - (stop - word_start)))
+        values = None if line is None else reader.values(text, line, stop)
         if values is None:
             masks.append((end, stop))
             continue
@@ -2488,39 +2588,90 @@ def _data_uri_splits(text: str, spans: list[tuple[int, int, int]], reader: _Spli
     return masks
 
 
+def _closer_value_end(text: str, closer: re.Match, inner: int, lines: _Lines, reader: _SplitReader) -> int | None:
+    """Where the quoted value that opens inside a private key or reminder (at or after `inner`)
+    and holds its `closer` ends, the latest if several; the end of the closer's line when the
+    window that would show it is too long to read (fail closed); None when no value holds it.
+    A value must open on the closer's line (within a line, as the excerpt rules read it), so a
+    closer whose line holds no quote inside the block is held by none. Each look-back reads at
+    most `_SPLIT_WINDOW_MAX` characters but one: where the block's part of the closer's line is
+    longer than that and its last such stretch holds no quote, `_quote_on_line` reads back to
+    the nearest quote or line break, within the block."""
+    at = closer.start()
+    line = lines.start(at, inner, _SPLIT_WINDOW_MAX)
+    stop = lines.end(closer.end())
+    if line is None:
+        # The block's part of the closer's line is longer than a window, so any window holding a
+        # value that holds the closer is too: a quote there fails closed.
+        near = at - _SPLIT_WINDOW_MAX
+        if text.find('"', near, at) < 0 and text.find("'", near, at) < 0 and not _quote_on_line(text, inner, near):
+            return None
+        return stop
+    if text.find('"', line, at) < 0 and text.find("'", line, at) < 0:
+        return None
+    room = reader.room()
+    if stop - line > room:
+        return stop                                    # no window holding the closer's line fits
+    fits, window = stop - room, line                   # a readable window starts at `fits` or after
+    for _ in range(2):        # a key and its separator may each have a line above the value
+        low = max(inner, window - _SPLIT_WINDOW_MAX)
+        run = _run_back(text, window, None, low)
+        if run == low:
+            if low == inner:
+                break                                  # nothing visible above it in the block
+            return stop                                # blank for longer than a window: fail closed
+        above = run - 1
+        if above < fits:
+            return stop
+        window = lines.start(above, inner, above - max(inner, fits))
+        if window is None:
+            return stop
+    values = reader.values(text, window, stop)
+    if values is None:
+        return stop
+    ends = [b for a, b in values if inner <= a < closer.end() < b]
+    return max(ends) if ends else None
+
+
 def _closer_splits(text: str, spans: list[tuple[int, int, int]], opening: re.Pattern, closing: re.Pattern,
-                   reader: _SplitReader) -> list[tuple[int, int]]:
+                   reader: _SplitReader, earlier: list[tuple[int, int]] | None = None) -> list[tuple[int, int]]:
     """For a private key or reminder: the rest of each quoted value that opens inside the
     block and holds the closer that ends it, and on from there to the next closer, as the
     whole-text scrub's block runs once its first pass has masked that value; again at each
-    such closer. A value must open on the closer's line (within a line, as the excerpt
-    rules read it), so a block whose closer's line holds no quote inside it splits none."""
+    such closer (`_closer_value_end`).
+
+    A closer that one of `earlier` (the earlier layers' masks, in `text`'s positions) covers
+    ends no block either: the whole-text scrub's earlier steps took it, so its block runs on to
+    the next closer outside every mask, and that run-on is masked too (fix round 1, P2: a
+    reminder whose closer a value holds runs on over a private key's closer). A block whose
+    opener a mask covers is left as release resolves it, which hides more than the whole-text
+    scrub. A run-on that reaches a closer an earlier block's run-on read from stops there: that
+    run-on masked on from it, so each closer is read once as a run-on's, and once as the closer
+    its own block ends at."""
     masks: list[tuple[int, int]] = []
+    lines, ahead, covers, seen = _Lines(text), _Ahead(closing, text), _Covers(earlier or []), set()
     for start, end, _ in spans:
         inner = opening.match(text, start).end()
-        closer = closing.search(text, inner)            # the lazy match ends at the first closer
+        closer = ahead(inner)                          # the lazy match ends at the first closer
         assert closer is not None and closer.end() == end
+        first = True
         while True:
-            line = _line_start(text, closer.start())
-            low = max(inner, line)
-            if text.find('"', low, closer.start()) < 0 and text.find("'", low, closer.start()) < 0:
+            reached = closer
+            while reached is not None and (past := covers.over(reached.start(), reached.end())) is not None:
+                reached = ahead(past)                  # a closer a mask covers ends no block
+            if reached is None:
+                break                                  # none past the masks: the whole-text block never closes
+            if reached is not closer:
+                masks.append((closer.end(), reached.end()))
+                closer = reached
+            if not first and closer.start() in seen:
                 break
-            stop = _line_end(text, closer.end())
-            window = line
-            for _ in range(2):        # a key and its separator may each have a line above the value
-                above = _last_visible(text, window)
-                if above < inner:
-                    break
-                window = _line_start(text, above)
-            values = reader.values(text, max(window, inner), stop)
-            if values is None:
-                value_end = stop                        # unread: the rest of the line goes
-            else:
-                ends = [b for a, b in values if inner <= a < closer.end() < b]
-                if not ends:
-                    break
-                value_end = max(ends)
-            following = closing.search(text, value_end)
+            seen.add(closer.start())
+            first = False
+            value_end = _closer_value_end(text, closer, inner, lines, reader)
+            if value_end is None:
+                break
+            following = ahead(value_end)
             masks.append((closer.end(), following.end() if following is not None else value_end))
             if following is None:
                 break
@@ -2540,7 +2691,7 @@ def _split_masks(text: str, strip_reminders: bool, tally: _Tally) -> tuple[str, 
         text = resolved
     for pattern, out in _BLOCK_RULES:
         resolved, spans = _block_layer(pattern, out, text, tally)
-        found = (_closer_splits(text, spans, _PEM_START_RE, _PEM_END_RE, reader) if pattern is _PEM_RE
+        found = (_closer_splits(text, spans, _PEM_START_RE, _PEM_END_RE, reader, masks) if pattern is _PEM_RE
                  else _data_uri_splits(text, spans, reader))
         masks = _carried(masks, spans) + _carried(found, spans)
         text = resolved
