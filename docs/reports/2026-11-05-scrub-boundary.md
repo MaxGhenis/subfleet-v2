@@ -427,6 +427,6 @@ Every run used `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and `unset PYTHONPATH`
   in its last window. A later block's run-on stops at a closer an earlier run-on read from. Within one
   block, a run-on step's result can differ from 13fd1c8bc's only where that block's opener sits within
   the window above the closer. The superset check shows no loss on the fixed rows.
-- **Scratch:** `$TMPDIR/sf-sb-fix1` (archives, the private uv cache, basetemps) is not yet removed.
+- **Scratch:** `$TMPDIR/sf-sb-fix1` held the archives, the private uv cache and the basetemps. I removed it at the end with a guarded `shutil.rmtree`. The probe, rows, mutant and timing outputs stay in the job checkout's untracked `.fix1/`.
 
 Built head: see the final answer.
