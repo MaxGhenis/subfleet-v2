@@ -237,6 +237,36 @@ def test_the_development_build_is_the_app_only_on_a_development_state_root(monke
             daemon.store.close()
 
 
+UNHOLDABLE_ROOTS = {"a NUL": "/Users/m/.subfleet-a\x00b", "a lone surrogate": "/Users/m/.subfleet-\ud800"}
+
+
+@pytest.mark.parametrize("root", UNHOLDABLE_ROOTS.values(), ids=UNHOLDABLE_ROOTS.keys())
+def test_a_root_no_environment_can_hold_is_a_refusal_even_for_the_app(root):
+    """C-25.6 (review r2 finding 6): `ps_text` cannot render a root that holds a NUL or
+    that `os.fsencode` cannot encode, so the root veto cannot clear anyone. `judge`
+    refuses, naming the root, even when the caller's image is the app's and nothing
+    in its chain carries a marker; it never raises."""
+    procs = (Proc(10, 9, "??", f"{APP} HOME=/Users/m"), Proc(9, 1, "??", "/sbin/launchd"))
+    verdict = judge(token(10), chain=chain_of(*procs), executable=exe(APP), root=root)
+    assert (verdict.person, verdict.reason, verdict.pid) == (False, peers.UNHOLDABLE_ROOT, 10)
+
+
+@pytest.mark.parametrize("root", UNHOLDABLE_ROOTS.values(), ids=UNHOLDABLE_ROOTS.keys())
+def test_a_root_no_environment_can_hold_is_refused_with_exit_7_not_exit_2(svc, monkeypatch, root):
+    """C-25.6 (review r2 finding 6): through the service, a person-only op under such a
+    root is a person-only refusal, exit 7. Before, `ps_text`'s `ValueError` escaped
+    `judge`, and `respond` answered it as invalid arguments, exit 2."""
+    with_process_table(monkeypatch, (Proc(10, 1, "??", f"{APP} HOME=/Users/m"),), APP)
+    cid = conversation(svc)
+    monkeypatch.setattr(svc, "root", Path(root))            # `_person` passes `root=str(self.root)`
+    op, args = person_only_calls(cid)["approval.respond"]
+    with pytest.raises(ConversationError) as refused:
+        svc.handle(op, args, token(10))
+    error = refused.value
+    assert (error.reason, error.code) == ("person-only", 7), error
+    assert str(error) == f"answering an approval is a person's decision: {peers.UNHOLDABLE_ROOT}"
+
+
 # --- property: only the app, and never under a veto ---------------------------------------
 
 TERMINALS = st.sampled_from(["??", "-", "", "ttys000", "ttys009", "ttys042", "console", "pts/3"])

@@ -53,6 +53,9 @@ MARKERS = ("SUBFLEET_ATTEMPT=", "SUBFLEET_JOB=")
 APP_EXECUTABLES = ("/Applications/Subfleet.app/Contents/MacOS/Subfleet",)
 #: `ps -o tty` for a process with no controlling terminal.
 NO_TERMINAL = ("??", "-", "")
+#: C-25.6: `judge`'s refusal when the state root cannot be looked for in an environment.
+UNHOLDABLE_ROOT = ("this daemon's state root cannot be matched against the caller's environment "
+                   "(no environment can hold it), so the caller cannot be cleared of Subfleet's markers")
 
 
 @dataclass(frozen=True)
@@ -233,7 +236,13 @@ def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = proce
         return Verdict(False, "the caller's process could not be inspected", pid)
     # `ps` prints the environment in vis(3) notation, so the root is looked for as
     # it prints (C-25.6): `é` is `M-CM-)`.
-    root_marker = f"SUBFLEET_ROOT={ps_text(root)}" if root else None
+    try:
+        root_marker = f"SUBFLEET_ROOT={ps_text(root)}" if root else None
+    except ValueError:
+        # A root no environment can hold (a NUL, or bytes os.fsencode cannot make)
+        # cannot be looked for, so the veto cannot clear anyone: a refusal (exit 7),
+        # never a request error.
+        return Verdict(False, UNHOLDABLE_ROOT, pid)
     for proc in procs:
         if "subfleet.guardian" in proc.command:
             return Verdict(False, "the caller runs under a Subfleet guardian", pid)
