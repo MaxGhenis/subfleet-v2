@@ -490,29 +490,44 @@ def test_any_matching_corpus_yields_a_refusal_quoting_its_line(corpus):
     _assert_quotes(refusal.statement(), corpus)
 
 
+#: Each place the CLI's own words reach the corpus (C-9.2, `StreamSummary.cli_texts`).
+CHANNELS = ("stderr", "errors", "frame", "error-text")
+
+
+def _in_channel(corpus: str, channel: str) -> tuple[str, str]:
+    """(stream, stderr) with `corpus` where Claude Code put it: stderr, the result's
+    `errors`, its own placeholder frame, or the text of a result marked `is_error`."""
+    if channel == "stderr":
+        return _stream(INIT), corpus
+    if channel == "errors":
+        return _stream(INIT, {"type": "result", "subtype": "error_during_execution",
+                              "is_error": True, "session_id": "s", "errors": [corpus]}), ""
+    if channel == "frame":
+        return _stream(INIT, {"type": "assistant", "session_id": "s", "is_api_error_message": True,
+                              "message": {"model": "<synthetic>",
+                                          "content": [{"type": "text", "text": corpus}]}}), ""
+    return _stream(INIT, {"type": "result", "subtype": "success", "is_error": True,
+                          "session_id": "s", "result": corpus}), ""
+
+
 @settings(max_examples=150, **QUIET)
-@given(corpus=refusal_corpora())
-def test_any_matching_corpus_is_quoted_by_enroll(corpus):
-    """Whatever surrounds it, a refusal on stderr reaches the AdapterError."""
-    stdout = _stream(INIT, {"type": "result", "subtype": "success", "is_error": False,
-                            "result": "ok", "session_id": "s"})
-    error = _enroll_error(stdout, stderr=corpus, rc=1)
+@given(corpus=refusal_corpora(), channel=st.sampled_from(CHANNELS))
+def test_any_matching_corpus_is_quoted_by_enroll(corpus, channel):
+    """Invariant 1: whatever surrounds it, a refusal in any of the CLI's channels
+    reaches the AdapterError."""
+    stdout, stderr = _in_channel(corpus, channel)
+    error = _enroll_error(stdout, stderr=stderr, rc=1)
     assert error.code == 5 and error.fix == CAUSES
     _assert_quotes(str(error), corpus)
 
 
 @settings(max_examples=150, **QUIET)
-@given(corpus=refusal_corpora(), in_stream=st.booleans())
-def test_any_matching_corpus_is_quoted_by_the_classifier(corpus, in_stream):
-    """Whether Claude Code printed it on stderr or in the stream's error text, the
-    auth-dead detail quotes the refusal line and names both causes."""
+@given(corpus=refusal_corpora(), channel=st.sampled_from(CHANNELS))
+def test_any_matching_corpus_is_quoted_by_the_classifier(corpus, channel):
+    """Invariant 1: wherever Claude Code printed it, the auth-dead detail quotes the
+    refusal line and names both causes."""
     adapter = ClaudeAdapter(now=lambda: NOW, projects_dir=Path("/nonexistent"))
-    stream = _stream(INIT)
-    stderr = corpus
-    if in_stream:
-        stream = _stream(INIT, {"type": "result", "subtype": "error_during_execution",
-                                "is_error": True, "session_id": "s", "errors": [corpus]})
-        stderr = ""
+    stream, stderr = _in_channel(corpus, channel)
     with tempfile.TemporaryDirectory() as tmp:
         attempt_dir = Path(tmp)
         (attempt_dir / "stream.jsonl").write_text(stream, encoding="utf-8")
@@ -550,10 +565,25 @@ def test_an_excerpt_always_holds_its_match(case):
     if len(line) <= LINE_EXCERPT_MAX:
         assert excerpt == line
         return
-    body = excerpt.removeprefix("…").removesuffix("…")
-    assert body in line
     assert len(excerpt) <= max(LINE_EXCERPT_MAX, len(match.group(0))) + 2
-    if body == line:
-        assert excerpt == line          # a match as long as its line is the line
-    else:
-        assert excerpt.startswith("…") or excerpt.endswith("…")
+    # Invariant 8, every cut marked: the excerpt is a window line[low:high] that holds
+    # the match, with "…" before it exactly when low > 0 and after it exactly when
+    # high < len(line). Found apart from the code: every way to read the excerpt so.
+    found_at = match.start() - (start + len(corpus[start:].split("\n", 1)[0])
+                                - len(corpus[start:].split("\n", 1)[0].lstrip()))
+    found_end = found_at + len(match.group(0))
+    readings = []
+    for lead in ("", "…"):
+        for tail in ("", "…"):
+            if not (excerpt.startswith(lead) and excerpt.endswith(tail)
+                    and len(excerpt) >= len(lead) + len(tail)):
+                continue
+            body = excerpt[len(lead): len(excerpt) - len(tail)]
+            low = line.find(body)
+            while low != -1:
+                high = low + len(body)
+                if (low <= found_at and found_end <= high and bool(lead) == (low > 0)
+                        and bool(tail) == (high < len(line))):
+                    readings.append((low, high))
+                low = line.find(body, low + 1)
+    assert readings, (excerpt, line)
