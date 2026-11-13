@@ -1760,6 +1760,9 @@ def cmd_runs(args: argparse.Namespace) -> int:
     rows = kept
     if args.json:
         for row in rows:
+            # A daemon from before the review contract has no stored result.
+            # Never infer one from an artifact during a read.
+            row.setdefault("review", None)
             emit(row)
         return int(Exit.OK)
     if offline:
@@ -1890,6 +1893,24 @@ def _format_job(job: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _review_line(job: dict[str, Any]) -> str | None:
+    """One readable line beside the metadata, without changing artifact output."""
+    review = job.get("review")
+    if not isinstance(review, dict):
+        return None
+    verdict = str(review.get("verdict") or "unknown").upper()
+    levels = review.get("levels") or {}
+    counts = ", ".join(f"{level} {levels[level]}" for level in ("P0", "P1", "P2", "P3")
+                       if levels.get(level))
+    text = f"review: {verdict} ({counts or 'no findings'}); round "
+    text += "valid" if review.get("valid") else "invalid"
+    if not review.get("valid") and review.get("reason"):
+        text += f" ({review['reason']})"
+    if review.get("consistent") is False:
+        text += "; verdict inconsistent with levels"
+    return text
+
+
 def _ack_notices(client: Client, job: dict[str, Any]) -> None:
     """C-15.3 acknowledge notices when their session runs `runs show <job>`.
 
@@ -1939,6 +1960,7 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         return _protocol_failure(exc)
     if not job:
         return fail(Exit.INVALID_INPUT, f"runs show: no job {args.id!r}")
+    job.setdefault("review", (job.get("job") or {}).get("review"))
     if args.json:
         emit(job)
         return int(Exit.OK)
@@ -1960,6 +1982,9 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
     # artifacts are evidence paths on stderr, never result text on stdout.
     # `--out`, `--err` alone, and `--json` are v2's single-artifact forms.
     emit(job)
+    review_line = _review_line(job)
+    if review_line:
+        note(review_line)
     out("\n--- out.md ---")
     path = _shown_deliverable(job)
     if path:

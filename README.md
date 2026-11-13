@@ -12,6 +12,15 @@ v1 records remain available without delegating commands to the old installation.
 
 Native exact-revision agreement gates: [usage and integration notes](docs/gates.md).
 
+Review jobs (`subfleet run --task review`) always request `VERDICT: APPROVE` or
+`VERDICT: REQUEST_CHANGES` first, followed by findings headed `P0:` through `P3:`
+(or `FINDINGS: none`). P0 and P1 block; P2 blocks in round 1; P3 never blocks.
+The accepted attempt's parsed verdict, level counts, validity and consistency are
+reported as `review` by `runs --json` and `runs show <id> --json`; readable
+`runs show` prints the verdict and round validity. Invalid formatting does not
+fail the job: callers decide whether to count a round. The format applies with
+every provider and sandbox, including `--no-preamble`.
+
 Python 3.12+, standard library only. `uv sync --group dev && uv run pytest`.
 
 The implementation includes durable submission and cancellation, guardian receipts

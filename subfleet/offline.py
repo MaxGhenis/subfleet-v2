@@ -24,6 +24,7 @@ from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from . import task_holds
 from .quota_projection import weekly_projections
+from .review_record import stored_review_result
 from .status_json import closure_row, decision_rows
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 from .store import WEEKLY_HISTORY_SQL, cancel_info, job_flags, notice_rows, shell_flags, weekly_history_params
@@ -196,6 +197,7 @@ class Offline:
                a.boot_id         AS boot_id,
                a.proc_start      AS proc_start,
                a.attestation     AS attestation,
+               accepted_review.evidence_json AS _review_evidence_json,
                l.provider        AS provider,
                l.account_key     AS account_key,
                (SELECT SUM(bytes) FROM artifacts
@@ -207,6 +209,9 @@ class Offline:
                                      WHERE attempts.job_id = j.job_id
                                      ORDER BY seq DESC LIMIT 1)
           LEFT JOIN lanes l ON l.lane_id = a.lane_id
+          LEFT JOIN attempts accepted_review
+                 ON accepted_review.attempt_id = j.accepted_attempt_id
+                AND (j.task = 'review' OR j.kind = 'gate-review')
     """
 
     def list_jobs(self, *, session: str | None = None, running: bool = False,
@@ -320,6 +325,7 @@ class Offline:
         # (#221 review r1b, P3-4): offline JSON gave 1 where the daemon gave true.
         # D-QOS-BOOKED1: and a job's requested provider QoS, `utility` from a store before the column.
         job = job_flags({key: row[key] for key in row.keys()})
+        job["review"] = stored_review_result(job, job.pop("_review_evidence_json", None))
         job["duration_s"] = _duration_s(job.get("started_at"), job.get("finished_at"))
         job["model"] = job.get("model_served") or job.get("model_requested")
         job["family"] = job.get("provider")
