@@ -184,6 +184,33 @@ def _pin_notice_key(data_json: str | None) -> tuple | None:
 PIN_NOTICE_ID = "(CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END)"
 
 
+def batch_submission_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]],
+                          job_ids: Sequence[str]) -> list[Any]:
+    """Batch-bearing first submissions, bounded by jobs rather than their history.
+
+    Submit inserts each job and its submission atomically. Repeated submissions
+    (a fabricated history, or an archived id reused after clock rollback) use
+    the first identity, as dependencies and ``Daemon._submitted`` already do.
+    Keep the old literal batch filter here and leave JSON parsing and label
+    validation to each caller.
+    """
+    ids = sorted(set(job_ids))
+    found = []
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        # The scalar lookup stops at the first submission in events_job order.
+        # Filtering the payload afterwards also stops a batch-less submission
+        # from walking the job's later events. +kind avoids events_kind's walk
+        # of all submissions. VALUES handles unknown ids without a jobs row.
+        found.extend(query(
+            "WITH wanted(job_id) AS (VALUES " + ",".join("(?)" for _ in chunk) + ") "
+            "SELECT e.job_id,e.data_json FROM wanted JOIN events e ON e.event_id=("
+            "SELECT first.event_id FROM events first WHERE first.job_id=wanted.job_id "
+            "AND +first.kind='job.submitted' ORDER BY first.event_id LIMIT 1) "
+            "WHERE e.data_json LIKE '%\"batch\"%'", chunk))
+    return found
+
+
 def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
                     rows: Iterable[Mapping[str, Any]]) -> dict[int, str]:
     """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from its

@@ -1,0 +1,866 @@
+{
+  "start_utc": "2026-11-13T12:15:44Z",
+  "deadline_utc": "2026-11-13T14:15:44Z",
+  "head_built": "ebc8a9a8bb90117124c54c272ab2dd253d959296",
+  "status": "Complete;625passed/5skipped;all3mutants killed;commits refused;guarded scratch cleanup complete",
+  "root-commands.json": [
+    {
+      "command": "date -u; pwd; git status --short; cat REVIEW BRIEF REPORT",
+      "result": "0; start12:15:44 UTC, assigned workspace, clean checkout; required documents read. Reads repeated independently while git status was slow."
+    },
+    {
+      "command": "rg --files -g AGENTS.md -g '*liveness*' -g pyproject.toml -g uv.lock; rg -n 'LIVENESS_WRITE_S|_liveness_written|last_observed_alive_at|_record_owned|D-WALL1|C-5.12' subfleet/daemon.py docs/acceptance-contract.md tests/unit/test_liveness_write_pacing.py",
+      "result": "0; identified existing liveness module and relevant implementation/contract passages; broad contract output truncated."
+    },
+    {
+      "command": "test ! -f AGENTS.md || cat AGENTS.md; sed -n 1,280p tests/unit/test_liveness_write_pacing.py; sed -n 10670,10820p subfleet/daemon.py; sed -n 430,480p docs/acceptance-contract.md; rg -n liveness/observation contract; getconf DARWIN_USER_TEMP_DIR; command -v uv",
+      "result": "0; no root AGENTS, inspected code; Darwin temp /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/, uv /opt/homebrew/bin/uv."
+    },
+    {
+      "command": "python3 inline edit: create scratch and replace both post-commit completion stamps with observed_at; uv --cache-dir /private/tmp/sf-dq-f1/uv-cache sync --group dev",
+      "result": "0;9 packages installed; CPython3.15.2; environment/scratch/cache all /private/tmp/sf-dq-f1."
+    },
+    {
+      "command": "sed -n 1,100p pyproject.toml; sed -n 10780,10825p subfleet/daemon.py; sed -n 11310,11390p subfleet/daemon.py; sed -n 1,240p docs/reports/2026-11-06-daemon-quiet-data/liveness_mutants.py; date -u",
+      "result": "0; verified pacing and loss reader and existing mutation approach."
+    },
+    {
+      "command": "cat heredoc > docs/reports/2026-11-06-daemon-quiet-data/fix_r1_mutants.py; python3 -m py_compile SCRIPT; git diff --check",
+      "result": "0; created mutation harness; syntax/whitespace passed; generated source-side __pycache__ later moved and guarded-deleted."
+    },
+    {
+      "command": "git --no-optional-locks diff --numstat; python3 inline contract passage inspection",
+      "result": "0;3 contract lines and daemon changes; corrected clock semantics verified."
+    },
+    {
+      "command": "python3 inline report edits and draft append (three invocations)",
+      "result": "0 each; corrected old behavior claims, persisted Fix r1 draft, added final focused result and source lines."
+    },
+    {
+      "command": "python3 inline create/update /private/tmp/sf-dq-f1/run_logged.py (five invocations)",
+      "result": "0 each; exact command/env/result logging, scratch temp/cache/pytest plugin, explicit PYTHONPATH, bounded own-process cleanup."
+    },
+    {
+      "command": "sed -n 145,390p tests/unit/test_liveness_write_pacing.py; sed -n 840,875p subfleet/daemon.py; cat /private/tmp/sf-dq-f1/pacing-tests-commands.json",
+      "result": "1; source reads succeeded; wrong scratch log filename did not exist. Correct pacing-agent-command-log.md read later."
+    },
+    {
+      "command": "rg -n 'mkdtemp|tempdir|rmtree|pytest_configure|pytest_unconfigure' tests/conftest.py; cat focused/required logs; date -u",
+      "result": "0 overall; discovered pytest temporary-home hooks; required-tests-summary.json was initially absent and read again after creation."
+    },
+    {
+      "command": "sed -n 35,145p tests/conftest.py; /private/tmp/sf-dq-f1/venv/bin/python -c print-ready; command -v python3; python3 -c print-sys.version; readlink venv/bin/python; readlink venv/bin/python3",
+      "result": "0; confirmed slow interpreter startup eventually succeeds; system3.14.7, synced environment3.15.2."
+    },
+    {
+      "command": "sed -n 1,180p tests/failed_keep.py; cat required/focused logs",
+      "result": "0; identified hardcoded shared failure-retention root without listing that root; redirected subsequent runs via plugin."
+    },
+    {
+      "command": "python3 inline mutation-replacement validation and cache invalidation edit",
+      "result": "1 before applying any mutant; guarded matcher found two identical transaction signatures."
+    },
+    {
+      "command": "python3 inline anchor mutation matcher to identity branch, then enumerate mutants; cat scratch isolation plugin",
+      "result": "0;3 independent mutation replacements validated."
+    },
+    {
+      "command": "python3 inline AST/source line audit",
+      "result": "0; confirmed daemon/test line references; no new durable key/refusal."
+    },
+    {
+      "command": "python3 inline copy scratch isolation plugin into report data",
+      "result": "0; reproducible test harness saved."
+    },
+    {
+      "command": "python3 inline workspace __pycache__ audit/move and guarded shutil.rmtree",
+      "result": "0; one source-side cache directory removed; exact path in outside-scratch-directories.json."
+    },
+    {
+      "command": "git -c core.fsmonitor=false diff --check -- subfleet/daemon.py tests/unit/test_liveness_write_pacing.py docs/acceptance-contract.md docs/reports/2026-11-06-daemon-quiet.md; cat pacing-agent-command-log.md",
+      "result": "0; whitespace passed; agent command log read."
+    },
+    {
+      "command": "git rev-parse HEAD; git -c core.fsmonitor=false status --short --untracked-files=all",
+      "result": "0; head ebc8a9a8bb90117124c54c272ab2dd253d959296; only named task files modified/untracked."
+    },
+    {
+      "command": "git add -- subfleet/daemon.py tests/unit/test_liveness_write_pacing.py docs/acceptance-contract.md; conditional named-file commit",
+      "result": "git add failed1: index.lock Operation not permitted; no named files staged, commit skipped."
+    },
+    {
+      "command": "Repeated cat/date and write_stdin progress checks of owned logs/sessions",
+      "result": "0 except missing-file reads identified above; no additional tests or live-state inspection."
+    },
+    {
+      "command": "rg -l --no-messages 'sf-test-homes-' INITIAL_STATUS_BASETEMP INITIAL_CONTENTION_BASETEMP INITIAL_LIVENESS_BASETEMP",
+      "result": "1;no recoverable generated-home paths in this job's artifacts; no outside-root scan"
+    },
+    {
+      "command": "rg -n 'last_observed_alive_at|_last_observed_alive_write' subfleet --glob '*.py'",
+      "result": "0;all production uses in daemon.py;_lost11355 is only decision reader; pacing and cleanup sites unchanged"
+    },
+    {
+      "command": "Python report/validation JSON refreshes during serial regression",
+      "result": "0 each; persisted progress and detailed clock/cleanup deviations"
+    },
+    {
+      "command": "Python final result/log archival and table generation",
+      "result": "0;15 files,625passed/5skipped/0failed;14 required+batch commands exit0"
+    },
+    {
+      "command": "rg -n 'skip|skipif' tests/unit/test_daemon_verbs.py",
+      "result": "1;no direct skip literal;5skips recorded by pytest"
+    },
+    {
+      "command": "Python final archive, AST/JSON/source-hash/cache audits and guarded scratch cleanup",
+      "result": "0;details in final_static_checks and scratch_cleanup"
+    }
+  ],
+  "liveness-final.json": {
+    "name": "liveness-final",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-dq-f1/uv-cache",
+      "run",
+      "--no-sync",
+      "pytest",
+      "tests/unit/test_liveness_write_pacing.py",
+      "--basetemp",
+      "/private/tmp/sf-dq-f1/liveness-final",
+      "-q",
+      "--tb=short"
+    ],
+    "returncode": 0,
+    "seconds": 288.287,
+    "output": "....................                                                     [100%]\n20 passed in 187.47s (0:03:07)\n"
+  },
+  "liveness-isolated.json": {
+    "name": "liveness-isolated",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-dq-f1/uv-cache",
+      "--offline",
+      "run",
+      "--no-sync",
+      "pytest",
+      "tests/unit/test_liveness_write_pacing.py",
+      "--basetemp",
+      "/private/tmp/sf-dq-f1/liveness-isolated",
+      "-q",
+      "--tb=short"
+    ],
+    "returncode": 0,
+    "seconds": 132.374,
+    "environment": {
+      "TMPDIR": "/private/tmp/sf-dq-f1/tmp",
+      "UV_CACHE_DIR": "/private/tmp/sf-dq-f1/tmp/uv-cache",
+      "UV_PROJECT_ENVIRONMENT": "/private/tmp/sf-dq-f1/venv",
+      "PYTHONPYCACHEPREFIX": "/private/tmp/sf-dq-f1/pycache",
+      "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-dq-f1/hypothesis",
+      "PYTHONPATH": "/private/tmp/sf-dq-f1:",
+      "PYTEST_ADDOPTS": "-p sf_dq_isolation -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache"
+    },
+    "output": ".....................                                                    [100%]\n21 passed in 60.67s (0:01:00)\n"
+  },
+  "mutants-final.json": {
+    "name": "mutants-final",
+    "command": [
+      "uv",
+      "--cache-dir",
+      "/private/tmp/sf-dq-f1/uv-cache",
+      "--offline",
+      "run",
+      "--no-sync",
+      "python",
+      "docs/reports/2026-11-06-daemon-quiet-data/fix_r1_mutants.py",
+      "--scratch",
+      "/private/tmp/sf-dq-f1",
+      "--output",
+      "docs/reports/2026-11-06-daemon-quiet-data/fix-r1-mutants.json"
+    ],
+    "returncode": 0,
+    "seconds": 235.529,
+    "environment": {
+      "TMPDIR": "/private/tmp/sf-dq-f1/tmp",
+      "UV_CACHE_DIR": "/private/tmp/sf-dq-f1/tmp/uv-cache",
+      "UV_PROJECT_ENVIRONMENT": "/private/tmp/sf-dq-f1/venv",
+      "PYTHONPYCACHEPREFIX": "/private/tmp/sf-dq-f1/pycache",
+      "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-dq-f1/hypothesis",
+      "PYTHONPATH": "/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1:",
+      "PYTEST_ADDOPTS": "-p sf_dq_isolation -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache"
+    },
+    "output": "{\"mutant\": \"commit_completion_pace\", \"killer\": \"test_liveness_pace_starts_at_observation_before_a_slow_successful_commit\", \"cwd\": \"/private/tmp/sf-dq-f1/mutants\", \"returncode\": 1, \"killed\": true, \"restored_sha256\": \"bafda4663e19fe01b3ce5babc441929d5bd9e1ae8d0ce03a5a85bdd37cd54d26\"}\n{\"mutant\": \"drop_timestamp_floor\", \"killer\": \"test_liveness_wall_clock_rollback_never_moves_saved_observation_backwards\", \"cwd\": \"/private/tmp/sf-dq-f1/mutants\", \"returncode\": 1, \"killed\": true, \"restored_sha256\": \"bafda4663e19fe01b3ce5babc441929d5bd9e1ae8d0ce03a5a85bdd37cd54d26\"}\n{\"mutant\": \"ownership_pace_before_commit\", \"killer\": \"test_failed_identity_commit_does_not_consume_pace\", \"cwd\": \"/private/tmp/sf-dq-f1/mutants\", \"returncode\": 1, \"killed\": true, \"restored_sha256\": \"bafda4663e19fe01b3ce5babc441929d5bd9e1ae8d0ce03a5a85bdd37cd54d26\"}\n"
+  },
+  "required-tests-summary.json": [
+    {
+      "file": "tests/unit/test_status_json.py",
+      "command": "TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/ UV_CACHE_DIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/required-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/required-01-test_status_json.log",
+      "started_at": "2026-11-13T12:27:06.702085+00:00",
+      "returncode": 143,
+      "timed_out": true,
+      "elapsed_s": 304.05,
+      "finished_at": "2026-11-13T12:32:10.735110+00:00",
+      "result_tail": "$ TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/ UV_CACHE_DIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/required-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nInstalled 7 packages in 4.12s\n\nTIMEOUT after 300 seconds; child process group terminated",
+      "observed_pass_dots": 0,
+      "final_test_counts": null
+    },
+    {
+      "file": "tests/unit/test_store_contention_queries.py",
+      "command": "TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/ UV_CACHE_DIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/required-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/required-02-test_store_contention_queries.log",
+      "started_at": "2026-11-13T12:32:11.887202+00:00",
+      "returncode": -9,
+      "timed_out": true,
+      "elapsed_s": 305.21,
+      "finished_at": "2026-11-13T12:37:17.088702+00:00",
+      "result_tail": "$ TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/ UV_CACHE_DIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/required-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n...............................................................\nTIMEOUT after 300 seconds; child process group terminated",
+      "observed_pass_dots": 63,
+      "final_test_counts": null
+    }
+  ],
+  "required-tests-isolated-summary.json": [
+    {
+      "file": "tests/unit/test_status_json.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/isolated-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-01-test_status_json.log",
+      "started_at": "2026-11-13T12:46:34.811992+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 1.87,
+      "finished_at": "2026-11-13T12:46:36.685743+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/isolated-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/unit/test_store_contention_queries.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/isolated-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-02-test_store_contention_queries.log",
+      "started_at": "2026-11-13T12:46:36.718060+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.87,
+      "finished_at": "2026-11-13T12:46:37.584926+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/isolated-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/unit/test_census_merge_liveness.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_census_merge_liveness.py --basetemp /private/tmp/sf-dq-f1/isolated-03-test_census_merge_liveness-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-03-test_census_merge_liveness.log",
+      "started_at": "2026-11-13T12:46:37.709882+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.84,
+      "finished_at": "2026-11-13T12:46:38.551391+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_census_merge_liveness.py --basetemp /private/tmp/sf-dq-f1/isolated-03-test_census_merge_liveness-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/unit/test_daemon_settle.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_settle.py --basetemp /private/tmp/sf-dq-f1/isolated-04-test_daemon_settle-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-04-test_daemon_settle.log",
+      "started_at": "2026-11-13T12:46:38.572209+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.69,
+      "finished_at": "2026-11-13T12:46:39.266958+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_settle.py --basetemp /private/tmp/sf-dq-f1/isolated-04-test_daemon_settle-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/unit/test_review130_pass.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_review130_pass.py --basetemp /private/tmp/sf-dq-f1/isolated-05-test_review130_pass-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-05-test_review130_pass.log",
+      "started_at": "2026-11-13T12:46:39.267910+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 1.44,
+      "finished_at": "2026-11-13T12:46:40.703967+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_review130_pass.py --basetemp /private/tmp/sf-dq-f1/isolated-05-test_review130_pass-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/unit/test_daemon_verbs.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_verbs.py --basetemp /private/tmp/sf-dq-f1/isolated-06-test_daemon_verbs-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-06-test_daemon_verbs.log",
+      "started_at": "2026-11-13T12:46:40.704576+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.67,
+      "finished_at": "2026-11-13T12:46:41.371454+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_verbs.py --basetemp /private/tmp/sf-dq-f1/isolated-06-test_daemon_verbs-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/fake/test_wall_running_time.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_running_time.py --basetemp /private/tmp/sf-dq-f1/isolated-07-test_wall_running_time-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-07-test_wall_running_time.log",
+      "started_at": "2026-11-13T12:46:41.406196+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.71,
+      "finished_at": "2026-11-13T12:46:42.112143+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_running_time.py --basetemp /private/tmp/sf-dq-f1/isolated-07-test_wall_running_time-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/fake/test_wall_inspection_order.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_inspection_order.py --basetemp /private/tmp/sf-dq-f1/isolated-08-test_wall_inspection_order-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-08-test_wall_inspection_order.log",
+      "started_at": "2026-11-13T12:46:42.173802+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.89,
+      "finished_at": "2026-11-13T12:46:43.067063+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_inspection_order.py --basetemp /private/tmp/sf-dq-f1/isolated-08-test_wall_inspection_order-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/fake/test_review_r223_wall_probes.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_review_r223_wall_probes.py --basetemp /private/tmp/sf-dq-f1/isolated-09-test_review_r223_wall_probes-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-09-test_review_r223_wall_probes.log",
+      "started_at": "2026-11-13T12:46:43.067776+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.8,
+      "finished_at": "2026-11-13T12:46:43.872178+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_review_r223_wall_probes.py --basetemp /private/tmp/sf-dq-f1/isolated-09-test_review_r223_wall_probes-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/fake/test_native_maintenance_startup.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_native_maintenance_startup.py --basetemp /private/tmp/sf-dq-f1/isolated-10-test_native_maintenance_startup-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-10-test_native_maintenance_startup.log",
+      "started_at": "2026-11-13T12:46:43.882269+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.73,
+      "finished_at": "2026-11-13T12:46:44.612831+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_native_maintenance_startup.py --basetemp /private/tmp/sf-dq-f1/isolated-10-test_native_maintenance_startup-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/fake/test_state_contract.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_state_contract.py --basetemp /private/tmp/sf-dq-f1/isolated-11-test_state_contract-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-11-test_state_contract.log",
+      "started_at": "2026-11-13T12:46:44.673493+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 2.19,
+      "finished_at": "2026-11-13T12:46:46.858624+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_state_contract.py --basetemp /private/tmp/sf-dq-f1/isolated-11-test_state_contract-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/unit/test_test_module_names.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_test_module_names.py --basetemp /private/tmp/sf-dq-f1/isolated-12-test_test_module_names-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-12-test_test_module_names.log",
+      "started_at": "2026-11-13T12:46:46.866899+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.83,
+      "finished_at": "2026-11-13T12:46:47.698741+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_test_module_names.py --basetemp /private/tmp/sf-dq-f1/isolated-12-test_test_module_names-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/unit/test_invariants_index.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_invariants_index.py --basetemp /private/tmp/sf-dq-f1/isolated-13-test_invariants_index-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-13-test_invariants_index.log",
+      "started_at": "2026-11-13T12:46:47.918264+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 1.19,
+      "finished_at": "2026-11-13T12:46:49.110187+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_invariants_index.py --basetemp /private/tmp/sf-dq-f1/isolated-13-test_invariants_index-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    },
+    {
+      "file": "tests/unit/test_batch_submission_queries.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_batch_submission_queries.py --basetemp /private/tmp/sf-dq-f1/isolated-14-test_batch_submission_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/isolated-14-test_batch_submission_queries.log",
+      "started_at": "2026-11-13T12:46:49.110878+00:00",
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_s": 0.98,
+      "finished_at": "2026-11-13T12:46:50.089630+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_batch_submission_queries.py --basetemp /private/tmp/sf-dq-f1/isolated-14-test_batch_submission_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache."
+    }
+  ],
+  "outside-scratch-directories.json": [
+    {
+      "created_path": "/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1/docs/reports/2026-11-06-daemon-quiet-data/__pycache__",
+      "moved_to": "/private/tmp/sf-dq-f1/outside-cache-0"
+    }
+  ],
+  "pacing-agent-command-log.md": "# Pacing test agent commands\n\nAll commands ran in `/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1`; all exited 0. No tests, live state, network calls, commits or mutations were run by this agent.\n\n1. `date -u` \u2192 `Fri Nov 13 12:19:03 UTC 2026`.\n2. `cat /Users/maxghenis/reviews/subfleet-hub/daemon-quiet-2026-11-06/brief-build.md` \u2192 read build brief and Rules.\n3. `cat /Users/maxghenis/reviews/subfleet-hub/daemon-quiet-2026-11-06/review-r1.md` \u2192 read review findings.\n4. `cat docs/reports/2026-11-06-daemon-quiet.md` \u2192 read report (tool display truncated some output).\n5. `cat tests/unit/test_liveness_write_pacing.py` \u2192 read all original pacing tests and frozen reference helper.\n6. `sed -n '1,240p' tests/unit/test_daemon_settle.py` \u2192 read daemon fixture, attempt helper, fake launch setup.\n7. `sed -n '10705,10870p' subfleet/daemon.py` \u2192 read ownership/liveness implementation with root's observation-paced edit visible.\n8. `rg -n 'def _lost|def _running_s|def with_launch|def attempt\\(' subfleet/daemon.py tests/unit/test_daemon_settle.py` \u2192 four matching definitions.\n9. `ls /private/tmp/sf-dq-f1` \u2192 `started.txt`, `uv-cache`.\n10. `sed -n '4925,5005p' subfleet/daemon.py` \u2192 read `_running_s` and wall enforcement.\n11. `sed -n '11343,11470p' subfleet/daemon.py` \u2192 read `_lost` and adjacent methods.\n12. `rg -n 'last_observed_alive_at|_running_s\\(JOB\\)|finished_at.*clock|clock.*finished_at' tests/unit/test_census_merge_liveness.py tests/unit/test_liveness_write_pacing.py tests/fake/test_wall_running_time.py` \u2192 existing liveness assertions and charge fixture references.\n13. `rg -n '^    def _finalize|if lost|lost=' subfleet/daemon.py | tail -25` \u2192 finalization definition and relevant branches.\n14. `sed -n '11645,11795p' subfleet/daemon.py` \u2192 read loss finalization dependencies.\n15. `rg -n 'class Store|def __init__|self.path' subfleet/store.py | head -20` \u2192 confirmed `Store.path` for independent durable SQLite reader.\n16. `apply_patch` \u2192 added saved-age helper; differential rollback case; two forward-step cases; two failed coalesced identity cases; replaced slow-commit pacing test with saved-age assertions and lost charge.\n17. `sed -n '120,370p' tests/unit/test_liveness_write_pacing.py` \u2192 reviewed first patch (exec session 98731 completed via `write_stdin`).\n18. `apply_patch` \u2192 set slow-test inspection interval/start timestamp; added independent-reader replacing-commit-latency case.\n19. `apply_patch` \u2192 wrote this command log.\n20. `apply_patch` \u2192 added `Clock.age`, patched only new `_lost` tests to use the fake wall clock, and added rollback-future endpoint capping case.\n21. `apply_patch` \u2192 updated this command log.\n\nNew/changed tests handed to root for execution:\n\n- `test_rollback_floor_can_increase_lost_charge_relative_to_old_implementation`\n- `test_rollback_future_saved_observation_caps_lost_charge_at_current_wall_time`\n- `test_forward_wall_clock_step_has_no_minute_freshness_or_charge_bound[before-refresh]`\n- `test_forward_wall_clock_step_has_no_minute_freshness_or_charge_bound[after-refresh]`\n- `test_failed_identity_commit_does_not_consume_pace[owned]`\n- `test_failed_identity_commit_does_not_consume_pace[counted]`\n- `test_liveness_pace_starts_at_observation_before_a_slow_successful_commit`\n- `test_replacing_commit_latency_is_included_in_saved_observation_age`\n\nNo folders created outside the assigned scratch. The only repository file edited was `tests/unit/test_liveness_write_pacing.py`.\n",
+  "required-tests-agent-operations.txt": "Read/setup operations (all read-only unless described):\n- pwd: assigned worktree confirmed.\n- cat /Users/maxghenis/reviews/subfleet-hub/daemon-quiet-2026-11-06/brief-build.md: rules read; exit0.\n- rg --files -g AGENTS.md -g !node_modules -g !.venv: no files; exit1.\n- date -u plus /private/tmp/sf-dq-f1/venv/bin/python -c import-pytest check: 2026-11-13 12:22:24 UTC, pytest9.1.1; exit0.\n- sed -n 1,140p pyproject.toml: dev dependency/test config read; exit0.\n- cat > scratch/run_required_tests.py; python3 scratch/run_required_tests.py: original serial300s runner, logs/summary under scratch. See exact commands in required-tests-summary.json.\n- tail scratch required logs and write_stdin polling: observation only.\n- sed -n 1,180p tests/conftest.py; sed -n 1,220p tests/failed_keep.py; rg -n lock|sleep|sessionstart|wait tests/conftest.py tests/unit/conftest.py tests/fake/conftest.py: startup source read; exit0.\n- pgrep -f /private/tmp/sf-dq-f1/run_required_tests.py$: attempted exact own-script lookup to pause supervisor only; sandbox sysmond service unavailable, pgrep exit3 and wrapper exit1, no signals sent and no process list returned.\n- python3 creating directory scratch/required-03-test_census_merge_liveness.log: boundary barrier; original supervisor will save current result, then fail before launching third file. Cleanup will assert sf-dq-f1 in path before shutil.rmtree.\n- cat > scratch/sf_dq_isolation.py and python3 writing scratch/run_required_tests_isolated.py: scratch-only plugin and offline600s runner prepared, not yet started. Plugin redirects tempfile.tempdir and tests.failed_keep.ROOT. Isolated runner reads getconf DARWIN_USER_TEMP_DIR then sets scratch TMPDIR fallback, includes scratch+worktree PYTHONPATH, loads plugin, and honors stop-required-tests boundary marker.\nNo production, test, documentation, git, or live-state changes made by this agent.\n- python3 guarded shutil.rmtree removed scratch boundary-barrier directory after supervisor exit; exit0.\n- First python3 isolated-runner launch failed before any pytest launch: scratch string-edit accidentally changed HYPOTHESIS key to tuple, KeyError HYPOTHESIS_STORAGE_DIRECTORY. Corrected scratch runner key, then relaunched.\n- Scratch runner/plugin compile(source, filename, exec) syntax validation: 2 files OK, exit0.\n- python3 run_required_tests_isolated.py: after fixed env-key launch,14 separate offline --with attempts all failed dependency resolution before collection (pytest-xdist absent cache), exit1 each; supervisor exit0. Exact commands and logs retained required-tests-isolated-summary.json.\n- python3 run_required_tests_final.py: removed offline only for expressly allowed xdist installation, scratch isolation retained;14 serial pytest invocations underway. Each has fresh basetemp and600s bound. Exact commands/results saved after every file in required-tests-final-summary.json; parsed counts in required-tests-final-counts.json.\n- rg -n suite.lock|suite lock|flock|slots tests/conftest.py tests/failed_keep.py scripts pyproject.toml: local missing scripts directory, rg exit2; only match failed_keep.py descriptive shared-suite-lock docstring. No extra source/state access.\n- python3 summarize_required_tests.py repeated after results: parses saved pytest summaries; scratch-only count ledger written successfully.\n- Final serial14-file pass completed13:01:09 UTC:604passed5skipped, all return0, no timeouts; supervisor exit0. Generated final report snippet and exact-command appendix in scratch. Removed scratch-only stale supervisor/current-child pid markers after exit.\n",
+  "contract_agent_commands": [
+    {
+      "command": "Python exact replacement of change log, D-WALL1 and C-5.12",
+      "result": "0;3 passages updated"
+    },
+    {
+      "command": "Python obsolete-claim/whitespace/line audit",
+      "result": "0;0 obsolete claims,0 trailing-whitespace lines; lines9,460,481"
+    },
+    {
+      "command": "git diff --check",
+      "result": "0"
+    },
+    {
+      "command": "git -c core.fsmonitor=false diff --check -- docs/acceptance-contract.md",
+      "result": "0"
+    },
+    {
+      "command": "Read-only final implementation/test/mutation/contract review",
+      "result": "No substantive issue; no tests/edits/git subprocesses"
+    }
+  ],
+  "required-tests-final-summary.json": [
+    {
+      "file": "tests/unit/test_status_json.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/final-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-01-test_status_json.log",
+      "started_at": "2026-11-13T12:47:22.846910+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 71.08,
+      "finished_at": "2026-11-13T12:48:33.927866+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/final-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nInstalled 7 packages in 4.01s\nbringing up nodes...\nbringing up nodes...\n\n........................................................                 [100%]\n56 passed in 39.57s"
+    },
+    {
+      "file": "tests/unit/test_store_contention_queries.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/final-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-02-test_store_contention_queries.log",
+      "started_at": "2026-11-13T12:48:34.188877+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 77.68,
+      "finished_at": "2026-11-13T12:49:51.865238+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/final-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n........................................................................ [ 33%]\n........................................................................ [ 67%]\n....................................................................     [100%]\n212 passed in 62.00s (0:01:01)"
+    },
+    {
+      "file": "tests/unit/test_census_merge_liveness.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_census_merge_liveness.py --basetemp /private/tmp/sf-dq-f1/final-03-test_census_merge_liveness-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-03-test_census_merge_liveness.log",
+      "started_at": "2026-11-13T12:49:51.952322+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 54.88,
+      "finished_at": "2026-11-13T12:50:46.836388+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_census_merge_liveness.py --basetemp /private/tmp/sf-dq-f1/final-03-test_census_merge_liveness-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n..                                                                       [100%]\n2 passed in 29.31s"
+    },
+    {
+      "file": "tests/unit/test_daemon_settle.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_settle.py --basetemp /private/tmp/sf-dq-f1/final-04-test_daemon_settle-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-04-test_daemon_settle.log",
+      "started_at": "2026-11-13T12:50:46.881774+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 48.42,
+      "finished_at": "2026-11-13T12:51:35.306360+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_settle.py --basetemp /private/tmp/sf-dq-f1/final-04-test_daemon_settle-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n....................................................................     [100%]\n68 passed in 30.25s"
+    },
+    {
+      "file": "tests/unit/test_review130_pass.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_review130_pass.py --basetemp /private/tmp/sf-dq-f1/final-05-test_review130_pass-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-05-test_review130_pass.log",
+      "started_at": "2026-11-13T12:51:35.310808+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 57.84,
+      "finished_at": "2026-11-13T12:52:33.151444+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_review130_pass.py --basetemp /private/tmp/sf-dq-f1/final-05-test_review130_pass-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.....................                                                    [100%]\n21 passed in 39.33s"
+    },
+    {
+      "file": "tests/unit/test_daemon_verbs.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_verbs.py --basetemp /private/tmp/sf-dq-f1/final-06-test_daemon_verbs-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-06-test_daemon_verbs.log",
+      "started_at": "2026-11-13T12:52:33.193887+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 24.53,
+      "finished_at": "2026-11-13T12:52:57.727312+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_verbs.py --basetemp /private/tmp/sf-dq-f1/final-06-test_daemon_verbs-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\nss....s......ss.....                                                     [100%]\n15 passed, 5 skipped in 9.57s"
+    },
+    {
+      "file": "tests/fake/test_wall_running_time.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_running_time.py --basetemp /private/tmp/sf-dq-f1/final-07-test_wall_running_time-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-07-test_wall_running_time.log",
+      "started_at": "2026-11-13T12:52:57.749190+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 32.71,
+      "finished_at": "2026-11-13T12:53:30.464023+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_running_time.py --basetemp /private/tmp/sf-dq-f1/final-07-test_wall_running_time-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n...................................                                      [100%]\n35 passed in 23.01s"
+    },
+    {
+      "file": "tests/fake/test_wall_inspection_order.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_inspection_order.py --basetemp /private/tmp/sf-dq-f1/final-08-test_wall_inspection_order-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-08-test_wall_inspection_order.log",
+      "started_at": "2026-11-13T12:53:30.478815+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 40.32,
+      "finished_at": "2026-11-13T12:54:10.802555+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_inspection_order.py --basetemp /private/tmp/sf-dq-f1/final-08-test_wall_inspection_order-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n..................                                                       [100%]\n18 passed in 31.14s"
+    },
+    {
+      "file": "tests/fake/test_review_r223_wall_probes.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_review_r223_wall_probes.py --basetemp /private/tmp/sf-dq-f1/final-09-test_review_r223_wall_probes-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-09-test_review_r223_wall_probes.log",
+      "started_at": "2026-11-13T12:54:10.894857+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 201.36,
+      "finished_at": "2026-11-13T12:57:32.259385+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_review_r223_wall_probes.py --basetemp /private/tmp/sf-dq-f1/final-09-test_review_r223_wall_probes-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.......................                                                  [100%]\n23 passed in 185.78s (0:03:05)"
+    },
+    {
+      "file": "tests/fake/test_native_maintenance_startup.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_native_maintenance_startup.py --basetemp /private/tmp/sf-dq-f1/final-10-test_native_maintenance_startup-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-10-test_native_maintenance_startup.log",
+      "started_at": "2026-11-13T12:57:32.324527+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 43.37,
+      "finished_at": "2026-11-13T12:58:15.693171+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_native_maintenance_startup.py --basetemp /private/tmp/sf-dq-f1/final-10-test_native_maintenance_startup-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.........................................                                [100%]\n41 passed in 27.47s"
+    },
+    {
+      "file": "tests/fake/test_state_contract.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_state_contract.py --basetemp /private/tmp/sf-dq-f1/final-11-test_state_contract-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-11-test_state_contract.log",
+      "started_at": "2026-11-13T12:58:15.714025+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 89.75,
+      "finished_at": "2026-11-13T12:59:45.462899+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_state_contract.py --basetemp /private/tmp/sf-dq-f1/final-11-test_state_contract-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.....................................                                    [100%]\n37 passed in 64.50s (0:01:04)"
+    },
+    {
+      "file": "tests/unit/test_test_module_names.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_test_module_names.py --basetemp /private/tmp/sf-dq-f1/final-12-test_test_module_names-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-12-test_test_module_names.log",
+      "started_at": "2026-11-13T12:59:45.482176+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 24.07,
+      "finished_at": "2026-11-13T13:00:09.555019+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_test_module_names.py --basetemp /private/tmp/sf-dq-f1/final-12-test_test_module_names-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.                                                                        [100%]\n1 passed in 8.16s"
+    },
+    {
+      "file": "tests/unit/test_invariants_index.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_invariants_index.py --basetemp /private/tmp/sf-dq-f1/final-13-test_invariants_index-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-13-test_invariants_index.log",
+      "started_at": "2026-11-13T13:00:09.565425+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 35.92,
+      "finished_at": "2026-11-13T13:00:45.488941+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_invariants_index.py --basetemp /private/tmp/sf-dq-f1/final-13-test_invariants_index-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.........................                                                [100%]\n25 passed in 14.28s"
+    },
+    {
+      "file": "tests/unit/test_batch_submission_queries.py",
+      "command": "TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_batch_submission_queries.py --basetemp /private/tmp/sf-dq-f1/final-14-test_batch_submission_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short",
+      "log": "/private/tmp/sf-dq-f1/final-14-test_batch_submission_queries.log",
+      "started_at": "2026-11-13T13:00:45.575581+00:00",
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_s": 23.77,
+      "finished_at": "2026-11-13T13:01:09.343720+00:00",
+      "result_tail": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_batch_submission_queries.py --basetemp /private/tmp/sf-dq-f1/final-14-test_batch_submission_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n..................................................                       [100%]\n50 passed in 14.53s"
+    }
+  ],
+  "required-tests-final-counts.json": [
+    {
+      "file": "tests/unit/test_status_json.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 56
+      },
+      "elapsed_s": 71.08
+    },
+    {
+      "file": "tests/unit/test_store_contention_queries.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 212
+      },
+      "elapsed_s": 77.68
+    },
+    {
+      "file": "tests/unit/test_census_merge_liveness.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 2
+      },
+      "elapsed_s": 54.88
+    },
+    {
+      "file": "tests/unit/test_daemon_settle.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 68
+      },
+      "elapsed_s": 48.42
+    },
+    {
+      "file": "tests/unit/test_review130_pass.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 21
+      },
+      "elapsed_s": 57.84
+    },
+    {
+      "file": "tests/unit/test_daemon_verbs.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 15,
+        "skipped": 5
+      },
+      "elapsed_s": 24.53
+    },
+    {
+      "file": "tests/fake/test_wall_running_time.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 35
+      },
+      "elapsed_s": 32.71
+    },
+    {
+      "file": "tests/fake/test_wall_inspection_order.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 18
+      },
+      "elapsed_s": 40.32
+    },
+    {
+      "file": "tests/fake/test_review_r223_wall_probes.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 23
+      },
+      "elapsed_s": 201.36
+    },
+    {
+      "file": "tests/fake/test_native_maintenance_startup.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 41
+      },
+      "elapsed_s": 43.37
+    },
+    {
+      "file": "tests/fake/test_state_contract.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 37
+      },
+      "elapsed_s": 89.75
+    },
+    {
+      "file": "tests/unit/test_test_module_names.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 1
+      },
+      "elapsed_s": 24.07
+    },
+    {
+      "file": "tests/unit/test_invariants_index.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 25
+      },
+      "elapsed_s": 35.92
+    },
+    {
+      "file": "tests/unit/test_batch_submission_queries.py",
+      "returncode": 0,
+      "timed_out": false,
+      "counts": {
+        "passed": 50
+      },
+      "elapsed_s": 23.77
+    }
+  ],
+  "final_static_checks": {
+    "implementation_source_sha256": "bafda4663e19fe01b3ce5babc441929d5bd9e1ae8d0ce03a5a85bdd37cd54d26",
+    "git_implementation_stage": "Denied index.lock, no files staged, commit skipped",
+    "git_diff_check": {
+      "returncode": 0,
+      "output": ""
+    },
+    "ast_files": 4,
+    "json_valid": true,
+    "workspace_pycache_directories": 0,
+    "head_verified": "ebc8a9a8bb90117124c54c272ab2dd253d959296"
+  },
+  "validation_finished_utc": "2026-11-13T13:01:09Z",
+  "final_counts": {
+    "files": 15,
+    "passed": 625,
+    "skipped": 5,
+    "failed": 0,
+    "timed_out": 0,
+    "cases_by_file": [
+      {
+        "file": "tests/unit/test_status_json.py",
+        "passed": 56,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_store_contention_queries.py",
+        "passed": 212,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_census_merge_liveness.py",
+        "passed": 2,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_daemon_settle.py",
+        "passed": 68,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_review130_pass.py",
+        "passed": 21,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_daemon_verbs.py",
+        "passed": 15,
+        "skipped": 5
+      },
+      {
+        "file": "tests/fake/test_wall_running_time.py",
+        "passed": 35,
+        "skipped": 0
+      },
+      {
+        "file": "tests/fake/test_wall_inspection_order.py",
+        "passed": 18,
+        "skipped": 0
+      },
+      {
+        "file": "tests/fake/test_review_r223_wall_probes.py",
+        "passed": 23,
+        "skipped": 0
+      },
+      {
+        "file": "tests/fake/test_native_maintenance_startup.py",
+        "passed": 41,
+        "skipped": 0
+      },
+      {
+        "file": "tests/fake/test_state_contract.py",
+        "passed": 37,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_test_module_names.py",
+        "passed": 1,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_invariants_index.py",
+        "passed": 25,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_batch_submission_queries.py",
+        "passed": 50,
+        "skipped": 0
+      },
+      {
+        "file": "tests/unit/test_liveness_write_pacing.py",
+        "passed": 21,
+        "skipped": 0
+      }
+    ]
+  },
+  "full_required_test_logs": {
+    "required-01-test_status_json.log": "$ TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/ UV_CACHE_DIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/required-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nInstalled 7 packages in 4.12s\n\nTIMEOUT after 300 seconds; child process group terminated\n",
+    "required-02-test_store_contention_queries.log": "$ TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/ UV_CACHE_DIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/required-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n...............................................................\nTIMEOUT after 300 seconds; child process group terminated\n",
+    "isolated-01-test_status_json.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/isolated-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-02-test_store_contention_queries.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/isolated-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-03-test_census_merge_liveness.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_census_merge_liveness.py --basetemp /private/tmp/sf-dq-f1/isolated-03-test_census_merge_liveness-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-04-test_daemon_settle.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_settle.py --basetemp /private/tmp/sf-dq-f1/isolated-04-test_daemon_settle-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-05-test_review130_pass.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_review130_pass.py --basetemp /private/tmp/sf-dq-f1/isolated-05-test_review130_pass-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-06-test_daemon_verbs.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_verbs.py --basetemp /private/tmp/sf-dq-f1/isolated-06-test_daemon_verbs-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-07-test_wall_running_time.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_running_time.py --basetemp /private/tmp/sf-dq-f1/isolated-07-test_wall_running_time-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-08-test_wall_inspection_order.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_inspection_order.py --basetemp /private/tmp/sf-dq-f1/isolated-08-test_wall_inspection_order-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-09-test_review_r223_wall_probes.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_review_r223_wall_probes.py --basetemp /private/tmp/sf-dq-f1/isolated-09-test_review_r223_wall_probes-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-10-test_native_maintenance_startup.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_native_maintenance_startup.py --basetemp /private/tmp/sf-dq-f1/isolated-10-test_native_maintenance_startup-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-11-test_state_contract.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_state_contract.py --basetemp /private/tmp/sf-dq-f1/isolated-11-test_state_contract-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-12-test_test_module_names.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_test_module_names.py --basetemp /private/tmp/sf-dq-f1/isolated-12-test_test_module_names-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-13-test_invariants_index.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_invariants_index.py --basetemp /private/tmp/sf-dq-f1/isolated-13-test_invariants_index-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "isolated-14-test_batch_submission_queries.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --offline --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_batch_submission_queries.py --basetemp /private/tmp/sf-dq-f1/isolated-14-test_batch_submission_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n  \u00d7 No solution found when resolving `--with` dependencies:\n  \u2570\u2500\u25b6 Because pytest-xdist was not found in the cache and you require\n      pytest-xdist>=3.6, we can conclude that your requirements are\n      unsatisfiable.\n\nhint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.\n",
+    "final-01-test_status_json.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/final-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nInstalled 7 packages in 4.01s\nbringing up nodes...\nbringing up nodes...\n\n........................................................                 [100%]\n56 passed in 39.57s\n",
+    "final-02-test_store_contention_queries.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/final-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n........................................................................ [ 33%]\n........................................................................ [ 67%]\n....................................................................     [100%]\n212 passed in 62.00s (0:01:01)\n",
+    "final-03-test_census_merge_liveness.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_census_merge_liveness.py --basetemp /private/tmp/sf-dq-f1/final-03-test_census_merge_liveness-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n..                                                                       [100%]\n2 passed in 29.31s\n",
+    "final-04-test_daemon_settle.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_settle.py --basetemp /private/tmp/sf-dq-f1/final-04-test_daemon_settle-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n....................................................................     [100%]\n68 passed in 30.25s\n",
+    "final-05-test_review130_pass.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_review130_pass.py --basetemp /private/tmp/sf-dq-f1/final-05-test_review130_pass-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.....................                                                    [100%]\n21 passed in 39.33s\n",
+    "final-06-test_daemon_verbs.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_verbs.py --basetemp /private/tmp/sf-dq-f1/final-06-test_daemon_verbs-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\nss....s......ss.....                                                     [100%]\n15 passed, 5 skipped in 9.57s\n",
+    "final-07-test_wall_running_time.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_running_time.py --basetemp /private/tmp/sf-dq-f1/final-07-test_wall_running_time-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n...................................                                      [100%]\n35 passed in 23.01s\n",
+    "final-08-test_wall_inspection_order.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_inspection_order.py --basetemp /private/tmp/sf-dq-f1/final-08-test_wall_inspection_order-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n..................                                                       [100%]\n18 passed in 31.14s\n",
+    "final-09-test_review_r223_wall_probes.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_review_r223_wall_probes.py --basetemp /private/tmp/sf-dq-f1/final-09-test_review_r223_wall_probes-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.......................                                                  [100%]\n23 passed in 185.78s (0:03:05)\n",
+    "final-10-test_native_maintenance_startup.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_native_maintenance_startup.py --basetemp /private/tmp/sf-dq-f1/final-10-test_native_maintenance_startup-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.........................................                                [100%]\n41 passed in 27.47s\n",
+    "final-11-test_state_contract.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_state_contract.py --basetemp /private/tmp/sf-dq-f1/final-11-test_state_contract-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.....................................                                    [100%]\n37 passed in 64.50s (0:01:04)\n",
+    "final-12-test_test_module_names.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_test_module_names.py --basetemp /private/tmp/sf-dq-f1/final-12-test_test_module_names-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.                                                                        [100%]\n1 passed in 8.16s\n",
+    "final-13-test_invariants_index.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_invariants_index.py --basetemp /private/tmp/sf-dq-f1/final-13-test_invariants_index-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n.........................                                                [100%]\n25 passed in 14.28s\n",
+    "final-14-test_batch_submission_queries.log": "$ TMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_batch_submission_queries.py --basetemp /private/tmp/sf-dq-f1/final-14-test_batch_submission_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\nbringing up nodes...\nbringing up nodes...\n\n..................................................                       [100%]\n50 passed in 14.53s\n"
+  },
+  "required-tests-exact-commands.md": "### tests/unit/test_status_json.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_status_json.py --basetemp /private/tmp/sf-dq-f1/final-01-test_status_json-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 56 passed in 39.57s; 71.08 total seconds.\n\n### tests/unit/test_store_contention_queries.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_store_contention_queries.py --basetemp /private/tmp/sf-dq-f1/final-02-test_store_contention_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 212 passed in 62.00s (0:01:01); 77.68 total seconds.\n\n### tests/unit/test_census_merge_liveness.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_census_merge_liveness.py --basetemp /private/tmp/sf-dq-f1/final-03-test_census_merge_liveness-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 2 passed in 29.31s; 54.88 total seconds.\n\n### tests/unit/test_daemon_settle.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_settle.py --basetemp /private/tmp/sf-dq-f1/final-04-test_daemon_settle-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 68 passed in 30.25s; 48.42 total seconds.\n\n### tests/unit/test_review130_pass.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_review130_pass.py --basetemp /private/tmp/sf-dq-f1/final-05-test_review130_pass-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 21 passed in 39.33s; 57.84 total seconds.\n\n### tests/unit/test_daemon_verbs.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_daemon_verbs.py --basetemp /private/tmp/sf-dq-f1/final-06-test_daemon_verbs-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 15 passed, 5 skipped in 9.57s; 24.53 total seconds.\n\n### tests/fake/test_wall_running_time.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_running_time.py --basetemp /private/tmp/sf-dq-f1/final-07-test_wall_running_time-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 35 passed in 23.01s; 32.71 total seconds.\n\n### tests/fake/test_wall_inspection_order.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_wall_inspection_order.py --basetemp /private/tmp/sf-dq-f1/final-08-test_wall_inspection_order-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 18 passed in 31.14s; 40.32 total seconds.\n\n### tests/fake/test_review_r223_wall_probes.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_review_r223_wall_probes.py --basetemp /private/tmp/sf-dq-f1/final-09-test_review_r223_wall_probes-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 23 passed in 185.78s (0:03:05); 201.36 total seconds.\n\n### tests/fake/test_native_maintenance_startup.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_native_maintenance_startup.py --basetemp /private/tmp/sf-dq-f1/final-10-test_native_maintenance_startup-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 41 passed in 27.47s; 43.37 total seconds.\n\n### tests/fake/test_state_contract.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/fake/test_state_contract.py --basetemp /private/tmp/sf-dq-f1/final-11-test_state_contract-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 37 passed in 64.50s (0:01:04); 89.75 total seconds.\n\n### tests/unit/test_test_module_names.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_test_module_names.py --basetemp /private/tmp/sf-dq-f1/final-12-test_test_module_names-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 1 passed in 8.16s; 24.07 total seconds.\n\n### tests/unit/test_invariants_index.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_invariants_index.py --basetemp /private/tmp/sf-dq-f1/final-13-test_invariants_index-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 25 passed in 14.28s; 35.92 total seconds.\n\n### tests/unit/test_batch_submission_queries.py\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp UV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv PYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache HYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis PYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1 uv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 tests/unit/test_batch_submission_queries.py --basetemp /private/tmp/sf-dq-f1/final-14-test_batch_submission_queries-tmp -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nResult: exit 0; 50 passed in 14.53s; 23.77 total seconds.\n",
+  "required-tests-final-report.md": "Final end-of-work regression pass: **604 passed, 5 skipped**, 14 files in 14 serial invocations, no failures or timeouts. First run started 12:47:22 UTC; last completed 13:01:09 UTC. Required 13 files contribute 554 passed/5 skipped; the batch query file contributes 50 passed.\n\n| File | Passed | Skipped | Pytest seconds | Total seconds |\n|---|---:|---:|---:|---:|\n| `tests/unit/test_status_json.py` | 56 | 0 | 4.01 | 71.08 |\n| `tests/unit/test_store_contention_queries.py` | 212 | 0 | 62.00 | 77.68 |\n| `tests/unit/test_census_merge_liveness.py` | 2 | 0 | 29.31 | 54.88 |\n| `tests/unit/test_daemon_settle.py` | 68 | 0 | 30.25 | 48.42 |\n| `tests/unit/test_review130_pass.py` | 21 | 0 | 39.33 | 57.84 |\n| `tests/unit/test_daemon_verbs.py` | 15 | 5 | 9.57 | 24.53 |\n| `tests/fake/test_wall_running_time.py` | 35 | 0 | 23.01 | 32.71 |\n| `tests/fake/test_wall_inspection_order.py` | 18 | 0 | 31.14 | 40.32 |\n| `tests/fake/test_review_r223_wall_probes.py` | 23 | 0 | 185.78 | 201.36 |\n| `tests/fake/test_native_maintenance_startup.py` | 41 | 0 | 27.47 | 43.37 |\n| `tests/fake/test_state_contract.py` | 37 | 0 | 64.50 | 89.75 |\n| `tests/unit/test_test_module_names.py` | 1 | 0 | 8.16 | 24.07 |\n| `tests/unit/test_invariants_index.py` | 25 | 0 | 14.28 | 35.92 |\n| `tests/unit/test_batch_submission_queries.py` | 50 | 0 | 14.53 | 23.77 |\n\nEvery row used the same scratch-contained environment and command prefix; full exact commands are in required-tests-final-summary.json and required-tests-exact-commands.md:\n\n```sh\nTMPDIR=/private/tmp/sf-dq-f1/tmp\nUV_CACHE_DIR=/private/tmp/sf-dq-f1/tmp/uv-cache\nUV_PROJECT_ENVIRONMENT=/private/tmp/sf-dq-f1/venv\nPYTHONPYCACHEPREFIX=/private/tmp/sf-dq-f1/pycache\nHYPOTHESIS_STORAGE_DIRECTORY=/private/tmp/sf-dq-f1/hypothesis\nPYTHONPATH=/private/tmp/sf-dq-f1:/Users/maxghenis/.subfleet/worktrees/20261113-070229-dq-fix-r1\nuv --cache-dir /private/tmp/sf-dq-f1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -p sf_dq_isolation -n 4 FILE --basetemp BASETEMP -o cache_dir=/private/tmp/sf-dq-f1/pytest-cache -q --tb=short\n```\n\nBASETEMP was `/private/tmp/sf-dq-f1/final-NN-BASENAME-tmp`, with NN 01 through 14 in table order and BASENAME the filename without `.py`. Each invocation had a 600-second timeout. The required getconf DARWIN_USER_TEMP_DIR default was read before scratch TMPDIR fallback. Online resolution was used only for the brief-authorized xdist dependency installation.\n\nScratch isolation plugin (also loaded in xdist workers):\n\n```python\n\"\"\"Keep pytest's private homes and failure retention inside this job's scratch.\"\"\"\nfrom pathlib import Path\nimport tempfile\n\nSCRATCH = Path('/private/tmp/sf-dq-f1')\n\n\ndef pytest_load_initial_conftests(early_config, parser, args):\n    tempfile.tempdir = str(SCRATCH / 'tmp')\n    from tests import failed_keep\n    failed_keep.ROOT = SCRATCH / 'failed-keep'\n```\n\nPreparation/deviations: initial unisolated status_json timed out after 300 seconds (no final count); store_contention timed out after 300 seconds (63 observed pass dots, no final count). The supervisor was stopped between files by a scratch-only directory at its next logfile path, causing an open error before any third test launched; the barrier was removed with guarded shutil.rmtree asserting sf-dq-f1 in its path. An exact own-supervisor pgrep attempt failed under sandbox sysmond restrictions and returned no process list; no signals were sent by that command. A scratch-runner environment-key typo failed before launching any pytest and was corrected. Fourteen offline xdist dependency-resolution attempts then exited1 before test collection because metadata was absent from cache; all were preserved, then rerun successfully with authorized online --with. Initial unisolated tests may have created generic sf-test-homes directories under Darwin TMPDIR; this agent did not capture their exact paths or scan that parent. All final test state, caches and failure retention were redirected to scratch before collection. No source/test/docs edits or commits were made by this agent.\n",
+  "git_stage_attempts": [
+    {
+      "command": [
+        "git",
+        "add",
+        "--",
+        "subfleet/daemon.py",
+        "tests/unit/test_liveness_write_pacing.py",
+        "docs/acceptance-contract.md"
+      ],
+      "returncode": 1,
+      "commit": "skipped because staging failed"
+    },
+    {
+      "command": [
+        "git",
+        "add",
+        "--",
+        "subfleet/daemon.py",
+        "tests/unit/test_liveness_write_pacing.py",
+        "docs/acceptance-contract.md",
+        "docs/reports/2026-11-06-daemon-quiet.md",
+        "docs/reports/2026-11-06-daemon-quiet-data/fix_r1_mutants.py",
+        "docs/reports/2026-11-06-daemon-quiet-data/fix_r1_isolation.py",
+        "docs/reports/2026-11-06-daemon-quiet-data/fix-r1-mutants.json",
+        "docs/reports/2026-11-06-daemon-quiet-data/fix-r1-validation.json"
+      ],
+      "returncode": 1,
+      "commit": "skipped because staging failed"
+    }
+  ],
+  "git_stage_error": "Unable to create /Users/maxghenis/subfleet-v2/.git/worktrees/20261113-070229-dq-fix-r1/index.lock: Operation not permitted",
+  "scratch_cleanup": {
+    "path": "/private/tmp/sf-dq-f1",
+    "guard": "exact scratch path, own start marker, not symlink, assert 'sf-dq-f1' in path",
+    "removed": true,
+    "outside_cache_directory": "recorded, moved into scratch and guarded-deleted; early unisolated worker home paths remained unverifiable"
+  },
+  "finished_utc": "2026-11-13 13:16:18 UTC"
+}

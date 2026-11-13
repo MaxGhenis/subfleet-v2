@@ -13,6 +13,7 @@ from .capacity import desktop_excluded, identity_blocked
 from .contracts import hold_note_of, hold_source_shown
 from .guardian import atomic_publish
 from .quota_projection import weekly_projections
+from .store import batch_submission_rows
 
 
 def instant(value: str | datetime | None = None) -> datetime:
@@ -303,13 +304,7 @@ def displayed_job_ids(snapshot: Mapping[str, Any]) -> list[str]:
 def attach_batches(store: Any, snapshot: dict[str, Any]) -> None:
     """C-18.2: batch labels live in `job.submitted` events (C-17.7), not on the job row."""
     ids = displayed_job_ids(snapshot)
-    if not ids:
-        snapshot["batches"] = {}
-        return
-    marks = ",".join("?" for _ in ids)
-    # `+kind`: by job id (events_job), not a walk of every job.submitted event (C-3.7).
-    rows = store.query(f"SELECT job_id,data_json FROM events WHERE +kind='job.submitted' "
-                       f"AND job_id IN ({marks}) AND data_json LIKE '%\"batch\"%'", ids)
+    rows = batch_submission_rows(store.query, ids)
     found = {row["job_id"]: json.loads(row["data_json"] or "{}").get("batch") for row in rows}
     snapshot["batches"] = {job_id: batch for job_id, batch in found.items() if isinstance(batch, dict)}
 
