@@ -276,6 +276,8 @@ def test_c3_8_a_wait_that_changes_the_job_s_exclusions_records_it(fleet):  # noq
     due(service)
     assert len(waits(service, job)) == 1
     # A limited attempt on another lane: C-4.5 excludes that lane from the job from now on.
+    from tests.fake.test_admission_route_isolation import claude_lane
+    service.store.put_lane(claude_lane("claude-a"))
     service.store.add_attempt(attempt_id=job + "/a1", job_id=job, seq=1, lane_id="claude-a",
                               model_requested="claude-opus", state="failed", outcome_class="limited")
     before = service.store.get_job(job)["exclusions"]
@@ -341,7 +343,8 @@ def test_c3_8_a_moved_hold_end_inside_admission_records_task_hold_moved(held_tas
     hold(service, "build", stamp(3600))                         # its commit takes the job
     assert service.store.get_job(build)["next_check_at"] == stamp(3600)
     monkeypatch.setattr(service, "_take_task_jobs", lambda *args, **kwargs: None)
-    hold(service, "build", stamp(7200))                         # a replacement the job has not seen
+    hold(service, "build", stamp(7200))                         # a replacement
+    service.store.update_job(build, next_check_at=stamp(3600))   # ... whose end the job has not seen yet
     recorded = admission_task_held(service, build)
     assert recorded == [("job.task_hold_moved", {"task": "build", "until": stamp(7200)})], recorded
     assert service.store.get_job(build)["next_check_at"] == stamp(7200)
