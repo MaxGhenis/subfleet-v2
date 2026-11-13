@@ -405,8 +405,8 @@ def test_a_crash_at_any_recall_step_then_a_rerun_ends_the_same(archives, volumes
             rof.recall(env.root, name, drop_external=drop)
         monkeypatch.setattr(rof, "HOOK", None)
         stale_lock(env, name)
-        if rof.read_stub(env.root, name) is not None:
-            assert outcomes(rof.recall(env.root, name, drop_external=drop)) == {name: "recalled"}
+        again = "recalled" if rof.read_stub(env.root, name) is not None else "skipped"
+        assert outcomes(rof.recall(env.root, name, drop_external=drop)) == {name: again}
         assert final_state(env, name) == expected, (step, occurrence)
 
 
