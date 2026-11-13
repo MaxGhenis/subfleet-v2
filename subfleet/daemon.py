@@ -1167,6 +1167,10 @@ class Daemon:
         # often. In memory as C-6.8's count is: a restart forgives the count and
         # costs one decision row per waiting job.
         self._capacity_waits: dict[str, dict] = {}
+        # C-6.10: one coalesced news bit per eligible pending waiter. A door
+        # hold may skip its capacity check after the pool acknowledges a census.
+        # Consume only at that check; pending-job cleanup and restart forget it.
+        self._capacity_news: dict[str, bool] = {}
         # C-11.10: bumped after each task hold or release commits, so a pass that
         # read the holds before it reads them again at its next job.
         self._task_hold_epoch = 0
@@ -7746,7 +7750,7 @@ class Daemon:
                     self._push_workspace_store_failures.pop(job_id, None)
                     self._push_workspace_store_first_failure.pop(job_id, None)
                     self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
-        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
+        tables = (self._capacity_waits, self._capacity_news, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
         if gone:
@@ -7884,6 +7888,14 @@ class Daemon:
                                        if self._pin_episodes.get(job["job_id"], {}).get("open"))
         episodes_after_commits(task_hold_read[0])
         for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
+            # Save news before any temporary guard can skip this waiter. Repeated
+            # news coalesces; only ordinary expedited capacity waits retain it.
+            known = self._capacity_waits.get(job["job_id"])
+            if job["wait_reason"] == "capacity" and known and known["expedite"]:
+                if freed:
+                    self._capacity_news[job["job_id"]] = True
+            else:
+                self._capacity_news.pop(job["job_id"], None)
             if job["job_id"] in workspace_skips:
                 continue
             if task_hold_read[0] != self._task_hold_epoch:
@@ -8151,7 +8163,8 @@ class Daemon:
                            if known and known["hold"].get("reason") == "behind-older-job" else None)
             unblocked = predecessor is not None and not any(
                 waiter[0] == predecessor and not waiter[3] for waiter in older_waiters(tier))
-            hurried = bool(freed and known and known["expedite"]) or turn_came or unblocked
+            saved_news = self._capacity_news.pop(job["job_id"], False)
+            hurried = bool((freed or saved_news) and known and known["expedite"]) or turn_came or unblocked
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 # C-11.8: a job every lane refuses now for a reason no wait ends waits
                 # for nothing another job could take, however its clock was set (a
@@ -8211,6 +8224,8 @@ class Daemon:
                     except Unroutable as exc:
                         self._unroutable(job, exc, holds)
                         continue
+                    # C-6.12: a completed evaluation ends the run of route errors.
+                    self._route_deferrals.pop(job["job_id"], None)
                     hold = {"reason": scheduler.refusal_label(refused), "refused_now": refused, "unprepared": True,
                             **({"for_good": for_good} if for_good else {})}
                     # No lane would take it: C-23.16's demand, as the look it skipped would have found.
@@ -8969,6 +8984,8 @@ class Daemon:
                             hold = self._ramp.hold(klass, reserved_at)
                             if hold:
                                 ramp_hold = holds[job["job_id"]] = hold
+                                if saved_news:
+                                    self._capacity_news[job["job_id"]] = True
                                 status = "held"
                                 break
                         for key, holder in leases:

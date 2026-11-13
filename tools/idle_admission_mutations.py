@@ -80,7 +80,7 @@ MUTATIONS = (
     Mutation("no-released-closure-bring-forward", "subfleet/daemon.py", omit_released_closure_news,
         (CAPACITY + "::test_c6_10_capacity_events_bring_every_eligible_wait_forward[released]",)),
     Mutation("bring-forward-every-pass", "subfleet/daemon.py", exact(
-        'hurried = bool(freed and known and known["expedite"]) or turn_came or unblocked',
+        'hurried = bool((freed or saved_news) and known and known["expedite"]) or turn_came or unblocked',
         'hurried = bool(known and known["expedite"]) or turn_came or unblocked'),
         (CAPACITY + "::test_c6_10_no_change_never_brings_waits_forward",)),
     Mutation("unknown-reason-event-only", "subfleet/scheduler.py", exact(
