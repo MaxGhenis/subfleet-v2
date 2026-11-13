@@ -377,15 +377,17 @@ don't.
 
 ### Mutants
 
-**Not run.** The host stall used the time they were budgeted. Expected killers, by reading:
-- mutant 1 (`_Lines.start` reading back to offset 0): the growth test;
-- mutant 2 (an empty `_Covers`): `test_row_b_hides_what_the_whole_scrub_hides` and the row (b)
-  cascade cases;
-- mutant 3 (R1): the two new `SPLITS` rows;
-- mutant 4 (R2): the read-cap case of 33;
-- mutant 5 (R3): unknown; review r1 expected it only to leave a placeholder visible.
+`.fix1/mutants.py` (in the job's checkout) applied each mutant alone, ran its killer as a direct call of
+the test function in a child, restored `handoff.py` from the pristine copy, and checked the bytes
+(sha256 equal each time; `shasum` after: `f4d31bd7…` for both).
 
-The pristine copy for restoring is `handoff.change.py` in the job's scratch folder.
+| Mutant | Change | Result |
+|---|---|---|
+| 2 | `_Covers([])`: a covered closer ends the block again | killed by `test_row_b_hides_what_the_whole_scrub_hides` |
+| 3 | R1: `range(2)` → `range(0)` in `_closer_value_end` | killed by `test_no_block_leaves_the_rest_of_a_value_it_splits[private-key-key-a-line-above]` |
+| 4 | R2: `self.left = 10 ** 12` (no total cap) | killed by `test_the_split_windows_stop_at_the_read_cap[ninth-of-33-not-read]` |
+| 1 | `_Lines.start` reading back to offset 0 | **not run** (the host stall); expected killer: the growth test |
+| 5 | R3: `_carried`'s end maps to the match's start | **not run**; no expected killer named, and per the brief I didn't search for one |
 
 ### Commands and results
 
@@ -413,7 +415,7 @@ Every run used `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and `unset PYTHONPATH`
     result;
   - the excerpts file whole, every `tests/unit/test_scrub*.py`, the other `tests/unit/test_sessions_*`
     files, and the four guard files;
-  - the growth test on 13fd1c8bc, and all five mutants.
+  - the growth test on 13fd1c8bc, and mutants 1 and 5.
 
   CI's run is the check for these.
 - **Rows (a), (c), (d):** rebuilt from review r1's descriptions, as above.
