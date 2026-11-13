@@ -34,6 +34,8 @@ import tempfile
 import threading
 import time
 import unicodedata
+from contextlib import contextmanager
+from contextvars import ContextVar
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +68,38 @@ class Cancelled(Exception):
     pass
 
 
+_COMMAND_GUARD: ContextVar[tuple[Callable, dict[str, str], Path | None] | None] = ContextVar(
+    "retention_git_command_guard", default=None)
+
+
+@contextmanager
+def command_guard(check: Callable, *, env: dict[str, str] | None = None, cwd: Path | None = None):
+    """A caller-local read boundary, checked before Git starts.
+
+    The delete path uses this for its stricter excluded-repository contract.
+    Other threads and callers retain their existing environment and behavior.
+    """
+    token = _COMMAND_GUARD.set((check, dict(env or {}), cwd))
+    try:
+        yield
+    finally:
+        _COMMAND_GUARD.reset(token)
+
+
+def active_command_guard():
+    """The calling context's read checker, or None outside a guarded caller."""
+    guarded = _COMMAND_GUARD.get()
+    return guarded[0] if guarded is not None else None
+
+
+def check_read(*, git_dir: Path | None = None, cwd: Path | None = None) -> None:
+    """Apply the active boundary before a helper reads Git metadata in Python."""
+    guarded = _COMMAND_GUARD.get()
+    if guarded is not None:
+        check, _, default_cwd = guarded
+        check(("read-metadata",), git_dir, cwd or default_cwd)
+
+
 def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = build_environment()
     for name in GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + ("GIT_INDEX_FILE", "LANGUAGE"):
@@ -89,6 +123,16 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
     A wrapper or Git child can retain the output pipes after its parent dies.
     Kill the whole session's group and bound the final drain as well.
     """
+    args = tuple(args)
+    guarded = _COMMAND_GUARD.get()
+    if guarded is not None:
+        check, forced_environment, default_cwd = guarded
+        if cwd is None and git_dir is None:
+            cwd = default_cwd
+        check(args, git_dir, cwd)
+        env = {**(env or {}), **forced_environment}
+        if args and args[0] == "init" and not any(a == "--template" or a.startswith("--template=") for a in args):
+            args = ("init", "--template=", *args[1:])
     argv = ["git", *GIT_CONFIG]
     if git_dir is not None:
         argv.append(f"--git-dir={git_dir}")
@@ -949,11 +993,17 @@ class ObjectReader:
     def __init__(self, common: Path, fmt: str, cancel: threading.Event | None = None):
         self.fmt = fmt
         self.cancel = cancel
+        self.common = common
         self.argv = ["git", *GIT_CONFIG, f"--git-dir={common}", "cat-file", "--batch"]
         self.process = self._start()
 
     def _start(self) -> subprocess.Popen:
-        return subprocess.Popen(rqos.argv(self.argv), env=environment(), stdin=subprocess.PIPE,
+        guarded = _COMMAND_GUARD.get()
+        extra = None
+        if guarded is not None:
+            check, extra, _ = guarded
+            check(("cat-file", "--batch"), self.common, None)
+        return subprocess.Popen(rqos.argv(self.argv), env=environment(extra), stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     def verify(self, oid: str, expect_type: str = "blob") -> bool:
@@ -1026,6 +1076,8 @@ def admin_objects(admin: Path, fmt: str, *, timeout: float = 300,
     the per-worktree refs, HEAD and its reflog (for the reftable backend), and
     the index (``ls-files --stage``; a gitlink's commit lives in the submodule).
     """
+    check_read(git_dir=admin)
+    strict = active_command_guard() is not None
     tokens: set[str] = set()
     pattern = _token_pattern(fmt)
     with rfs._cleanup([None]) as owner:
@@ -1037,10 +1089,14 @@ def admin_objects(admin: Path, fmt: str, *, timeout: float = 300,
                 if not rel or rel == "index" or rel.split("/")[0] == "modules" or not stat.S_ISREG(st.st_mode):
                     continue
                 if st.st_size > 256 * 1024 * 1024:
+                    if strict:
+                        raise GitError(f"admin metadata exceeds the complete-read bound: {admin / rel}")
                     continue
                 try:
                     handle = os.open(name, rfs.O_FILE, dir_fd=parent)
-                except OSError:
+                except OSError as exc:
+                    if strict:
+                        raise GitError(f"admin metadata could not be read whole: {admin / rel}") from exc
                     continue
                 try:
                     data = b"".join(iter(lambda: os.read(handle, rfs.CHUNK), b""))
