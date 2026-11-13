@@ -1889,7 +1889,7 @@ def test_a_remote_that_holds_only_unrelated_history_counts_as_none(world):
     (pages / "index.html").write_text("<p>docs</p>\n")
     git(pages, "add", ".")
     git(pages, "commit", "--quiet", "-m", "pages")
-    git(pages, "push", "--quiet", str(server), "HEAD:refs/heads/gh-pages")
+    git(server, "fetch", "--quiet", str(pages), "HEAD:refs/heads/gh-pages")
     git(w.repo, "remote", "add", "origin", "https://git.example.invalid/project.git")
     git(w.repo, "fetch", "--quiet", str(server), "+refs/heads/gh-pages:refs/remotes/origin/gh-pages")
     w.job("job-pages")

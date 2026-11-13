@@ -19,9 +19,9 @@ from subfleet.store import SCHEMA_VERSION, Store, job_flags, shell_flags
 from test_store_migration_2 import _migration_adding, _schema_before_migration
 
 
-def test_d_qos_booked1_the_column_is_the_newest_migration():
+def test_d_qos_booked1_the_column_is_its_numbered_migration():
     step = _migration_adding("provider_qos")
-    assert step == SCHEMA_VERSION == store_module.PROVIDER_QOS_MIGRATION
+    assert step == store_module.PROVIDER_QOS_MIGRATION <= SCHEMA_VERSION
     assert store_module.MIGRATIONS[step] == (
         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",)
@@ -54,8 +54,10 @@ def test_d_qos_booked1_an_old_store_opens_and_its_jobs_read_as_utility(tmp_path)
         assert store.get_job("old-dispatch")["provider_qos"] == "utility"
         assert store.get_job_by_request("old-turn")["provider_qos"] == "utility"
         assert {job["provider_qos"] for job in store.list_jobs()} == {"utility"}
-        migrated = [row["data_json"] for row in store.query("SELECT data_json FROM events WHERE kind='schema.migrated'")]
-        assert migrated == [f'{{"version":{SCHEMA_VERSION}}}']
+        migrated = [row["data_json"] for row in store.query(
+            "SELECT data_json FROM events WHERE kind='schema.migrated' ORDER BY event_id")]
+        assert migrated == [f'{{"version":{version}}}'
+                            for version in range(_migration_adding("provider_qos"), SCHEMA_VERSION + 1)]
     with Store(path) as store:                       # reopening changes nothing
         assert store.get_job("old-dispatch")["provider_qos"] == "utility"
         assert [row["version"] for row in store.query("SELECT version FROM schema_version ORDER BY version")][-1] == SCHEMA_VERSION
@@ -74,9 +76,11 @@ def test_d_qos_booked1_runs_show_offline_reads_utility_on_an_old_store_too(tmp_p
 def test_d_qos_booked1_a_job_record_reads_null_and_a_missing_column_as_utility():
     """#277 review r1, P2: `job_flags` makes every job reader's record; `shell_flags`,
     which attempt rows take, adds no job field."""
-    assert job_flags({"job_id": "j"}) == {"job_id": "j", "provider_qos": "utility"}
+    null_review = {"caller_family": None, "review_subject": None, "review_round": None}
+    assert job_flags({"job_id": "j"}) == {"job_id": "j", "provider_qos": "utility", **null_review}
     assert job_flags({"job_id": "j", "provider_qos": None})["provider_qos"] == "utility"
-    assert job_flags({"provider_qos": "default", "needs_shell": 1}) == {"provider_qos": "default", "needs_shell": True}
+    assert job_flags({"provider_qos": "default", "needs_shell": 1}) == {
+        "provider_qos": "default", "needs_shell": True, **null_review}
     assert shell_flags({"attempt_id": "j/a1", "has_shell": 0}) == {"attempt_id": "j/a1", "has_shell": False}
 
 
@@ -91,7 +95,7 @@ def test_d_qos_booked1_attempt_rows_gain_no_job_field(tmp_path, read_only):
                      "'2026-10-27T00:00:00Z')")
     with Store(path, read_only=read_only) as store:
         version = store.one("SELECT MAX(version) AS v FROM schema_version")["v"]
-        assert version == (SCHEMA_VERSION - 1 if read_only else SCHEMA_VERSION)
+        assert version == (_migration_adding("provider_qos") - 1 if read_only else SCHEMA_VERSION)
         assert store.get_job("old-dispatch")["provider_qos"] == "utility"
         assert "provider_qos" not in store.get_attempt("old-dispatch/a1")
         assert [row for row in store.list_attempts("old-dispatch") if "provider_qos" in row] == []

@@ -33,6 +33,7 @@ REFUSAL_TYPES = ("ProtocolError", "AdapterError", "TransferError")
 CLIENT_SIDE = ("client.py",)                # the CLI's own errors never cross the wire from the daemon
 SENTINEL = "SECRET7-left"
 VALID = {
+    "review_subject": ("review-key", "https://github.com/maxghenis/subfleet-v2/pull/307"),
     "job_id": ("20261013-014534-astra", "20260925-000000-none", "20261013-014534-gate-review-2"),
     "lane_id": ("codex-1", "claude-12", "codex-999999999"),
     "task": ("build", "review", "authored-prose"),
@@ -182,12 +183,19 @@ def test_a_refusal_reads_its_most_specific_checked_form_and_never_its_exception(
     shown = refusals.handler_refusal(error)
     assert shown == refusals.handler_refusal(error) == expected(reason, details)
     message, fix = shown
+    if reason == "review-round-limit" and refusals.checked("review_subject", details.get("review_subject")):
+        # C-6.22 deliberately names the caller's printable subject. That checked
+        # detail may contain the sentinel; the exception's prose still cannot.
+        subject = details["review_subject"]
+        assert message.startswith(f"review: {subject} has had 4 rounds;")
+        message = message[len("review: ") + len(subject):]
     assert SENTINEL not in message and SENTINEL not in (fix or "")
     assert (shown == refusals.FALLBACK) == (not isinstance(reason, str) or reason not in refusals.HANDLER_MESSAGES)
 
 
 # Each value's shape, stated apart from the module's own patterns.
 SHAPES = {
+    "review_subject": r"[^\x00-\x1f\x7f]{1,2000}",
     "job_id": r"[0-9]{8}-[0-9]{6}-[a-z0-9-]{1,40}",
     "lane_id": r"(codex|claude)-[1-9][0-9]{0,8}",
     "task": r"[a-z][a-z0-9-]{0,39}",

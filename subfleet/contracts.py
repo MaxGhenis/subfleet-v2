@@ -512,6 +512,10 @@ class JobSpec:
     # (`jobs/<job>/mcp.json`). Read-only and isolated launches start none.
     mcp_servers: tuple[str, ...] = ()
     mcp_config: str | None = None
+    # D-REVIEW-SUBJECT1: requesting family and optional review identity.
+    caller_family: str | None = None
+    review_subject: str | None = None
+    review_round: int | None = None
 
 
 @dataclass(frozen=True)

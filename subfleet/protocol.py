@@ -202,6 +202,11 @@ class SubmitArgs:
     # `default` request starts the provider unclamped only at a launch where the job is
     # `priority` (C-6.16); the daemon decides at each launch, and `why` says which.
     provider_qos: str | None = None
+    # C-6.21–22: caller identity and the review request. Automatic rounds are
+    # assigned only by the daemon's insertion transaction.
+    caller_family: str | None = None
+    review_subject: str | None = None
+    review_round: int | None = None
 
 
 @dataclass
@@ -592,10 +597,15 @@ def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -
     code = getattr(error, "code", Exit.INVALID_INPUT)
     if type(code) not in (int, Exit) or code not in tuple(Exit):
         code = Exit.INVALID_INPUT
-    # `details` is not a generic reflection channel. Only this reason's checked
-    # hold can cross it; exception prose and every other detail remain excluded.
+    # `details` is not a generic reflection channel. Only a checked hold can
+    # cross it. The review cap carries its fixed public reason without details;
+    # exception prose and every other detail remain excluded.
     from .refusals import task_hold_condition_details
+    error_reason = getattr(error, "reason", None)
     hold_details = (task_hold_condition_details(getattr(error, "details", None))
-                    if getattr(error, "reason", None) == "task-hold-condition" else None)
+                    if error_reason == "task-hold-condition" else None)
+    public_reason = "task-hold-condition" if hold_details is not None else None
+    if type(error_reason) is str and error_reason == "review-round-limit":
+        public_reason = "review-round-limit"
     return fail(req_id, code, message, fix,
-                reason="task-hold-condition" if hold_details is not None else None, details=hold_details)
+                reason=public_reason, details=hold_details)

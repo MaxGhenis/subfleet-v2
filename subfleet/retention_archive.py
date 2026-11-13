@@ -966,6 +966,16 @@ class Retirement:
                     elif j["worktree"] and held.get(f"worktree:{j['worktree']}") != f"retention:{self.job_id}":
                         outcome = "worktree lease lost"
                     else:
+                        # D-REVIEW-SUBJECT1: accepted review history must outlive
+                        # the job row. These are the rows just verified against
+                        # rows.json under this same deletion transaction.
+                        retired = rows["jobs"][0] if rows["jobs"] else {}
+                        subject, number = retired.get("review_subject"), retired.get("review_round")
+                        if (retired.get("task") == "review" and retired.get("state") == "succeeded"
+                                and retired.get("accepted_attempt_id") is not None
+                                and type(subject) is str and subject.strip() and subject.isprintable()
+                                and len(subject) <= 2000 and type(number) is int and 1 <= number <= 4):
+                            data_event.update(review_subject=subject, review_round=number)
                         attempts = "attempt_id IN (SELECT attempt_id FROM attempts WHERE job_id=?)"
                         conn.execute(f"DELETE FROM artifacts WHERE {attempts}", (self.job_id,))
                         conn.execute(f"DELETE FROM readings WHERE {attempts}", (self.job_id,))

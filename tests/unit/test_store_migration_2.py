@@ -221,6 +221,11 @@ def _schema_before_migration(conn, migration):
             for statement in reversed(statements):
                 parts = statement.split()
                 assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
+                # New columns can have indexes in today's schema. Remove those
+                # before reconstructing the historical table without the column.
+                for index in conn.execute(f'PRAGMA index_list("{parts[2]}")').fetchall():
+                    if parts[5] in {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}:
+                        conn.execute(f'DROP INDEX "{index[1]}"')
                 conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
     conn.execute("INSERT INTO schema_version VALUES (?,'2026-10-14T00:00:00Z')", (migration - 1,))
 

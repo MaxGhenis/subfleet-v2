@@ -100,6 +100,7 @@ LAUNCH_NAMES = frozenset({
     "SUBFLEET_ATTACHED_OK", "SUBFLEET_ATTEMPT", "SUBFLEET_JOB", "SUBFLEET_LANE",
     "SUBFLEET_LANE_ID", "SUBFLEET_PROBE", "SUBFLEET_PUSH_BUNDLE", "SUBFLEET_ROOT",
     "SUBFLEET_RUN_DETACH", "SUBFLEET_SESSION_ID", "SUBFLEET_TURN_JOB",
+    "SUBFLEET_CALLER_FAMILY",  # submitting CLI override; nested callers detect their own provider
     "SUBFLEET_EXIT_SETTLE_S",  # guardian-only lifetime setting
     # C-12.4: a publish-denied (review) launch's marker, which `subfleet hook
     # PreToolUse` reads; `review_publish.pinned_environment` adds it with the
