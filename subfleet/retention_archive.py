@@ -2205,7 +2205,21 @@ def list_archives(root: Path) -> list[dict[str, Any]]:
         except (OSError, ValueError):
             out.append({"archive": name, "error": "summary unreadable"})
             continue
-        out.append({"archive": name, **summary, "added_bytes": added_bytes(base / name, summary)})
+        listed = {"archive": name, **summary, "added_bytes": added_bytes(base / name, summary)}
+        # C-8.8: an offloaded archive's files are on another volume; say which.
+        from . import retention_offload as rof
+        try:
+            stub = rof.read_stub(root, name)
+        except (OSError, ValueError):
+            listed["offload"] = {"error": "offload.json unreadable"}
+        else:
+            if stub is not None:
+                listed["offload"] = {"state": stub["state"], "volume_name": stub["volume"].get("name"),
+                                     "volume_uuid": stub["volume"].get("uuid"), "path": stub["path"],
+                                     "removing": bool(stub.get("removing")), "files": stub.get("files"),
+                                     "bytes": stub.get("bytes"), "bundle_bytes": stub.get("bundle_bytes"),
+                                     "describe": rof.describe(stub)}
+        out.append(listed)
     return out
 
 
@@ -2214,9 +2228,22 @@ class RestoreError(Exception):
 
 
 def check_archive(root: Path, name: str) -> dict[str, Any]:
-    """Re-verify a published archive: every stored file, the bundle's heads."""
-    base = root / "archive" / name
-    manifest = json.loads(rfs.read_regular(base / "manifest.json", limit=4 << 30))
+    """Re-verify a published archive: every stored file, the bundle's heads.
+
+    Under the archive's lock (C-8.8), reading the files and the bundle from
+    where `retention_offload.contents` says they are: the archive itself, or
+    the volume an offloaded archive's files are on."""
+    from . import retention_offload as rof
+    with rof.ArchiveLock(root, name):
+        return _check_archive(root, name)
+
+
+def _check_archive(root: Path, name: str, base: Path | None = None) -> dict[str, Any]:
+    from . import retention_offload as rof
+    meta = root / "archive" / name
+    manifest = json.loads(rfs.read_regular(meta / "manifest.json", limit=4 << 30))
+    if base is None:
+        base = rof.contents(root, name)
     problems: list[str] = []
     fd = rfs.open_dir(base / "files")
     try:
@@ -2249,7 +2276,10 @@ def check_archive(root: Path, name: str) -> dict[str, Any]:
                     problems.append(f"bundle lacks {ref}")
         except rgit.GitError as exc:
             problems.append(f"bundle: {exc}")
-    return {"archive": name, "ok": not problems, "problems": problems, "manifest": manifest}
+    result = {"archive": name, "ok": not problems, "problems": problems, "manifest": manifest}
+    if base != meta:
+        result["offloaded_to"] = str(base)
+    return result
 
 
 def restore(root: Path, name: str, *, to: Path | None = None, repository: Path | None = None) -> dict[str, Any]:
@@ -2261,17 +2291,29 @@ def restore(root: Path, name: str, *, to: Path | None = None, repository: Path |
     ``to/admin``. Omitted files come from the source repository, or from
     `repository` (any clone of the same project), each checked against its blob
     id. The bundle's objects are fetched into the repository used.
+
+    Under the archive's lock (C-8.8: its lock file in the archive folder's
+    parent is the one other thing it writes), with the files and the bundle
+    read from where `retention_offload.contents` says they are.
     """
-    checked = check_archive(root, name)
+    from . import retention_offload as rof
+    with rof.ArchiveLock(root, name):
+        base = rof.contents(root, name)
+        return _restore(root, name, base, to=to, repository=repository)
+
+
+def _restore(root: Path, name: str, base: Path, *, to: Path | None, repository: Path | None) -> dict[str, Any]:
+    checked = _check_archive(root, name, base)
     if not checked["ok"]:
         raise RestoreError("archive failed verification: " + "; ".join(checked["problems"][:5]))
     manifest = checked["manifest"]
-    base = root / "archive" / name
     git = manifest.get("git", {})
     fmt = git.get("object_format") or "sha1"
     sources = [p for p in (repository, Path(git["common"]) if git.get("common") else None) if p]
     source = next((p for p in sources if p.exists()), None)
     report: dict[str, Any] = {"archive": name, "restored": {}, "fetched": None, "refs": {}}
+    if "offloaded_to" in checked:
+        report["offloaded_to"] = checked["offloaded_to"]
     if source is not None and (git.get("bundle") or manifest.get("salvage")):
         target = _git_dir(source)
         prefix = f"refs/subfleet-restored/{manifest['job_id']}/"
