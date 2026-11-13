@@ -348,6 +348,70 @@ FORCE_COPY = False
 LOW_SPACE_FLOOR = 2 * 1024 ** 3
 
 
+# --- extended ACLs (D-TMPDIR-ACL1) -------------------------------------------------
+#
+# Python has no ACL API. These call libSystem's POSIX.1e calls on an open
+# descriptor only (`acl_get_fd_np`, `acl_set_fd_np`): a descriptor names one
+# inode, so nothing is resolved by path and no symlink is followed. The caller
+# opens the entry without following a link (or the link itself, `O_SYMLINK`)
+# and checks it against its lstat first.
+
+_ACL_TYPE_EXTENDED = 0x00000100          # <sys/acl.h>
+_ACL_FIRST_ENTRY = 0
+_acl_init = getattr(_libc, "acl_init", None)
+_acl_get_fd_np = getattr(_libc, "acl_get_fd_np", None)
+_acl_set_fd_np = getattr(_libc, "acl_set_fd_np", None)
+_acl_get_entry = getattr(_libc, "acl_get_entry", None)
+_acl_free = getattr(_libc, "acl_free", None)
+ACL_AVAILABLE = None not in (_acl_init, _acl_get_fd_np, _acl_set_fd_np, _acl_get_entry, _acl_free)
+if ACL_AVAILABLE:
+    _acl_init.argtypes = [ctypes.c_int]
+    _acl_init.restype = ctypes.c_void_p
+    _acl_get_fd_np.argtypes = [ctypes.c_int, ctypes.c_int]
+    _acl_get_fd_np.restype = ctypes.c_void_p
+    _acl_set_fd_np.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    _acl_set_fd_np.restype = ctypes.c_int
+    _acl_get_entry.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+    _acl_get_entry.restype = ctypes.c_int
+    _acl_free.argtypes = [ctypes.c_void_p]
+    _acl_free.restype = ctypes.c_int
+
+
+def has_extended_acl(fd: int) -> bool:
+    """Whether the open entry carries an extended ACL with at least one entry."""
+    if not ACL_AVAILABLE:
+        return False
+    ctypes.set_errno(0)
+    acl = _acl_get_fd_np(fd, _ACL_TYPE_EXTENDED)
+    if not acl:
+        code = ctypes.get_errno()
+        if code in (0, errno.ENOENT):
+            return False
+        raise OSError(code, os.strerror(code))
+    try:
+        entry = ctypes.c_void_p()
+        return _acl_get_entry(acl, _ACL_FIRST_ENTRY, ctypes.byref(entry)) == 0
+    finally:
+        _acl_free(acl)
+
+
+def clear_extended_acl(fd: int) -> None:
+    """Remove the open entry's extended ACL (set an empty one), by descriptor."""
+    if not ACL_AVAILABLE:
+        raise OSError(errno.ENOTSUP, os.strerror(errno.ENOTSUP))
+    acl = _acl_init(0)
+    if not acl:
+        code = ctypes.get_errno() or errno.ENOMEM
+        raise OSError(code, os.strerror(code))
+    try:
+        ctypes.set_errno(0)
+        if _acl_set_fd_np(fd, acl, _ACL_TYPE_EXTENDED) != 0:
+            code = ctypes.get_errno() or errno.EIO
+            raise OSError(code, os.strerror(code))
+    finally:
+        _acl_free(acl)
+
+
 def free_bytes(fd: int) -> int:
     st = os.fstatvfs(fd)
     return st.f_bavail * st.f_frsize
