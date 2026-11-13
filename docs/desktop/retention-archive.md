@@ -1,5 +1,8 @@
 # Job retention by archive
 
+Revision 8, 2026-11-09: section 18, the operator's delete path for the trees
+the pass keeps for good (d2660, C-8.7).
+
 Revision 7, 2026-10-04: explicitly reject a regular file with no archived
 bytes and no verified omission or regenerable proof, at readback and again
 before committing, including an archive resumed after a restart. An accepted salvage
@@ -25,11 +28,12 @@ the first build under Max's d635 ruling ("ship at the archive-sweep bar").
 Revision 1 (ccc85387, 2026-09-28) was the design; its two reviews
 (`~/reviews/retention-2026-09-28/archive-design/review-design-{opus,astra}.md`)
 and the ruling changed it as section 2 lists. The binding clauses are C-8.4,
-C-13.4 and C-17.1 in `docs/acceptance-contract.md`. Code:
+C-13.4 and C-17.1 in `docs/acceptance-contract.md`, and C-8.7 for section 18. Code:
 `subfleet/retention.py` (the pass), `retention_archive.py` (one job's
 journaled retirement, restore), `retention_git.py`, `retention_fs.py`,
 `retention_holders.py`, `retention_qos.py`, `retention_survey.py`,
-`retention_cli.py`.
+`retention_cli.py`, and for section 18 `retention_delete.py` and
+`retention_marks.py`.
 
 ## 1. Decision
 
@@ -1277,3 +1281,150 @@ the history once per repository:
 With it, `~/chief-of-staff`'s roughly 460 MB of history would be paid once,
 not per job, and `retention.remote_less_history_bytes` could be raised or
 removed.
+
+## 18. The operator's delete path for kept trees (d2660, C-8.7)
+
+The pass keeps two kinds of finished tree for good, because it cannot archive
+them whole: a tree that holds a nested linked worktree of another repository
+(`nested-linked-worktree`, a lasting condition under section 4's rollback),
+and one whose bundle would carry more than `retention.remote_less_history_bytes`
+of history that no network remote holds (`remote-less-history`, section 4,
+step 2; section 17 would lift that limit). On 2026-11-09 Max ruled (d2660)
+that the kept trees of 79 such finished jobs, 25.00 GB private, go, keeping
+their commits, records and outputs, by a reviewed path through the daemon.
+`subfleet/retention_delete.py` is that path, `subfleet/retention_marks.py`
+holds the marker both paths read, and C-8.7 binds them. The report
+`docs/reports/2026-11-09-retention-delete-d2660.md` carries the invariants,
+the mutants and the evidence.
+
+**What it reuses.** The path adds no new way to decide that a tree is free.
+It asks the survey's own detection (`retention_survey.job_info`) whether a tree
+still has its class, after exclusion-aware metadata/configuration preflight,
+and the pass's pin reads (`retention._pin_reasons` and the
+reads `_Pass._start` makes when it selects a job) whether anything needs it,
+and the holder scan (libproc working directories and `lsof_holders`) whether
+a process uses it. It takes the leases a retirement takes, `retire:<job>` and
+the tree's `worktree:` key, under the holder `retention:<job>`, so
+`folders.retiring` fences admission off the tree and every folder inside it
+while it works. It walks trees by descriptor through `retention_fs`, never
+following a link. Its bundle verifier restores the complete history into an
+empty repository; the normal archive retains its existing verification path.
+
+**Where it runs.** The daemon's `retention.delete` op starts a dry run or an
+apply and answers `status` and `stop`. The retention worker steps it: one job
+a step, after any journal a restart left, under `_unrun_lock`, and only in a
+turn no hourly pass claims, so a step never overlaps a pass or the
+unused-tree sweep and never moves the pass's clock. A dormant daemon
+(`SUBFLEET_RETENTION_DORMANT=1`) starts nothing.
+
+**The gates.** Twelve gates, in order, each read just before the job's turn:
+listed, finished, age, owned path, the excluded repositories at the top
+level, the excluded repositories nested, class, pins, holders, registration
+locks, nothing outside depending on the tree, and free space. Gates 1 to 4
+read only the store and the tree's path; the path reads them again once it
+holds the leases. Exclusion input checks run before reused path helpers;
+the complete exclusion proof runs before classification invokes Git.
+Unresolved legacy dependency discovery keeps the candidate rather than
+dropping a possible pin. Pins come again just before the rename and just
+before the removal. C-8.7 and the module's docstring give each gate's exact test.
+
+**The commit-keeping rule.** Before anything moves, every commit that the
+tree alone holds gets a home outside it:
+
+- a linked worktree of a repository outside the tree: the path reduces the
+  commits its admin files name (HEAD, pseudo-refs, per-worktree refs, the HEAD
+  reflog) to tips with `git merge-base --independent`, writes
+  `refs/subfleet-kept/<job>/<n>/<m>` in that repository for each tip and reads
+  each ref back;
+- a repository inside the tree: the path bundles the complete history reached
+  by every available commit object (including unreachable/dangling commits),
+  its refs (`refs/stash` included), HEAD, every entry of multi-value pseudo-refs,
+  reflogs and registrations into
+  `<state>/jobs/<job>/kept-commits/<attempt>/<n>.bundle`. Each attempt creates
+  its own folder and publishes without replacing existing output files.
+  Verification restores it into an
+  empty repository without alternates, checks the bundle and its heads, then
+  fetches with object checking and reads every restored tip back. Local
+  remote-tracking refs do not prove that a server holds those commits.
+
+Unprovable or unreadable admin/storage metadata keeps the job whole. This
+includes another Git root inside a removable linked admin, or outside object
+storage below that admin; the path does not discard that history as metadata.
+
+A root whose commits the path cannot keep fails the job, and the tree stays
+whole. The journal saves the Git-root census and commits. After the rename,
+before entering the destructive state and before its first unlink, the path
+rejects new or changed roots and commits absent from that census. A resumed
+partial removal permits old roots already removed, but rejects new ones.
+
+**The journal and restarts.** `<state>/retention-delete/<job>/journal.json`
+records each step durably: `gating`, `keeping`, `kept`, `renaming`, `renamed`,
+`checked`, `removing`, `removed`, `admins`, `marking`, `marked`. The path
+renames the tree to `<state>/retention-delete/<job>/tree`, checks that the
+tombstone is the directory it gated (device and inode), that the top-level
+`.git` still has the digest it read, that no process holds it, and that the
+commits match, and only then removes it. Removal opens the journal's expected
+device/inode through the tombstone parent's descriptor and rechecks that name
+throughout traversal, including on resume. A restart before `removing` renames
+the tree back, deletes the refs, bundles and ref folders that attempt made,
+releases the leases and records the job `interrupted`; from `removing` on, the
+restart finishes the deletion. The journal never lives under
+`<state>/retention/`, so `retention_archive.journals` never reads it as a
+retirement.
+
+**Registrations.** After the removal, the path removes a linked-worktree
+registration only when its `gitdir` names a place in the removed tree, no
+other tree names it and nobody locked it. A registration that names a commit
+no written ref holds gets a late ref and stays.
+Git/object stores added inside an admin before its final removal keep that
+admin too.
+
+**What the pass and the survey see.** The path writes
+`<state>/jobs/<job>/tree-deleted.json` and one `retention.tree_deleted` event
+with the same facts: the ruling, the times, the logical and allocated bytes,
+free bytes before and after, the refs, the bundles, and the registrations
+removed and kept. Restart reuses an existing marker/event payload rather than
+recomputing its time/free-space readings. The job's rows and the rest of its folder stay. The pass
+keeps a marked job for good, and leaves a job whose deletion journal exists to
+this path (`retention_marks.kept_for_good`, `journal_ids`). The survey reports
+a marked job as `tree-deleted` and leaves it out of its candidates.
+
+**What it never does.** A dry run takes no lease and writes nothing: no ref,
+bundle, journal, event, record or folder. Apart from resolving each excluded
+path once per job, `Excluder` resolves pointers one component at a time and
+stops before an excluded component. Before classification or any later Git
+command, the delete path admits only checked plain local configuration,
+rejects includes and metadata symlinks, and validates common/object/alternate
+storage paths. Its thread-local command context suppresses ambient config and
+init templates through each subprocess's environment/arguments; it does not
+change the daemon's environment or other retention callers. A check it cannot
+complete refuses the job. Nobody deletes in `~/.subfleet` by
+hand: the operator runs the CLI, and the daemon does the rest.
+Persisted data paths are resolved again on resume and cleanup. The daemon's
+private state directory and request/journal control files remain trusted;
+these checks do not establish integrity against their arbitrary replacement.
+
+**Concurrent-writer bound.** The last Git census is an observation, not an OS
+lock. A non-cooperating process can still introduce history after that check
+and before its directory entry is removed. The leases fence daemon admission;
+they do not prevent arbitrary external writes into the private tombstone.
+
+The original build/test counts in the report describe the pre-review head.
+The November 12 fixes add focused regressions; combined validation and fresh
+independent review remain separate gates before installation.
+
+**Running it.** The operator writes the request (the ruling, the job ids,
+`min_age_days`, `min_free_gb`, and optionally `age_exempt` and
+`exclude_repositories`), then:
+
+```bash
+subfleet retention delete --request request.json --dry-run
+subfleet retention delete --request request.json --apply --limit 1
+subfleet retention delete --request request.json --apply
+subfleet retention delete --status
+```
+
+The dry run names each job's gate and what the apply would keep. The canary
+apply deletes one tree, whose marker, event and refs or bundles the operator
+reads before the full apply. Applying the same request again continues its
+record, and a deleted job stays deleted.
