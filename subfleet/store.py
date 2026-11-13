@@ -313,8 +313,12 @@ class Store:
         # C-3.2, C-3.8: each open transaction's audit event, innermost last (`audit_as`):
         # its kind, data and ids, which the event is written with when it commits.
         self._audits: list[dict[str, Any]] = []
-        # Bumped by every committed top-level transaction that changed a row.
-        # A reader compares it without taking `_lock` (an int read is atomic)
+        # C-3.8: per open transaction, innermost last, the changes its nested transactions
+        # (at any depth) made and then rolled back, which `total_changes` still counts.
+        self._undone: list[int] = []
+        # Bumped by every committed top-level transaction that kept a change (C-3.8: net
+        # of what nested transactions rolled back, whatever its event's name, None
+        # included). A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
         self.generation = 0
         if not self.read_only and initialize:
@@ -433,16 +437,26 @@ class Store:
             before = self.connection.total_changes
             audit = {"kind": kind, "data": data, "job_id": job_id, "attempt_id": attempt_id, "lane_id": lane_id}
             self._audits.append(audit)
+            self._undone.append(0)
             try:
                 yield self.connection
-                if self.connection.total_changes != before and audit["kind"] is not None:
+                # C-3.8: what this transaction kept, net of what its nested transactions rolled
+                # back. It decides the event (unless the name is None) and, at the top level,
+                # the generation (whatever the name: a repeated wait still moved a clock).
+                kept = self.connection.total_changes - before != self._undone[-1]
+                if kept and audit["kind"] is not None:
                     # C-3.8: the ids too are the entry's, which `audit_as` may have set.
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
                         (utc_now(), audit["kind"], audit["job_id"], audit["attempt_id"], audit["lane_id"],
                          _json(audit["data"] or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
-                if depth == 0 and self.connection.total_changes != before:
+                if depth:
+                    # The parent's count includes all this one counted, so also what this
+                    # one's children rolled back: hand that on, or a grandchild's undone
+                    # write would make the parent record an event.
+                    self._undone[-2] += self._undone[-1]
+                elif kept:
                     self.generation += 1
             except BaseException:
                 if depth == 0:
@@ -450,9 +464,11 @@ class Store:
                 else:
                     self.connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
                     self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    self._undone[-2] += self.connection.total_changes - before
                 raise
             finally:
                 self._audits.pop()
+                self._undone.pop()
                 self._depth -= 1
 
     def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None, **ids: str | None) -> None:
