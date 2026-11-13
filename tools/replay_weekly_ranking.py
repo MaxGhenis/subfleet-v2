@@ -30,8 +30,8 @@ minus factual fleet increments as each recorded reading arrives, within the
 current reset cycle. Full job cost is charged at admission, with partial
 consumption on a modeled limit. Counterfactual readings move only at the factual
 sensor timestamps: admissions do not instantly change ranked usage. Their ages
-remain factual; stale/past-reset observations never become fresh ranking
-evidence. Resets clear corrections. Known account weekly resets are
+remain factual; reset order retains its freshness guard, while fill uses the
+latest observation of an open window at any age. Resets clear corrections. Known account weekly resets are
 reported from the last observation before reset, including corrections. These
 assumptions isolate the comparator; this is not a prediction of live failure rate.
 """
@@ -43,6 +43,7 @@ from bisect import bisect_right
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import hashlib
 import heapq
 import json
 from pathlib import Path
@@ -54,7 +55,6 @@ from typing import Any
 
 
 WINDOWS = ("seven_day", "five_hour")
-LIVE = Path.home() / ".subfleet" / "state.sqlite3"
 
 
 def epoch(value: str | None) -> float | None:
@@ -93,12 +93,50 @@ class Usage:
         return self.lane, self.scope, self.window
 
 
+def monotonicity(database: sqlite3.Connection, *, until: float | None = None) -> dict[str, Any]:
+    """Audit actual provider observations without smoothing changed reset clocks.
+
+    A pair is consecutive within (lane, scope, window), has the same known
+    reset, and both observations precede that reset. Equal timestamps retain
+    reading-id order. Reset changes are separate windows, including clock jitter.
+    """
+    latest: dict[tuple[str, str, str], tuple[float, str | None, str]] = {}
+    pairs: Counter[str] = Counter()
+    decreases: Counter[str] = Counter()
+    first = last = None
+    rows = database.execute("""SELECT r.lane_id,scope,window,utilization,resets_at,observed_at,l.provider
+        FROM readings r JOIN lanes l USING(lane_id)
+        WHERE r.label IN ('provider','stale-provider') AND utilization IS NOT NULL
+        AND window IN ('seven_day','five_hour')
+        AND (? IS NULL OR observed_at<=?) ORDER BY observed_at,reading_id""",
+        (iso(until) if until is not None else None, iso(until) if until is not None else None))
+    readings = 0
+    for lane, scope, window, used, reset, observed, provider in rows:
+        readings += 1
+        first = first or observed
+        last = observed
+        key = lane, scope, window
+        previous = latest.get(key)
+        latest[key] = used, reset, observed
+        if previous is None or reset is None or previous[1] != reset or observed >= reset:
+            continue
+        for name in ("all", provider, f"{provider}:{window}"):
+            pairs[name] += 1
+            decreases[name] += used < previous[0]
+    return {"first_observation": first, "last_observation": last, "readings": readings,
+            "consecutive_open_window_pairs": dict(sorted(pairs.items())),
+            "utilization_decreases": dict(sorted(decreases.items())),
+            "definition": "Consecutive provider/stale-provider numeric observations by lane, scope and window; identical non-null reset; both observations before reset; exact utilization comparison."}
+
+
 class Replay:
     def __init__(self, database: Path, *, until: str | None = None, days: int = 7,
                  progress: bool = False):
         self.progress = progress
         self.started = time.monotonic()
-        if database.resolve() == LIVE.resolve() or ".subfleet" in database.resolve().parts:
+        # Reject the live directory lexically before resolving the supplied
+        # backup path. There is no need to inspect a live store to guard it.
+        if ".subfleet" in database.parts or ".subfleet" in database.resolve().parts:
             raise ValueError("Pass a temporary SQLite backup; reading a live .subfleet store is refused")
         self.db = sqlite3.connect(f"file:{database.resolve()}?mode=ro", uri=True)
         self.db.row_factory = sqlite3.Row
@@ -151,6 +189,8 @@ class Replay:
         self._progress(f"reconstructed {len(self.snapshots)} admission snapshots")
         self.costs, self.cost_details, self.factual_increments = self._costs()
         self._progress("attributed observed usage costs")
+        self.monotonicity = monotonicity(self.db)
+        self.monotonicity_through_until = monotonicity(self.db, until=self.until)
         self.db.close()
 
     def _progress(self, message: str) -> None:
@@ -294,9 +334,12 @@ class Replay:
             snapshots[attempt["attempt_id"]] = evaluation
         return snapshots
 
-    def run(self, name: str, *, spread: int | None = 2, urgency: bool = False, old: bool = False) -> dict[str, Any]:
+    def run(self, name: str, *, spread: int | None = 2, urgency: bool = False, old: bool = False,
+            lane_order: str = "reset", expiring_s: int | None = 21600) -> dict[str, Any]:
         latest: dict[tuple[str, str, str], Usage] = {}
+        fill_latest: dict[tuple[str, str, str], Usage] = {}
         ranked_used: dict[tuple[str, str, str], float] = {}
+        fill_ranked_used: dict[tuple[str, str, str], float] = {}
         corrections: dict[tuple[str, str, str, float | None], float] = defaultdict(float)
         active: list[tuple[float, str, str]] = []
         in_flight: Counter[tuple[str, str]] = Counter()
@@ -304,7 +347,13 @@ class Replay:
         reset_indexes: dict[tuple[str, float], int] = {}
         limits = near_five = placed = missed = measured = stale = changed = 0
         placement_counts: Counter[str] = Counter()
+        attempt_hours: Counter[str] = Counter()
+        hourly_counts: dict[str, list[tuple[int, int]]] = defaultdict(list)
         by_provider: dict[str, Counter] = defaultdict(Counter)
+        account_lanes: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for lane, info in self.lanes.items():
+            if info.get("enabled", True):
+                account_lanes[info["provider"], info.get("account_key", lane)].append(lane)
         # Attempts already running at the seven-day boundary keep their factual
         # lanes and remaining occupancy. Their usage is left in the baseline.
         for attempt in self.attempts:
@@ -325,13 +374,25 @@ class Replay:
         def detail(lane: str, attempt: dict[str, Any]) -> dict[str, Any]:
             now = attempt["arrival"]
             rows = lane_rows(lane, attempt["model_requested"])
-            fresh = [row for row in rows if row.label == "provider" and 0 <= now - row.observed <= 120]
-            if not old and any(row.reset is not None and row.reset <= now for row in rows):
+            recent = [row for row in rows if 0 <= now - row.observed <= 120]
+            fresh = [row for row in recent if row.label == "provider"
+                     and (old or row.reset is None or row.reset > now)]
+            if not old and any(row.reset is not None and row.reset <= now for row in recent):
                 fresh = []
             weekly = [row for row in fresh if row.window == "seven_day"]
             binding = min(weekly, key=lambda row: (1 - ranked_used[row.key], row.reset or float("inf"), row.scope), default=None)
             five = [ranked_used[row.key] for row in fresh if row.window == "five_hour"]
             recorded = self.snapshots[attempt["attempt_id"]].get("candidate_details", {}).get(lane, {})
+            # Fill retains the latest provider or stale-provider row of each
+            # applicable scope/window if its known reset is still future.
+            fill_rows = [row for key, row in fill_latest.items()
+                         if key[0] == lane and key[1] in ("account", attempt["model_requested"])]
+            opened = [row for row in fill_rows if row.reset is not None and row.reset > now]
+            fill_weekly = min((row for row in opened if row.window == "seven_day"),
+                              key=lambda row: (-fill_ranked_used[row.key], row.reset, row.scope), default=None)
+            fill_used = fill_ranked_used[fill_weekly.key] if fill_weekly else 0.0
+            fill_reset = fill_weekly.reset if fill_weekly else None
+            fill_five = max((fill_ranked_used[row.key] for row in opened if row.window == "five_hour"), default=0.0)
             return {"measured": bool(fresh),
                     "weekly": 1 - ranked_used[binding.key] if binding else None,
                     "weekly_used": ranked_used[binding.key] if binding else None,
@@ -340,13 +401,20 @@ class Replay:
                     "reset": binding.reset if binding else None,
                     "old_reset": min((row.reset for row in weekly if row.reset is not None), default=None),
                     "headroom": min((1 - ranked_used[row.key] for row in fresh), default=0.0),
+                    "fill_weekly_used": fill_used, "fill_weekly_reset": fill_reset,
+                    "fill_five_hour_used": fill_five,
+                    "fill_expiring": expiring_s is not None and fill_reset is not None
+                        and fill_reset - now <= expiring_s,
                     "stranded": bool(recorded.get("stranded_scopes")),
                     "reserve_slack": (recorded.get("reserve") or {}).get("slack")}
 
         def key(lane: str, attempt: dict[str, Any]) -> tuple:
             d = detail(lane, attempt)
             count = in_flight[lane, attempt["kind"]]
-            band = count // spread if spread else 0
+            # These experiments change Claude only. Codex keeps the shipped
+            # reset comparator and its default load band in every variant.
+            provider_spread = spread if attempt["provider"] == "claude" else 2
+            band = count // provider_spread if provider_spread else 0
             desktop = bool(self.lanes[lane]["desktop"])
             # A turn's admission record already places affinity first. The
             # separate conversation store is intentionally not read; preserve
@@ -355,6 +423,12 @@ class Replay:
             prefix = (desktop, affinity, band)
             if attempt["provider"] == "claude":
                 prefix += (not d["stranded"],)
+            if lane_order == "fill" and attempt["provider"] == "claude":
+                return (*prefix, d["fill_weekly_used"] > 1 - .02,
+                        d["fill_five_hour_used"] > 1 - .10,
+                        not d["fill_expiring"],
+                        d["fill_weekly_reset"] if d["fill_expiring"] else 0,
+                        -d["fill_weekly_used"], count, lane)
             prefix += (not d["measured"],)
             if old:
                 if attempt["provider"] == "codex":
@@ -375,6 +449,10 @@ class Replay:
                          if r.reset is not None and self.since <= r.reset <= self.until})
         events += [(when, 1, (lane, scope, window)) for when, lane, scope, window in resets]
         events += [(a["arrival"], 2, a) for a in self.arrivals]
+        # Equal-spaced hourly snapshots use the account window, not a
+        # job-specific model window. Unknown/expired account windows count 0.
+        events += [(self.since + hour * 3600, 3, None)
+                   for hour in range(int((self.until - self.since) // 3600))]
         events.sort(key=lambda item: (item[0], item[1], getattr(item[2], "reading_id", 0)))
         for now, kind, item in events:
             while active and active[0][0] <= now:
@@ -384,6 +462,11 @@ class Replay:
                 latest[item.key] = item
                 corrections[*item.key, item.reset] -= self.factual_increments.get(item.reading_id, 0.0)
                 ranked_used[item.key] = physical(item, now)
+                previous = fill_latest.get(item.key)
+                evidence = lambda row: (row.observed, row.used, -(row.reset if row.reset is not None else float("inf")))
+                if previous is None or evidence(item) > evidence(previous):
+                    fill_latest[item.key] = item
+                fill_ranked_used[item.key] = physical(fill_latest[item.key], now)
                 continue
             if kind == 1:
                 lane, scope, window = item
@@ -404,6 +487,20 @@ class Replay:
                 if row and row.reset == now:
                     corrections[*row.key, row.reset] = 0.0
                 continue
+            if kind == 3:
+                counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+                for (provider, _account), lanes in account_lanes.items():
+                    rows = [latest[lane, "account", "seven_day"] for lane in lanes
+                            if (lane, "account", "seven_day") in latest]
+                    # Aliases are one account. Newer account evidence wins;
+                    # reading id breaks a simultaneous observation tie.
+                    row = max(rows, key=lambda row: (row.observed, row.reading_id), default=None)
+                    used = physical(row, now) if row and row.reset is not None and row.reset > now else 0.0
+                    counts[provider][0] += .10 <= used <= .90
+                    counts[provider][1] += used < .10
+                for provider, values in counts.items():
+                    hourly_counts[provider].append(tuple(values))
+                continue
             attempt = item
             snapshot = self.snapshots.get(attempt["attempt_id"])
             if not snapshot:
@@ -417,6 +514,7 @@ class Replay:
             placed += 1
             changed += target != attempt["lane_id"]
             placement_counts[target] += 1
+            attempt_hours[target] += max(0.0, min(attempt["end"], self.until) - now) / 3600
             d = detail(target, attempt)
             measured += d["measured"]
             stale += not d["measured"]
@@ -437,7 +535,33 @@ class Replay:
                 corrections[*row.key, row.reset] += cost.get((row.scope, row.window), 0.0) * fraction
             heapq.heappush(active, (attempt["end"], target, attempt["kind"]))
             in_flight[target, attempt["kind"]] += 1
-        return {"variant": name, "lane_spread": spread, "attempts": placed,
+        for provider, counts in by_provider.items():
+            provider_hours: Counter[str] = Counter()
+            labels: dict[str, list[str]] = defaultdict(list)
+            for lane, hours in attempt_hours.items():
+                info = self.lanes[lane]
+                if info["provider"] == provider:
+                    account = info.get("account_key", lane)
+                    provider_hours[account] += hours
+                    labels[account].append(lane)
+            total_hours = sum(provider_hours.values())
+            ordered = sorted(provider_hours, key=lambda account: (-provider_hours[account], min(labels[account])))
+            partial = hourly_counts[provider]
+            provider_resets = [row for row in reset_rows if self.lanes[row["lane"]]["provider"] == provider]
+            counts.update({"accounts_taking_work": len(provider_hours),
+                           "attempt_hours": round(total_hours, 6),
+                           "top_1_attempt_hour_share": round(sum(provider_hours[a] for a in ordered[:1]) / total_hours, 6) if total_hours else 0,
+                           "top_2_attempt_hour_share": round(sum(provider_hours[a] for a in ordered[:2]) / total_hours, 6) if total_hours else 0,
+                           "top_3_attempt_hour_share": round(sum(provider_hours[a] for a in ordered[:3]) / total_hours, 6) if total_hours else 0,
+                           "hourly_samples": len(partial),
+                           "hourly_mean_partial_accounts": round(statistics.mean(value[0] for value in partial), 6) if partial else None,
+                           "hourly_mean_whole_accounts": round(statistics.mean(value[1] for value in partial), 6) if partial else None,
+                           "hourly_account_pool": sum(p == provider for p, _ in account_lanes),
+                           "weekly_unused_sum": round(sum(row["unused_fraction"] for row in provider_resets), 6),
+                           "weekly_account_resets": len(provider_resets)})
+        return {"variant": name, "lane_spread": {"claude": spread, "codex": 2},
+                "lane_order": {"claude": lane_order, "codex": "reset"}, "expiring_s": expiring_s,
+                "attempts": placed,
                 "missing_decisions": missed, "changed_placements": changed,
                 "measured_placements": measured, "unmeasured_placements": stale,
                 "within_five_percent_five_hour": near_five,
@@ -445,27 +569,45 @@ class Replay:
                 "weekly_unused_sum": round(sum(r["unused_fraction"] for r in reset_rows), 6),
                 "weekly_unused_mean": round(statistics.mean(r["unused_fraction"] for r in reset_rows), 6) if reset_rows else None,
                 "weekly_resets": reset_rows, "placements_by_lane": dict(sorted(placement_counts.items())),
+                "attempt_hours_by_lane": {lane: round(hours, 6) for lane, hours in sorted(attempt_hours.items())},
                 "by_provider": {provider: {**counts,
                     "limited_share": round(counts["limited_attempts"] / counts["attempts"], 6)}
                     for provider, counts in sorted(by_provider.items())}}
 
     def report(self, database: Path) -> dict[str, Any]:
-        variants = [self.run("old", old=True), self.run("new, spread=2"),
-                    self.run("urgency=headroom/hours", urgency=True), self.run("new, spread=4", spread=4),
-                    self.run("new, spread=null", spread=None)]
+        with database.open("rb") as source:
+            fingerprint = hashlib.file_digest(source, "sha256").hexdigest()
+        variants = [self.run("reset, spread=2"),
+                    self.run("fill, spread=2, expiring=21600", lane_order="fill"),
+                    self.run("fill, spread=4, expiring=21600", lane_order="fill", spread=4),
+                    self.run("fill, spread=null, expiring=21600", lane_order="fill", spread=None),
+                    self.run("fill, spread=2, expiring=null", lane_order="fill", expiring_s=None),
+                    self.run("fill, spread=2, expiring=86400", lane_order="fill", expiring_s=86400)]
         cost = self.cost_details
         recorded = Counter(a["outcome_class"] or "unfinished" for a in self.arrivals)
+        recorded_by_provider: dict[str, Counter[str]] = defaultdict(Counter)
+        for attempt in self.arrivals:
+            recorded_by_provider[attempt["provider"]][attempt["outcome_class"] or "unfinished"] += 1
         resets = variants[0]["weekly_resets"]
         return {"period": {"since": iso(self.since), "until": iso(self.until)},
                 "snapshot_bytes": database.stat().st_size,
-                "snapshot_method": "sqlite3 file:~/.subfleet/state.sqlite3?mode=ro; BEGIN; SELECT count(*) FROM schema_version; .backup TEMP_COPY; ROLLBACK; replay only the copy with mode=ro and query_only=ON",
+                "snapshot_sha256": fingerprint,
+                "snapshot_method": "Copy the supplied offline export to a temporary file; replay only that copy with mode=ro and query_only=ON.",
                 "recorded_attempt_arrivals": len(self.arrivals),
                 "recorded_job_arrivals": sum(self.since <= epoch(j["created_at"]) <= self.until for j in self.jobs.values()),
                 "admitted_first_attempts": sum(a["seq"] == 1 for a in self.arrivals),
                 "turn_attempts": sum(a["kind"] == "turn" for a in self.arrivals),
                 "recorded_outcomes": dict(recorded),
+                "recorded_outcomes_by_provider": {provider: dict(sorted(counts.items()))
+                                                  for provider, counts in sorted(recorded_by_provider.items())},
                 "recorded_limited_share": round(recorded["limited"] / len(self.arrivals), 6),
                 "usage_readings_loaded": len(self.readings), "cost_model": cost,
+                "monotonicity_export": self.monotonicity,
+                "monotonicity_through_until": self.monotonicity_through_until,
+                "packing_metrics": {
+                    "hours": "Each placed attempt contributes its recorded duration, clipped at the replay end; aliases group by account, but output names lanes only.",
+                    "hourly": f"{int((self.until - self.since) // 3600)} hourly samples at since + h hours, starting h=0, after same-time readings, resets and admissions; all enabled account groups are included. Latest account seven_day physical modeled utilization is used; unknown or expired windows count as zero. Partial is inclusive 10%..90%; whole is below 10%.",
+                    "variants": "Only Claude lane order/spread varies. Codex always uses reset and spread=2. The duplicate fill spread=2 expiring=21600 variant appears once."},
                 "weekly_reset_coverage": {
                     "account_resets": len(resets),
                     "by_provider": dict(Counter(self.lanes[row["lane"]]["provider"] for row in resets)),
@@ -483,7 +625,9 @@ class Replay:
                     "Renewal intervals are excluded from cost attribution; post-reset spend without a renewed observation is discarded when the next cycle's factual reading arrives.",
                     "Historical readings and their ages are retained, so this replay does not estimate the benefit of additional busy-lane sensor reads.",
                     "Unused weekly capacity uses the last pre-reset observation plus workload corrections; external use after that observation is unobserved.",
-                    "Only observed scheduled account resets can be reported; this snapshot contains Claude resets and no Codex weekly resets. Pre-reset readings are generally stale by hours or days.",
+                    "Only observed scheduled account resets can be reported. Pre-reset readings can be stale by hours or days.",
+                    "Hourly account counts include enabled accounts even while historical closures prevent admission; unknown/expired account observations are classified below 10%, which can overstate preserved whole accounts.",
+                    "The model is uncalibrated; compare its reset modeled limited count with actual recorded limits before interpreting variant differences.",
                     "A cost-model limited fraction is an estimate, not a prediction of provider errors or the actual live limited rate."]}
 
 

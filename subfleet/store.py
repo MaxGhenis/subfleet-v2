@@ -966,6 +966,33 @@ class Store:
     def list_readings(self, lane_id: str | None = None) -> list[Row]:
         return self.query("SELECT * FROM readings" + (" WHERE lane_id=?" if lane_id else "") + " ORDER BY observed_at DESC,reading_id DESC", (lane_id,) if lane_id else ())
 
+    def fill_reading_candidates(self, *, now: str | datetime | None = None) -> list[Row]:
+        """C-11.11: provider readings that can bind fill at this or a later clock.
+
+        Admission's latest evidence remains untouched. For each key retain all
+        ties at its latest numeric provider observation no later than now, all
+        future observations (so the clock can make them applicable), and every
+        noncanonical timestamp for Python's parsed comparison. A later unknown
+        or null reading cannot erase provider use that still belongs to an open
+        window. Historical canonical provider rows before each key's latest
+        observation need not be loaded.
+        """
+        instant = utc_now() if now is None else (now if isinstance(now, str) else now.isoformat())
+        if isinstance(instant, str):
+            parsed = datetime.fromisoformat(instant.replace("Z", "+00:00"))
+            instant = (parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else
+                       parsed.astimezone(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return self.query(
+            "WITH provider AS (SELECT * FROM readings WHERE label IN ('provider','stale-provider') "
+            "AND typeof(utilization) IN ('integer','real') "
+            "AND utilization BETWEEN -1.7976931348623157e308 AND 1.7976931348623157e308), "
+            "top AS (SELECT lane_id,scope,window,max(observed_at) AS at FROM provider "
+            "WHERE observed_at GLOB ? AND observed_at<=? GROUP BY lane_id,scope,window) "
+            "SELECT r.* FROM provider r JOIN top ON r.lane_id=top.lane_id AND r.scope=top.scope "
+            "AND r.window=top.window AND r.observed_at=top.at "
+            "UNION ALL SELECT * FROM provider WHERE NOT observed_at GLOB ? OR observed_at>? "
+            "ORDER BY observed_at DESC,reading_id DESC", (self.CANONICAL_TS, instant, self.CANONICAL_TS, instant))
+
     def weekly_projection_samples(self, *, now: str | datetime | None = None) -> list[Row]:
         """Read only 24 hours of weekly provider history, apart from newest evidence."""
         return self.query(WEEKLY_HISTORY_SQL, weekly_history_params(now))

@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from .capacity import fresh_provider
-from .policy import admission_settings, resolve_model
-from .scheduler import _earliest_reset, evaluate, prepare, rank_key, ranking_usage, ranking_reading_age
+from .policy import admission_settings, lane_order, resolve_model
+from .scheduler import (_earliest_reset, evaluate, fill_ranking_usage, prepare, rank_key,
+                        ranking_usage, ranking_reading_age)
 
 
 def _email(lane: dict) -> str | None:
@@ -135,6 +136,11 @@ def rank(policy: dict, view: dict, *, family: str = "codex", model: str | None =
                       ("account", *[policy["models"][name]["id"] for name in models])]
         binding = ranking_usage(applicable, now=now, reading_ttl_s=ttl,
                                 admission=admission_settings(policy))
+        fill_applicable = [reading for reading in view.get("fill_readings", view.get("readings", []))
+                           if reading["lane_id"] == identity and reading["scope"] in
+                           ("account", *[policy["models"][name]["id"] for name in models])]
+        fill = (fill_ranking_usage(fill_applicable, now=now, admission=admission_settings(policy))
+                if lane_order(policy, family) == "fill" else {})
         weekly_low, five_low = binding["weekly_reserve"], binding["five_hour_reserve"]
         row.update(five_hour_used_percent=utilization("five_hour"),
                    weekly_used_percent=utilization("seven_day"),
@@ -149,12 +155,13 @@ def rank(policy: dict, view: dict, *, family: str = "codex", model: str | None =
                    reading_age_s=ranking_reading_age(binding, now),
                    model_details=dict(zip(models, details[identity])), stale=False,
                    in_flight=0, protected=False, as_of=timestamp)
+        row.update(fill)
         # The unknown-model recommendation binds across every model it must
         # qualify for. Rank that same evidence, rather than the first model's
         # account window while displaying a different scoped weekly reset.
         ranking_details[identity] = {**details[identity][0], "ranking_measured": binding["measured"],
             "weekly_headroom": row["weekly_headroom"], "seven_day_reset": row["weekly_reset_at"],
-            "weekly_reserve": weekly_low, "five_hour_reserve": five_low}
+            "weekly_reserve": weekly_low, "five_hour_reserve": five_low, **fill}
         ranked.append(row)
     if ranked:
         setup = prepare(rules, view, {"pinned_model": models[0], "sandbox": "read-only"})

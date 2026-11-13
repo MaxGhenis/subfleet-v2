@@ -1,7 +1,8 @@
 """C-6.3: `scheduler.evaluate`, split into `prepare`, `judge_lane` and `rank_key`
 so one lane can be judged alone inside a reservation (`route_check`), decides
 exactly what the evaluate it replaced decided, error for error.
-`tests/reference_scheduler.py` is that one, verbatim from e053b2c.
+`tests/reference_scheduler.py` is that one, verbatim from e053b2c. These
+regressions explicitly select reset; C-11.11 fill has its own frozen-base laws.
 """
 
 from __future__ import annotations
@@ -30,7 +31,9 @@ def outcome(fn, *args):
 @st.composite
 def cases(draw):
     store = draw(stores())
-    return draw(policies()), store, draw(route_jobs(store))
+    policy = draw(policies())
+    policy["admission"]["lane_order"] = {"claude": "reset", "codex": "reset"}
+    return policy, store, draw(route_jobs(store))
 
 
 # --- the split evaluate is the evaluate it replaced ------------------------------------------------
@@ -89,6 +92,7 @@ def turn_cases(draw):
     from tests.unit.test_scheduler import attempt, closure, lane, reading, view
     from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
     policy = load_policy(DEFAULT_POLICY_PATH)
+    policy["admission"]["lane_order"] = {"claude": "reset", "codex": "reset"}
     if draw(st.booleans()):
         policy["reserve"] = {**policy.get("reserve", {}), "models": []}
     policy = copy.deepcopy(policy)

@@ -2163,6 +2163,7 @@ class Daemon:
         with self.store.snapshot():
             lanes = self.store.lane_rows()
             rows = {"lanes": lanes, "readings": self.store.latest_reading_candidates(),
+                    "fill_readings": self.store.fill_reading_candidates(),
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
@@ -2712,11 +2713,12 @@ class Daemon:
                      if (found := self.timers.actions.confirmed_override(lane["lane_id"], now=view["now"],
                                                                          context=context))}
         view["readings"] = [row for row in view["readings"] if row["lane_id"] not in overrides]
+        view["fill_readings"] = [row for row in view["fill_readings"] if row["lane_id"] not in overrides]
         route_job = {**job, "exclusions": tuple(exclusions) + extra_exclusions, "policy_hash": self.policy_digest}
         decision = scheduler.evaluate(policy, view, route_job)
         if basis is not None:
             # Off the lock, so the check inside it compares one clock per lane.
-            clocks = capacity.lane_horizons(view, reading_ttl_s=policy["caps"]["reading_ttl_s"])
+            clocks = capacity.lane_horizons(view, reading_ttl_s=policy["caps"]["reading_ttl_s"], policy=policy)
             basis.update(policy=policy, job=route_job, view=view, rows=rows, clocks=clocks, desktop=desktop,
                          desktop_in_use=view.get("desktop_in_use"), instant=instant, overrides={lane_id: (found["action_id"], found["weekly_reset_at"])
                                                      for lane_id, found in overrides.items()})
@@ -8978,6 +8980,7 @@ class Daemon:
                 return "moved", 0, None
             return route_check.still_stands(basis["policy"], basis["job"], decision, view=basis["view"],
                                             candidates=basis["rows"]["view"]["readings"],
+                                            fill_candidates=basis["rows"]["view"]["fill_readings"],
                                             overridden=set(basis["overrides"]), clocks=basis["clocks"],
                                             now=now, **rows)
         except route_check.ROUTE_ERRORS as exc:
@@ -9022,7 +9025,8 @@ class Daemon:
         mark = rows["reading_mark"]
         if mark is not None and store.one("SELECT * FROM readings WHERE reading_id=?", (mark["reading_id"],)) != mark:
             return None
-        held = [row["reading_id"] for row in rows["view"]["readings"]]
+        held = sorted({row["reading_id"] for key in ("readings", "fill_readings")
+                       for row in rows["view"].get(key, ())})
         for start in range(0, len(held), 500):
             chunk = held[start:start + 500]
             found = store.one(f"SELECT count(*) AS n FROM readings WHERE reading_id IN ({','.join('?' * len(chunk))})",

@@ -220,9 +220,13 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 
 #: `admission.*` (C-6.9, C-6.13, C-6.17, C-6.18, C-10.3, C-11.3): how admission orders and places
 #: work once no count caps it (2026-09-27).
-#: `lane_spread` is the width of a load band: candidates are ranked by
+#: `lane_spread` is the width of a load band, shared or per provider: candidates are ranked by
 #: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
-#: attempts instead of one lane taking every job; null ranks by C-11.3 alone.
+#: attempts instead of one lane taking every job; null disables bands. A provider
+#: omitted from a map uses the default width, 2.
+#: `lane_order` chooses C-11.11's fill order or C-11.3's reset order per provider;
+#: an omitted provider uses reset. `expiring_s` gives fill's expiring-window tier
+#: its horizon; null disables that tier.
 #: `weekly_reserve` and `five_hour_reserve` are fractions remaining below which
 #: a candidate sorts later, never admission floors or reasons to wait.
 #: `desktop_recent_s` is how recently a Claude Code session on the desktop login
@@ -288,6 +292,8 @@ RAMP_DEFAULTS: dict[str, Any] = {
 }
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
+    "lane_order": {"claude": "fill", "codex": "reset"},
+    "expiring_s": 21600,
     "weekly_reserve": 0.02,
     "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
@@ -327,7 +333,19 @@ MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
 def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     """The policy's `admission` section with its defaults, as the loader leaves it."""
     return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {}),
+            "lane_order": dict((policy.get("admission") or {}).get("lane_order", ADMISSION_DEFAULTS["lane_order"])),
             "disk": disk_settings(policy), "ramp": ramp_settings(policy)}
+
+
+def lane_order(policy: Mapping[str, Any], provider: str) -> str:
+    """C-11.11: missing providers in an explicit order map keep reset ordering."""
+    return admission_settings(policy)["lane_order"].get(provider, "reset")
+
+
+def lane_spread(policy: Mapping[str, Any], provider: str) -> int | None:
+    """C-11.3: a shared band width or this provider's width (missing: 2)."""
+    spread = admission_settings(policy)["lane_spread"]
+    return spread.get(provider, ADMISSION_DEFAULTS["lane_spread"]) if isinstance(spread, Mapping) else spread
 
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -682,8 +700,26 @@ def load_policy(path: str | Path) -> dict[str, Any]:
              f"number of starts (per_minute {ramp['per_minute']}, window_s {ramp['window_s']})")
     settings["ramp"] = ramp
     spread = settings["lane_spread"]
-    if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
-        fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
+    spreads = spread.items() if isinstance(spread, dict) else [(None, spread)]
+    for provider, width in spreads:
+        where = "admission.lane_spread" if provider is None else f"admission.lane_spread.{provider}"
+        if provider is not None and provider not in PROVIDERS:
+            fail(where, f"must name one of {', '.join(PROVIDERS)}")
+        if width is not None and (type(width) is not int or width < 1):
+            fail(where, "must be a positive whole number of attempts, or null for no bands")
+    order = settings["lane_order"]
+    if not isinstance(order, dict):
+        fail("admission.lane_order", "must be an object mapping providers to fill or reset")
+    for provider, ordering in order.items():
+        where = f"admission.lane_order.{provider}"
+        if provider not in PROVIDERS:
+            fail(where, f"must name one of {', '.join(PROVIDERS)}")
+        if ordering not in ("fill", "reset"):
+            fail(where, "must be fill or reset")
+    settings["lane_order"] = dict(order)
+    expiring = settings["expiring_s"]
+    if expiring is not None and (type(expiring) is not int or expiring < 1):
+        fail("admission.expiring_s", "must be a positive whole number of seconds, or null for no expiring tier")
     for key in ("weekly_reserve", "five_hour_reserve"):
         if not _fraction(settings[key]):
             fail(f"admission.{key}", "must be a finite fraction between 0 and 1")

@@ -77,10 +77,11 @@ def check(policy, store, job, after, seconds):
         event("early: raised")
         return None
     later = NOW + timedelta(seconds=seconds)
-    clocks = capacity.lane_horizons(view, reading_ttl_s=120)
+    clocks = capacity.lane_horizons(view, reading_ttl_s=120, policy=policy)
     rows = now_rows(store, after)
     verdict, judged, standing = route_check.still_stands(
         policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
+        fill_candidates=store["readings"],
         overridden=store["overridden"], clocks=clocks, now=later, **rows)
     try:
         full = scheduler.evaluate(policy, view_of(after, later), job)
@@ -345,7 +346,8 @@ def judged_again(policy, store, after, job=JOB, seconds=1):
     decision = scheduler.evaluate(policy, view, job)
     verdict, judged, _ = route_check.still_stands(
         policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
-        overridden=store["overridden"], clocks=capacity.lane_horizons(view, reading_ttl_s=120),
+        fill_candidates=store["readings"],
+        overridden=store["overridden"], clocks=capacity.lane_horizons(view, reading_ttl_s=120, policy=policy),
         now=NOW + timedelta(seconds=seconds), **now_rows(store, after))
     return verdict, judged
 
@@ -490,11 +492,12 @@ def test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it(case, data):
     except route_check.ROUTE_ERRORS:
         busy = None
     assert (quiet and exact(quiet)) == (busy and exact(busy))
-    clocks = capacity.lane_horizons(view, reading_ttl_s=120)
+    clocks = capacity.lane_horizons(view, reading_ttl_s=120, policy=policy)
 
     def checked(now_store):
         verdict, judged, standing = route_check.still_stands(
             policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
+            fill_candidates=store["readings"],
             overridden=store["overridden"], clocks=clocks, now=later, **now_rows(store, now_store))
         return verdict, judged, standing and exact(standing)
     assert checked(after) == checked(store)
