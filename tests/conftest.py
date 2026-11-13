@@ -362,8 +362,9 @@ def catch_up(real):
     test written when one pass did both calls `maintenance` once and expects
     the retirement: under `retention_catch_up`, that call runs the follow-up
     passes too (at most three), with one `RetentionState` between them, while
-    a job waits for its check 2 and no pass was interrupted or failed its
-    listing, and returns the passes' results merged."""
+    a job waits for its check 2 and no pass was interrupted, and returns the
+    passes' results merged. A failed holder scan stops it only when no job
+    waits, as the daemon's pacing does (review r1, finding 1)."""
     from subfleet import retention
 
     def maintenance(*args, **kwargs):
@@ -371,7 +372,7 @@ def catch_up(real):
             kwargs["state"] = retention.RetentionState()
         result = real(*args, **kwargs)
         for _ in range(3):
-            if not result.get("awaiting_check2") or result.get("interrupted") or result.get("holder_scan_failed"):
+            if not result.get("awaiting_check2") or result.get("interrupted"):
                 break
             result = _merged_passes(result, real(*args, **kwargs))
         return result

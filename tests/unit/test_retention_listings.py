@@ -234,6 +234,47 @@ def test_a_reader_failure_makes_every_job_of_the_listing_busy(world):
         assert (journal(w, name) or {}).get("state") not in ("quarantined", "archived")
 
 
+def test_a_bad_manifest_puts_back_only_its_own_job(world, caplog):
+    """Review r1, finding 4: check 2 reads the job's manifest for its archived inodes.
+    An unreadable one puts back that job alone, as an error, before the listing; the
+    listing still serves every other job (here b's check 1), nothing else is rolled
+    back, and `holder_scan_failed` stays unset (it would cost the batch the hour)."""
+    w = world
+    for name in ("job-a", "job-b"):
+        w.job(name, worktree=False)
+    state, reader = retention.RetentionState(), Reader()
+    log = logging.getLogger("test.retention.listings.manifest")
+    assert run(w, log, holders=reader, batch=1, state=state)["awaiting_check2"] == ["job-a"]
+    manifest = rarch.journal_path(w.root, "job-a").parent / "archive" / "manifest.json"
+    assert manifest.is_file()
+    manifest.write_text("{not json")
+    with caplog.at_level(logging.INFO, logger=log.name):
+        result = run(w, log, holders=reader, batch=1, state=state)
+    assert result["holder_scan_failed"] is False and result["listings"] == 1, result
+    assert reader.calls[-1] == {"job-b": False}                 # b's check 1 alone: a was put back first
+    assert [m.group(1) for m in listing_lines(caplog)] == ["first"]
+    assert result["deferred"]["job-a"].startswith("error: manifest: JSONDecodeError"), result["deferred"]
+    assert "job-b" not in result["deferred"] and result["pruned"] == []
+    assert result["awaiting_check2"] == ["job-b"] and journal(w, "job-b")["check1"] is True
+    assert w.store.get_job("job-a") is not None and (w.root / "jobs" / "job-a").is_dir()
+    assert (journal(w, "job-a") or {}).get("state") not in ("quarantined", "archived")
+
+
+def test_a_failed_listings_reason_is_scrubbed(world, caplog):
+    """Review r1, finding 5: the reason (for `lsof`, its stderr tail) passes through
+    `refusals.scrubbed_line`, as the daemon's other retention error lines do."""
+    w = world
+    w.job("job-scan")
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    log = logging.getLogger("test.retention.listings.scrubbed")
+    with caplog.at_level(logging.INFO, logger=log.name):
+        result = run(w, log, holders=Reader(ScanFailed(f"lsof exited 1: token {token}\nend")))
+    (line,) = listing_lines(caplog)
+    assert token not in line.string
+    assert line.group(5) == "failed: lsof exited 1: token [REDACTED] end"
+    assert result["listings"] == 1 and result["holder_scan_failed"]
+
+
 def test_parse_holds_mapped_files_and_writers_but_not_readers(tmp_path):
     """The per-process rule a narrower reader must match (invariant 2's reference):
     a cwd, a mapped file, a directory descriptor or a descriptor open for writing

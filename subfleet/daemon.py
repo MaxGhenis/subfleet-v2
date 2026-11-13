@@ -5890,6 +5890,18 @@ class Daemon:
             self._last_maintenance = time.monotonic()
             return
         if result.get("holder_scan_failed"):
+            if result.get("awaiting_check2"):
+                # A job archived in this pass waits for its check 2 from the next
+                # pass's listing (D-HOLDERS-LSOF1). The failed scan put back only
+                # the jobs it was for, so the waiting job keeps catch-up pacing;
+                # if the next listing fails too, it puts that job back, and then
+                # the hour applies (review r1, finding 1).
+                delay = RETENTION_CATCH_UP_S
+                self.timers.mark("retention", error="ScanFailed", next_due=after(delay))
+                self.log.warning("retention: holder scan failed; %d jobs wait for their holder check 2; "
+                                 "next pass in %g seconds", len(result["awaiting_check2"]), delay)
+                self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S + delay
+                return
             # Quarantining and rolling back is action, but another batch cannot
             # retire jobs while the shared process listing is unavailable.
             self.timers.mark("retention", error="ScanFailed", next_due=after(RETENTION_INTERVAL_S))

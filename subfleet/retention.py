@@ -54,7 +54,7 @@ from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
-from . import dependencies, folders, procs
+from . import dependencies, folders, procs, refusals
 from .attempt_tmp import cleared_tmpdirs, job_tmpdirs, probe_tmpdir_rows
 from .retention_holders import ScanFailed, lsof_holders, reader_name
 from .store import Store
@@ -991,6 +991,10 @@ class _Pass:
         wanted = {**first, **second}
         if not wanted:
             return []
+        #: Jobs whose watch could not be built (check 2 reads the job's manifest
+        #: for its archived inodes): each is put back alone, as an error, and
+        #: never fails the listing for the rest (review r1, finding 4).
+        unreadable: dict[str, str] = {}
         try:
             # Recheck the moved owned tree too, including a resumed retirement.
             # A cwd hold needs no listing and never includes its command strings.
@@ -1000,7 +1004,14 @@ class _Pass:
                     pids = procs.worktree_cwd_pids(retirement.q_worktree)
                     if pids:
                         busy[job_id] = [f"pid {pid}: cwd in worktree" for pid in sorted(pids)]
-            watches = {job_id: r.watch(inodes=job_id in second) for job_id, r in wanted.items() if job_id not in busy}
+            watches = {}
+            for job_id, retirement in wanted.items():
+                if job_id in busy:
+                    continue
+                try:
+                    watches[job_id] = retirement.watch(inodes=job_id in second)
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    unreadable[job_id] = f"manifest: {type(exc).__name__}: {exc}"
             if watches:
                 checks = {"first" if job_id in first else "second" for job_id in watches}
                 self.progress["listing"] = {
@@ -1013,11 +1024,14 @@ class _Pass:
         except (ScanFailed, procs.InspectionError) as exc:
             if self.cancel is not None and self.cancel.is_set():
                 raise rarch.Interrupted("cancelled") from exc
+            self._unreadable(unreadable, wanted, retirements)
             self._scan_failed(wanted, retirements, str(exc))
             return []
         except (OSError, ValueError) as exc:
+            self._unreadable(unreadable, wanted, retirements)
             self._scan_failed(wanted, retirements, str(exc))
             return []
+        self._unreadable(unreadable, wanted, retirements)
         passed = []
         for job_id, retirement in wanted.items():
             if busy.get(job_id):
@@ -1029,6 +1043,17 @@ class _Pass:
                 self.check2.add(job_id)
                 passed.append(job_id)
         return passed
+
+    def _unreadable(self, unreadable: dict[str, str], wanted: dict[str, rarch.Retirement],
+                    retirements: dict[str, rarch.Retirement]) -> None:
+        """Put back each job whose watch could not be built, alone: an error of
+        that job (the final check treats an unreadable manifest the same way),
+        not a failed listing, so the batch goes on and `holder_scan_failed`
+        stays unset (review r1, finding 4)."""
+        for job_id, detail in unreadable.items():
+            retirement = wanted.pop(job_id)
+            self._rollback(retirement, "error", rarch.DEFER_ERROR_S, detail)
+            retirements.pop(job_id, None)
 
     def _scan_failed(self, wanted: dict[str, rarch.Retirement], retirements: dict[str, rarch.Retirement],
                      detail: str) -> None:
@@ -1050,7 +1075,9 @@ class _Pass:
             busy = self.holders(watches, cancel=self.cancel)
             return busy
         except BaseException as exc:
-            outcome = "failed: " + (" ".join(str(exc).split()) or type(exc).__name__)[:300]
+            # Scrubbed as the daemon's other retention error lines are (review
+            # r1, finding 5): `lsof`'s stderr tail, a timeout or an OS error.
+            outcome = "failed: " + refusals.scrubbed_line(" ".join(str(exc).split()) or type(exc).__name__, 300)
             raise
         finally:
             seconds = time.perf_counter() - started
