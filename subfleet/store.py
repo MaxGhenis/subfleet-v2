@@ -975,7 +975,8 @@ class Store:
         noncanonical timestamp for Python's parsed comparison. A later unknown
         or null reading cannot erase provider use that still belongs to an open
         window. Historical canonical provider rows before each key's latest
-        observation need not be loaded.
+        observation need not be loaded. `capacity.fill_candidates` is this rule
+        in Python: a view applies it to the rows it is given (C-3.7).
         """
         instant = utc_now() if now is None else (now if isinstance(now, str) else now.isoformat())
         if isinstance(instant, str):
