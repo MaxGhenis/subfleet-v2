@@ -2106,7 +2106,7 @@ class _Builder:
             self._over_the_limit(bundle, common, held)
         else:
             temporary = self.dir / "commits.bundle.tmp"
-            temporary.unlink(missing_ok=True)
+            self._clear_bundle_leftovers(temporary)
             fd = os.open(self.dir, rfs.O_DIR)
             try:
                 if rfs.free_bytes(fd) < rfs.LOW_SPACE_FLOOR:
@@ -2124,6 +2124,25 @@ class _Builder:
                         "size": bundle.stat().st_size})
         info.update(bundle="commits.bundle", bundle_heads=expected, bundle_bytes=bundle.stat().st_size)
         return info
+
+    def _clear_bundle_leftovers(self, temporary: Path) -> None:
+        """Remove what an earlier bundle attempt left: `commits.bundle.tmp`
+        and the `commits.bundle.tmp.lock` git writes beside it and leaves when
+        it is killed (a timeout, a cancel, a reboot; D-RET-STALE-LOCK1). Git
+        refuses to start while the lock exists, so a leftover one blocked the
+        job's bundle for good. Only the pass holding the job's retention lease
+        writes this folder; every bundle is read back (`verify_bundle`) before
+        it counts. The lock's size and age go into the progress notes."""
+        lock = temporary.with_name(temporary.name + ".lock")
+        try:
+            found = os.lstat(lock)
+        except FileNotFoundError:
+            found = None
+        if found is not None:
+            lock.unlink()                # unlink never follows a link
+            self._note({"k": "bundle-lock", "size": found.st_size,
+                        "age_s": round(max(0.0, time.time() - found.st_mtime), 1), "removed_at": _now()})
+        temporary.unlink(missing_ok=True)
 
     def _over_the_limit(self, bundle: Path, common: Path, held: list[str]) -> None:
         """The bundle decides (N1): one over `remote_less_history_bytes` for a
