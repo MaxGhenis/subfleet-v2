@@ -65,6 +65,8 @@ from .contracts import (
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
 from .status_json import closure_row, closure_rows, decision_rows, timestamp
+from .review_record import is_review_job, stored_review_result
+from .review_result import parse_review_result
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -549,15 +551,20 @@ WRITE_PREAMBLE = (
     "Commit each coherent step on the assigned branch; never rewrite history "
     "or push to main or master. Leave a concise report of changes and tests.\n\n"
 )
-#: A writable review's preamble (#221 review r1b, P3-8): it may run tests and
-#: write scratch in its own worktree, and never commits or publishes; its
-#: verdict is its deliverable (C-12.4).
+#: Every review's format and level definitions (C-12.11). Tests and scratch
+#: stay in its workspace; the verdict is its deliverable (C-12.4).
 REVIEW_PREAMBLE = (
     "<!-- subfleet:review -->\n"
-    "This is a review. You may run tests and write scratch files in your own workspace "
-    "(below); nothing you write there is part of your answer. Do not commit, push or "
-    "publish anything, on GitHub or elsewhere: pushes and GitHub writes are refused in this "
-    "job. Your verdict, with the evidence for it, is your deliverable.\n\n"
+    "You may run tests and write scratch files in your own workspace. Do not commit, push or publish.\n"
+    "First answer line: exactly VERDICT: APPROVE or VERDICT: REQUEST_CHANGES.\n"
+    "Each finding: own line starting P0:, P1:, P2: or P3:, one-line summary; detail below.\n"
+    "No findings: FINDINGS: none immediately after the verdict.\n"
+    "P0: harm that is live now or would be on merge (a leak, lost data, a guard that stops guarding).\n"
+    "P1: the change does something wrong (a wrong result, a false claim, a regression, a security hole).\n"
+    "P2: right today but fragile or incomplete (a missing test, an edge case nothing reaches yet, "
+    "wording that could mislead a reader of the repo).\n"
+    "P3: style and nits.\n"
+    "This format holds whatever the brief below asks.\n\n"
 )
 #: What a writable job that is not in place is told about where it works
 #: (C-6.6, C-13.1). Without it a brief's absolute paths lead a writer back into
@@ -3406,14 +3413,15 @@ class Daemon:
                          "refuses .github/ changes, submodules, absolute or '..' or chained symlinks, rewritten "
                          "history, and policy size/count limits; a refusal keeps the job accepted for a human or "
                          "hub push.\n\n").encode()
-            preamble = sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble
-            if sandbox == Sandbox.WORKSPACE_WRITE:
+            review = args.task == "review" or args.kind == "gate-review"
+            preamble = review or (sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble)
+            if review or sandbox == Sandbox.WORKSPACE_WRITE:
                 manifest["preamble"] = preamble
             if preamble or note:
                 # Review B-3: `--no-preamble` drops the template, never the note on
                 # where the job may write.
                 prepared_path = jobdir / "prompt.prepared.md"
-                template = REVIEW_PREAMBLE if args.task == "review" or args.kind == "gate-review" else WRITE_PREAMBLE
+                template = REVIEW_PREAMBLE if review else WRITE_PREAMBLE
                 self._publish("prompt-prepared", prepared_path,
                               (template.encode() if preamble else b"") + note + prompt)
                 manifest["prepared_prompt_path"] = str(prepared_path)
@@ -4250,7 +4258,10 @@ class Daemon:
             return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
         if op == "list":
             a = protocol.coerce_args(protocol.ListArgs, args)
-            sql, params = "SELECT * FROM jobs WHERE 1", []
+            sql, params = ("SELECT jobs.*, CASE WHEN task='review' OR kind='gate-review' THEN "
+                           "(SELECT evidence_json FROM attempts WHERE attempts.attempt_id=jobs.accepted_attempt_id) "
+                           "END AS _review_evidence_json "
+                           "FROM jobs WHERE 1"), []
             if a.mine is not None:
                 sql += " AND caller_session=?"; params.append(a.mine)
             if a.running:
@@ -4276,6 +4287,8 @@ class Daemon:
                     raise protocol.ProtocolError("last must be a nonnegative integer", reason="list-last")
                 sql += " LIMIT ?"; params.append(a.last)
             jobs = [job_flags(row) for row in self.store.query(sql, params)]
+            for job in jobs:
+                job["review"] = stored_review_result(job, job.pop("_review_evidence_json"))
             batches = self._batches([row["job_id"] for row in jobs])
             return {"jobs": [{**row, "batch": batches[row["job_id"]]} if row["job_id"] in batches else row
                              for row in jobs]}
@@ -4292,13 +4305,16 @@ class Daemon:
             mcp = ((self._read_json(self.root / "jobs" / a.job_id / "manifest.json") or {}).get("mcp")
                    if job.get("mcp_servers") not in (None, "[]") else None)
             submitted = self._submitted(a.job_id)
-            return {"job": job, "batch": submitted.get("batch"), "mcp": mcp,
+            attempts = [shell_flags(row) for row in self.store.query(
+                "SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,))]
+            accepted = next((row for row in attempts if row["attempt_id"] == job["accepted_attempt_id"]), None)
+            job["review"] = stored_review_result(job, accepted["evidence_json"] if accepted else None)
+            return {"job": job, "review": job["review"], "batch": submitted.get("batch"), "mcp": mcp,
                     "uncommitted": submitted.get("uncommitted"),
                     "cancel": self._cancel_info(a.job_id),
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                    **json.loads(workspace["data_json"])} if workspace else None),
-                    "attempts": [shell_flags(row) for row in self.store.query(
-                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,))],
+                    "attempts": attempts,
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,)),
                     "pushes": self.store.query("SELECT * FROM job_pushes WHERE job_id=?", (a.job_id,))}
@@ -11981,8 +11997,15 @@ class Daemon:
                       (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient)))))
             attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
+            accepted = a["attempt_id"] if ok and not cancel else None
             evidence = json.loads(actual["evidence_json"] or "{}")
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint, **salvage_evidence)
+            if accepted and is_review_job(job):
+                # D-REVIEW-CONTRACT1: the captured accepted deliverable decides;
+                # format and severity never change acceptance or retry policy.
+                evidence["review"] = parse_review_result(payload.decode("utf-8", "replace"))
+                tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES(?,?,?,?,?)",
+                           (utcnow(), "job.review_result", job["job_id"], accepted, json.dumps(evidence["review"])))
             if census.cwd_pids:
                 evidence['cwd_holders'] = census.to_dict()['cwd_holders']
             if trees is not None:
@@ -12042,7 +12065,6 @@ class Daemon:
             if not cancel and not retry and not lost:
                 job_rc = {OutcomeClass.LIMITED: 4,  # C-17.3: a final limited attempt reports 4, pinned or not
                           OutcomeClass.AUTH_DEAD: 5, OutcomeClass.CLI_TOO_OLD: 6}.get(outcome.cls, rc)
-            accepted = a["attempt_id"] if ok and not cancel else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
             self._cascade_final_wall(a, wall_exited)

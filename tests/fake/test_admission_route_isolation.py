@@ -564,9 +564,14 @@ def test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again(routi
     reservation, which reserved on that decision though its own evaluation rejects
     the lane (below the floor). The check decides every lane's override again at its
     own clock: codex-1's has ended, so codex-1 is judged again with its reading back
-    (review of d04b8b3: it used to refuse and evaluate the whole route again)."""
+    (review of d04b8b3: it used to refuse and evaluate the whole route again).
+    Hold the clock until the first pick: a loaded runner could otherwise spend
+    the override's two seconds in submission or admission before that pick."""
     service, harness = routing_state
-    now = datetime.now(timezone.utc)
+    HeldClock.at = now = datetime.now(timezone.utc).replace(microsecond=0)
+    monkeypatch.setattr(daemon_module, "datetime", HeldClock)
+    monkeypatch.setattr(scheduler, "datetime", HeldClock)
+    monkeypatch.setattr(service.timers, "now", lambda: HeldClock.at)
     service.store.add_reading(Reading("codex-1", "account", "seven_day", .99, after(86400),
                                       ReadingLabel.PROVIDER, "fixture", now.strftime("%Y-%m-%dT%H:%M:%SZ")))
     confirmed = (now - timedelta(days=7) + timedelta(seconds=2)).replace(microsecond=0)
@@ -574,7 +579,7 @@ def test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again(routi
     stamp = confirmed.strftime("%Y-%m-%dT%H:%M:%SZ")
     service.store.add_action(action_id="act-1", kind="reset-credit", op_key="codex:fake:op1", subject="codex-1",
                              state="confirmed", request_json="{}", created_at=stamp, updated_at=stamp)
-    assert service.timers.actions.confirmed_override("codex-1") is not None
+    assert service.timers.actions.confirmed_override("codex-1", now=HeldClock.at) is not None
     job_id = submit(service, harness, pinned_model="astra")
     real, early = service._pick, []
 
@@ -583,12 +588,13 @@ def test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again(routi
         assert not service.store._holds_writer()
         early.append((decision.chosen_lane, options["basis"]["overrides"].get("codex-1")))
         if len(early) == 1:
-            while datetime.now(timezone.utc) <= ends + timedelta(seconds=.2):
-                time.sleep(.05)                               # the override ends before the reservation
+            assert service.timers.actions.confirmed_override("codex-1", now=HeldClock.at) is not None
+            HeldClock.at = ends + timedelta(seconds=1)        # the override ends before the reservation
         return decision
     monkeypatch.setattr(service, "_pick", pick)
     service._admit()
     assert early == [("codex-1", ("act-1", ends.strftime("%Y-%m-%dT%H:%M:%SZ")))]  # held out, 99% did not count
+    assert service.timers.actions.confirmed_override("codex-1", now=HeldClock.at) is None
     assert service._route_evaluations == {**ZERO, "rechosen": 1, "rejudged": 1}   # judged again: below the floor
     assert not service.store.list_attempts(job_id)             # the lane is below the floor now
     assert service.store.get_job(job_id)["state"] == "waiting"
