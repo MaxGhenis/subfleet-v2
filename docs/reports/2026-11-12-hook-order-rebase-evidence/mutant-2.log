@@ -1,0 +1,50 @@
+{"command": ".venv/bin/python -m pytest -p sf_job_paths tests/unit/test_hooks_install_equality.py::test_any_single_change_to_the_entry_is_drift_and_is_replaced_in_place --basetemp=/private/tmp/sf-hor-b1/mutant-2 -q", "exit": 1, "seconds": 65.78, "log": "/private/tmp/sf-hor-b1/1794463547950395000.log"}
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_any_single_change_to_the_entry_is_drift_and_is_replaced_in_place _____
+
+    @settings(max_examples=200, deadline=None, suppress_health_check=HEALTH)
+>   @given(st.data())
+                   ^^^
+
+tests/unit/test_hooks_install_equality.py:456: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+data = data(...)
+
+    @settings(max_examples=200, deadline=None, suppress_health_check=HEALTH)
+    @given(st.data())
+    def test_any_single_change_to_the_entry_is_drift_and_is_replaced_in_place(data):
+        """C-23.25 for any one-way change to v2's entry (timeout, `asyncRewake`,
+        matcher, an extra key, an old command path), at any position among any
+        other entries: drift `differs`, and install puts the entry as written at
+        the same position, leaving the other entries as they were."""
+        event = data.draw(st.sampled_from(EVENTS))
+        entries = data.draw(st.lists(foreign_groups(), max_size=5))
+        at = data.draw(st.integers(0, len(entries)))
+        groups = list(entries)
+        groups.insert(at, data.draw(mutated(event)))
+        hooks_ = {name: [ours(name)] for name in EVENTS}
+        hooks_[event] = groups
+        with tempfile.TemporaryDirectory() as directory:
+            path = write(Path(directory), {"hooks": hooks_})
+            report = hooks.plan(path, command=CMD, timeout=TIMEOUT)
+>           assert report["drift"] == {event: "differs"}
+E           AssertionError: assert {} == {'PostToolUse': 'differs'}
+E             
+E             Right contains 1 more item:
+E             {'PostToolUse': 'differs'}
+E             Use -v to get more diff
+E           Failing test case: test_any_single_change_to_the_entry_is_drift_and_is_replaced_in_place(
+E               # The test always failed when commented parts were varied together.
+E               data=data(...),
+E           )
+E           Draw 1: 'PostToolUse'
+E           Draw 2: []  # or any other generated value
+E           Draw 3: 0  # or any other generated value
+E           Draw 4: with_hook(asyncRewake=1)
+
+tests/unit/test_hooks_install_equality.py:472: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks_install_equality.py::test_any_single_change_to_the_entry_is_drift_and_is_replaced_in_place
+1 failed in 57.56s

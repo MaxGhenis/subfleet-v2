@@ -1,0 +1,29 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________ test_a_missing_entry_is_drift_and_is_appended _________________
+
+tmp_path = PosixPath('/private/tmp/sf-hor-b1/mutant-9/test_a_missing_entry_is_drift_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2046d9a4890>
+capsys = <_pytest.capture.CaptureFixture object at 0x2046c02f190>
+
+    def test_a_missing_entry_is_drift_and_is_appended(tmp_path, monkeypatch, capsys):
+        """C-23.25 a missing entry is drift; install appends it last and leaves
+        every other entry where it was."""
+        data = live_shape()
+        data["hooks"]["PostToolUse"] = [g for g in data["hooks"]["PostToolUse"]
+                                        if not hooks._holds_ours(g, "PostToolUse", CMD)]
+        others = copy.deepcopy(data["hooks"]["PostToolUse"])
+        path = write(tmp_path, data)
+        report = hooks.plan(path, command=CMD, timeout=TIMEOUT)
+        assert report["changed_events"] == ["PostToolUse"]
+        assert report["drift"] == {"PostToolUse": "missing"}
+        item = doctor.check_hook_entries(path)
+>       assert item["status"] == doctor.FAIL and "PostToolUse (missing)" in item["detail"]
+E       AssertionError: assert ('fail' == 'fail'
+E         
+E           fail and 'PostToolUse (missing)' in '/private/tmp/sf-hor-b1/mutant-9/test_a_missing_entry_is_drift_0/settings.json: PostToolUse would change')
+
+tests/unit/test_hooks_install_equality.py:157: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks_install_equality.py::test_a_missing_entry_is_drift_and_is_appended
+1 failed in 2.81s

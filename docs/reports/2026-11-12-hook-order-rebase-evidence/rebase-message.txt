@@ -1,0 +1,12 @@
+C-23.25 names the hook-install equality rule; the hooks reference cites parallel hooks
+
+C-23.25: the installer's entry is installed when present once and equal as
+a JSON value at any position; drift is missing, duplicated or differs; a
+rewrite replaces in place and leaves an event without drift as spelled.
+Dated change entry added. docs/reference/claude-hooks.md quotes the
+official page ("All matching hooks run in parallel.", fetched 2026-09-28).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Rebase resolution: prepend C-23.25 to the complete release change log;
+keep PR #86 C-23.25 and release/217 C-23.26 verbatim.

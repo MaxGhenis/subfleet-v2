@@ -1,0 +1,88 @@
+tests/unit/test_retention_regenerable_properties.py:141:    """What the tool itself would write, and the work left inside it (`inside`).
+tests/unit/test_suggestion_secret_properties.py:82:    """Every string in `value` (any JSON shape) the scrubber would change."""
+tests/unit/test_suggestion_secret_properties.py:166:    set anywhere near the cut, what is kept is never text the scrubber would change
+tests/unit/test_suggestion_secret_properties.py:372:#: What each field a caller names is refused as when the scrubber would change it.
+tests/unit/test_suggestion_secret_properties.py:382:    scrubber would change is refused, so no row holds it."""
+tests/unit/test_doctor.py:52:            "hook entries in ~/.claude/settings.json",
+tests/unit/test_daemon_verbs.py:216:    assert "would write" in captured.err
+tests/unit/test_daemon_log_sites.py:1111:    """A child the daemon starts on its own streams would write daemon.log past the
+Binary file tests/unit/__pycache__/test_hooks_install_equality.cpython-314-pytest-9.1.1.pyc matches
+Binary file tests/unit/__pycache__/test_hooks_install_differential.cpython-314-pytest-9.1.1.pyc matches
+tests/unit/test_hooks_install_equality.py:5:equal (as JSON) to what `--hooks` would write, at any position. Drift, and
+tests/unit/test_hooks_install_equality.py:126:    assert report["changed_events"] == [] and report["drift"] == {}
+tests/unit/test_hooks_install_equality.py:141:    assert captured.out == "" and "already matches" in captured.err
+tests/unit/test_hooks_install_equality.py:154:    assert report["changed_events"] == ["PostToolUse"]
+tests/unit/test_hooks_install_equality.py:155:    assert report["drift"] == {"PostToolUse": "missing"}
+tests/unit/test_hooks_install_equality.py:202:    assert report["changed_events"] == ["PostToolUse"]
+tests/unit/test_hooks_install_equality.py:203:    assert report["drift"] == {"PostToolUse": "differs"}
+tests/unit/test_hooks_install_equality.py:221:    assert hooks.plan(path, command=CMD, timeout=TIMEOUT)["drift"] == {
+tests/unit/test_hooks_install_equality.py:236:    assert report["changed_events"] == ["PreToolUse"]
+tests/unit/test_hooks_install_equality.py:237:    assert report["drift"] == {"PreToolUse": "duplicated"}
+tests/unit/test_hooks_install_equality.py:251:    assert hooks.plan(path, command=CMD, timeout=TIMEOUT)["changed_events"] == []
+tests/unit/test_hooks_install_equality.py:414:        assert report["changed_events"] == [] and report["drift"] == {}
+tests/unit/test_hooks_install_equality.py:432:        assert report["drift"] == {event: reason for event, (reason, _) in want.items()
+tests/unit/test_hooks_install_equality.py:434:        assert set(report["changed_events"]) == set(report["drift"])
+tests/unit/test_hooks_install_equality.py:436:        assert item["status"] == (doctor.FAIL if report["drift"] else doctor.PASS)
+tests/unit/test_hooks_install_equality.py:439:        assert once["written"] is bool(report["drift"])
+tests/unit/test_hooks_install_equality.py:440:        assert len(backups(path)) == int(bool(report["drift"]))
+tests/unit/test_hooks_install_equality.py:451:        assert hooks.plan(path, command=CMD, timeout=TIMEOUT)["changed_events"] == []
+tests/unit/test_hooks_install_equality.py:452:        assert len(backups(path)) == int(bool(report["drift"]))
+tests/unit/test_hooks_install_equality.py:472:        assert report["drift"] == {event: "differs"}
+tests/unit/test_hooks_install_equality.py:473:        assert report["changed_events"] == [event]
+tests/unit/test_hooks_install_equality.py:491:        assert set(report["changed_events"]) == present and report["drift"] == {}
+tests/unit/test_hooks_install_equality.py:501:                          remove=True)["changed_events"] == []
+tests/unit/test_prune_decisions.py:990:@pytest.mark.parametrize("drift", [False, True])
+tests/unit/test_hooks_native_guard.py:50:    assert preview['changed_events'] and path.read_bytes() == before
+tests/unit/test_hooks_native_guard.py:55:    assert not hooks.plan(path, command='/bin/sf hook', remove=True)['changed_events']
+tests/unit/test_hooks.py:798:    assert report["ok"] and set(report["changed_events"]) == {
+tests/unit/test_hooks.py:818:    assert hooks.plan(path, command="/bin/sf hook")["changed_events"] == []
+tests/unit/test_hooks.py:885:    assert "would write" in captured.err
+tests/unit/test_hooks.py:901:    assert "already matches" in capsys.readouterr().err
+tests/unit/test_compat.py:61:    the flags whose absence would change what happens. Anything else in this
+tests/unit/test_steer_invariants.py:3:and the provider is the test, writing what it would write to stdout. Invariant 5
+tests/unit/test_hooks_install_differential.py:53:    return {"changed_events": changed, "proposed": proposed}
+tests/unit/test_hooks_install_differential.py:128:        assert report["changed_events"] == reference["changed_events"]
+tests/unit/test_hooks_install_differential.py:143:        assert report["changed_events"] == reference["changed_events"]
+tests/unit/test_hooks_install_differential.py:160:    assert report["changed_events"] == reference["changed_events"] == ["SessionStart"]
+tests/unit/test_status_hold_source.py:31:- I5: no text the C-23.14 scrubber would change reaches the store, status, the
+tests/unit/test_status_hold_source.py:629:CREDENTIAL_RULE = "--note must not carry a credential (the C-23.14 scrubber would change it)"
+tests/unit/test_status_hold_source.py:929:# P2: a note the C-23.14 scrubber would change is refused, never masked, as a
+tests/unit/test_status_hold_source.py:1264:# I5: no text the C-23.14 scrubber would change reaches the store, status, the alerts
+tests/unit/test_launch_env_round7.py:307:    """The lanes.json rows a transfer would write, from its plan."""
+tests/frontend/test_core_steer.py:7:condition that causes it. Later states a settlement or the driver would write come
+tests/mirror_flags_model.py:17:* `pass_check` is `sync_flags`' pre-check: if any copy the pass would write no
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/006-57317eda9f0a/artifact.patch:169:+              category="drift"
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/006-57317eda9f0a/artifact.patch:291:+  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/006-57317eda9f0a/artifact.patch:322:+          category: "drift",
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/006-57317eda9f0a/artifact.patch:431:+      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/006-57317eda9f0a/artifact.patch:740:+  it.each(["not-json", '{"rows": "invalid"}', '{"rows": [{"drift":"diff"}]}\n{}'])("does not infer drift from malformed report %s", (report) => {
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/003-6bbc5232b625/artifact.patch:253:+  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/003-6bbc5232b625/artifact.patch:284:+          category: "drift",
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/003-6bbc5232b625/artifact.patch:393:+      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/002-1ba6a9f43bb5/artifact.patch:199:+  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/002-1ba6a9f43bb5/artifact.patch:230:+          category: "drift",
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/002-1ba6a9f43bb5/artifact.patch:336:+      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/004-5eb405875187/artifact.patch:169:+              category="drift"
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/004-5eb405875187/artifact.patch:291:+  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/004-5eb405875187/artifact.patch:322:+          category: "drift",
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/004-5eb405875187/artifact.patch:431:+      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/004-5eb405875187/artifact.patch:710:+  it.each(["not-json", '{"rows": "invalid"}', '{"rows": [{"drift":"diff"}]}\n{}'])("does not infer drift from malformed report %s", (report) => {
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/005-952538e4bdea/artifact.patch:169:+              category="drift"
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/005-952538e4bdea/artifact.patch:291:+  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/005-952538e4bdea/artifact.patch:322:+          category: "drift",
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/005-952538e4bdea/artifact.patch:431:+      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/005-952538e4bdea/artifact.patch:740:+  it.each(["not-json", '{"rows": "invalid"}', '{"rows": [{"drift":"diff"}]}\n{}'])("does not infer drift from malformed report %s", (report) => {
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/008-076d420bfce7/artifact.patch:181:+              category="drift"
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/008-076d420bfce7/artifact.patch:303:+  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/008-076d420bfce7/artifact.patch:334:+          category: "drift",
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/008-076d420bfce7/artifact.patch:443:+      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/008-076d420bfce7/artifact.patch:777:+  it.each(["not-json", '{"rows": "invalid"}', '{"rows": [{"drift":"diff"}]}\n{}'])("does not infer drift from malformed report %s", (report) => {
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/001-5fcacd50ae08/artifact.patch:136:+  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/001-5fcacd50ae08/artifact.patch:152:+          category: "drift",
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/001-5fcacd50ae08/artifact.patch:257:+      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/007-71d5266ccb61/artifact.patch:169:+              category="drift"
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/007-71d5266ccb61/artifact.patch:291:+  category: "drift" | "comparison-error" | "archive" | "downstream" | "setup";
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/007-71d5266ccb61/artifact.patch:322:+          category: "drift",
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/007-71d5266ccb61/artifact.patch:431:+      .toMatchObject({ category: "drift", explanation: expect.stringContaining("1 pinned") });
+tests/fixtures/gates/v1/20260905-093217-pr-aff2fcda/rounds/007-71d5266ccb61/artifact.patch:740:+  it.each(["not-json", '{"rows": "invalid"}', '{"rows": [{"drift":"diff"}]}\n{}'])("does not infer drift from malformed report %s", (report) => {
+tests/fixtures/compat/cases.json:3292:   "v1_meaning": "Shows what a pass would change without writing.",
