@@ -960,7 +960,9 @@ class ClaudeAdapter(Adapter):
         env_add = self.credential_env(credential)
         rc, stdout, stderr = self._run_turn(env_add, ENROLL_MODEL)
         summary = parse_stream(stdout)
-        corpus = f"{stderr}\n{chr(10).join(summary.texts())}"
+        # C-9.2, C-9.3: only what the CLI and the provider wrote, as `classify` reads
+        # it (`cli_texts`). A model's own words are never a refusal or an auth phrase.
+        corpus = "\n".join([stderr, *summary.cli_texts()])
 
         # C-9.3: a refusal of subscription access is auth-dead with or without
         # `system/init`, and a fresh token cannot answer it. Claude Code's own words
