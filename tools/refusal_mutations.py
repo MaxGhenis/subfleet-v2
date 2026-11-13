@@ -181,6 +181,8 @@ def main(argv: list[str] | None = None) -> int:
     if subprocess.run(["git", "diff", "--quiet", "--", *map(str, files)]).returncode:
         print(f"{', '.join(map(str, files))}: uncommitted changes; commit them first", file=sys.stderr)
         return 2
+    if args.basetemp_root is not None:
+        args.basetemp_root.mkdir(parents=True, exist_ok=True)
     pristine = {path: path.read_text(encoding="utf-8") for path in files}
     survived, runs = [], 0
 
