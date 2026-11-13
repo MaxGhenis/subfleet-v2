@@ -564,14 +564,22 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     'for d in ~/*; do du -sh "$d"; done; for d in src tests; do rg -n foo "$d"; done'`). Neither shell
     walks a root on any (`R11_STRICTER`, `REVIEW_R11_STRICTER`).
 
+The guard sync (2026-11-11, the hub's instruction audit) changed one sentence outside the
+unscoped-search region: the `[keychain-dump]` block's last sentence now reads "Read one secret
+with 'agent-secret get <service>'; 'agent-secret search <query>' finds its name. A bare 'security
+find-generic-password' on the agent-secrets keychain raises a password dialog while that keychain
+stays locked." The old sentence advised that bare read, which the agent-secrets skill bars. The
+rule's logic did not move, and the hub edits the Claude hook's block to the same sentence at
+install, so the block stays byte-identical on both sides (`tests/unit/test_guard_sync.py`).
+
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed` |
-| `TRUST` | `36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0` |
+| `never-rules-hook.sh` | `34682488eea6a6ef8049407e1c2ecc24fbef3e9eb399236f072f4f7e9e0f3983` |
+| `TRUST` | `680f864e8eea198099b89570914af8348203d53663d5c7b2f80ad193f86b12d9` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
-appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one
-and r3b's one, whose mount clause r3c corrected); `hooks_trust_hash` and
+appending five dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
+r3b's one, whose mount clause r3c corrected, and the guard sync's one); `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
