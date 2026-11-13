@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 from typing import Any
 
 from .errors import GateError
@@ -26,6 +28,40 @@ def _invalid_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant {value}")
 
 
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_PATH_LIMIT = 200
+
+
+def _path(node: tuple | None) -> str:
+    """A JSON path (`$.findings[0]["a key"]`), ASCII and bounded, from linked steps."""
+    steps = []
+    while node is not None:
+        step, node = node
+        steps.append(f"[{step}]" if isinstance(step, int) else f".{step}" if _NAME.fullmatch(step)
+                     else f"[{json.dumps(step)}]")
+    path = "$" + "".join(reversed(steps))
+    return path if len(path) <= _PATH_LIMIT else path[:_PATH_LIMIT] + "..."
+
+
+def _non_finite(value: Any) -> str | None:
+    """Where the first number that parsed as infinity sits, in document order.
+
+    `json.loads` turns a literal past float range (`1e1000`) into infinity, and
+    `parse_constant` sees only the literal constants (`Infinity`, `NaN`). Walked
+    without recursion; each node keeps a link to its parent, never a path string.
+    """
+    pending: list[tuple[Any, tuple | None]] = [(value, None)]
+    while pending:
+        item, node = pending.pop()
+        if isinstance(item, float) and not math.isfinite(item):
+            return _path(node)
+        if isinstance(item, dict):
+            pending.extend(reversed([(child, (key, node)) for key, child in item.items()]))
+        elif isinstance(item, list):
+            pending.extend(reversed([(child, (index, node)) for index, child in enumerate(item)]))
+    return None
+
+
 def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any]:
     """Accept exactly v1's sentinel object with an unambiguous JSON interpretation."""
     if text.count(VERDICT_BEGIN) != 1 or text.count(VERDICT_END) != 1:
@@ -47,6 +83,14 @@ def parse_verdict(text: str, expected_revision: dict[str, Any]) -> dict[str, Any
         raise GateError("peer verdict has an unsupported schema", 4)
     if value.get("artifact_revision") != expected_revision:
         raise GateError("peer verdict is bound to a different artifact revision", 4)
+    # D-GATE-CERT1: the certificate serializes what counts and parses it again, and
+    # strict JSON has no infinity. Checked after the binding, so that stays its own refusal.
+    try:
+        json.dumps(value, allow_nan=False)
+    except ValueError as exc:
+        where = _non_finite(value)
+        raise GateError(f"peer verdict holds a number outside the float range at {where}" if where
+                        else f"peer verdict cannot be written as strict JSON: {exc}", 4) from None
     verdict = value.get("verdict")
     if not isinstance(verdict, str) or verdict not in VERDICTS:
         raise GateError(f"peer verdict is invalid: {verdict!r}", 4)
