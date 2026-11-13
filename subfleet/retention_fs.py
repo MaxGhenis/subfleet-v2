@@ -220,7 +220,10 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
     first as ``("", fstat, root_fd, None)``. The parent descriptor is valid only
     until the generator is advanced. A mount point (another device) or a tree
     deeper than `MAX_DEPTH` raises `TreeError`; an unreadable directory raises
-    `TreeError("unreadable")`.
+    `TreeError("unreadable")`, and so does one that can be listed but not
+    searched (owner read without search, such as 0644: its entries' names
+    come back, their `lstat` is refused; D-SURVEY-EACCES1). No permission
+    refusal leaves as a bare `PermissionError`.
     """
     root = os.fstat(root_fd)
     yield "", root, root_fd, None
@@ -251,6 +254,9 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
                 st = os.stat(name, dir_fd=fd, follow_symlinks=False)
             except FileNotFoundError:
                 raise TreeError("changed", f"{path} vanished during the walk") from None
+            except PermissionError as exc:
+                # Listing needs read, this lstat needs search on the parent.
+                raise TreeError("unreadable", f"{path}: {exc.strerror}") from None
             if st.st_dev != root.st_dev:
                 raise TreeError("mount-point", path)
             yield path, st, fd, name

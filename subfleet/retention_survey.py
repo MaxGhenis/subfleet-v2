@@ -196,6 +196,10 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
             info["job_dir_bytes"] = jobdir["bytes"]
             info["bytes"] = jobdir["bytes"]
             info["manifest_bytes"] = jobdir["manifest_bytes"]
+            if jobdir["error"]:
+                # Retirement walks the job directory too and defers on the
+                # same refusal (D-SURVEY-EACCES1): the job is listed, kept.
+                info.setdefault("issue", f"walk: job: {jobdir['error']}")
         if worktree is not None and not info.get("pin"):
             seen = journals[job_id].get("history_bytes") if isinstance(journals.get(job_id), dict) else None
             _preflight(info, job, worktree, root, salvage.get(job_id, {}), remotes_cache, remote_less, seen,
@@ -635,6 +639,10 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
         wt = _sample_walk(worktree, None if info.get("scratch") else omit, ignored, fmt, hash_budget)
         jd = _sample_walk(root / "jobs" / job["job_id"], None, None, None, 0)
         admin = _sample_walk(Path(info["admin"]), None, None, None, 0) if info.get("admin") else None
+        for label, walked in (("worktree", wt), ("job", jd), ("admin", admin)):
+            if walked is not None and walked["error"]:
+                # A tree retirement would defer on is no retirable sample (D-SURVEY-EACCES1).
+                info.setdefault("issue", f"walk: {label}: {walked['error']}")
         info.update(worktree_walk=wt, job_dir_bytes=jd["bytes"], seconds=round(time.monotonic() - t0, 1))
         info["freed_bytes"] = wt["omitted_bytes"] + wt["regenerable_bytes"]
         info["freed_disk_bytes"] = wt["omitted_disk"] + wt["regenerable_disk"]

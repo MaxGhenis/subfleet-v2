@@ -2061,7 +2061,15 @@ class _Builder:
         info: dict[str, Any] = {}
         remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
         held = rgit.held_arguments(remotes)
-        objects = rgit.admin_objects(reg.admin, fmt, cancel=self.ctx.cancel) if reg is not None else rgit.no_objects()
+        try:
+            objects = (rgit.admin_objects(reg.admin, fmt, cancel=self.ctx.cancel) if reg is not None
+                       else rgit.no_objects())
+        except rfs.TreeError as exc:
+            # The pass catches Defer, not TreeError: an admin directory that
+            # cannot be walked (now also one listed but not searched,
+            # D-SURVEY-EACCES1) defers the job as the manifest walk does.
+            seconds = DEFER_CHANGED_S if exc.reason in ("changed", "swapped") else DEFER_PERMANENT_S
+            raise Defer(exc.reason, seconds, f"admin: {exc.detail}") from exc
         extra = [s["commit"] for s in j["salvage"]]
         baseline = j.get("baseline")
         if baseline and rgit.classify(common, [baseline], cancel=self.ctx.cancel)["commit"]:
