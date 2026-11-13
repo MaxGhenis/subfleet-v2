@@ -84,7 +84,7 @@ I checked the uncommitted patch at `wip-20261112/tracked.patch` before using it.
 3. **No silent change.** Covered by the two task-held tests, `test_a_revive_that_loses_the_lease_race_is_skipped_not_queued`, and the store tests. There is no separate property test.
 4. **Kept means an event.** Covered by `test_store_audit.py::test_c3_8_a_transaction_records_an_event_exactly_when_it_or_a_committed_descendant_kept_a_row` (Hypothesis, 300 examples). This converts #38's seeded random trees and adds steps that rename and that silence (`audit_as(None)`). Also the two rollback example tests.
 5. **The generation follows the rows.** Covered by the same property's generation assertion and `test_c3_8_audit_as_none_still_moves_the_generation`.
-6. **Behaviour unchanged.** `tests/fake/test_admission_ramp.py` is unchanged, but its run was cut off; see below. Not shown.
+6. **Behaviour unchanged.** `tests/fake/test_admission_ramp.py` is unchanged and passes (bt-09: 19 passed). No other per-pass snapshot comparison was run.
 
 ## Mutants: not run
 
@@ -132,6 +132,15 @@ All runs used `env -u PYTHONPATH`, `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, scr
   - G6: `test_capacity_steer_route` 22, `test_census_merge_liveness` 2 and `test_daemon_inspection_load` 18 passed.
 
   Not reached: the rest of the set, including `test_admission_ramp.py`, `test_timers_busy_read.py`, `test_state_contract.py`, `test_test_module_names.py`, `test_invariants_index.py` and `test_handler_refusals.py`.
+- bt-09, after the load fell to about 25, all completed:
+  - `test_invariants_index.py`, `test_test_module_names.py` and `test_handler_refusals.py`: 388 passed, 16.9 s.
+  - `test_admission_ramp.py`, unchanged: 19 passed, 65.3 s.
+  - `test_timers_busy_read.py` and `test_state_contract.py`: 152 passed, 81.6 s.
+- bt-10, the remaining files in 4 processes capped at 230 s. All four were interrupted by the cap, and none failed before it:
+  - a: 1 passed. `test_admission_stateful.py` is long; the route-isolation, visibility, latency, lease-waiter and liveness files were not reached.
+  - b: 58 passed.
+  - c: 111 passed.
+  - d: 90 passed.
 
 ## Deviations
 
@@ -139,7 +148,7 @@ All runs used `env -u PYTHONPATH`, `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, scr
 2. Changes 3 and 4 were committed before their tests ran (to keep commits separate while runs were slow). Two test setups then failed and were fixed in 73b723e56. No product code changed.
 3. The folder-absent and ramp-hold exits are also gated. They follow the exclusions UPDATE, so an unchanged rewrite would otherwise still be noise.
 4. Change 2 alone leaves `test_probe_cancel` blind until change 5. Take them together.
-5. Not done: the mutants, Tests 4 (the grep for exact event compares), most of the Tests 2/3 runs including `test_invariants_index.py`, the measured 100-pass "before", and a daemon-level test of the conversation-refusal arm.
+5. Not done: the mutants, Tests 4 (the grep for exact event compares), complete runs of the files bt-08 and bt-10 cut off (`test_admission_stateful` and the files after it in that group among them), the measured 100-pass "before", and a daemon-level test of the conversation-refusal arm.
 
 ## Folders outside the scratch folder
 
