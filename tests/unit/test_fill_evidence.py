@@ -123,6 +123,81 @@ def test_store_fill_candidates_keep_noncanonical_times_and_all_future_rows(tmp_p
                 scheduler.fill_ranking_usage(store.list_readings(), now=later, admission=admission_settings(policy()))
 
 
+#: How a reading's `observed_at` is spelled: what `utc_now` writes, and the
+#: shapes it does not (an offset, a fraction, another zone) that SQL must leave
+#: to Python's parsed comparison.
+SHAPES = ("canonical", "offset", "fraction", "zone")
+
+
+def spelled(instant: datetime, shape: str) -> str:
+    if shape == "canonical":
+        return instant.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if shape == "offset":
+        return instant.isoformat(timespec="seconds")
+    if shape == "fraction":
+        return instant.strftime("%Y-%m-%dT%H:%M:%S.") + f"{instant.microsecond:06d}Z"
+    return instant.astimezone(timezone(timedelta(hours=2))).isoformat()
+
+
+@settings(max_examples=100, deadline=None, derandomize=True, database=None)
+@given(st.lists(st.tuples(st.sampled_from(["claude-1", "claude-2"]), st.sampled_from(["account", "claude-opus-5-5"]),
+                         st.sampled_from(["seven_day", "five_hour"]),
+                         # The schema's CHECKs refuse the last three; a store written
+                         # before them, or by hand, can hold them.
+                         st.sampled_from([None, 0, .2, .8, 1.0, -.5, float("inf"), "high"]),
+                         st.sampled_from(["provider", "stale-provider", "unknown", "admission-observed",
+                                          "local-backoff", "mystery"]),
+                         # Seconds from the view's clock (after it: a future row), with
+                         # a fraction for the shapes that keep one.
+                         st.sampled_from([-7200, -3600, -60, -1, 0, 1, 30, 600]), st.sampled_from([0, 250000]),
+                         st.sampled_from(SHAPES), st.one_of(st.none(), st.sampled_from([-60, 15, 900, 50000]))),
+                min_size=1, max_size=16),
+       st.sampled_from([0, 400000]))
+def test_fill_rows_chosen_from_the_store_query_match_those_from_every_reading(specs, fraction):
+    """C-3.7, C-11.11: `capacity.fill_candidates` over `Store.fill_reading_candidates`'
+    rows equals it over every reading, is those rows unchanged, and decides fill
+    as every reading does at the view's clock and every later one."""
+    now = CLOCK + timedelta(microseconds=fraction)
+    with tempfile.TemporaryDirectory(prefix="fill-candidates-") as directory:
+        with Store(Path(directory) / "state.sqlite3") as store:
+            for identity in ("claude-1", "claude-2"):
+                store.put_lane(lane(identity))
+            with store.transaction("test.readings") as tx:
+                tx.execute("PRAGMA ignore_check_constraints=ON")
+                for identity, scope, window, used, label, seconds, micros, shape, reset in specs:
+                    observed = CLOCK + timedelta(seconds=seconds, microseconds=micros if shape != "canonical" else 0)
+                    tx.execute("INSERT INTO readings(lane_id,scope,window,utilization,resets_at,label,source,"
+                               "observed_at) VALUES (?,?,?,?,?,?,?,?)",
+                               (identity, scope, window, used, stamp(reset) if reset is not None else None,
+                                label, "fixture", spelled(observed, shape)))
+                tx.execute("PRAGMA ignore_check_constraints=OFF")
+            every, query = store.list_readings(), store.fill_reading_candidates(now=now)
+            chosen = capacity.fill_candidates(query, now=now)
+            assert chosen == capacity.fill_candidates(every, now=now)
+            assert chosen == [dict(row) for row in query]
+            admission = admission_settings(policy())
+            for identity in ("claude-1", "claude-2"):
+                mine = [row for row in chosen if row["lane_id"] == identity]
+                theirs = [row for row in every if row["lane_id"] == identity]
+                for later in (0, 1, 30, 600, 50000):
+                    clock = now + timedelta(seconds=later)
+                    assert (scheduler.fill_ranking_usage(mine, now=clock, admission=admission)
+                            == scheduler.fill_ranking_usage(theirs, now=clock, admission=admission)), (identity, later)
+
+
+def test_a_view_from_every_reading_keeps_the_rows_a_later_clock_reads(tmp_path):
+    """C-11.11: the view keeps future rows, which the clock makes the latest."""
+    with Store(tmp_path / "state.sqlite3") as store:
+        put(store, [reading(.1, -7200), reading(.5, -3600), reading(.2, 10), reading(.3, 20)])
+        view = capacity.build_view(store.lane_rows(), store.list_readings(), now=CLOCK)
+        assert sorted(row["utilization"] for row in view["fill_readings"]) == [.2, .3, .5]
+        assert view["fill_readings"] == capacity.from_store(store, now=CLOCK)["fill_readings"]
+        admission = admission_settings(policy())
+        used = [scheduler.fill_ranking_usage(view["fill_readings"], now=CLOCK + timedelta(seconds=later),
+                                             admission=admission)["fill_weekly_used"] for later in (0, 10, 20)]
+        assert used == [.5, .2, .3]
+
+
 @pytest.mark.parametrize("seconds,expected_judged", [(1, 0), (14400, 1), (36000, 1)])
 def test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks(tmp_path, seconds, expected_judged):
     with Store(tmp_path / "state.sqlite3") as store:
