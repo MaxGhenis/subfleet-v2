@@ -156,13 +156,15 @@ def _encrypted(mount: str) -> bool | None:
 def _volume(fs: _Statfs, *, encryption: bool) -> Volume:
     mount = os.fsdecode(fs.f_mntonname)
     fstype = os.fsdecode(fs.f_fstypename).lower()
-    identity, name = _uuid_and_name(mount)
     flags = fs.f_flags
+    local = bool(flags & MNT_LOCAL) and fstype not in NETWORK
+    # A network or automounted volume is never a target: asking it for its
+    # identity could wait on the network or trigger a mount, so it is not asked.
+    identity, name = _uuid_and_name(mount) if local else (None, None)
     return Volume(uuid=identity, name=name or Path(mount).name or mount, mount=Path(mount), fstype=fstype,
-                  local=bool(flags & MNT_LOCAL) and fstype not in NETWORK,
-                  owners=not (flags & MNT_IGNORE_OWNERSHIP) and fstype not in NO_OWNERS,
+                  local=local, owners=not (flags & MNT_IGNORE_OWNERSHIP) and fstype not in NO_OWNERS,
                   readonly=bool(flags & MNT_RDONLY), free=int(fs.f_bavail) * int(fs.f_bsize),
-                  encrypted=_encrypted(mount) if encryption else None)
+                  encrypted=_encrypted(mount) if encryption and local else None)
 
 
 def _mounted() -> list[Volume]:
