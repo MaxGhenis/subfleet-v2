@@ -1,0 +1,340 @@
+{
+ "head": "38471f4bcbd35299a41cc65f803f37bc33b5a36f",
+ "started": "2026-11-09T19:18:47Z",
+ "ended": "2026-11-09T19:23:48Z",
+ "lanes": 4,
+ "results": [
+  {
+   "id": 1,
+   "name": "Skip the owned-path gate",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_gates_one_to_four_keep_their_jobs_whole",
+   "exit": 0,
+   "seconds": 25.1,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "survived",
+   "summary": "1 passed in 22.26s",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "name": "Skip the top-level excluded-repository check",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_tree_whose_gitfile_names_an_excluded_repository_is_not_read_beyond_it",
+   "exit": 1,
+   "seconds": 11.4,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 9.15s",
+   "evidence": [
+    "E       AssertionError: assert (['/private/va...mmondir', ...] == []",
+    "E         ",
+    "E         Left contains 25 more items, first extra item: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-d2660-b1.mut.1.dq70rnga/bt-2.z_m5xglz/t/test_a_tree_whose_gitfile_name0/home/project/.git'",
+    "E         Use -v to get more diff)",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_a_tree_whose_gitfile_names_an_excluded_repository_is_not_read_beyond_it"
+   ]
+  },
+  {
+   "id": 3,
+   "name": "Skip the nested excluded-repository check",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_gates_five_to_twelve_keep_their_jobs_whole",
+   "exit": 1,
+   "seconds": 68.1,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 65.15s (0:01:05)",
+   "evidence": [
+    "E       AssertionError: {'g-plain': 'retention would retire it normally', 'g-excluded': 'nested/.git names /private/var/folders/9l/_wztzgbx7mg...e/excluded/.git/worktrees/nested (excluded)', 'g-pinned': 'explicit', 'g-held': 'pid 99: a file open in the tree', ...}",
+    "E       assert {'g-plain': (... 'kept'), ...} == {'g-plain': (... 'kept'), ...}",
+    "E         ",
+    "E         Omitting 9 identical items, use -vv to show",
+    "E         Differing items:",
+    "E         {'g-excluded': ('keep', 'failed')} != {'g-excluded': ('exclude-nested', 'kept')}"
+   ]
+  },
+  {
+   "id": 4,
+   "name": "Skip the holder scan after the rename",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_holder_seen_after_the_rename_puts_the_tree_back",
+   "exit": 1,
+   "seconds": 20.4,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 17.56s",
+   "evidence": [
+    "E       AssertionError: assert ((None, 'deleted') == ('holders', 'kept')",
+    "E         ",
+    "E         At index 0 diff: None != 'holders'",
+    "E         Use -v to get more diff)",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_a_holder_seen_after_the_rename_puts_the_tree_back"
+   ]
+  },
+  {
+   "id": 5,
+   "name": "Ignore a nested linked worktree when keeping commits",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left",
+   "exit": 1,
+   "seconds": 62.5,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 59.22s",
+   "evidence": [
+    "E       assert False",
+    "E        +  where False = all(<generator object test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left.<locals>.<genexpr> at 0x10b380ac0>)",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left"
+   ]
+  },
+  {
+   "id": 6,
+   "name": "Carry on after a failed git bundle verify",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_failure_on_one_job_fails_it_whole_and_the_run_goes_on",
+   "exit": 1,
+   "seconds": 57.3,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 54.60s",
+   "evidence": [
+    "E       AssertionError: assert ('deleted' == 'failed'",
+    "E         ",
+    "E         - failed",
+    "E         + deleted)",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_a_failure_on_one_job_fails_it_whole_and_the_run_goes_on"
+   ]
+  },
+  {
+   "id": 7,
+   "name": "Remove the tree before the kept-commits step is recorded",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left",
+   "exit": 1,
+   "seconds": 30.5,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 28.11s",
+   "evidence": [
+    "E       AssertionError: {'bytes': {'allocated_bytes': 487424, 'entries': 174, 'logical_bytes': 102772}, 'class': 'nested-linked-worktree: deep/nested/.git', 'disposition': 'failed', 'ended_at': '2026-11-09T19:19:38Z', ...}",
+    "E       assert ('done' == 'done'",
+    "E         ",
+    "E           done and 'failed' == 'deleted'",
+    "E         ",
+    "E         - deleted"
+   ]
+  },
+  {
+   "id": 8,
+   "name": "Let a dry run write the ref",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_dry_run_changes_nothing_anywhere_and_says_what_an_apply_would_do",
+   "exit": 1,
+   "seconds": 31.4,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 29.57s",
+   "evidence": [
+    "E       AssertionError: assert ({'home': ('d'...5366558), ...} == {'home': ('d'...5366558), ...}",
+    "E         ",
+    "E         Omitting 479 identical items, use -vv to show",
+    "E         Differing items:",
+    "E         {'home/project/.git/refs': ('d', 493, None, 1794252006958832850)} != {'home/project/.git/refs': ('d', 493, None, 1794251986505902192)}",
+    "E         {'home/other-job-dry/.git/refs': ('d', 493, None, 1794252007533077501)} != {'home/other-job-dry/.git/refs': ('d', 493, None, 1794251987043216342)}"
+   ]
+  },
+  {
+   "id": 9,
+   "name": "Let a normal pass retire a marked job",
+   "file": "subfleet/retention.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left",
+   "exit": 1,
+   "seconds": 81.9,
+   "restored_sha256": "d6906cc46279c00fea6f5a87b9e427bf440ceb3c5ae601948f5849976e63597c",
+   "verdict": "killed",
+   "summary": "1 failed in 79.47s (0:01:19)",
+   "evidence": [
+    "E       AssertionError: assert ('job-rich' not in ['job-rich'])",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left"
+   ]
+  },
+  {
+   "id": 10,
+   "name": "Drop the age gate",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_gates_one_to_four_keep_their_jobs_whole",
+   "exit": 1,
+   "seconds": 68.2,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 65.26s (0:01:05)",
+   "evidence": [
+    "E       AssertionError: {'g-young': (None, None), 'g-exempt': (None, None), 'g-turn': ('finished', 'a conversation turn, not a detached job'), 'g-running': ('finished', 'state running'), ...}",
+    "E       assert {'g-young': N...inished', ...} == {'g-young': '...inished', ...}",
+    "E         ",
+    "E         Omitting 11 identical items, use -vv to show",
+    "E         Differing items:",
+    "E         {'g-young': None} != {'g-young': 'age'}"
+   ]
+  },
+  {
+   "id": 11,
+   "name": "Ignore --limit",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_limit_ends_the_run_and_the_same_request_continues_it",
+   "exit": 1,
+   "seconds": 85.1,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 83.00s (0:01:22)",
+   "evidence": [
+    "E       AssertionError: assert ('done' == 'done-limit'",
+    "E         ",
+    "E         - done-limit",
+    "E         + done)",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_limit_ends_the_run_and_the_same_request_continues_it"
+   ]
+  },
+  {
+   "id": 12,
+   "name": "Remove an admin directory whose gitdir points elsewhere",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_an_admin_directory_that_names_another_place_stays",
+   "exit": 1,
+   "seconds": 37.0,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 35.34s",
+   "evidence": [
+    "E       AssertionError: assert (False)",
+    "E        +  where False = exists()",
+    "E        +    where exists = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-d2660-b1.mut.0.fihn1bgt/bt-12.uz2fxut0/t/test_an_admin_directory_that_n0/home/other-a-moved/.git/worktrees/nested').exists",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_an_admin_directory_that_names_another_place_stays"
+   ]
+  },
+  {
+   "id": 13,
+   "name": "Skip gate 11 (a registration whose working directory lies outside the tree)",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_gates_five_to_twelve_keep_their_jobs_whole",
+   "exit": 1,
+   "seconds": 144.3,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 141.81s (0:02:21)",
+   "evidence": [
+    "E       AssertionError: {'g-plain': 'retention would retire it normally', 'g-excluded': 'nested/.git names /private/var/folders/9l/_wztzgbx7mg...worktrees/nested, in an excluded repository', 'g-pinned': 'explicit', 'g-held': 'pid 99: a file open in the tree', ...}",
+    "E       assert {'g-plain': (... 'kept'), ...} == {'g-plain': (... 'kept'), ...}",
+    "E         ",
+    "E         Omitting 9 identical items, use -vv to show",
+    "E         Differing items:",
+    "E         {'g-registers-out': (None, 'deleted')} != {'g-registers-out': ('outside', 'kept')}"
+   ]
+  },
+  {
+   "id": 14,
+   "name": "Keep HEAD only, losing a commit only a reflog or a per-worktree ref names",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left",
+   "exit": 1,
+   "seconds": 85.9,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 83.73s (0:01:23)",
+   "evidence": [
+    "E               AssertionError: ('.', {'7cfbe6acc989abf7d2b54be097fc049d309e2d05', '23e1128b59b00727d8f2dc52a82f7b327573ea50', '745cc8a0c6631c235b18dded9adac725e45cd5db'})",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left"
+   ]
+  },
+  {
+   "id": 15,
+   "name": "Put the journal under <state>/retention/",
+   "file": "subfleet/retention_marks.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_the_journal_lives_under_retention_delete_never_under_retention",
+   "exit": 1,
+   "seconds": 6.8,
+   "restored_sha256": "442e3effea116ccf331290bc07c0506b39b703350c0bd4a3f7b394e5eedaf6ae",
+   "verdict": "killed",
+   "summary": "1 failed in 4.89s",
+   "evidence": [
+    "E       AssertionError: assert 'kept' == 'deleted'",
+    "E         ",
+    "E         - deleted",
+    "E         + kept",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_the_journal_lives_under_retention_delete_never_under_retention"
+   ]
+  },
+  {
+   "id": 16,
+   "name": "Finish a path lexically after a missing part (Excluder)",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_request.py::test_resolve_never_touches_an_excluded_place_and_agrees_with_realpath",
+   "exit": 1,
+   "seconds": 9.8,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 7.57s",
+   "evidence": [
+    "E           AssertionError: assert '/private/var...k-to-excluded' == '/private/var...an_0/excluded'",
+    "E             ",
+    "E             Skipping 123 identical leading characters in diff, use -v to show",
+    "E             - ches_an_0/excluded",
+    "E             + ches_an_0/link-to-excluded",
+    "E             ?           ++++++++"
+   ]
+  },
+  {
+   "id": 17,
+   "name": "Write the event with Store.add_event (two rows)",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left",
+   "exit": 1,
+   "seconds": 87.0,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 83.28s (0:01:23)",
+   "evidence": [
+    "E       AssertionError: assert (2 == 1)",
+    "E        +  where 2 = len([{'event_id': 6, 'ts': '2026-11-09T19:22:49Z', 'kind': 'retention.tree_deleted', 'job_id': 'job-rich', ...}, {'event_id': 7, 'ts': '2026-11-09T19:22:49Z', 'kind': 'retention.tree_deleted', 'job_id': 'job-rich', ...}])",
+    "FAILED tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left"
+   ]
+  },
+  {
+   "id": 18,
+   "name": "Leave the ref namespace folder a rollback made",
+   "file": "subfleet/retention_delete.py",
+   "killer": "tests/unit/test_retention_delete_resume.py::test_a_kill_at_each_step_ends_whole_or_gone_with_the_commits_kept[checked-1]",
+   "exit": 1,
+   "seconds": 43.7,
+   "restored_sha256": "e97e65cf7e696095548940d12519cf0a97d5e19ecb87975f9e0a89f03c42cc55",
+   "verdict": "killed",
+   "summary": "1 failed in 41.13s",
+   "evidence": [
+    "E           AssertionError: assert not True",
+    "E            +  where True = <function lexists at 0x105869f30>(((PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-d2660-b1.mut.2.ujtrjcir/bt-18.zzlb9plf/t/test_a_kill_at_each_step_ends_0/home/project/.git') / 'refs') / 'subfleet-kept'))",
+    "E            +    where <function lexists at 0x105869f30> = <module 'posixpath' (frozen)>.lexists",
+    "E            +      where <module 'posixpath' (frozen)> = os.path",
+    "FAILED tests/unit/test_retention_delete_resume.py::test_a_kill_at_each_step_ends_whole_or_gone_with_the_commits_kept[checked-1]"
+   ]
+  },
+  {
+   "id": 19,
+   "name": "Label a deleted job by the budget (survey)",
+   "file": "subfleet/retention_survey.py",
+   "killer": "tests/unit/test_retention_delete_apply.py::test_a_rich_tree_is_deleted_with_every_commit_kept_and_every_record_left",
+   "exit": 1,
+   "seconds": 88.2,
+   "restored_sha256": "d2d404c1cccc99ff8409d02abf4edaa45d37fcd47e88c0bce432409f3a1a9647",
+   "verdict": "killed",
+   "summary": "1 failed in 85.41s (0:01:25)",
+   "evidence": [
+    "E       AssertionError: {'jobs_by_reason': {'within budget': 1}, 'worktrees_by_reason': {}, 'worktree_bytes_by_reason': {'within budget': 0}}",
+    "E       assert {'within budget': 1} == {'tree-deleted': 1}",
+    "E         ",
+    "E         Left contains 1 more item:",
+    "E         {'within budget': 1}",
+    "E         Right contains 1 more item:"
+   ]
+  }
+ ]
+}
