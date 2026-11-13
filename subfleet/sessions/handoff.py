@@ -2475,11 +2475,11 @@ class _Lines:
         """Where the line holding `at` starts (after its `\\n` or `\\r`), or `floor` when that
         is at or before `floor`, reading back at most `reach` characters: None when the line
         starts further back than that (fail closed, as a window too long to read)."""
-        low = max(floor, at - reach)
-        newline = self.text.rfind("\n", low, at)
-        found = max(newline, self.text.rfind("\r", max(low, newline + 1), at))
+        low = max(floor, at - reach)                   # the earliest start it may give
+        newline = self.text.rfind("\n", max(low - 1, 0), at)
+        found = max(newline, self.text.rfind("\r", max(low - 1, newline + 1, 0), at))
         if found >= 0:
-            return found + 1
+            return found + 1                           # a break at `low - 1` starts a line at `low`
         return low if low == floor else None
 
     def end(self, at: int) -> int:

@@ -35,7 +35,7 @@ import pytest
 from subfleet.conversations import redact
 from subfleet.policy import DEFAULT_POLICY_PATH, HANDOFF_BRIEF_MAX_CHARS, PolicyError, load_policy
 from subfleet.sessions import handoff, scrub_release
-from tests.cpu_scaling import GROWTH_RATIO_MAX
+from tests.cpu_scaling import COUNT_GROWTH_MAX, GROWTH_RATIO_MAX
 
 BUDGET = handoff.MAX_SCRUB_CHARS
 HEAD = handoff.EXCERPT_CHARS
@@ -500,6 +500,12 @@ SPLITS = {
     "reminder-holds-key-and-quote": '<system-reminder>password = "</system-reminder>Zq0x600008"\n',
     "reminder-closer-in-a-value": '<system-reminder>\nk1\npassword = "</system-reminder>"\nZq0x600009\n'
                                   "</system-reminder>\n",
+    # Review r1's P3 probe rows: the key is a line above the value that holds the closer, which
+    # only the window's lines above the closer read (mutant R1, `range(2)` to `range(0)`, showed both).
+    "private-key-key-a-line-above": '-----BEGIN PRIVATE KEY-----\nk1\npassword =\n"-----END PRIVATE KEY-----"\n'
+                                    "Zq9x100001\n-----END PRIVATE KEY-----\n",
+    "reminder-key-a-line-above": '<system-reminder>\nk1\npassword =\n"</system-reminder>"\nZq9x100002\n'
+                                 "</system-reminder>\n",
 }
 
 
@@ -533,6 +539,196 @@ def test_a_quoted_data_uri_keeps_the_rest_of_its_line():
 def test_the_head_resolves_the_blocks_as_release_does(text, strip):
     """D-SCRUB-BOUNDARY1 (differential): the head's guarded block step resolves exactly the
     text and count release's `_resolve_blocks` does; it only adds masks."""
+    tally, mine = scrub_release._Tally(), handoff._Tally()
+    released = scrub_release._resolve_blocks(text, strip, tally)
+    resolved, masks = handoff._split_masks(text, strip, mine)
+    assert resolved == released and mine.total == tally.total
+    assert all(0 <= a < b <= len(resolved) for a, b in masks)
+
+
+# --- D-SCRUB-BOUNDARY1 fix round 1 (review r1) ------------------------------------------------
+#
+# P2: the whole-text scrub masks a value that holds a reminder's closer first, so the reminder runs
+# on to its next closer and takes whatever closer of a later layer stands in that run (a private
+# key's `-----END`). The excerpt rules resolved the later layer over release's text, where that
+# closer still ended the key, and the rest of the key showed. A closer an earlier mask covers ends
+# no block now. The rows are review r1's answer 3: (b) as it gives it, the others rebuilt from its
+# descriptions (its own texts are not in the review).
+
+CASCADES = {
+    "a-key-in-the-run-on": "<system-reminder>\nnote Zq3x100001\npassword = \"</system-reminder>\" Zq3x100002\n"
+                           "Zq3x100003\n-----BEGIN PRIVATE KEY-----\nZq3x100004\n-----END PRIVATE KEY-----\n"
+                           "Zq3x100005\n</system-reminder>\nZq3x100006\n",
+    "a-key-opens-in-the-reminder": "<system-reminder>\nnote Zq3x110001\n-----BEGIN PRIVATE KEY-----\nZq3x110002\n"
+                                   "password = \"</system-reminder>\" Zq3x110003\nZq3x110004\n</system-reminder>\n"
+                                   "-----END PRIVATE KEY-----\nZq3x110005\n",
+    "b-key-then-reminder": "-----BEGIN PRIVATE KEY-----\nZq3x200001\n<system-reminder>\nnote\n"
+                           "password = \"</system-reminder>\" Zq3x200002\nZq3x200003\n-----END PRIVATE KEY-----\n"
+                           "Zq3x200004\n</system-reminder>\nZq3x200005\n-----END PRIVATE KEY-----\nZq3x200006\n",
+    "b-without-a-second-end": "-----BEGIN PRIVATE KEY-----\nZq3x210001\n<system-reminder>\nnote\n"
+                              "password = \"</system-reminder>\" Zq3x210002\nZq3x210003\n-----END PRIVATE KEY-----\n"
+                              "Zq3x210004\n</system-reminder>\nZq3x210005\n",
+    "c-key-closer-in-a-value-then-a-data-uri": "-----BEGIN PRIVATE KEY-----\nZq3x300001\n"
+                                               "password = \"-----END PRIVATE KEY-----\" Zq3x300002\nZq3x300003\n"
+                                               "-----END PRIVATE KEY-----\ndata:image/png;base64," + "QUJD" * 8
+                                               + "\nZq3x300004\n",
+    "c-data-uri-after-the-closer": "-----BEGIN PRIVATE KEY-----\nZq3x310001\npassword = \"-----END PRIVATE KEY-----"
+                                   "data:image/png;base64," + "QUJD" * 8 + "\" Zq3x310002\nZq3x310003\n"
+                                   "-----END PRIVATE KEY-----\nZq3x310004\n",
+    "d-two-reminders": "<system-reminder>\npassword = \"</system-reminder>\" Zq3x400001\nZq3x400002\n"
+                       "<system-reminder>\nZq3x400003\n</system-reminder>\nZq3x400004\n",
+    "d-both-closers-in-values": "<system-reminder>\npassword = \"</system-reminder>\" Zq3x410001\nZq3x410002\n"
+                                "<system-reminder>\ntoken = \"</system-reminder>\" Zq3x410003\nZq3x410004\n"
+                                "</system-reminder>\nZq3x410005\n",
+}
+
+
+def cascade_text(name: str, place: str) -> str:
+    """A cascade row within the budget (500 characters of prose either side), or at budget + 4,096
+    with the shape ending at the head excerpt's edge or starting the tail's first line."""
+    shape = CASCADES[name]
+    if place == "short":
+        return prose(500) + shape + prose(500)
+    total = BUDGET + 4_096
+    return around(HEAD - 1 - len(shape) if place == "head-edge" else total - TAIL, shape, total)
+
+
+@pytest.mark.parametrize("place", ["short", "head-edge", "tail-first-line"])
+@pytest.mark.parametrize("name", sorted(CASCADES))
+def test_a_closer_an_earlier_layer_masks_ends_no_block(name, place):
+    """C-23.14, C-25.5 (D-SCRUB-BOUNDARY1 fix round 1, P2): a reminder whose closer a value holds
+    runs on over a private key's closer, as the whole-text scrub's does, so the key runs on to its
+    next closer outside every mask and nothing the whole-text scrub hides shows: review r1's row
+    (b) showed `Zq3x200005` on 13fd1c8bc, within the budget and at both excerpt edges. Every limit,
+    both reminder modes (`assert_keeps_only_what_the_whole_scrub_keeps`)."""
+    text = cascade_text(name, place)
+    assert (len(text) <= BUDGET) == (place == "short")
+    assert_keeps_only_what_the_whole_scrub_keeps(text)
+
+
+def test_row_b_hides_what_the_whole_scrub_hides():
+    """Review r1's row (b), stripped as `clean` strips: the whole-text scrub hides `…200001` to
+    `…200005`, and so does every excerpt mode now."""
+    text = cascade_text("b-key-then-reminder", "short")
+    whole = handoff.scrub_secrets(text, strip_reminders=True, whole=True)[0]
+    assert [v for v in re.findall(r"Zq3x\d+", text) if v not in whole] == [f"Zq3x20000{i}" for i in range(1, 6)]
+    for out in (handoff.scrub_secrets(text, strip_reminders=True)[0], handoff.clean(text, 2_048)[0],
+                handoff.scrub_bounded(text, None, strip_reminders=True)[0]):
+        assert "Zq3x200005" not in out and "Zq3x200006" in out
+
+
+# P3: the read cap. Eight windows of 16,380 characters, then a ninth of 32 (131,072 in all, the cap)
+# or 33: the ninth is read and only its value goes, or it is not read and the rest of its line goes
+# (fail closed). Mutant R2 (no total cap) read the ninth of 33 too, and kept ` KEEPC`.
+
+def read_cap_text(ninth: int) -> str:
+    """Nine data URIs, each before `password<spaces>= "Zq2x10000N" KEEP…` on a line whose length is
+    its window's (`password` starts the line, so the window is the line)."""
+    units = []
+    for n, length in enumerate([16_380] * 8 + [ninth], start=1):
+        tail = f'= "Zq2x10000{n}" ' + ("KEEPC" if n == 9 else "KEEPA")
+        units.append("data:image/png;base64," + "QUJD" * 8 + "\npassword" + " " * (length - 8 - len(tail)) + tail + "\n")
+    return "".join(units)
+
+
+@pytest.mark.parametrize("ninth,read", [(32, True), (33, False)], ids=["ninth-of-32-read", "ninth-of-33-not-read"])
+def test_the_split_windows_stop_at_the_read_cap(ninth, read):
+    """C-23.14, C-25.5 (D-SCRUB-BOUNDARY1 fix round 1, P3): one `_split_masks` call reads at most
+    `_SPLIT_READ_MAX` (131,072) characters of windows; past it a split value's line goes whole."""
+    text = read_cap_text(ninth)
+    assert len(text) <= BUDGET and handoff._SPLIT_READ_MAX == 8 * 16_380 + 32
+    for out in (handoff.scrub_secrets(text)[0], handoff.scrub_bounded(text, None)[0]):
+        assert not re.search(r"Zq2x\d+", out)
+        assert out.count("KEEPA") == 8 and ("KEEPC" in out) == read
+
+
+# P1: the split step's work is linear in the text. `_line_start` read back to offset 0 for every
+# block (`rfind("\r", 0, at)`), and `_run_start` copied the text before a run longer than its
+# stepped scans, so 13fd1c8bc's `scrub_bounded` grew 57-78x from the budget to ten times it on
+# review r1's many-block shapes.
+
+GROWTH_SHAPES = {
+    "pem-many": ("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n", False),
+    "reminder-many": ("<system-reminder>note</system-reminder>\nx = 1\n", True),
+    "datauri-key-many": ("data:image/png;base64," + "QUJD" * 8 + '\ntoken = "Zq9x1"\n', False),
+    "datauri-longword-many": ("data:image/png;base64," + "A" * 20_000 + 'password = "Zq9x2"\n', False),
+}
+
+
+def _scrub_probe(script: str, timeout: int = 300) -> dict:
+    """A scrub measured in a bounded child of its own, where no other thread retires instructions."""
+    source = f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r})\n" + script
+    result = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True, timeout=timeout)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@pytest.mark.parametrize("name", sorted(GROWTH_SHAPES))
+def test_the_split_step_s_work_is_linear_in_the_blocks(name):
+    """C-23.14, C-25.5 (D-SCRUB-BOUNDARY1 fix round 1, P1, invariant 4): `scrub_bounded` of a text
+    of many blocks at twice the budget and at eight times it. The instructions the CPU retires grow
+    under `COUNT_GROWTH_MAX` (linear work about 4x, less its fixed excerpt scrubs; 13fd1c8bc's
+    quadratic look-backs about 16x); where the counter is hidden (CI's virtual machines), the CPU
+    ratio of the two, taken in turn, stays under `GROWTH_RATIO_MAX`."""
+    unit, strip = GROWTH_SHAPES[name]
+    measured = _scrub_probe(f"unit, strip = {unit!r}, {strip!r}\n" + '''
+import json
+from subfleet.sessions import handoff
+from tests.cpu_scaling import best_cpu_ratio, counts_instructions, fewest_instructions
+
+def text(total):
+    return (unit * (total // len(unit) + 1))[:total]
+
+small, large = text(2 * handoff.MAX_SCRUB_CHARS), text(8 * handoff.MAX_SCRUB_CHARS)
+
+def call(t):
+    return lambda: handoff.scrub_bounded(t, None, strip_reminders=strip)
+
+if counts_instructions():
+    counts = {"small": fewest_instructions(call(small), runs=2), "large": fewest_instructions(call(large), runs=2)}
+    print(json.dumps({"kind": "instructions", "ratio": counts["large"] / counts["small"], **counts}))
+else:
+    print(json.dumps({"kind": "cpu", **best_cpu_ratio(call(large), call(small), rounds=3)}))
+''')
+    bound = COUNT_GROWTH_MAX if measured["kind"] == "instructions" else GROWTH_RATIO_MAX
+    assert measured["ratio"] < bound, measured
+
+
+# P3: the differential against release's block resolution, over drawn texts that hold what the
+# fixed cases above it did not: private keys (with a type and `BLOCK`), each layer's blocks inside
+# and across another's, reminder tags in any case, openers with no closer, and values that hold a
+# closer.
+
+BLOCK_PARTS = st.sampled_from([
+    "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----\n", "-----BEGIN RSA PRIVATE KEY-----",
+    "-----END RSA PRIVATE KEY-----", "-----BEGIN EC PRIVATE KEY BLOCK-----", "-----END EC PRIVATE KEY BLOCK-----",
+    "<system-reminder>", "</system-reminder>", "<SYSTEM-REMINDER>", "</System-Reminder>", "<sYsTeM-rEmInDeR>\n",
+    'password = "', 'token = "', '"', "'", "\n", "x = 1\n", "Zq7x100001 ", "data:image/png;base64,", "QUJD" * 10,
+    "api_key = ", "  ", "=",
+])
+
+
+@hypothesis.settings(max_examples=300, deadline=None, derandomize=True, database=None)
+@hypothesis.given(parts=st.lists(BLOCK_PARTS, max_size=40), strip=st.booleans())
+def test_the_head_resolves_drawn_blocks_as_release_does(parts, strip):
+    """D-SCRUB-BOUNDARY1 fix round 1 (differential, invariant 6): over drawn blocks of every layer,
+    the head's guarded block step resolves exactly the text and count release's `_resolve_blocks`
+    does, and its masks lie in that text, sorted and apart; it only adds masks."""
+    text = "".join(parts)
+    tally, mine = scrub_release._Tally(), handoff._Tally()
+    released = scrub_release._resolve_blocks(text, strip, tally)
+    resolved, masks = handoff._split_masks(text, strip, mine)
+    assert resolved == released and mine.total == tally.total
+    assert all(0 <= a < b <= len(resolved) for a, b in masks)
+    assert all(b < c for (_, b), (c, _) in zip(masks, masks[1:]))
+
+
+@pytest.mark.parametrize("name", sorted(CASCADES))
+@pytest.mark.parametrize("strip", [False, True])
+def test_the_head_resolves_each_cascade_as_release_does(name, strip):
+    """D-SCRUB-BOUNDARY1 fix round 1 (differential, invariant 6): review r1's cascade rows resolve
+    as release resolves them; the run-ons only add masks."""
+    text = cascade_text(name, "short")
     tally, mine = scrub_release._Tally(), handoff._Tally()
     released = scrub_release._resolve_blocks(text, strip, tally)
     resolved, masks = handoff._split_masks(text, strip, mine)
