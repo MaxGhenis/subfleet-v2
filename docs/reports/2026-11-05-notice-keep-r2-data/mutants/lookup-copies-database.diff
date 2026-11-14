@@ -1,0 +1,20 @@
+--- subfleet/retention_notices.py
++++ subfleet/retention_notices.py
+@@ -212,9 +212,14 @@
+         raise ValueError("state.sqlite3 is outside the state root")
+     report: dict[str, Any] = {"session_id": session_id, "read_only": True, "read_only_scope": "records",
+                               "outcomes": [], "errors": []}
+-    with Store(database, read_only=True) as store:
+-        events = store.query("SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id",
+-                             (RETIRED_EVENT,))
++    import shutil
++    import tempfile
++    with tempfile.TemporaryDirectory(prefix='mutant-outcomes-copy-') as scratch:
++        copied = Path(scratch) / 'state.sqlite3'
++        shutil.copyfile(database, copied)
++        with Store(copied, read_only=True) as store:
++            events = store.query("SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id",
++                                 (RETIRED_EVENT,))
+     for event in events:
+         try:
+             record = json.loads(event["data_json"])
