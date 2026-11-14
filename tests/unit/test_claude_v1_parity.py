@@ -5,15 +5,14 @@ That encoding is only trustworthy if it is tied to v1's bytes, so these tests re
 v1's shell source and rebuild the launch line from it — the flag list, the tool
 surface, the isolated branch, and the environment it unsets — then compare.
 
-They skip when the v1 tree is not present, so the suite stays portable; on this Mac
-they run, and they are the thing that fails when either side drifts.
+Set `SUBFLEET_V1_RUNNER` to an explicitly selected v1 runner to validate that source.
+They skip otherwise, so collection never reads another checkout or live user state.
 """
 
 from __future__ import annotations
 
 import re
 import os
-import pwd
 import shlex
 from pathlib import Path
 
@@ -24,15 +23,17 @@ from subfleet.adapters.claude import (
 )
 from subfleet.contracts import Sandbox
 
-V1_RUNNER = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff" / "subfleet" / "bin" / "subfleet-claude"
+V1_RUNNER = Path(os.environ["SUBFLEET_V1_RUNNER"]) if os.environ.get("SUBFLEET_V1_RUNNER") else None
 
 pytestmark = pytest.mark.skipif(
-    not V1_RUNNER.is_file(), reason=f"the v1 runner is not present at {V1_RUNNER}"
+    V1_RUNNER is None or not V1_RUNNER.is_file(),
+    reason="set SUBFLEET_V1_RUNNER to an available v1 runner to check source parity",
 )
 
 
 @pytest.fixture(scope="module")
 def v1_source() -> str:
+    assert V1_RUNNER is not None
     return V1_RUNNER.read_text(encoding="utf-8")
 
 

@@ -1,0 +1,27 @@
+{
+  "label": "affected-recheck",
+  "command": [
+    "uv",
+    "--cache-dir",
+    "/private/tmp/sf-eff-b1/uv-cache",
+    "run",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/docs/reports/2026-11-12-effort-env-data/run-tests.py",
+    "--inner",
+    "affected-recheck",
+    "-n",
+    "4",
+    "-q",
+    "--tb=short",
+    "tests/fake/test_sessions_end_to_end.py",
+    "tests/unit/test_importer.py",
+    "tests/unit/test_legacy_hold.py",
+    "tests/unit/test_lane_settings.py::test_the_recording_is_what_676906f85_builds"
+  ],
+  "rc": 0,
+  "basetemp": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261111-122612-eff-build-r1s-a1-d5eqgqp5/sf-eff-b1/affected-recheck",
+  "seconds": 75.63
+}

@@ -1,0 +1,30 @@
+F
+=================================== FAILURES ===================================
+__________ test_property_turn_effort_pins_settings_and_preserves_argv __________
+tests/unit/test_effort_env.py:146: in test_property_turn_effort_pins_settings_and_preserves_argv
+    @example(case=dict(path="turn", permission="bypass", fast=True, effort="ultracode", resume=True, tmp=True))
+                   ^^^^^^^^^^^
+/private/tmp/sf-eff-b1/venv/lib/python3.14t/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+tests/unit/test_effort_env.py:157: in test_property_turn_effort_pins_settings_and_preserves_argv
+    _assert_effort_and_differential(case, lsc.build(case, scratch))
+tests/unit/test_effort_env.py:80: in _assert_effort_and_differential
+    assert payload["env"][EFFORT_ENV] == effort
+E   AssertionError: assert 'ultracode' == 'xhigh'
+E     
+E     - xhigh
+E     + ultracode
+E   (note: 1 other explicit example also failed with this error; use Verbosity.verbose to view)
+E   Failing explicit example: test_property_turn_effort_pins_settings_and_preserves_argv(
+E       tmp_path=PosixPath('/private/tmp/sf-eff-b1/mutant-4-ultracode-string/test_property_turn_effort_pins0'),
+E       case={'path': 'turn',
+E        'permission': 'bypass',
+E        'fast': True,
+E        'effort': 'ultracode',
+E        'resume': True,
+E        'tmp': True},
+E   )
+=========================== short test summary info ============================
+FAILED tests/unit/test_effort_env.py::test_property_turn_effort_pins_settings_and_preserves_argv
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 6.55s

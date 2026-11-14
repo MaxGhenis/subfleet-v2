@@ -20,7 +20,8 @@ Over every case `tests/lane_settings_cases.py` builds, each through its real bui
   unchanged, and a read-only launch's settings name only `env`, and a fast turn's
   `fastMode`, which it had before.
 
-The differential checks the whole argv: the new one with the override taken out is
+Named efforts also pin `CLAUDE_CODE_EFFORT_LEVEL` in the same settings (D-EFFORT-ENV1).
+The differential checks the whole argv: the new one with both pins taken out is
 the one 676906f85 built (`tests/fixtures/lane_settings/argv-676906f85.json`).
 """
 
@@ -117,7 +118,7 @@ def test_i2_every_other_setting_is_what_the_launch_had_before(case, built):
     review still passes `--setting-sources user` just before its one `--settings`."""
     argv = built[lsc.case_id(case)]
     settings = _settings(argv)
-    assert settings.pop("env") == {WATCHDOG: OFF}
+    assert settings.pop("env") == lsc.expected_env(case)
     hooks = settings.pop("hooks", None)
     assert (hooks is not None) is lsc.publish_hook(case)
     if hooks is not None:
@@ -167,7 +168,7 @@ def test_i3_the_users_settings_file_changes_no_argv_and_is_never_opened(tmp_path
             watching[0] = False
     assert opened == []
     assert built["on"] == built["none"]
-    assert all(_settings(argv)["env"] == {WATCHDOG: OFF} for argv in built["on"].values())
+    assert all(_settings(built["on"][lsc.case_id(case)])["env"] == lsc.expected_env(case) for case in CASES)
 
 
 # --- I4 -------------------------------------------------------------------------
@@ -188,7 +189,7 @@ def test_i4_read_only_flags_are_unchanged_and_the_settings_reopen_nothing(case, 
     assert "--safe-mode" in argv and "--dangerously-skip-permissions" not in argv
     settings = _settings(argv)
     allowed = {"env", "fastMode"} if case["path"] == "turn" and case["fast"] else {"env"}
-    assert set(settings) == allowed and settings["env"] == {WATCHDOG: OFF}
+    assert set(settings) == allowed and settings["env"] == lsc.expected_env(case)
 
 
 # --- the properties ---------------------------------------------------------------
@@ -225,7 +226,7 @@ def test_property_i1_i2_i4_over_the_builders_inputs(case, tmp_path, user_on):
     key as `expected_settings` states it, and the read-only set intact."""
     argv = lsc.build(case, Path(tempfile.mkdtemp(dir=tmp_path)))
     settings = _settings(argv)
-    assert settings.pop("env") == {WATCHDOG: OFF}                          # I1
+    assert settings.pop("env") == lsc.expected_env(case)                  # I1 and D-EFFORT-ENV1
     assert ("hooks" in settings) is lsc.publish_hook(case)                 # I2
     settings.pop("hooks", None)
     assert settings == lsc.expected_settings(case)
