@@ -1,0 +1,49 @@
+{
+  "finished_at": "2026-11-13T13:48:02.757533+00:00",
+  "checks": [
+    {
+      "command": [
+        "git",
+        "-c",
+        "core.fsmonitor=false",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "-c",
+        "core.fsmonitor=false",
+        "status",
+        "--short",
+        "--untracked-files=normal"
+      ],
+      "exit_code": 0,
+      "stdout": " M docs/acceptance-contract.md\n M docs/reports/2026-11-05-notice-keep-days.md\n M subfleet/retention_cli.py\n M subfleet/retention_notices.py\n M tests/unit/test_retention_outcomes.py\n?? docs/reports/2026-11-05-notice-keep-r3-data/\n?? tests/unit/test_retention_outcome_pages.py\n?? tests/unit/test_retention_outcome_permissions.py\n?? tools/notice_keep_round3_measure.py\n?? tools/notice_keep_round3_mutants.py\n?? tools/notice_keep_round3_verify.py\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "exit_code": 0,
+      "stdout": "e8d32cca6aef761966b8f7db89bd2fff6c6ce320\n",
+      "stderr": ""
+    }
+  ],
+  "final_stage": {
+    "named_files": 81,
+    "exit_code": 128,
+    "stderr": "fatal: Unable to create '/Users/maxghenis/subfleet-v2/.git/worktrees/20261113-070657-nk-fix-r3/index.lock': Operation not permitted\n"
+  },
+  "head": "e8d32cca6aef761966b8f7db89bd2fff6c6ce320",
+  "report_complete": true,
+  "source_hash_unchanged": true,
+  "scratch_removed": true
+}
