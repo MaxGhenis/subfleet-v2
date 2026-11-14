@@ -355,3 +355,264 @@ I didn't run the whole suite, as the brief asked.
   than walking each process's regions. Measure that first.
 - After this lands, `daemon.log` lines will show how often each listing serves
   `both`, and how long listings take under live load.
+
+## Fix round 1
+
+Fix job `20261107-111034-hn-fix-r1`, at 2a6a9f2e6 (d5aa4b3ae plus the hub's
+merge of release/217 through #293). It started at 21:50 UTC on 2026-11-13.
+Host load ran from 23 to 265, mostly above 60, and other jobs' test runs shared
+the machine. A test file that took seconds in CI took minutes here, so several runs
+were cut off by my tool's 10-minute limit; each one is listed below with what
+it reached.
+
+### CI run 42368334717: causes and fixes
+
+The run's logs were readable. All ten jobs finished: seven failed, and the 3.14
+shards 3, 4 and 5 were cancelled. The 3.12 shards name 40 failing tests in six
+modules. The 3.14 shards 1 and 2 name the same tests as the 3.12 shards 1 and 2.
+
+| Module | Failed | What the tests assert |
+|---|---|---|
+| `tests/fake/test_retention_pointer_failures.py` | 1 (shard 1) | `test_stale_gitfile_with_vanished_target_still_retires`: one `maintain` call prunes `owner` |
+| `tests/fake/test_retention_dependency_review_r4.py` | 1 (shard 2) | one call prunes an exporting job |
+| `tests/fake/test_retention_dependency_review_r5.py` | 11 (shard 2) | one call prunes `owner` (7); a dependency inserted at `commit` keeps the job (`[final-*]`, 4) |
+| `tests/fake/test_retention_dependency_review_r6.py` | 6 (shard 5) | one call prunes `owner` |
+| `tests/fake/test_retention_dependency_review_r7.py` | 2 (shard 4) | one call prunes `owner` |
+| `tests/unit/test_retention_nested_leases.py` | 19 (shard 3) | one `run` prunes the job, or reaches the final check or the commit's lease check |
+
+**Reproduced at 2a6a9f2e6.** All 40 failed locally:
+
+- the 21 fake-provider tests, `-n 4`: **21 failed** in 399 s;
+- the 19 nested-lease tests, from a pristine `git archive 2a6a9f2e6` copy,
+  `-n 4`: **19 failed** in 290 s.
+
+Each failure was the same kind: after one call, `pruned` was empty and the job
+was still in the store. In the four `[final-*]` cases, the `commit` hook never
+ran, so `inserted` stayed empty. pytest's `-q` cut the result dicts short, so I
+didn't read `awaiting_check2` directly. But the marker's follow-up passes run
+only while `awaiting_check2` isn't empty, and they make all 40 pass, so each job
+was archived and waiting for check 2.
+
+**Cause: the tests pinned the old listing count, so the fix is in the tests.**
+Every one calls `maintenance` once and expects the job retired, or expects its
+commit-time recheck reached. Under one listing a pass, a job archived in a
+pass takes check 2, its final check and its commit in the next pass, which the
+daemon runs at `RETENTION_CATCH_UP_S`. The build marked the modules it ran
+`retention_catch_up`, but not these six. Five of them import `world`,
+`reader` and `maintain` from `test_retention_dependency_review_r2`, and
+nested-leases imports `run` from `test_retention_shared_folders`; both source
+modules carry the marker. A marker applies to the requesting test's module, not
+the module a helper comes from.
+
+**Fix (b9f70bafa).** Each of the six modules now carries `pytestmark =
+pytest.mark.retention_catch_up`, with a comment saying why. No assertion
+changed. The tests still check what they did: a stale gitfile retires, a
+dependency found at selection or at the commit keeps the job, and a lease
+found by the census, the selecting transaction or the commit keeps it. The
+marker runs at most three follow-up passes, only while a job waits for its
+check 2. No code change was needed: no test showed the PR breaking a behaviour
+it rightly pins.
+
+**After the fix.** All 40 pass. Two earlier runs were cut off by the tool,
+with no failure before the cut:
+
+- at f4abb4a31's tree, all 40, `-n 4`: **31 passed, 0 failed** before the cut;
+- from a `git archive 087bac39c` copy, the 19 nested-lease tests, `-n 2`
+  (beside a mutant run): **11 passed, 0 failed** before the cut;
+- at 02f3ca168's tree, `-n 4`, once the load fell to about 26: **21 passed**
+  in 93 s and **19 passed** in 61 s. All 40 pass.
+
+### Review r1's findings
+
+| Finding | Outcome | Where |
+|---|---|---|
+| 1. A waiting job can wait the hour | **Fixed** (f4abb4a31) | `daemon.py` `_retention`; `tests/conftest.py` `catch_up`; C-8.4; design §12 |
+| 2. The stamp comparison never decides | **Documented**; the comparison stays | design §8; mutant 1 below |
+| 3. The survey's listing writes no line | **Documented**: the survey writes no line, by choice | C-8.4; design §8; `retention_survey.py` estimate |
+| 4. One bad manifest fails check 1 for the whole batch | **Fixed** (f4abb4a31) | `retention.py` `_holder_listing`, `_unreadable`; C-8.4; design §8 |
+| 5. The failure reason goes into `daemon.log` unscrubbed | **Fixed** (f4abb4a31) | `retention.py` `_listing`; design §8 |
+| 6. The property test never draws a crash mid-pass | **Fixed** (087bac39c) | `tests/unit/test_retention_listings_properties.py` |
+
+**Finding 1.** When a pass sets `holder_scan_failed` but `awaiting_check2` isn't
+empty, the daemon now marks `ScanFailed` and comes back after
+`RETENTION_CATCH_UP_S`. It logs `holder scan failed; <n> jobs wait for their
+holder check 2; next pass in 5 seconds`. This covers both of r1's cases: a
+failed cwd inspection in `_start` while another job archives, and a parked job
+that archives after a failed listing. If the next pass's listing fails too, it
+puts the waiting job back (that job is now in `wanted`), so `awaiting_check2`
+is empty and the hour applies. Each catch-up after a failed scan needs a job
+that archived in the failed pass, and the next failed listing puts that job
+back, so the extra listings are bounded by the jobs whose check 1 had already
+passed. `catch_up` in
+`tests/conftest.py` used to stop at any failed scan; it now stops only when no
+job waits, as the daemon does. Tests:
+
+- `test_a_failed_holder_scan_keeps_a_job_waiting_for_check_2_on_the_catch_up_clock`:
+  the next pass begins 5 s after the failed one, the log line says so, and no
+  "next pass in an hour" line appears;
+- `test_a_failed_holder_scan_with_a_waiting_job_is_marked_scan_failed`;
+- `test_retention_runs_exactly_when_its_two_clocks_allow` (80 examples) now
+  draws the outcome `scan-failed-waiting`, and its model expects catch-up after
+  it;
+- `test_every_rearm_records_its_status_before_setting_last_maintenance` gains
+  that result as a case.
+
+The old `scan-failed` outcome, with no job waiting, still waits the hour
+(`test_a_failed_holder_scan_does_not_reoffer_batches_on_the_catch_up_clock`,
+and the churn test in `test_review130_ab.py`, whose failed scan puts back all 32
+jobs it quarantined).
+
+**Finding 2.** The comparison stays. Design §8 now says it is defence that the
+code's order already guarantees, and that no test can reach it:
+
+- every quarantine a listing could serve ran before the listing took its stamp;
+- every archive it could serve ended in an earlier pass;
+- recovery raises the floor above every journal's stamps before the listing
+  stamps.
+
+Mutant 1 below confirms that no test reaches it. The comparison guards a future
+caller that lists earlier, or a journal stamped by a clock this daemon never saw.
+
+**Finding 3. I chose to say plainly that the survey writes no line.** C-8.4 now
+says "each pass's listing", and C-8.4 and §8 say the survey writes none. Why:
+
+- `subfleet retention survey` is a read-only dry run, started by hand in the
+  CLI's process, with no `daemon.log`;
+- its report already gives the listing's seconds (`holders.scan_seconds`) and
+  any failure (`notes`);
+- the line exists to count the daemon's listings, and the survey's listing
+  isn't one of them.
+
+A line written there would go to a logger with no handler. Reading the survey,
+I found one stale assumption the build's report missed: its estimate counted
+two listings a pass (`listing_seconds_per_pass: 2 * scan_s`, and `passes * 2` in
+`total_hours`). It now counts one listing a pass, plus one more pass for the
+last batch's check 2 (`listings: passes + 1`). I grepped the tests for exact
+compares on `estimate`: the only hits are `sample`'s `report["estimate"] is
+True`, a different report.
+
+**Finding 4.** Each job's watch is built in its own `try` (`OSError`,
+`ValueError`, `KeyError`, `TypeError`: an unreadable file, bad JSON, or JSON of
+the wrong shape). An unreadable manifest puts back that job alone, as an error
+(`error: manifest: <class>: <text>`, the error backoff), before the listing,
+which still serves the rest. It neither fails the listing nor sets
+`holder_scan_failed`. If the listing itself then fails, the unreadable job is
+still put back as an error, and the rest as `holder scan failed`. A batch whose
+only job has an unreadable manifest takes no listing. The final check already
+treated an unreadable manifest as that job's error. Test:
+`test_a_bad_manifest_puts_back_only_its_own_job` corrupts job-a's
+`archive/manifest.json` while it waits for check 2. The next pass's listing then
+serves only job-b's check 1 (line `check=first`), job-a is deferred
+`error: manifest: JSONDecodeError ...` with its folder and row back, job-b
+archives, and `holder_scan_failed` is False.
+
+**Finding 5.** `_listing` passes the reason through
+`refusals.scrubbed_line(..., 300)`, as the daemon's retention error lines do.
+Whitespace is still folded first. `test_a_failed_listings_reason_is_scrubbed`
+gives a `ghp_` token in the reason and finds `[REDACTED]` in its place. The
+existing `test_a_failed_listing_writes_one_line_with_its_reason` still passes
+unchanged.
+
+**Finding 6.** Each drawn pass may now be cut short (`cut`, about three passes
+in seven):
+
+- **`committing`**: the daemon dies just after a journal says `committing`, with
+  the rows still there (a `BaseException` raised after the save). The next pass
+  restarts, recovery puts the journal back to `archived`, and the job takes
+  check 2 again;
+- **`quarantining`**: the daemon dies once a quarantine's moves are done, with
+  the journal still `quarantining` (raised instead of the `quarantined` save).
+  The next pass restarts, and recovery reconciles the moves and finishes the
+  quarantine;
+- **`cancel`**: the cancel is set between the pass's quarantines and its
+  listing. The fixture reader raises `lsof cancelled`, as `lsof_holders` does.
+  The test checks that the pass reports `cancelled` with more work, and that
+  every job the listing was for keeps its journal: `quarantined` without
+  `check1`, or `archived`.
+
+The model is stricter too: a job may commit only after its own pass's listing
+served its check 2. So a job recovered from `committing` must take check 2
+again; it can't commit on the check 2 it had before the crash. Three
+`@example`s run each cut whatever Hypothesis draws. Drain passes now jump the
+clock before each pass, because a restart recalls a rolled-back job's
+wall-clock deferral from its idle journal, and that could otherwise strand the
+job.
+
+### Mutants
+
+Each mutant was applied alone, in place, to `subfleet/retention.py` or
+`subfleet/daemon.py`. After each run, both files were restored from pristine
+copies, and their sha256 was checked against the committed bytes
+(`1fac2197545b…` and `4dcb005d672e…`). I didn't use `git checkout`. Copying the
+whole tree per mutant was too slow on this disk, so I stopped that copy.
+
+| Mutant | Tests run | Result | Killed by |
+|---|---|---|---|
+| 1. Stamp comparison replaced by `True` (both checks) | `test_retention_listings.py`, the property test (10 drawn + 3 explicit examples), `-n 2` | **survived**: 13 passed in 832 s | none, as expected (finding 2); documented in design §8 |
+| 2. `ctx.saw` dropped from recovery | the clock-stepped-back test and the event-order test, `-n 2` | **killed**: 1 failed, 1 passed, 123 s | `test_a_restart_with_the_clock_stepped_back_still_serves_the_waiting_job` |
+| 3. Batch accounting counts `finishing` again | `test_one_listing_a_pass_serves_both_checks`, `test_retention_archive.py::test_batch_bounds_a_pass_and_takes_the_oldest_first`, `-n 2` | **killed**: 2 failed, 148 s | both |
+| 4. Finding 1's catch-up rule removed | `test_native_maintenance_startup.py -k "waiting or scan or two_clocks or rearm"`, `-n 4` | **killed**: 3 failed, 8 passed, 187 s | `test_a_failed_holder_scan_keeps_a_job_waiting_for_check_2_on_the_catch_up_clock`, `test_a_failed_holder_scan_with_a_waiting_job_is_marked_scan_failed`, `test_retention_runs_exactly_when_its_two_clocks_allow` |
+| 5. Finding 4's per-job `try` removed | `test_a_bad_manifest_puts_back_only_its_own_job`, the reader-failure test, `-n 2` | **killed**: 1 failed, 1 passed, 96 s | `test_a_bad_manifest_puts_back_only_its_own_job` |
+
+### Commands and results
+
+Every run used `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)` and `uv run --no-sync
+--with 'pytest-xdist>=3.6' python -m pytest -q -p no:cacheprovider --basetemp
+<new dir>`, with at most four workers across concurrent runs.
+
+The `--with` environment in the shared `$TMPDIR/uv-cache` had lost its
+`pyvenv.cfg`: uv built an empty overlay, and pytest rejected `-n`. So I set
+`UV_CACHE_DIR=$TMPDIR/hn-r1/uv-cache`, a cache of this job's own. `uv sync
+--group dev` gave Python 3.15.2.
+
+| Command | Result |
+|---|---|
+| `gh run view 42368334717 --log-failed` | 40 failing tests (3.12), the same for 3.14 shards 1 and 2; 3.14 shards 3 to 5 cancelled |
+| the 6 failing modules at 2a6a9f2e6, `-n 4` | cut off by the tool after 124 tests: 114 passed, 10 failed (the targeted reruns below name every failure) |
+| the 21 failing fake-provider node IDs at 2a6a9f2e6, `-n 4` | **21 failed** in 399 s |
+| the 19 failing nested-lease node IDs, from a `git archive 2a6a9f2e6` copy, `-n 4` | **19 failed** in 290 s |
+| the 40 node IDs with the fix (f4abb4a31's tree), `-n 4` | cut off by the tool: **31 passed, 0 failed** |
+| the 19 nested-lease node IDs from a `git archive 087bac39c` copy, `-n 2` | cut off by the tool: **11 passed, 0 failed** |
+| the 21 fake-provider node IDs at 02f3ca168's tree, `-n 4` | **21 passed** in 93 s |
+| the 19 nested-lease node IDs at 02f3ca168's tree, `-n 4` | **19 passed** in 61 s |
+| `test_retention_listings.py test_retention_listings_properties.py tests/fake/test_native_maintenance_startup.py`, `-n 4` | **57 passed** in 559 s (12 listing tests, the property test with 10 drawn + 3 explicit examples, 44 daemon tests including the 80-example pacing property) |
+| mutants 1 to 5 | as in the table above |
+| the six CI modules whole, plus step 2's eight files, `RETENTION_PROP_EXAMPLES=50`, `-n 4`, at 02f3ca168's tree | cut off by the tool after 20 minutes: **255 passed, 0 failed, 0 errors** of about 313 (from pytest's percentages) |
+
+### What didn't run
+
+- **Step 1 and step 2, in full.** One run held the six CI modules whole and all
+  eight of step 2's files, with 50 listing-property examples. It passed 255 of
+  about 313 tests, with no failure or error, before the tool cut it off. The
+  `-q` dots don't say which tests were left. The slowest are the likely ones: the
+  50-example listing property, `test_retention_archive_properties.py` and the
+  heavy archive tests. So **the 50-example property run isn't confirmed**. The
+  listing property passed twice at 13 examples (10 drawn and 3 explicit): once
+  at the fix, and once under mutant 1. Rerun step 2 with
+  `RETENTION_PROP_EXAMPLES=50`.
+- **Step 3: every other `tests/{fake,unit}/test_retention_*.py` module.** Not run.
+- **Step 4.** `test_timers_retention.py`, `tests/fake/test_state_contract.py`,
+  `test_test_module_names.py`, `test_invariants_index.py` and
+  `test_handler_refusals.py` didn't run: the time ran out.
+- **`test_retention_81_notes.py`'s survey tests**, which call `survey()`,
+  whose estimate changed (finding 3). `test_retention_archive.py`'s two survey
+  tests were in the cut-off run, which doesn't say whether they ran. By grep,
+  none of them compares an estimate key.
+- **A review of this round.**
+
+CI runs the whole suite on push.
+
+### Commits
+
+- b9f70bafa: the six modules marked `retention_catch_up` (the CI failures).
+- f4abb4a31: findings 1, 4 and 5, with their tests and the `catch_up` change.
+- 087bac39c: finding 6, the property test.
+- 02f3ca168: C-8.4, design §8 and §12, and the survey's estimate (findings 1 to
+  5). The brief's `docs/retention-archive.md` is
+  `docs/desktop/retention-archive.md`. That file keeps no per-change log: its
+  revision list stops at 7, and the PRs since added none. So C-8.4's new
+  change-log line in `docs/acceptance-contract.md` covers both files.
+- This report section is the next commit.
+
+Git let me commit every step. HEAD is detached in this job's worktree. The hub
+should move `fix/holders-narrow-217` to the commit that adds this section.
