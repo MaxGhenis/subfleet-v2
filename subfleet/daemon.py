@@ -1955,9 +1955,12 @@ class Daemon:
         """`tasks [list]`, `tasks hold <task> --until <iso> --note <text>`, `tasks release <task>` (C-11.10)."""
         if a.action == "list":
             return {"task_holds": task_holds.listing(self._task_holds_now())}
-        if a.action == "hold":
+        if a.action in ("hold-if", "release-if") and a.if_note_prefix is None:
+            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-note"][0],
+                                         reason="task-hold-note")
+        if a.action in ("hold", "hold-if"):
             return self._hold_task(a)
-        if a.action == "release":
+        if a.action in ("release", "release-if"):
             return self._release_task(a)
         raise protocol.ProtocolError("tasks: the action is list, hold or release", reason="tasks-action")
 
@@ -1982,6 +1985,8 @@ class Daemon:
         try:
             note = task_holds.note_text(a.note)
             prefix = task_holds.note_text(a.if_note_prefix) if a.if_note_prefix is not None else None
+            if prefix is not None and prefix != a.if_note_prefix:
+                raise ValueError("--if-note-prefix must not have surrounding spaces")
             if prefix is not None and not note.startswith(prefix):
                 raise ValueError("the new note must start with --if-note-prefix")
         except ValueError:
@@ -2040,6 +2045,8 @@ class Daemon:
         task = a.task
         try:
             prefix = task_holds.note_text(a.if_note_prefix) if a.if_note_prefix is not None else None
+            if prefix is not None and prefix != a.if_note_prefix:
+                raise ValueError("--if-note-prefix must not have surrounding spaces")
         except ValueError:
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-note"][0],
                                          reason="task-hold-note") from None
