@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-FABLE = "claude-fable-5-1"
+FABLE = "claude-fable-5-2"
 
 
 def usage_rows(e2e):

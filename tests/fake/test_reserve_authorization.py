@@ -142,7 +142,7 @@ def test_successful_probe_cannot_override_new_capacity_evidence(reserve_state, m
                 ReadingLabel.PROVIDER, "oauth-usage", utcnow()))
         else:
             observed = utcnow()
-            for scope, used in (("account", .4), ("claude-fable-5-1", .2)):
+            for scope, used in (("account", .4), ("claude-fable-5-2", .2)):
                 service.store.add_reading(Reading(LANE, scope, "seven_day", used, after(86400),
                     ReadingLabel.PROVIDER, "oauth-usage", observed))
 

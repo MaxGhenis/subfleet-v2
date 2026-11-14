@@ -86,9 +86,9 @@ OAUTH_USAGE_BETA = "oauth-2025-04-20"
 SOURCE_OAUTH_USAGE = "oauth-usage"
 USAGE_TIMEOUT_S = 15.0
 #: `limits[].scope.model.display_name` -> policy model id for the model-scoped weekly
-#: windows the usage endpoint reports (C-9.9, C-11.7). An unknown name keeps its
-#: lower-cased display name as scope; the scheduler ignores scopes it has no model for.
-SCOPED_MODEL_IDS = {"fable": "claude-fable-5-1", "opus": "claude-opus-5-5",
+#: windows the usage endpoint reports (C-9.9, C-11.7). An unknown display name
+#: makes the whole response unavailable as a malformed scoped window.
+SCOPED_MODEL_IDS = {"fable": "claude-fable-5-2", "opus": "claude-opus-5-5",
                     "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5-20251001"}
 # Claude Code 2.1.278's own limit labels identify this as the Fable bucket,
 # distinct from the all-model seven_day window (verified 2026-09-20).
@@ -155,6 +155,19 @@ of background work is orphaned. Therefore:
 
 
 # --- small shared helpers ----------------------------------------------------
+
+
+def scoped_window_scope(window: str | None, model_id: str | None) -> str:
+    """C-9.8: a stream bucket follows the attempt's model within its family."""
+    default = SCOPED_RATE_LIMITS.get(window)
+    if default is None:
+        return "account"
+    # The conversation suffix helper imports this adapter, so cannot be reused here.
+    model = (model_id or "").removesuffix("[1m]")
+    match = re.fullmatch(r"claude-([^-\[\]]+)-[^\[\]]+", model)
+    if match and match[1] == default.split("-", 2)[1]:
+        return model
+    return default
 
 
 def iso_utc(when: datetime) -> str:
@@ -1018,8 +1031,9 @@ class ClaudeAdapter(Adapter):
         """C-9.8, exactly.
 
         `status: allowed` (and `allowed_warning`) yields one `provider` reading per
-        `unifiedWindows` entry, scope `account`, `utilization` as the fraction the
-        server sent and `resetsAt` converted to ISO 8601 UTC.
+        `unifiedWindows` entry, scoped by its family and the attempt's model,
+        `utilization` as the fraction the server sent and `resetsAt` converted to
+        ISO 8601 UTC.
 
         `status: rejected` yields no utilization reading at all — only an
         `admission-observed` rejection for the requested model, carrying the event's
@@ -1058,7 +1072,7 @@ class ClaudeAdapter(Adapter):
             if (value.utilization is None or not math.isfinite(value.utilization)
                     or value.utilization < 0):
                 continue
-            scope = SCOPED_RATE_LIMITS.get(window, "account")
+            scope = scoped_window_scope(window, model_id)
             readings.append(
                 Reading(
                     lane_id=lane_id,
@@ -1696,7 +1710,7 @@ class ClaudeAdapter(Adapter):
                     f"for {scope}"
                 )
             else:
-                scope = SCOPED_RATE_LIMITS.get(info.rate_limit_type, "account")
+                scope = scoped_window_scope(info.rate_limit_type, model_id)
                 reason = ClosureReason.PROVIDER_LIMIT
                 window = info.rate_limit_type or "account"
                 detail = (

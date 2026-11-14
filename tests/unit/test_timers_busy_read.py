@@ -282,7 +282,7 @@ def test_c9_9_a_busy_claude_lane_uses_the_no_turn_oauth_sensor(rig, monkeypatch)
     readings = rig.store.list_readings(lane.lane_id)
     assert {(r["scope"], r["window"], r["source"]) for r in readings} == {
         ("account", "five_hour", "oauth-usage"), ("account", "seven_day", "oauth-usage"),
-        ("claude-fable-5-1", "seven_day", "oauth-usage")}
+        ("claude-fable-5-2", "seven_day", "oauth-usage")}
     assert leases(rig.store) == before
     assert rig.turns == [] and rig.events("timer.reservation", lane) == []
 
