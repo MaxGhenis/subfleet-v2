@@ -33,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import weakref
 from uuid import uuid4
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -615,6 +616,38 @@ def worker_retry_delay(failures: int) -> float:
     return min(WORKER_RETRY_CEILING_S, WORKER_RETRY_BASE_S * 2 ** min(max(failures, 1) - 1, 16))
 
 
+#: C-5.10: the first failure of a paced streak, then the 33rd, 65th, ...
+WORKER_CAUSE_EVERY = 32
+#: C-5.10: distinct causes remembered before starting again.
+TRACED_CAUSES_MAX = 256
+
+
+def raise_signature(exc: BaseException) -> tuple:
+    """C-5.10: exception types and raise locations, independent of their words.
+
+    Read no source files or exception messages. Cyclic chains terminate and
+    unreadable exception metadata has a fixed fallback: this runs inside the
+    control loop's exception handler, which another raise would leave.
+    """
+    try:
+        links, seen, link = [], set(), exc
+        while link is not None and id(link) not in seen:
+            seen.add(id(link))
+            # Read stored metadata, bypassing exception subclasses' hooks: a
+            # hostile __traceback__ must not merge distinct raise locations.
+            tb = BaseException.__traceback__.__get__(link)
+            frames = tuple((frame.f_code.co_filename, lineno, frame.f_code.co_name)
+                           for frame, lineno in traceback.walk_tb(tb))
+            links.append((type(link).__qualname__, frames))
+            cause = BaseException.__cause__.__get__(link)
+            link = (cause if cause is not None else None
+                    if BaseException.__suppress_context__.__get__(link)
+                    else BaseException.__context__.__get__(link))
+        return tuple(links)
+    except Exception:                       # noqa: BLE001 - never render a failed signature
+        return (("exception", ()),)
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -927,6 +960,11 @@ class Daemon:
         # C-5.10: worker key -> consecutive failures, and the earliest next try.
         self._worker_failures: dict[str, int] = {}
         self._worker_retry_at: dict[str, float] = {}
+        # C-5.10: control causes since the last completed iteration, and request
+        # causes per operation for this daemon's lifetime. Requests run in pools.
+        self._control_traced: set[tuple] = set()
+        self._request_traced: set[tuple] = set()
+        self._request_traced_lock = threading.Lock()
         self._last_maintenance = time.monotonic()
         self._retention_dormant_logged = False
         # d635: deferrals and measured sizes carried between retention passes.
@@ -5477,10 +5515,12 @@ class Daemon:
                         self._worker_failures.pop(key, None)
                     self._worker_retry_at.pop(key, None)
             except Exception as exc:
-                # Provider/keychain errors can contain secrets; log the error
-                # type only. Safe details belong in structured outcome rows.
+                # C-5.10: the existing handler scrubs and bounds the whole record,
+                # including the cause's traceback, message, notes and chain.
                 if not paced:
-                    self.log.error("worker %s failed: %s", key, type(exc).__name__)
+                    # True uses the active exception without Logger._log reading
+                    # an exception subclass's overridden __traceback__ attribute.
+                    self.log.error("worker %s failed: %s", key, type(exc).__name__, exc_info=True)
                     return
                 # C-5.10: the control loop offers every live key again each tick,
                 # so a worker that raises at once would otherwise be retried, and
@@ -5491,9 +5531,10 @@ class Daemon:
                     self._worker_retry_at[key] = time.monotonic() + delay
                 if key == "retention":
                     self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))
-                if count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
+                cause = count % WORKER_CAUSE_EVERY == 1          # 1, 33, 65, ...
+                if cause or count & (count - 1) == 0:     # powers of two and each cause
                     self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
-                                   key, type(exc).__name__, count, delay)
+                                   key, type(exc).__name__, count, delay, exc_info=cause)
             finally:
                 # Waiters read only the store, so a pass during which nothing
                 # was committed (a running attempt's tick, an idle admission
@@ -5785,9 +5826,22 @@ class Daemon:
                     self._schedule("timer-recovery", self._recover_then_start_timers, paced=True)
                 if self._retention_due():
                     self._schedule("retention", self._retention, paced=True)
+                self._control_traced.clear()
             except Exception as exc:
-                self.log.error("control iteration failed: %s", type(exc).__name__)
+                first = self._first_trace(self._control_traced, raise_signature(exc))
+                self.log.error("control iteration failed: %s", type(exc).__name__,
+                               exc_info=first)
             self.stopping.wait(self.tick_s)
+
+    @staticmethod
+    def _first_trace(traced: set[tuple], signature: tuple) -> bool:
+        """C-5.10: remember a new signature, starting again when the set is full."""
+        if signature in traced:
+            return False
+        if len(traced) >= TRACED_CAUSES_MAX:
+            traced.clear()
+        traced.add(signature)
+        return True
 
     def _timer_notice(self, notice: dict) -> bool:
         """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
@@ -12425,7 +12479,10 @@ class Daemon:
         except (ValueError, TypeError, KeyError) as exc:
             response = protocol.refuse(req.id, exc)
         except Exception as exc:
-            self.log.error("request %s failed: %s", req.op, type(exc).__name__)
+            with self._request_traced_lock:
+                first = self._first_trace(self._request_traced, (req.op, raise_signature(exc)))
+            self.log.error("request %s failed: %s", req.op, type(exc).__name__,
+                           exc_info=first)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         send_reply(conn, write_lock, response, end_stream=self._end_stream)
 
