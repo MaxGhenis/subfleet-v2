@@ -694,3 +694,9 @@ def test_only_events_that_name_a_service_notice_are_read(retained):
     store, _ = retained
     with pytest.raises(ValueError, match="names a service notice"):
         pin_notice_jobs(store.query, [{"notice_id": 1, "session_id": "s", "created_at": "t"}], kinds=("job.ended",))
+
+
+# Release/217 (#294, D-NOTICE-KEEP1) wrote these tests against the one-pass rule. Under #297 a
+# job archived in a pass retires after the next pass's listing (C-8.4), so one maintenance
+# call runs the catch-up passes the daemon would (as fix round 2 did for its modules).
+pytestmark = pytest.mark.retention_catch_up

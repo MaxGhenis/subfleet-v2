@@ -7,6 +7,7 @@ call adapter methods on fixture directories directly.
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -367,6 +368,7 @@ def catch_up(real):
     waits, as the daemon's pacing does (review r1, finding 1)."""
     from subfleet import retention
 
+    @functools.wraps(real)           # keeps the real signature for a test that inspects it
     def maintenance(*args, **kwargs):
         if kwargs.get("state") is None:
             kwargs["state"] = retention.RetentionState()
