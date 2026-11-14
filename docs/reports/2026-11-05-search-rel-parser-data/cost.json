@@ -1,0 +1,450 @@
+{
+ "interpreter": "/opt/homebrew/bin/python3",
+ "load": [
+  14.55859375,
+  22.3466796875,
+  31.81201171875
+ ],
+ "rows": [
+  {
+   "command": "ls -la",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    17.50830078125,
+    29.0908203125,
+    36.2880859375
+   ],
+   "before": {
+    "wall_median": 113.2,
+    "wall_worst": 181.5,
+    "cpu_median": 49.8
+   },
+   "after": {
+    "wall_median": 107.9,
+    "wall_worst": 180.4,
+    "cpu_median": 50.2
+   },
+   "added_wall_median": -5.3,
+   "added_cpu_median": 0.4
+  },
+  {
+   "command": "git push origin x",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    18.62744140625,
+    28.9541015625,
+    36.1552734375
+   ],
+   "before": {
+    "wall_median": 232.0,
+    "wall_worst": 683.5,
+    "cpu_median": 115.1
+   },
+   "after": {
+    "wall_median": 233.8,
+    "wall_worst": 375.7,
+    "cpu_median": 111.8
+   },
+   "added_wall_median": 1.8,
+   "added_cpu_median": -3.3
+  },
+  {
+   "command": "ps aux | grep foo",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    19.01416015625,
+    28.70556640625,
+    35.9833984375
+   ],
+   "before": {
+    "wall_median": 244.7,
+    "wall_worst": 368.5,
+    "cpu_median": 99.1
+   },
+   "after": {
+    "wall_median": 396.5,
+    "wall_worst": 475.5,
+    "cpu_median": 159.2
+   },
+   "added_wall_median": 151.8,
+   "added_cpu_median": 60.1
+  },
+  {
+   "command": "find <home>/.subfleet/worktrees -name AGENTS.md",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    19.68505859375,
+    28.3642578125,
+    35.7333984375
+   ],
+   "before": {
+    "wall_median": 276.3,
+    "wall_worst": 372.2,
+    "cpu_median": 163.4
+   },
+   "after": {
+    "wall_median": 296.9,
+    "wall_worst": 454.3,
+    "cpu_median": 164.3
+   },
+   "added_wall_median": 20.6,
+   "added_cpu_median": 0.9
+  },
+  {
+   "command": "find <wt>/.. -name AGENTS.md",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    19.47021484375,
+    28.0244140625,
+    35.52587890625
+   ],
+   "before": {
+    "wall_median": 362.4,
+    "wall_worst": 489.1,
+    "cpu_median": 165.5
+   },
+   "after": {
+    "wall_median": 345.9,
+    "wall_worst": 507.2,
+    "cpu_median": 164.6
+   },
+   "added_wall_median": -16.5,
+   "added_cpu_median": -0.9
+  },
+  {
+   "command": "find .. -name AGENTS.md",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    18.83984375,
+    27.32568359375,
+    35.10009765625
+   ],
+   "before": {
+    "wall_median": 296.1,
+    "wall_worst": 447.4,
+    "cpu_median": 136.9
+   },
+   "after": {
+    "wall_median": 452.3,
+    "wall_worst": 628.9,
+    "cpu_median": 217.7
+   },
+   "added_wall_median": 156.2,
+   "added_cpu_median": 80.8
+  },
+  {
+   "command": "cd .. && find . -name AGENTS.md",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    18.48291015625,
+    26.96875,
+    34.88232421875
+   ],
+   "before": {
+    "wall_median": 299.7,
+    "wall_worst": 444.0,
+    "cpu_median": 134.1
+   },
+   "after": {
+    "wall_median": 442.6,
+    "wall_worst": 562.8,
+    "cpu_median": 211.3
+   },
+   "added_wall_median": 142.9,
+   "added_cpu_median": 77.2
+  },
+  {
+   "command": "rg --files -g AGENTS.md ..",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    18.15283203125,
+    26.466796875,
+    34.56396484375
+   ],
+   "before": {
+    "wall_median": 211.5,
+    "wall_worst": 425.7,
+    "cpu_median": 144.9
+   },
+   "after": {
+    "wall_median": 367.4,
+    "wall_worst": 580.9,
+    "cpu_median": 219.9
+   },
+   "added_wall_median": 155.9,
+   "added_cpu_median": 75.0
+  },
+  {
+   "command": "grep -rl AGENTS ..",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    17.05224609375,
+    25.95703125,
+    34.2880859375
+   ],
+   "before": {
+    "wall_median": 150.3,
+    "wall_worst": 225.8,
+    "cpu_median": 138.0
+   },
+   "after": {
+    "wall_median": 238.7,
+    "wall_worst": 274.7,
+    "cpu_median": 194.1
+   },
+   "added_wall_median": 88.4,
+   "added_cpu_median": 56.1
+  },
+  {
+   "command": "find ../.. -name x",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    16.8642578125,
+    25.62744140625,
+    34.07373046875
+   ],
+   "before": {
+    "wall_median": 175.5,
+    "wall_worst": 334.2,
+    "cpu_median": 126.0
+   },
+   "after": {
+    "wall_median": 311.3,
+    "wall_worst": 512.3,
+    "cpu_median": 205.9
+   },
+   "added_wall_median": 135.8,
+   "added_cpu_median": 79.9
+  },
+  {
+   "command": "find ../../.. -name x",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    16.31787109375,
+    25.22607421875,
+    33.8330078125
+   ],
+   "before": {
+    "wall_median": 204.9,
+    "wall_worst": 282.5,
+    "cpu_median": 137.4
+   },
+   "after": {
+    "wall_median": 295.0,
+    "wall_worst": 363.7,
+    "cpu_median": 215.0
+   },
+   "added_wall_median": 90.1,
+   "added_cpu_median": 77.6
+  },
+  {
+   "command": "find . -name AGENTS.md",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    16.5537109375,
+    24.9736328125,
+    33.64208984375
+   ],
+   "before": {
+    "wall_median": 199.4,
+    "wall_worst": 245.8,
+    "cpu_median": 131.7
+   },
+   "after": {
+    "wall_median": 273.0,
+    "wall_worst": 392.2,
+    "cpu_median": 196.5
+   },
+   "added_wall_median": 73.6,
+   "added_cpu_median": 64.8
+  },
+  {
+   "command": "rg -n foo subfleet",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    16.90966796875,
+    24.9072265625,
+    33.56787109375
+   ],
+   "before": {
+    "wall_median": 176.3,
+    "wall_worst": 281.9,
+    "cpu_median": 138.9
+   },
+   "after": {
+    "wall_median": 233.6,
+    "wall_worst": 420.7,
+    "cpu_median": 194.9
+   },
+   "added_wall_median": 57.3,
+   "added_cpu_median": 56.0
+  },
+  {
+   "command": "grep -rn foo .",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    15.91357421875,
+    24.3046875,
+    33.20166015625
+   ],
+   "before": {
+    "wall_median": 217.3,
+    "wall_worst": 337.5,
+    "cpu_median": 149.4
+   },
+   "after": {
+    "wall_median": 335.2,
+    "wall_worst": 450.5,
+    "cpu_median": 210.7
+   },
+   "added_wall_median": 117.9,
+   "added_cpu_median": 61.3
+  },
+  {
+   "command": "cd subfleet && find .. -name x",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    15.27978515625,
+    24.03369140625,
+    33.0537109375
+   ],
+   "before": {
+    "wall_median": 154.5,
+    "wall_worst": 319.4,
+    "cpu_median": 130.8
+   },
+   "after": {
+    "wall_median": 263.9,
+    "wall_worst": 417.7,
+    "cpu_median": 189.8
+   },
+   "added_wall_median": 109.4,
+   "added_cpu_median": 59.0
+  },
+  {
+   "command": "find .. -name x",
+   "cwd": "<wt>/subfleet",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    15.01953125,
+    23.54248046875,
+    32.72021484375
+   ],
+   "before": {
+    "wall_median": 291.8,
+    "wall_worst": 421.8,
+    "cpu_median": 136.0
+   },
+   "after": {
+    "wall_median": 390.1,
+    "wall_worst": 593.6,
+    "cpu_median": 196.5
+   },
+   "added_wall_median": 98.3,
+   "added_cpu_median": 60.5
+  },
+  {
+   "command": "find ../.. -name x",
+   "cwd": "<wt>/subfleet",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    16.14599609375,
+    23.38232421875,
+    32.50244140625
+   ],
+   "before": {
+    "wall_median": 321.3,
+    "wall_worst": 404.7,
+    "cpu_median": 141.7
+   },
+   "after": {
+    "wall_median": 455.6,
+    "wall_worst": 644.5,
+    "cpu_median": 226.5
+   },
+   "added_wall_median": 134.3,
+   "added_cpu_median": 84.8
+  },
+  {
+   "command": "find .. -maxdepth 1 -name x",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    16.53662109375,
+    23.22265625,
+    32.33837890625
+   ],
+   "before": {
+    "wall_median": 225.3,
+    "wall_worst": 304.5,
+    "cpu_median": 94.2
+   },
+   "after": {
+    "wall_median": 304.5,
+    "wall_worst": 373.8,
+    "cpu_median": 154.2
+   },
+   "added_wall_median": 79.2,
+   "added_cpu_median": 60.0
+  },
+  {
+   "command": "rg --files ../..",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    15.1298828125,
+    22.58935546875,
+    31.95263671875
+   ],
+   "before": {
+    "wall_median": 209.9,
+    "wall_worst": 341.7,
+    "cpu_median": 145.3
+   },
+   "after": {
+    "wall_median": 316.1,
+    "wall_worst": 454.9,
+    "cpu_median": 217.6
+   },
+   "added_wall_median": 106.2,
+   "added_cpu_median": 72.3
+  },
+  {
+   "command": "cd .. && rg --files",
+   "cwd": "<wt>",
+   "hooks": "74c4c91c35d3a598194371fb6e09fdefd7981d717731cd6e5431d5b245cc087b",
+   "load": [
+    14.55859375,
+    22.3466796875,
+    31.81201171875
+   ],
+   "before": {
+    "wall_median": 155.4,
+    "wall_worst": 188.4,
+    "cpu_median": 129.8
+   },
+   "after": {
+    "wall_median": 233.1,
+    "wall_worst": 341.8,
+    "cpu_median": 195.3
+   },
+   "added_wall_median": 77.7,
+   "added_cpu_median": 65.5
+  }
+ ]
+}

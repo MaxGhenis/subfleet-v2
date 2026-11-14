@@ -1,0 +1,42 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_events_arriving_between_pages_stay_past_captured_upper_id ________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-captured-upper-id-basetemp/test_events_arriving_between_p0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1092e28b0>
+
+    def test_events_arriving_between_pages_stay_past_captured_upper_id(tmp_path, monkeypatch):
+        root, writer, data = _ledger(tmp_path, 1001)
+        expected_ids = [row[0] for row in writer.connection.execute(
+            "SELECT event_id FROM events WHERE kind=? ORDER BY event_id", (rnotices.RETIRED_EVENT,))]
+        real_query = Store.query
+        seen_ids = []
+        inserted = []
+    
+        def append_after_first_page(reader, sql, params=()):
+            rows = real_query(reader, sql, params)
+            if _is_page(reader, sql):
+                seen_ids.extend(row["event_id"] for row in rows)
+                if not inserted:
+                    cursor = writer.connection.execute(
+                        "INSERT INTO events(ts,kind,job_id,data_json) VALUES(?,?,?,?)",
+                        ("2026-11-02T00:00:00Z", rnotices.RETIRED_EVENT, "gone", data),
+                    )
+                    inserted.append(cursor.lastrowid)
+            return rows
+    
+        monkeypatch.setattr(Store, "query", append_after_first_page)
+        try:
+            report, error = _lookup_result(root)
+            assert error is None, error
+            assert inserted and inserted[0] > max(expected_ids)
+>           assert seen_ids == expected_ids
+E           assert [2, 3, 4, 5, 6, 7, ...] == [2, 3, 4, 5, 6, 7, ...]
+E             
+E             Left contains one more item: 1003
+E             Use -v to get more diff
+
+tests/unit/test_retention_outcome_pages.py:214: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_outcome_pages.py::test_events_arriving_between_pages_stay_past_captured_upper_id
+1 failed in 24.73s

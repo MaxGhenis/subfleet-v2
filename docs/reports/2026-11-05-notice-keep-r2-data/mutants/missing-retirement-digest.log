@@ -1,0 +1,17 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_retirement_event_without_digest_names_nothing ______________
+
+    def test_retirement_event_without_digest_names_nothing():
+        row = notice()
+>       assert pin_notice_jobs(query_for([event(1, row, digest=False)]), [row]) == {}
+E       AssertionError: assert {1: 'job-1'} == {}
+E         
+E         Left contains 1 more item:
+E         {1: 'job-1'}
+E         Use -v to get more diff
+
+tests/unit/test_pin_notice_identity.py:59: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_pin_notice_identity.py::test_retirement_event_without_digest_names_nothing
+1 failed in 52.28s
