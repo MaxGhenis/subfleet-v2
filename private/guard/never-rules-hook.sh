@@ -56,6 +56,15 @@
 #     heredoc into a shell, an arithmetic <<, the commit idiom's lone ",
 #     =cmd after a backtick, hostile $ # \ words and dense substitutions,
 #     <(...) scripts and loop variables.
+#     D-SEARCH-REL1 (2026-11-05) added a second judgment after that regex
+#     judgment: unscoped_search.py, the analyzer the Claude hook calls,
+#     embedded in the region byte for byte (the "unscoped-search: parser"
+#     block), so this file's pin covers it. The regex judgment never resolved
+#     a relative root against the cwd: on 11/04 one lane's find .. from its
+#     job worktree walked every job worktree for 38 minutes. The parser
+#     splits the command as the shell does, follows cd and resolves every
+#     root against the cwd. The hook blocks when either judgment blocks; when
+#     the parser cannot run, the regex judgment decides alone, as before.
 #     Change a root on both sides in one reviewed step: here, and in
 #     unscoped_search.py (BROAD_RE, HOME_SUBDIRS, expand()).
 #
@@ -67,7 +76,7 @@
 #   corpus-push      pushing axiom-corpus main directly (.github#39 rule 6)
 #   stash-shared     git stash in a repo with >1 worktree (stash stack is repo-global)
 #   local-main       branching from local main when origin/main exists
-#   unscoped-search  whole-tree find/rg/grep -r over broad roots (8/8, 8/18 and 10/24 incidents)
+#   unscoped-search  whole-tree find/rg/grep -r over broad roots (8/8, 8/18, 10/24 and 11/04 incidents)
 #   hf-dest          editing HF upload destinations in policyengine-uk-data (adapted:
 #                    Codex edits arrive as apply_patch payloads or shell heredocs)
 #
@@ -2435,8 +2444,9 @@ pw_named() {
     || printf '%s' "$1" | grep -qE "\\\$'[^']*\\\\[0-7xX]" \
     || printf '%s' "$1" | grep -qE "(^|[[:space:];&|(\`])=(find|rg|[efru]?grep)([[:space:]]|\$)"
 }
-pw_cmd=$command pw_xsh=""
+pw_cmd=$command pw_xsh="" us_ask=""
 if pw_named "$command"; then
+  us_ask=1     # D-SEARCH-REL1: the parser judges this command too (the "unscoped-search: parser" block)
   # r5 decision 8: a command too long to prep (over 64 KB) that names a searcher fails closed, since none of
   # the prep's readings (names, keywords, scripts, heredocs, the no-path judgment) can be made
   [ "${#command}" -le 65536 ] || block "[unscoped-search] Command too long to judge: it is over 64 KB and names a searcher (find, rg or grep), so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth."
@@ -2805,6 +2815,2486 @@ rg --files $pw_t"
     block "[unscoped-search] Whole-tree ${searcher} over a broad root (${pw_roots_msg}) — 8 of these ran in parallel on 8/8 and drove load to 47, and ~22 sol-lane finds on 8/18 held load at 57 for hours, beachballing the Mac. Scope it: exact subdirectory, -maxdepth/--max-depth, 'git ls-files' inside a repo, 'axiom-locate' (engine|release|pypkg|corpus-file) for Axiom artifacts, or the interpreter for python package paths (python -c 'import x; print(x.__file__)'). Matched broad root: '${matched}'."
   fi
 fi
+# >>> unscoped-search: parser begin >>>
+# The parser (D-SEARCH-REL1, 2026-11-05). The regex judgment above resolves
+# absolute roots, and . only when the cwd itself is a broad root; it never
+# resolves a relative root against the cwd, so from a job worktree find ..
+# walks every job worktree and it passed (11/04: one lane's find .. ran 38
+# minutes). The Claude hook's analyzer, unscoped_search.py, sits below byte
+# for byte as the body of us_parse's heredoc (its delimiter is the word
+# __UNSCOPED_SEARCH_PY__; sha256 0ec2f7aa2cbdc171…, the hub's copy read
+# 2026-11-05). It splits the command as the shell does, follows cd
+# and resolves every root against the cwd, and prints three lines (searcher,
+# the root as written, the root resolved) for the first walk of a broad root
+# that nothing bounds, and nothing otherwise; its exit status is 0 either way.
+#   when      only for a command in which the rule's prefilter (pw_named)
+#             found a searcher, and only when the regex judgment did not
+#             block: a regex block keeps its message, and the hook blocks when
+#             either judgment blocks.
+#   how       the session hook's interpreter (/opt/homebrew/bin/python3 when it
+#             is executable, else /usr/bin/python3), isolated (-I -S), the
+#             command on stdin, the cwd, $HOME and $SHELL as its arguments. A
+#             loader given to -c reads the parser from descriptor 3, which the
+#             heredoc opens: Python 3.9 (Apple's /usr/bin/python3) run as
+#             python3 /dev/fd/3 runs nothing and exits 0 when descriptor 3 is a
+#             file, as bash 3.2's heredoc is (seen 2026-11-05): on macOS an
+#             open of /dev/fd/3 shares the descriptor's offset, and 3.9's zip
+#             archive probe of that path leaves it at the end. The loader also
+#             arms a 5 s alarm.
+#   fallback  no interpreter, a nonzero exit (the alarm's kill included) or no
+#             answer: the regex judgment decides alone, as before this block.
+#   message   the rule's message, naming the root as written and, when they
+#             differ, the root resolved: '.. (<home>/.subfleet/worktrees)'.
+# Bash parses the heredoc (under 1 ms of CPU) whenever it reaches this block;
+# the parser runs only as above. One test seam, which the daemon's launch
+# environment (an exact allowlist, subfleet/launch_env.py) never carries to a
+# lane: CODEX_GUARD_TEST_PYTHON names the interpreter instead (a path that is
+# not executable is no interpreter).
+us_parse() {
+  "$us_py" -I -S -c "$us_boot" "$cwd" "$HOME" "${SHELL:-}" 3<<'__UNSCOPED_SEARCH_PY__'
+#!/usr/bin/env python3
+"""Argument-aware analyzer for the [unscoped-search] rule in guard-never-rules.sh.
+
+    printf '%s' "$command" | python3 -I -S unscoped_search.py <cwd> <home> [<shell>]
+
+Prints three lines (searcher, the root as written, the root resolved) for the
+first search that walks a broad or system-wide root without a depth bound, and
+nothing otherwise. Exit status is 0 either way.
+
+The command is split the way the shell splits it: quotes and escapes, comments,
+heredocs, pipes and lists, subshells, $(...), backticks, <(...), ${...}, and the
+strings handed to sh -c / bash -c / eval. A rule that grepped the raw text
+could not tell `find / -name x` from `awk -F / ...` or a commit message, and
+read `sort -rn` elsewhere in a pipeline as `grep -r` (Fleet ops, 2026-10-20).
+A heredoc body is data, except that $(...) and backticks in it (also inside a
+${...}) run when the delimiter is unquoted. A shell with no script file, or
+the script `-`, /dev/stdin or /dev/fd/0, runs what its stdin holds: a heredoc,
+a here-string, or what echo / printf / cat <<EOF pipe into it.
+Only the paths a searcher will actually walk are judged:
+
+  find, gfind, bfs  every non-expression argument is a start path. Claude Code
+                    runs `find` as bfs, which takes paths anywhere on the line.
+                    None means ".".
+  fd, fdfind        [pattern] [path...]; --search-path, --base-directory.
+                    None means ".".
+  rg                PATTERN [PATH...]; with -e/-f/--files every positional is a
+                    path. None means "." unless stdin is readable input: a pipe,
+                    heredoc, here-string or file. A device (</dev/null), a
+                    closed stdin (<&-) and `-f -` (patterns, not text) leave "."
+                    searched. Redirects apply in order, so `</dev/null <&0` is
+                    still /dev/null, and a shell's commands inherit its stdin.
+  grep family       judged only when recursive (-r, -R, --recursive,
+                    -d recurse, rgrep). None means ".": ugrep, which Claude
+                    Code runs for `grep`, walks "." under -r even when stdin
+                    is a pipe.
+
+`cd`/`pushd` move the working directory for the commands after them, through
+CDPATH (zsh tries the directory itself first, bash CDPATH first); subshell and
+$(...) changes do not leak out. A cd fails when its target is not a directory
+it can enter now, checked before `..` is folded, unless an earlier command
+that could create it names it (`mkdir -p x; cd x`). What runs after a failing
+cd on `;`, a newline or `||` is judged in the old directory too.
+Expansion follows the shell. The Bash tool runs zsh: an unquoted $V is one
+word and its value does not glob (unless shwordsplit / globsubst, ${=V},
+${~V}); an array's $A is every element and ${A[1]} the first. bash (inside
+bash -c, sh -c, `bash <<EOF`) splits an unquoted expansion on IFS, globs it,
+and counts arrays from 0, where $A is ${A[0]}. ${V:-word} and its kin yield
+their operand when V is unset or empty, and ${V:=word} assigns as it expands.
+Assignments run left to right: an assignment's $(...) sees those before it,
+and VAR=x prefixes reach only their command (eval's text too; POSIX mode keeps
+them for special builtins). A child shell sees only exported variables, never
+an array, and one unset here is unset there. A pipeline's commands run in
+subshells (all but zsh's last), as does a command sent to the background with
+&; bash's last under lastpipe is judged both ways, since the bash on PATH is
+3.2, which has no lastpipe. A pipe into a shell runs what its producer writes
+(echo, printf, cat <<EOF, also behind env -C, nice and the other wrappers), and
+$(...) has a known output when it is one plain command (pwd, echo, printf,
+dirname, basename, cat <<'EOF'). A `**/` glob (zsh, or bash with globstar,
+honored although 3.2 lacks it) in a searcher's arguments is a walk the shell
+does itself, so `grep x ~/PolicyEngine/**/*.py` is judged by the directory
+before the `**` (not under noglob). Any other glob under a broad root is judged
+by what it matches on the file system now: `rg x ~/Pol*` walks ~/PolicyEngine,
+`rg x ~/.subfleet/*.json` reads files.
+The search is depth-bounded, and passes, only when the searcher's
+own options say so: -maxdepth / --max-depth (rg and fd also -d N, fd
+--exact-depth, ugrep --depth and -NUM, the last only for the shell-function
+grep, not one run through a path, `command`, a wrapper or find -exec). Values
+the hook cannot know ($1, other $(...) output, a variable the command never
+set) are never judged broad, and neither is a root that exists as a file
+(`grep -rn x ~/.subfleet/policy.json` reads one file).
+
+Stdlib only and Python 3.9-compatible: Apple's /usr/bin/python3 is 3.9.
+"""
+
+import fnmatch
+import os
+import posixpath
+import re
+import sys
+
+SUB = "\x00"        # stands in for the unknown value of a $(...) / `...` / <(...)
+PARAM = "\x01"      # stands in for a ${...}; the Param in Word.chars carries its parse
+MAX_NEST = 24       # nesting limit for $(...), subshells, sh -c and eval
+MAX_FORKS = 8       # cap on the extra passes for a cd that may fail
+MAX_GLOB_ENTRIES = 20000    # directory entries one word's globs may list; the rest is not judged
+UNSET = object()    # Env.vars value of a variable known to be unset
+MISSING = object()
+
+# ---------- broad roots ----------
+# Matched (case-insensitively, as APFS is) against the normalized absolute path.
+# Every ancestor of a listed root is listed too: a walk of the parent covers it.
+BROAD_RE = re.compile(r"""
+    /
+  | /Users ( /[^/]+ ( /( TheAxiomFoundation | RulesFoundation | PolicyEngine
+                       | Library (/Caches)? | \.cache | \.local
+                       | \.subfleet (/[^/]+)? ) )? )?   # jobs/, worktrees/, ...: one job's folder is scoped
+  | /Volumes (/[^/]+)?          # /Volumes/Macintosh HD is a link to /
+  | /System (/Volumes)?         # /System/Volumes/Data is mapped to / first
+  | /private | /tmp | /var (/folders)?
+  | /opt (/homebrew)?
+  | /Library | /Applications | /usr
+""", re.X | re.I)
+HOME_SUBDIRS = ("TheAxiomFoundation", "RulesFoundation", "PolicyEngine",
+                "Library", "Library/Caches", ".cache", ".local", ".subfleet")
+HOME_PARENTS = (".subfleet",)   # each folder directly in one is a root too
+
+
+def normalize(path):
+    """Lexically normalize an absolute path and fold macOS aliases of the same tree."""
+    p = posixpath.normpath(re.sub(r"/+", "/", path))
+    if p.startswith("//"):
+        p = "/" + p.lstrip("/")
+    data = "/system/volumes/data"
+    low = p.lower()
+    if low == data:
+        p = "/"
+    elif low.startswith(data + "/"):
+        p = p[len(data):]
+    m = re.match(r"/private(/(?:tmp|var|etc)(?:/.*)?)$", p, re.I)
+    if m:
+        p = m.group(1)
+    return p
+
+
+def is_broad(path, home):
+    if BROAD_RE.fullmatch(path):
+        return True
+    if home:
+        h = normalize(home).lower()
+        low = path.lower()
+        return (low == h or any(low == h + "/" + s.lower() for s in HOME_SUBDIRS)
+                or any(posixpath.dirname(low) == h + "/" + s.lower() for s in HOME_PARENTS))
+    return False
+
+
+# ---------- shell parsing ----------
+class Param(str):
+    """A ${...} in a word. It sits in Word.chars as the one character PARAM, so a word
+    slices and joins as before, and carries the parse: flags (# ! = ~ ^ or zsh (...)),
+    name, subscript text, operator (None, ":-", "-", ":=", "=", ":+", "+", ":?", "?",
+    or "other" for the ones whose value is not tracked) and the operand as a Word."""
+
+    def __new__(cls, flags, name, sub, op, arg, raw):
+        self = str.__new__(cls, PARAM)
+        self.flags, self.name, self.sub, self.op, self.arg = flags, name, sub, op, arg
+        self.raw = raw          # as written, for messages
+        return self
+
+
+class Sub(str):
+    """A $(...) or `...` in a word: the one character SUB, carrying its program, whose
+    output the hook can sometimes work out (sub_output)."""
+
+    def __new__(cls, prog):
+        self = str.__new__(cls, SUB)
+        self.prog = prog
+        return self
+
+
+class Body(str):
+    """A heredoc body as written, and whether its delimiter was quoted (no expansion)
+    or written <<- (leading tabs stripped)."""
+
+    def __new__(cls, text, quoted, strip_tabs):
+        self = str.__new__(cls, text)
+        self.quoted, self.strip_tabs = quoted, strip_tabs
+        return self
+
+
+class Word(object):
+    """A shell word after quote removal. modes[i]: 'u' unquoted, 'd' in double
+    quotes (expansions still happen), 's' literal (single-quoted or escaped)."""
+    __slots__ = ("chars", "modes", "started", "array")
+
+    def __init__(self, chars=None, modes=None):
+        self.chars = chars if chars is not None else []
+        self.modes = modes if modes is not None else []
+        self.started = False
+        self.array = None       # NAME=(a b ...): the element words
+
+    def add(self, ch, mode):
+        self.chars.append(ch)
+        self.modes.append(mode)
+
+    def __bool__(self):
+        return bool(self.chars) or self.started
+
+    @property
+    def text(self):
+        return "".join(self.chars)
+
+    def tail(self, start):
+        return Word(self.chars[start:], self.modes[start:])
+
+    def literal(self):
+        """The text when fully literal (no substitution or ${...}), else None."""
+        return None if SUB in self.chars or PARAM in self.chars else self.text
+
+
+class Command(object):
+    __slots__ = ("words", "op", "redirs", "nested", "nested_at")
+
+    def __init__(self, op=None):
+        self.words = []
+        self.op = op            # the operator before it: None, ";" (also a newline), "&&", "||", "|", "&"
+        self.redirs = []        # [fd, kind, target] in order. kind: file, dup, herestring (target: a
+                                # Word), heredoc (target: the body text)
+        self.nested = []        # programs from $(...), `...`, <(...) in its words and heredocs
+        self.nested_at = []     # the index of the word each is in (a redirect target or heredoc
+                                # counts as the word after it)
+
+    def add_nested(self, prog):
+        self.nested.append(prog)
+        self.nested_at.append(len(self.words))
+
+
+class Subshell(object):
+    __slots__ = ("program", "op")
+
+    def __init__(self, program, op=None):
+        self.program = program
+        self.op = op
+
+
+class TooDeep(Exception):
+    pass
+
+
+REDIR_OPS = ("<<<", "<<-", "<<", "<>", "<&", "<", ">>", ">&", ">|", ">")
+REDIR_KINDS = {"<<": "heredoc", "<<-": "heredoc", "<<<": "herestring", "<&": "dup", ">&": "dup"}
+PARAM_HEAD_RE = re.compile(r"(\([^)]*\)|[#!=~^]+)?([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])")
+PARAM_OPS = (":-", ":=", ":+", ":?", "-", "=", "+", "?")
+ANSI_C = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b",
+          "f": "\f", "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+class Parser(object):
+    def __init__(self, src, nest=0):
+        self.s = src
+        self.n = len(src)
+        self.i = 0
+        self.nest = nest
+
+    def parse(self):
+        return self.program(None)
+
+    def program(self, closer):
+        s, n = self.s, self.n
+        nodes = []
+        st = {"cmd": Command(), "word": Word(), "skip": False}
+        heredocs = []
+
+        def flush_word():
+            w = st["word"]
+            if w:
+                if st["skip"]:
+                    if isinstance(st["skip"], list):
+                        st["skip"][2] = w           # a redirect target, not an argument
+                    st["skip"] = False
+                else:
+                    st["cmd"].words.append(w)
+            st["word"] = Word()
+
+        def flush_cmd(op=None):
+            flush_word()
+            c = st["cmd"]
+            if c.words or c.nested or c.redirs:
+                nodes.append(c)
+            st["cmd"] = Command(op)
+            st["skip"] = False
+
+        while self.i < n:
+            c = s[self.i]
+            word, cmd = st["word"], st["cmd"]
+            if closer is not None and c == closer:
+                self.i += 1
+                flush_cmd()
+                return nodes
+            if c in " \t\r":
+                flush_word()
+                self.i += 1
+            elif c == "\n":
+                flush_cmd(";")
+                self.i += 1
+                if heredocs:
+                    self.read_heredocs(heredocs)
+                    heredocs = []
+            elif c == "#" and not word:
+                j = s.find("\n", self.i)
+                self.i = n if j < 0 else j
+            elif c == "\\":
+                if self.i + 1 < n and s[self.i + 1] != "\n":
+                    word.add(s[self.i + 1], "s")
+                self.i += 2
+            elif c == "'":
+                j = s.find("'", self.i + 1)
+                j = n if j < 0 else j
+                word.started = True
+                for ch in s[self.i + 1:j]:
+                    word.add(ch, "s")
+                self.i = j + 1
+            elif c == '"':
+                self.i += 1
+                word.started = True
+                self.dquote(word, cmd)
+            elif c == "$":
+                self.dollar(word, cmd, "u")
+            elif c == "`":
+                self.backtick(word, cmd)
+            elif c in "<>":
+                if s.startswith("(", self.i + 1) and not word:     # <(...) / >(...)
+                    self.i += 2
+                    cmd.add_nested(self.sub(")"))
+                    word.add(SUB, "u")
+                    continue
+                fd = None
+                if word and word.text.isdigit() and all(m == "u" for m in word.modes):
+                    fd = int(word.text)                         # the fd number of 2>, 0<
+                    st["word"] = Word()
+                else:
+                    flush_word()
+                op = next(o for o in REDIR_OPS if s.startswith(o, self.i))
+                self.i += len(op)
+                entry = [(0 if op[0] == "<" else 1) if fd is None else fd,
+                         REDIR_KINDS.get(op, "file"), None]
+                cmd.redirs.append(entry)
+                if entry[1] == "heredoc":
+                    delim, quoted = self.heredoc_delim()
+                    if delim is not None:
+                        heredocs.append((delim, op == "<<-", quoted, cmd, entry))
+                else:
+                    st["skip"] = entry                          # the next word is its target
+            elif c == "|":
+                if s.startswith("||", self.i):
+                    flush_cmd("||")
+                    self.i += 2
+                else:
+                    self.i += 2 if s.startswith("|&", self.i) else 1
+                    flush_cmd("|")
+            elif c == "&":
+                if s.startswith("&&", self.i):
+                    flush_cmd("&&")
+                    self.i += 2
+                elif s.startswith("&>", self.i):
+                    flush_word()
+                    self.i += 3 if s.startswith("&>>", self.i) else 2
+                    st["skip"] = True
+                else:
+                    flush_cmd("&")
+                    self.i += 1
+            elif c == ";":
+                flush_cmd(";")
+                self.i += 1
+            elif c == "(" and word and all(m == "u" for m in word.modes) and ARRAY_ASSIGN_RE.fullmatch(word.text):
+                self.i += 1                                     # NAME=( ... ): an array literal
+                elements = []
+                for node in self.sub(")"):
+                    if isinstance(node, Command):
+                        elements.extend(node.words)
+                        for prog in node.nested:
+                            cmd.add_nested(prog)
+                word.array = elements
+            elif c == "(":
+                op = None if (cmd.words or word) else cmd.op
+                flush_cmd()
+                self.i += 1
+                nodes.append(Subshell(self.sub(")"), op))
+            elif c == ")":                  # unbalanced here (a case pattern): a separator
+                flush_cmd(";")
+                self.i += 1
+            else:
+                word.add(c, "u")
+                self.i += 1
+        flush_cmd()
+        return nodes
+
+    def sub(self, closer):
+        if self.nest >= MAX_NEST:
+            raise TooDeep()
+        self.nest += 1
+        try:
+            return self.program(closer)
+        finally:
+            self.nest -= 1
+
+    def dquote(self, word, cmd):
+        s, n = self.s, self.n
+        while self.i < n:
+            c = s[self.i]
+            if c == '"':
+                self.i += 1
+                return
+            if c == "\\" and self.i + 1 < n and s[self.i + 1] in '$`"\\\n':
+                if s[self.i + 1] != "\n":
+                    word.add(s[self.i + 1], "s")
+                self.i += 2
+            elif c == "$":
+                self.dollar(word, cmd, "d")
+            elif c == "`":
+                self.backtick(word, cmd, "d")
+            else:
+                word.add(c, "d")
+                self.i += 1
+
+    def dollar(self, word, cmd, mode):
+        s, n = self.s, self.n
+        nxt = s[self.i + 1] if self.i + 1 < n else ""
+        if nxt == "(":                                  # $(...) and $((...))
+            self.i += 2
+            prog = self.sub(")")
+            cmd.add_nested(prog)
+            word.add(Sub(prog), mode)
+        elif nxt == "{":
+            self.param(word, cmd, mode)
+        elif nxt == "'" and mode == "u":                # $'...' (ANSI-C quoting)
+            self.i += 2
+            word.started = True
+            while self.i < n and s[self.i] != "'":
+                if s[self.i] == "\\" and self.i + 1 < n:
+                    e = s[self.i + 1]
+                    octal = re.match(r"[0-7]{1,3}", s[self.i + 1:self.i + 4])
+                    hexa = re.match(r"x([0-9A-Fa-f]{1,2})", s[self.i + 1:self.i + 4])
+                    if e in ANSI_C:
+                        word.add(ANSI_C[e], "s")
+                        self.i += 2
+                    elif octal:
+                        word.add(chr(int(octal.group(), 8)), "s")
+                        self.i += 1 + len(octal.group())
+                    elif hexa:
+                        word.add(chr(int(hexa.group(1), 16)), "s")
+                        self.i += 1 + len(hexa.group())
+                    else:
+                        word.add("\\", "s")
+                        word.add(e, "s")
+                        self.i += 2
+                else:
+                    word.add(s[self.i], "s")
+                    self.i += 1
+            self.i += 1
+        else:
+            word.add("$", mode)
+            self.i += 1
+
+    def param(self, word, cmd, mode):
+        """${...}: the name, subscript and operator, then the operand up to the matching
+        brace, parsed as a word so the $(...) and backticks in it are collected (they run)."""
+        s, n = self.s, self.n
+        start = self.i
+        self.i += 2
+        flags, name, sub, op = "", None, None, "other"
+        m = PARAM_HEAD_RE.match(s, self.i)
+        if m:
+            flags, name = m.group(1) or "", m.group(2)
+            self.i = m.end()
+            if self.i < n and s[self.i] == "[":
+                j = s.find("]", self.i)
+                j = n if j < 0 else j
+                sub = s[self.i + 1:j]
+                if "$" in sub or "`" in sub:
+                    self.expansions(sub, cmd)           # a computed subscript: any element
+                    sub = "?"
+                self.i = j + 1
+            op = next((o for o in PARAM_OPS if s.startswith(o, self.i)), None)
+            if op:
+                self.i += len(op)
+            elif self.i < n and s[self.i] != "}":
+                op = "other"                            # ${V#pat}, ${V/a/b}, ${V:1}, ...
+        arg = Word()
+        self.operand(arg, cmd, mode)
+        word.add(Param(flags, name, sub, op, arg, s[start:self.i]), mode)
+
+    def operand(self, arg, cmd, mode):
+        """The rest of a ${...} after its operator, up to the closing brace."""
+        s, n = self.s, self.n
+        depth, dq = 0, False
+        while self.i < n:
+            c = s[self.i]
+            cur = "d" if dq else mode
+            if c == "}" and not dq and depth == 0:
+                self.i += 1
+                return
+            if c == "\\" and self.i + 1 < n:
+                arg.add(s[self.i + 1], "s")
+                self.i += 2
+            elif c == "'" and cur == "u":
+                j = s.find("'", self.i + 1)
+                j = n if j < 0 else j
+                arg.started = True
+                for ch in s[self.i + 1:j]:
+                    arg.add(ch, "s")
+                self.i = j + 1
+            elif c == '"':
+                dq = not dq
+                arg.started = True
+                self.i += 1
+            elif c == "$":
+                self.dollar(arg, cmd, cur)
+            elif c == "`":
+                self.backtick(arg, cmd, cur)
+            else:
+                if not dq:
+                    depth += {"{": 1, "}": -1}.get(c, 0)
+                arg.add(c, cur)
+                self.i += 1
+
+    def backtick(self, word, cmd, mode="u"):
+        s, n = self.s, self.n
+        j, buf = self.i + 1, []
+        while j < n and s[j] != "`":
+            if s[j] == "\\" and j + 1 < n and s[j + 1] in "`\\$":
+                buf.append(s[j + 1])
+                j += 2
+            else:
+                buf.append(s[j])
+                j += 1
+        self.i = j + 1
+        if self.nest >= MAX_NEST:
+            raise TooDeep()
+        prog = Parser("".join(buf), self.nest + 1).parse()
+        cmd.add_nested(prog)
+        word.add(Sub(prog), mode)
+
+    def heredoc_delim(self):
+        """-> (delimiter or None, whether any of it was quoted)."""
+        s, n = self.s, self.n
+        while self.i < n and s[self.i] in " \t":
+            self.i += 1
+        buf, quoted = [], False
+        while self.i < n and s[self.i] not in " \t\r\n;|&<>()":
+            c = s[self.i]
+            if c in "'\"":
+                quoted = True
+                j = s.find(c, self.i + 1)
+                j = n if j < 0 else j
+                buf.append(s[self.i + 1:j])
+                self.i = j + 1
+            elif c == "\\" and self.i + 1 < n:
+                quoted = True
+                buf.append(s[self.i + 1])
+                self.i += 2
+            else:
+                buf.append(c)
+                self.i += 1
+        return ("".join(buf) if buf else None), quoted
+
+    def read_heredocs(self, heredocs):
+        """Consume heredoc bodies into their redirects. A body is data, but with an
+        unquoted delimiter its $(...) and backticks run."""
+        s, n = self.s, self.n
+        for delim, strip_tabs, quoted, cmd, entry in heredocs:
+            start = end = self.i
+            while self.i < n:
+                j = s.find("\n", self.i)
+                line = s[self.i:] if j < 0 else s[self.i:j]
+                end = self.i
+                self.i = n if j < 0 else j + 1
+                if (line.lstrip("\t") if strip_tabs else line).rstrip("\r") == delim:
+                    break
+                end = self.i
+            entry[2] = Body(s[start:end], quoted, strip_tabs)
+            if not quoted:
+                self.expansions(entry[2], cmd)
+
+    def expansions(self, text, cmd):
+        """Collect the $(...) and backtick programs in text expanded as by double quotes."""
+        p = Parser(text, self.nest)
+        scratch = Word()
+        while p.i < p.n:
+            c = text[p.i]
+            if c == "\\":
+                p.i += 2
+            elif c == "$":
+                p.dollar(scratch, cmd, "d")
+            elif c == "`":
+                p.backtick(scratch, cmd)
+            else:
+                p.i += 1
+
+
+def parse(src):
+    return Parser(src).parse()
+
+
+# ---------- word helpers ----------
+ASSIGN_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^]]*\])?(\+?)=")
+ARRAY_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
+NAME_RE = re.compile(r"\$([=~]?)([A-Za-z_][A-Za-z0-9_]*)")
+NAME_ONLY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
+MAX_CANDIDATES = 64     # cap on the values a word can expand to (for-loops times variables)
+MAX_SUB_WORK = 32       # cap on the $(...) evaluations behind one known output
+MAX_SCRIPTS = 8         # cap on the alternative texts of one script (sh -c, eval, a heredoc)
+KEYWORDS = {"if", "then", "elif", "else", "do", "while", "until", "!", "{", "}",
+            "coproc", "function", "done", "fi", "esac"}
+DECLARERS = {"export", "declare", "typeset", "local", "readonly"}
+OPTION_SETTERS = {"set", "setopt", "unsetopt", "shopt", "emulate"}
+# POSIX special builtins: in POSIX mode their VAR=x prefixes stay set afterwards
+SPECIAL_BUILTINS = {":", ".", "eval", "exec", "exit", "export", "readonly", "return", "set",
+                    "shift", "times", "trap", "unset", "break", "continue"}
+SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish"}
+FIND_NAMES = {"find", "gfind", "bfs"}
+FD_NAMES = {"fd", "fdfind"}
+RG_NAMES = {"rg"}
+GREP_NAMES = {"grep", "egrep", "fgrep", "rgrep", "ggrep", "ugrep"}
+SEARCHERS = FIND_NAMES | FD_NAMES | RG_NAMES | GREP_NAMES
+MAXDEPTH_RE = re.compile(r"--?max-?depth(=|$)")
+# Commands that may create a directory a later cd enters (mkdir -p x, git clone url x,
+# uv init x, tar xf x.tgz): a missing cd target one of them named counts as made. Any
+# other command's words do not (a cd after `env -C a ...` into a missing a fails).
+CREATORS = {
+    "mkdir", "git", "gh", "jj", "hg", "svn", "cp", "mv", "rsync", "ditto", "ln", "install",
+    "tar", "bsdtar", "gtar", "unzip", "7z", "7zz", "uv", "uvx", "pip", "pip3", "python",
+    "python3", "virtualenv", "conda", "poetry", "pdm", "hatch", "cookiecutter", "cargo",
+    "rustup", "go", "npm", "npx", "bun", "bunx", "pnpm", "yarn", "deno", "make", "cmake",
+    "ninja", "meson", "wget", "hdiutil", "mktemp", "quarto", "dvc", "worktree"}
+# Variables a child process inherits whether or not the command exports them.
+INHERITED = {"HOME", "PATH", "PWD", "OLDPWD", "SHELL", "USER", "LOGNAME", "TMPDIR", "LANG",
+             "TERM", "CDPATH"}
+
+# wrapper -> (options that take a value, leading positionals to skip, chdir options)
+WRAPPERS = {
+    "sudo": ({"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T", "--user",
+              "--group", "--host", "--prompt", "--role", "--type", "--other-user",
+              "--chdir", "--close-from", "--command-timeout"}, 0, {"-D", "--chdir"}),
+    "doas": ({"-u", "-C"}, 0, set()),
+    "nohup": (set(), 0, set()),
+    "exec": ({"-a"}, 0, set()),
+    "command": (set(), 0, set()),
+    "builtin": (set(), 0, set()),
+    "env": ({"-u", "-C", "-P", "-S", "--unset", "--chdir", "--split-string"}, 0, {"-C", "--chdir"}),
+    "time": ({"-o", "-f", "--output", "--format"}, 0, set()),
+    "nice": ({"-n", "--adjustment"}, 0, set()),
+    "ionice": ({"-c", "-n", "-p", "-P", "-u", "--class", "--classdata"}, 0, set()),
+    "timeout": ({"-s", "-k", "--signal", "--kill-after"}, 1, set()),
+    "gtimeout": ({"-s", "-k", "--signal", "--kill-after"}, 1, set()),
+    "caffeinate": ({"-t", "-w"}, 0, set()),
+    "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, 0, set()),
+    "chronic": (set(), 0, set()),
+    "unbuffer": (set(), 0, set()),
+    "noglob": (set(), 0, set()),
+    "nocorrect": (set(), 0, set()),
+    "xargs": ({"-I", "-J", "-L", "-n", "-P", "-R", "-S", "-s", "-d", "-E", "-a",
+               "--max-args", "--max-procs", "--delimiter", "--arg-file", "--replace",
+               "--max-lines", "--max-chars", "--eof", "--process-slot-var"}, 0, set()),
+}
+# Spelled bare, these run their command in this shell: its builtins and (except for
+# `command` and `builtin`) its functions, so `time grep` is still the ugrep function.
+IN_SHELL = {"command", "builtin", "time", "noglob", "nocorrect"}
+
+
+def wrapper_opts(name, words, i):
+    """words[i] is a wrapper: -> (the index of the command it runs, its options as
+    (option, value Word or None, index of the word that ends it), env's VAR=x words).
+    A cluster of flags (-iC/) is -i -C /."""
+    val_opts, npos = WRAPPERS[name][:2]
+    n, opts, assigns = len(words), [], []
+    i += 1
+    while i < n:
+        t = words[i].text
+        if t == "--":
+            i += 1
+            break
+        if name == "env" and is_assign(words[i]):
+            assigns.append(words[i])
+            i += 1
+            continue
+        if not t.startswith("-") or t == "-":
+            break
+        opt, value = t.split("=", 1)[0], None
+        if t.startswith("--"):
+            if "=" in t:
+                value = words[i].tail(len(opt) + 1)
+            elif opt in val_opts and i + 1 < n:
+                value = words[i + 1]
+                i += 1
+        else:
+            for k in range(1, len(t)):
+                if "-" + t[k] in val_opts:
+                    opt = "-" + t[k]
+                    if k + 1 < len(t):
+                        value = words[i].tail(k + 1)
+                    elif i + 1 < n:
+                        value = words[i + 1]
+                        i += 1
+                    break
+        opts.append((opt, value, i))
+        i += 1
+    return min(i + npos, n), opts, assigns
+
+
+def lit(word):
+    return word.literal() or ""
+
+
+def shown(word):
+    """A word as the block message shows it: a ${...} as written, a $(...) elided."""
+    return "".join(getattr(c, "raw", "$(...)" if c == SUB else c) for c in word.chars)
+
+
+def command_words(words):
+    """A command's words from its name on: past leading keywords ({, then, do, !),
+    VAR=x prefixes and the command / builtin wrappers."""
+    k = 0
+    while k < len(words) and ((words[k].text in KEYWORDS and words[k].modes[:1] == ["u"])
+                              or is_assign(words[k])):
+        k += 1
+    while k < len(words) and words[k].literal() in ("command", "builtin"):
+        k += 1
+    return words[k:]
+
+
+def is_assign(word):
+    return bool(ASSIGN_RE.match(word.text)) and word.modes[0] == "u"
+
+
+def expand_braces(word):
+    """One unquoted {a,b,...} group -> one word per alternative (no nesting)."""
+    chars, modes = word.chars, word.modes
+    try:
+        i = next(k for k, ch in enumerate(chars) if ch == "{" and modes[k] == "u")
+        j = next(k for k in range(i + 1, len(chars)) if chars[k] == "}" and modes[k] == "u")
+    except StopIteration:
+        return [word]
+    if "{" in chars[i + 1:j] or not any(chars[k] == "," and modes[k] == "u" for k in range(i + 1, j)):
+        return [word]
+    out, start = [], i + 1
+    for k in range(i + 1, j + 1):
+        if k == j or (chars[k] == "," and modes[k] == "u"):
+            out.append(Word(chars[:i] + chars[start:k] + chars[j + 1:],
+                            modes[:i] + modes[start:k] + modes[j + 1:]))
+            start = k + 1
+    return out
+
+
+class Arr(list):
+    """An array variable: its elements, each a list of possible values. exact is False
+    when an element's position is not known (a glob, a split of an unknown count)."""
+    exact = True
+
+
+class Declared(list):
+    """A scalar set by a bare zsh declarer (export R, typeset R): empty in the shell,
+    but not in a child's environment until something assigns it."""
+
+
+MADE_SUFFIX_RE = re.compile(r"(\.git|\.tar\.(gz|bz2|xz|zst)|\.t[gbx]z|\.tar|\.zip)$", re.I)
+
+
+def made_names(text):
+    """The directory names a word given to an earlier command may have created: each of
+    its path components, also without a .git / archive suffix (git clone url.git,
+    tar xf name-1.0.tgz)."""
+    names = set()
+    for part in text.split("/"):
+        if part:
+            names.add(part)
+            names.add(MADE_SUFFIX_RE.sub("", part))
+    return names
+
+
+class Env(object):
+    """What the shell knows at a point in the command: the working directory (None =
+    unknown); the variables set so far (a list of possible values, an Arr, None when
+    the value is unknown, or UNSET) and which are exported; whether the shell is zsh
+    and the options that change expansion (shwordsplit, globsubst, ksharrays, noglob,
+    globstar); what stdin holds ("readable", "none" or "closed"); and the words of
+    earlier commands that may have created a directory (shared with subshells and
+    child shells, whose effects on disk persist)."""
+    __slots__ = ("cwd", "vars", "zsh", "opts", "exported", "stdin", "made")
+
+    def __init__(self, cwd, variables=None, zsh=True, opts=(), exported=(), stdin="none", made=None):
+        self.cwd = cwd
+        self.vars = dict(variables or {})
+        self.zsh = zsh
+        self.opts = set(opts)
+        self.exported = set(exported)
+        self.stdin = stdin
+        self.made = made if made is not None else []
+
+    def copy(self):
+        return Env(self.cwd, self.vars, self.zsh, self.opts, self.exported, self.stdin, self.made)
+
+    def at(self, cwd):
+        e = self.copy()
+        e.cwd = cwd
+        return e
+
+    def fork(self, cwd):
+        """Another path through the same commands, with its own record of what was made."""
+        e = self.at(cwd)
+        e.made = list(self.made)
+        return e
+
+    def child(self, cwd, zsh, stdin, extra, opts=()):
+        """A new shell process: exported variables (and VAR=x prefixes), default options.
+        An array is not exported, and a variable unset here is unset there too."""
+        exported = self.exported | set(extra)
+        keep = {k: (UNSET if isinstance(v, (Arr, Declared)) and k not in os.environ else v)
+                for k, v in self.vars.items()
+                if (k in exported or k in INHERITED or k in os.environ or v is UNSET) and k != "IFS"}
+        keep.update(extra)
+        return Env(cwd, keep, zsh, opts, exported, stdin, self.made)
+
+
+IFS_WS = " \t\n"
+
+
+def scalar(v):
+    """A scalar variable's possible values, or None for an array, unknown or UNSET."""
+    return v if isinstance(v, list) and not isinstance(v, Arr) else None
+
+
+def ifs(env):
+    v = scalar(env.vars.get("IFS"))
+    return "".join(c for c, _ in v[0]) if v is not None and len(v) == 1 else IFS_WS
+
+
+def home_values(env, home):
+    """The possible values of $HOME: an assignment in the command wins over the real one."""
+    if "HOME" in env.vars:
+        return scalar(env.vars["HOME"]) or []
+    return [[(c, False) for c in home]] if home else []
+
+
+def lookup(name, sub, env, home):
+    """-> ("set", values) | ("unset", None) | ("unknown", None) for $name / ${name[sub]}."""
+    if name == "HOME" and sub is None and "HOME" not in env.vars:
+        hv = home_values(env, home)
+        return ("set", hv) if hv else ("unknown", None)
+    if name == "PWD" and sub is None:
+        return ("set", [[(c, False) for c in env.cwd]]) if env.cwd else ("unknown", None)
+    v = env.vars.get(name, MISSING)
+    if v is MISSING or v is None:
+        return "unknown", None
+    if v is UNSET:
+        return "unset", None
+    ksh = not env.zsh or "ksharrays" in env.opts       # arrays count from 0; $A is ${A[0]}
+    if isinstance(v, Arr):
+        if sub in ("@", "*") or (sub is None and not ksh) or not v.exact:
+            sel = list(v)
+        elif sub is None:
+            sel = v[:1]
+        elif re.fullmatch(r"\s*-?[0-9]+\s*", sub):
+            k = int(sub)
+            k = k + len(v) if k < 0 else (k if ksh else k - 1)
+            sel = [v[k]] if 0 <= k < len(v) else []
+        else:
+            sel = list(v)                               # a computed subscript: any element
+        vals = [c for el in sel for c in el]
+        return ("set", vals) if vals else ("unset", None)
+    if sub is None or sub in ("@", "*"):
+        return "set", v
+    if ksh and re.fullmatch(r"\s*0\s*", sub):
+        return "set", v
+    return ("unset", None) if ksh else ("unknown", None)   # zsh ${V[1]} is a character
+
+
+def array_words(name, sub, env):
+    """The elements an array expansion yields as separate words ($A and ${A[@]} in zsh,
+    ${A[@]} / ${A[*]} in both shells), when every element has one known value: a list
+    of values, each a list of (char, is_glob_meta). None otherwise (lookup() then gives
+    each element as a possible value)."""
+    v = env.vars.get(name)
+    if not isinstance(v, Arr) or not v.exact or any(len(el) > 1 for el in v):
+        return None
+    ksh = not env.zsh or "ksharrays" in env.opts
+    if sub in ("@", "*") or (sub is None and not ksh):
+        return [el[0] for el in v if el]        # bash's holes are not elements
+    return None
+
+
+def param_values(p, env, home):
+    """The possible values of a ${...}, as lists of (char, is_glob_meta), or None."""
+    if p.name is None or p.op == "other" or p.flags.strip("=~"):
+        return None                                     # ${#V}, ${!V}, ${(f)V}, ${V%x}, ...
+    state, vals = lookup(p.name, p.sub, env, home)
+    if p.op is None:
+        return vals if state == "set" else ([[]] if state == "unset" else None)
+
+    def operand():
+        if not p.arg.chars:
+            return [[]]
+        outs = expand(p.arg, env, home)
+        return [[(c, g) for c, g, _ in o] for o in outs] or None
+
+    kind, colon = p.op[-1], p.op.startswith(":")
+    if kind in "-=":                                    # the operand when V is unset (or empty)
+        if state != "set":
+            res = operand()
+            if state == "unknown" and res is not None:
+                res = res + [[("?", False)]]            # or V's own value, which is unknown
+        else:
+            full = [v for v in vals if v]
+            if colon and len(full) < len(vals):
+                alt = operand()
+                res = full + alt if alt is not None else (full or None)
+            else:
+                return vals
+        if kind == "=" and p.sub is None:               # ${V:=x} also assigns it
+            env.vars[p.name] = res
+        return res
+    if kind == "+":                                     # the operand when V is set (and not empty)
+        if state == "unset":
+            return [[]]
+        alt = operand()
+        if alt is None:
+            return None
+        if state == "unknown":
+            return alt + [[]]
+        return alt + ([[]] if colon and any(not v for v in vals) else [])
+    if state == "set":                                  # ${V:?msg}: V, or the command does not run
+        return [v for v in vals if v or not colon] or None
+    return None
+
+
+def expand(word, env, home):
+    """A word's possible values after tilde and parameter expansion, each a list of
+    (char, is_glob_meta, is_field_break) triples, as env's shell expands it: bash
+    splits an unquoted expansion on IFS and globs it; zsh does neither unless an
+    option or a ${=V} / ${~V} flag says so. [] when the value cannot be known."""
+    chars, modes = word.chars, word.modes
+    if not chars:
+        return []
+    split = not env.zsh or "shwordsplit" in env.opts
+    gsub = not env.zsh or "globsubst" in env.opts
+    seps = ifs(env)
+    outs = [[]]
+    i, n = 0, len(chars)
+    if chars[0] == "~" and modes[0] == "u":
+        j = 1
+        while j < n and chars[j] != "/":
+            j += 1
+        user = "".join(chars[1:j])
+        if user == "":
+            outs = [[(c, False, False) for c, _ in v] for v in home_values(env, home)]
+            if not outs:
+                return []
+        elif re.fullmatch(r"[A-Za-z0-9._-]+", user):
+            outs = [[(ch, False, False) for ch in "/Users/" + user]]
+        else:
+            return []
+        i = j
+    while i < n:
+        ch, m = chars[i], modes[i]
+        vals = MISSING
+        if isinstance(ch, Param):
+            words = array_words(ch.name, ch.sub, env) if ch.name and not ch.flags.strip("=~") and \
+                ch.op in (None, "-", ":-", "=", ":=", "+", ":+") else None
+            if words is not None and ch.op is not None:
+                # ${A:-x} on a whole array: null when it has no elements, or, joined in
+                # quotes, when the joined text is empty; set, the array itself
+                joined = m != "u" and ch.sub != "@"
+                null = ch.op.startswith(":") and (
+                    not ifs(env)[:1].join("".join(c for c, _ in w) for w in words) if joined else not words)
+                if ch.op[-1] == "+":
+                    if null:
+                        i += 1                  # ${A:+x} of a null array is nothing
+                        continue
+                    words = None                # the operand: param_values
+                elif null:
+                    words = None                # the operand (and ${A:=x} assigns it)
+            if words is not None:
+                outs = [o + v for o in outs for v in array_value(
+                    words, m, ch.sub, split or "=" in ch.flags, gsub or "~" in ch.flags, seps, env)]
+                i += 1
+                continue
+            vals = param_values(ch, env, home)
+            sp, gl, step = split or "=" in ch.flags, gsub or "~" in ch.flags, 1
+        elif ch == PARAM:
+            return []                       # a ${...} copied out of its word as text
+        elif ch == SUB:
+            texts = sub_output(ch, env, home)
+            if texts is None:
+                return []
+            vals = [[(c, False) for c in t] for t in texts]
+            sp, gl, step = True, gsub, 1    # both shells split it unquoted; bash also globs it
+        elif ch == "$" and m != "s":
+            nxt = chars[i + 1] if i + 1 < n else ""
+            if nxt == "" or not (nxt.isalnum() or nxt in "_@*#?$!-=~"):
+                vals = [[("$", False)]]     # a lone $ is itself
+                sp = gl = False
+                step = 1
+            else:
+                mt = NAME_RE.match("".join(chars[i:i + 68]))
+                if not mt or (mt.group(1) and not env.zsh):
+                    return []               # $1, $@, $?, ...: value unknown
+                words = array_words(mt.group(2), None, env)
+                if words is not None:
+                    outs = [o + v for o in outs for v in array_value(
+                        words, m, None, split or mt.group(1) == "=", gsub or mt.group(1) == "~", seps, env)]
+                    i += mt.end()
+                    continue
+                state, vals = lookup(mt.group(2), None, env, home)
+                vals = vals if state == "set" else ([[]] if state == "unset" else None)
+                sp, gl, step = split or mt.group(1) == "=", gsub or mt.group(1) == "~", mt.end()
+        if vals is not MISSING:
+            if vals is None:
+                return []
+            bare = m == "u"
+            vals = [[(c, g or (bare and gl and c in "*?["), bare and sp and c in seps) for c, g in v]
+                    for v in vals]
+            outs = [o + v for o in outs for v in vals][:MAX_CANDIDATES]
+            if not outs:
+                return []
+            i += step
+            continue
+        for o in outs:
+            o.append((ch, m == "u" and ch in "*?[", False))
+        i += 1
+    return outs
+
+
+SUB_STATE = {"depth": 0, "work": 0}
+
+
+def sub_output(ch, env, home):
+    """The possible outputs of a $(...) / `...`, trailing newlines removed, when its
+    program is one simple command whose output is plain from its words: pwd, echo /
+    print with no backslash, printf with %s %b %d %%, dirname, basename, or cat of a
+    heredoc. None otherwise (also when it writes elsewhere, or when working it out
+    takes more than MAX_SUB_WORK nested evaluations: `$(echo {a,b}$(echo {a,b}...))`
+    evaluates the inner one once per alternative)."""
+    if SUB_STATE["depth"] == 0:
+        SUB_STATE["work"] = 0
+    SUB_STATE["work"] += 1
+    if SUB_STATE["work"] > MAX_SUB_WORK:
+        return None
+    SUB_STATE["depth"] += 1
+    try:
+        return known_output(ch, env, home)
+    finally:
+        SUB_STATE["depth"] -= 1
+
+
+def known_output(ch, env, home):
+    prog = getattr(ch, "prog", None)
+    if not prog or len(prog) != 1 or not isinstance(prog[0], Command):
+        return None
+    cmd = prog[0]
+    if any(fd == 1 for fd, _, _ in cmd.redirs):
+        return None
+    words = command_words(cmd.words)
+    name = words[0].literal() if words else None
+    if name is None:
+        return None
+    sub = env.copy()                            # it runs in a subshell
+    argv = [[]]
+    for w in words[1:]:
+        alts = []
+        for alt in expand_braces(w):
+            outs = expand(alt, sub, home)
+            if not outs:
+                return None
+            for o in outs:
+                fs = fields(o)
+                if any(g for f in fs for _, g in f):
+                    return None                 # a glob: what it matches is not known here
+                quoted = alt.started or any(md != "u" for md in alt.modes)
+                alts.append(["".join(c for c, _ in f) for f in fs if f or quoted])
+        argv = [a + b for a in argv for b in (alts or [[]])][:MAX_CANDIDATES]
+    res = []
+    for args in argv:
+        out = command_output(name, args, cmd, env)
+        if out is None:
+            return None
+        res.append(out.rstrip("\n"))
+    return res
+
+
+def command_output(name, args, cmd, env):
+    """What one of sub_output's commands writes, given its arguments."""
+    stdin = [t for fd, kind, t in cmd.redirs if fd == 0]
+    if name == "pwd" and all(a in ("-L", "-P") for a in args):
+        if env.cwd is None or (args and args[-1] == "-P" and STALL_RE.match(env.cwd)):
+            return None
+        return os.path.realpath(env.cwd) if args and args[-1] == "-P" else env.cwd
+    sep = " "
+    if name == "print" and env.zsh:
+        while args and re.fullmatch(r"-[rnRl]+|--?", args[0]):
+            sep = "\n" if "l" in args[0] else sep
+            stop, args = args[0] in ("-", "--"), args[1:]
+            if stop:
+                break
+        else:
+            if args and args[0].startswith("-"):
+                return None                     # print -P, -D, ... : not modeled
+    elif name == "echo" and "posix" not in env.opts:   # sh's echo (xpg_echo) takes no options
+        while args and re.fullmatch(r"-[neE]+", args[0]):
+            args = args[1:]
+        if env.zsh and args and args[0] == "-":
+            args = args[1:]                     # zsh's echo ends its options at a lone -
+    elif name != "echo":
+        sep = None
+    if sep is not None:
+        return None if any("\\" in a for a in args) else sep.join(args)   # zsh's echo reads \ escapes
+    if name in ("printf", "dirname", "basename") and args[:1] == ["--"]:
+        args = args[1:]
+    elif name in ("printf", "dirname", "basename") and args and args[0].startswith("-") and args[0] != "-":
+        return None                             # printf -v, basename -s, ...
+    if name == "printf" and args:
+        return printf_output(args[0], args[1:])
+    if name == "dirname" and len(args) == 1:
+        p = args[0].rstrip("/")
+        if not p:
+            return "/" if args[0] else "."
+        if "/" not in p:
+            return "."
+        return p[:p.rfind("/")].rstrip("/") or "/"
+    if name == "basename" and len(args) in (1, 2):
+        p = args[0].rstrip("/")
+        base = p[p.rfind("/") + 1:] if p else ("/" if args[0] else "")
+        if len(args) == 2 and base != args[1] and base.endswith(args[1]):
+            base = base[:-len(args[1])]
+        return base
+    if name == "cat" and not args and len(stdin) == 1 and isinstance(stdin[0], Body):
+        body = stdin[0]
+        if not body.quoted and re.search(r"[$`\\]", body):
+            return None                         # an unquoted body expands
+        return "\n".join(l.lstrip("\t") for l in body.split("\n")) if body.strip_tabs else str(body)
+    return None
+
+
+PRINTF_ESC = {"n": "\n", "t": "\t", "\\": "\\", '"': '"', "'": "'"}
+
+
+def printf_output(fmt, vals):
+    """printf FORMAT ARGS, for formats of plain text, \\n \\t, %s %b %d %i %%; the format
+    repeats while arguments remain. None for anything else."""
+    out, k = [], 0
+    while True:
+        used, i = False, 0
+        while i < len(fmt):
+            c = fmt[i]
+            if c == "\\":
+                e = fmt[i + 1:i + 2]
+                if e not in PRINTF_ESC:
+                    return None
+                out.append(PRINTF_ESC[e])
+                i += 2
+                continue
+            if c == "%":
+                d = fmt[i + 1:i + 2]
+                if d == "%":
+                    out.append("%")
+                elif d in ("s", "b", "d", "i"):
+                    v = vals[k] if k < len(vals) else ("" if d in "sb" else "0")
+                    # %d of 010 is 8 in bash, 10 in zsh
+                    if (d == "b" and "\\" in v) or (d in "di" and not re.fullmatch(r"[+-]?(0|[1-9][0-9]*)", v)):
+                        return None
+                    out.append(str(int(v)) if d in "di" else v)
+                    k, used = k + 1, True
+                else:
+                    return None
+                i += 2
+                continue
+            out.append(c)
+            i += 1
+        if not used or k >= len(vals):
+            return "".join(out)
+
+
+def array_value(words, mode, sub, split, gsub, seps, env):
+    """An array's elements in a word: quoted "$A" / "${A[*]}" join them with IFS's first
+    character; otherwise each element is its own word (zsh drops empty ones unquoted),
+    and unquoted ones are split and globbed like any expansion. -> [triples]."""
+    bare = mode == "u"
+    if not bare and sub != "@":
+        sep = ifs(env)[:1]
+        joined = []
+        for k, w in enumerate(words):
+            joined += ([(sep, False, False)] if k and sep else []) + [(c, False, False) for c, _ in w]
+        return [joined]
+    out, first = [], True
+    for w in words:
+        if bare and env.zsh and not w:
+            continue
+        if not first:
+            out.append(("", False, True))           # a word break between elements
+        first = False
+        out += [(c, g or (bare and gsub and c in "*?["), bare and split and c in seps) for c, g in w]
+    return [out]
+
+
+def fields(out):
+    """Split one expanded value at its field breaks -> lists of (char, is_glob_meta)."""
+    res, cur = [], []
+    for c, g, brk in out:
+        if brk:
+            if cur:
+                res.append(cur)
+            cur = []
+        else:
+            cur.append((c, g))
+    if cur or not res:
+        res.append(cur)
+    return res
+
+
+def resolve_all(word, env, home, cwd, glob=True):
+    """Every normalized absolute path a word can name, relative paths taken from cwd."""
+    paths = []
+    for alt in expand_braces(word):
+        for out in expand(alt, env, home):
+            for field in fields(out):
+                p = path_of(field if glob else [(c, False) for c, _ in field], cwd)
+                if p is not None:
+                    paths.append(p)
+    return paths
+
+
+def resolve_globs(word, env, home, cwd):
+    """The broad roots a word's selective globs match (path_of judges the other words)."""
+    found = []
+    for alt in expand_braces(word):
+        for out in expand(alt, env, home):
+            for field in fields(out):
+                if any(g for _, g in field) and path_of(field, cwd) is None:
+                    found += glob_broad(field, cwd, home)
+    return found
+
+
+POSIX_CLASSES = {"alpha": "a-zA-Z", "digit": "0-9", "alnum": "a-zA-Z0-9", "upper": "A-Z",
+                 "lower": "a-z", "xdigit": "0-9A-Fa-f", "space": " \t\n\r\f\v"}
+
+
+def glob_pattern(comp):
+    """An fnmatch pattern for one path component of (char, is_glob_meta), or None for a
+    form it cannot express: quoted * ? [ are literal, a bracket expression runs to its `]`
+    (a leading `]` and [:class:] inside it), and `[^...]` negates as `[!...]`."""
+    out, k, n = [], 0, len(comp)
+    while k < n:
+        c, g = comp[k]
+        if g and c == "[":
+            j, lead, body = k + 1, "", []
+            if j < n and comp[j][0] in "!^":
+                j, lead = j + 1, "!"
+            if j < n and comp[j][0] == "]":
+                j, body = j + 1, ["]"]
+            while j < n and comp[j][0] != "]":
+                if comp[j][0] == "[" and j + 1 < n and comp[j + 1][0] == ":":
+                    rest = "".join(x for x, _ in comp[j + 2:])
+                    end = rest.find(":]")
+                    if end < 0 or rest[:end] not in POSIX_CLASSES:
+                        return None
+                    body.append(POSIX_CLASSES[rest[:end]])
+                    j += end + 4
+                    continue
+                body.append(comp[j][0])
+                j += 1
+            if j < n:
+                out.append("[" + lead + "".join(body) + "]")
+                k = j + 1
+                continue
+            out.append("[[]")                   # no closing ]: a plain [
+        elif g:
+            out.append(c)
+        else:
+            out.append("[%s]" % c if c in "*?[" else c)
+        k += 1
+    return "".join(out)
+
+
+# Every name a broad root can have inside a directory that is not "any name" (test_root_names
+# pins it against the roots), so a glob lists only a directory that may hold one.
+ROOT_NAMES = ("TheAxiomFoundation", "RulesFoundation", "PolicyEngine", "Library", "Caches",
+              ".cache", ".local", ".subfleet", "Users", "Volumes", "System", "private", "tmp",
+              "var", "folders", "opt", "homebrew", "Applications", "usr", "Data")
+
+
+def holds_root(path, home):
+    """Whether a name directly in path can be a broad root, by its name alone."""
+    return any(is_broad(normalize(path + "/" + n), home) for n in ROOT_NAMES + ("\x01",))
+
+
+def glob_list(path, pattern, dot, budget):
+    """[(path/name, is_link)] for the entries of directory path that match pattern."""
+    out = []
+    try:
+        with os.scandir(path) as entries:
+            for e in entries:
+                budget[0] -= 1
+                if budget[0] < 0:
+                    break
+                if (dot or not e.name.startswith(".")) and fnmatch.fnmatchcase(e.name, pattern):
+                    out.append((normalize(path + "/" + e.name), e.is_symlink()))
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+def glob_broad(field, cwd, home):
+    """The broad roots among a selective glob's matches, listed from the file system the
+    way the shell globs: case-sensitive, a leading dot only by a leading dot. A broad root
+    sits only in a broad directory (every ancestor of one is listed), so only broad
+    directories that may hold one are listed: `rg x src/*.py` and `rg x
+    ~/.subfleet/jobs/2026*` list nothing. A match is judged like a
+    written path: by where its links lead, and a file is not a root. A match exists, so a
+    plain name after a glob counts only where it is there (`rg x /U*/nosuch` matches
+    nothing). Nothing inside a mount that may stall is listed or stat'ed: of those
+    directories only /Volumes itself (a local directory of mount points) can hold a root,
+    and its entries are judged by name."""
+    if field and field[0][0] != "/":
+        if not cwd:
+            return []
+        field = [(c, False) for c in cwd.rstrip("/") + "/"] + field
+    comps, cur = [], []
+    for c, g in field + [("/", False)]:
+        if c == "/":
+            if cur:
+                comps.append(cur)
+            cur = []
+        else:
+            cur.append((c, g))
+    first = next((k for k, comp in enumerate(comps) if any(g for _, g in comp)), None)
+    if first is None:
+        return []
+    prefix = normalize("/" + "/".join("".join(c for c, _ in comp) for comp in comps[:first]))
+    if not is_broad(prefix, home):
+        return []
+    cands, budget = [(prefix, False)], [MAX_GLOB_ENTRIES]
+    for k, comp in enumerate(comps[first:]):
+        text = "".join(c for c, _ in comp)
+        pattern = glob_pattern(comp) if any(g for _, g in comp) else None
+        if pattern is None and any(g for _, g in comp):
+            return []                           # a form fnmatch cannot express: not judged
+        nxt = []
+        for p, _ in cands:
+            if pattern is None and not STALL_RE.match(p):
+                q = normalize(p + "/" + text)
+                if os.path.lexists(q):                          # the shell matches what is there
+                    nxt.append((q, None))                       # None: may be a link
+            elif holds_root(p, home):
+                exact = "".join("[%s]" % ch if ch in "*?[" else ch for ch in text)
+                nxt += glob_list(p, pattern or exact, text.startswith("."), budget)
+        if first + k < len(comps) - 1:          # only a broad directory can hold a root
+            nxt = [(q, link) for q, link in nxt if is_broad(q, home) and not is_file(q)]
+        cands = nxt
+        if not cands:
+            return []
+    found = []
+    for q, link in cands:
+        if is_broad(q, home):
+            if not is_file(q):
+                found.append(q)
+        elif link is not False:
+            real = physical(q)
+            if real != q and is_broad(real, home) and not is_file(real):
+                found.append(real)
+    return found
+
+
+def resolve_one(word, env, home, cwd):
+    paths = resolve_all(word, env, home, cwd)
+    return paths[0] if len(set(paths)) == 1 else None
+
+
+def path_of(out, cwd):
+    p = "".join(c for c, _ in out)
+    if not p:
+        return None
+    if not p.startswith("/"):
+        if not cwd:
+            return None
+        p = cwd.rstrip("/") + "/" + p
+        out = [(c, False) for c in cwd.rstrip("/") + "/"] + out
+    if any(g for _, g in out):
+        # A trailing run of bare `*` / `.*` components expands to every child,
+        # which is the same walk as the parent. Any other glob is selective.
+        comps, cur = [], []
+        for c, g in out + [("/", False)]:
+            if c == "/":
+                comps.append(cur)
+                cur = []
+            else:
+                cur.append((c, g))
+        texts = ["".join(c for c, _ in comp) for comp in comps]
+        first = next(k for k, comp in enumerate(comps) if any(g for _, g in comp))
+        if not all(t in ("*", ".*", "") for t in texts[first:]):
+            return None
+        p = "/".join(texts[:first]) or "/"
+    return normalize(p)
+
+
+def tree_globs(word, env, home):
+    """The directories a `**/` glob in this word makes the shell walk recursively:
+    the part before the first `**` component, from the shell's working directory."""
+    found = []
+    for alt in expand_braces(word):
+        for out in expand(alt, env, home):
+            for field in fields(out):
+                comps, cur = [], []
+                for c, g in field + [("/", False)]:
+                    if c == "/":
+                        comps.append(cur)
+                        cur = []
+                    else:
+                        cur.append((c, g))
+                # comps[:-1] are the components a "/" follows: `**/` (even `**//x`
+                # or a trailing `**/`) recurses; a last `**` is `*`.
+                for k, comp in enumerate(comps[:-1]):
+                    if "".join(c for c, _ in comp) in ("**", "***") and all(g for _, g in comp):
+                        prefix = [x for part in comps[:k] for x in part + [("/", False)]]
+                        if field and field[0][0] == "/" and len(prefix) <= 1:
+                            found.append("/")
+                        elif not prefix:
+                            if env.cwd:
+                                found.append(normalize(env.cwd))
+                        else:
+                            p = path_of(prefix, env.cwd)
+                            if p is not None:
+                                found.append(p)
+                            elif any(g for _, g in prefix):   # ~/Pol*/**/*.py walks ~/PolicyEngine
+                                found += glob_broad(prefix, env.cwd, home)
+                        break
+    return found
+
+
+def getopt(args, short_val, long_val, exec_opts=(), takes=None):
+    """Split argv into ([(name, value Word|None)], positionals, exec_cmds).
+    takes(opt, value_word) may veto a value: the option is then read as a flag."""
+    opts, pos, execs = [], [], []
+    i, n = 0, len(args)
+    while i < n:
+        w = args[i]
+        t = w.text
+        if t == "--":
+            pos.extend(args[i + 1:])
+            break
+        if t.startswith("--") and len(t) > 2:
+            name, eq, _ = t.partition("=")
+            if name in exec_opts:
+                j = i + 1
+                while j < n and args[j].text != ";":
+                    j += 1
+                execs.append(args[i + 1:j])
+                i = j + 1
+                continue
+            if eq:
+                opts.append((name, w.tail(len(name) + 1)))
+            elif name in long_val and i + 1 < n:
+                opts.append((name, args[i + 1]))
+                i += 1
+            else:
+                opts.append((name, None))
+            i += 1
+            continue
+        if t.startswith("-") and len(t) > 1:
+            j = 1
+            while j < len(t):
+                ch = t[j]
+                if "-" + ch in exec_opts:
+                    k = i + 1
+                    while k < n and args[k].text != ";":
+                        k += 1
+                    execs.append(args[i + 1:k])
+                    i = k
+                    break
+                if ch in short_val:
+                    val = w.tail(j + 1) if j + 1 < len(t) else (args[i + 1] if i + 1 < n else None)
+                    if takes is None or val is None or takes("-" + ch, val):
+                        opts.append(("-" + ch, val))
+                        if j + 1 >= len(t) and val is not None:
+                            i += 1
+                        break
+                opts.append(("-" + ch, None))
+                j += 1
+            i += 1
+            continue
+        pos.append(w)
+        i += 1
+    return opts, pos, execs
+
+
+# ---------- per-searcher argument models ----------
+FIND_FLAG_VAL = {"-D", "-S"}
+FIND_PRIM_VAL = {
+    "-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-lname",
+    "-ilname", "-regex", "-iregex", "-regextype", "-type", "-xtype", "-user",
+    "-group", "-uid", "-gid", "-perm", "-size", "-mtime", "-atime", "-ctime",
+    "-Btime", "-mmin", "-amin", "-cmin", "-Bmin", "-samefile", "-inum", "-links",
+    "-fstype", "-mindepth", "-used", "-context", "-fprint", "-fprint0", "-fls",
+    "-printf", "-xattrname", "-flags", "-limit", "-anewer", "-cnewer", "-Bnewer",
+}
+FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
+FIND_META = {"-help", "--help", "-version", "--version"}     # print and exit, no walk
+
+
+def find_model(args):
+    """-> (roots, implicit_dot, bounded, exec_cmds)"""
+    roots, execs, bounded, from_file = [], [], False, False
+    i, n = 0, len(args)
+    while i < n:
+        t = args[i].text
+        if MAXDEPTH_RE.match(t):
+            bounded = True
+            i += 1 if "=" in t else 2
+        elif t == "-f":                             # BSD find / bfs: -f PATH
+            if i + 1 < n:
+                roots.append(args[i + 1])
+            i += 2
+        elif t == "-files0-from":
+            from_file = True
+            i += 2
+        elif t in FIND_FLAG_VAL or t in FIND_PRIM_VAL or t.startswith("-newer"):
+            i += 2
+        elif t == "-fprintf":
+            i += 3
+        elif t in FIND_EXEC:
+            j = i + 1
+            while j < n and args[j].text not in (";", "+"):
+                j += 1
+            execs.append((t, args[i + 1:j]))
+            i = j + 1
+        elif t in FIND_META:
+            return [], False, True, []
+        elif (t.startswith("-") and len(t) > 1) or t in ("(", ")", "!", ","):
+            i += 1
+        else:
+            roots.append(args[i])
+            i += 1
+    return roots, not roots and not from_file, bounded, execs
+
+
+def fd_model(args):
+    opts, pos, execs = getopt(
+        args, "dteEcjSo",
+        {"--max-depth", "--maxdepth", "--min-depth", "--exact-depth", "--type",
+         "--extension", "--exclude", "--color", "--threads", "--size",
+         "--changed-within", "--changed-before", "--change-newer-than",
+         "--change-older-than", "--newer", "--older", "--owner", "--path-separator",
+         "--batch-size", "--max-results", "--format", "--ignore-file", "--and",
+         "--base-directory", "--search-path"},
+        exec_opts=("-x", "-X", "--exec", "--exec-batch"))
+    names = {o for o, _ in opts}
+    if names & {"-h", "--help", "-V", "--version", "--gen-completions"}:
+        return [], False, True, [], None
+    bounded = bool(names & {"-d", "--max-depth", "--maxdepth", "--exact-depth"})
+    roots = [v for o, v in opts if o == "--search-path" and v is not None] + pos[1:]
+    base = next((v for o, v in opts if o == "--base-directory" and v is not None), None)
+    return roots, not roots, bounded, [("-x", e) for e in execs], base
+
+
+# rg's -E is --encoding. `rg -iE 'a|b' dir` is a grep-ism: rg rejects 'a|b' as an
+# encoding and exits without searching, so -E is read as a flag unless its value is
+# an encoding label rg could accept (WHATWG labels, plus none/auto).
+RG_ENCODING_RE = re.compile(
+    r"(utf-?(8|16(le|be)?)|unicode[\w.-]*|cs[\w-]+|(us-)?ascii|latin-?\d*|l\d|"
+    r"iso[-_]?(8859|2022|10646)[\w-]*|windows-\d{3,5}|cp\d{3,5}|x-[\w-]+|ibm\d+|"
+    r"(shift[-_]?|s)jis|ms_kanji|euc-?(jp|kr)|gbk|gb18030|gb2312|big5(-hkscs)?|"
+    r"koi8?(-[ru])?|macintosh|mac|tis-620|ks_c_5601-[\d-]+|none|auto)", re.I)
+
+
+def rg_takes(opt, val):
+    return opt != "-E" or bool(RG_ENCODING_RE.fullmatch(val.text))
+
+
+def rg_model(args, stdin_readable):
+    opts, pos, _ = getopt(
+        args, "ABCEMTdefgjmrt",
+        {"--after-context", "--before-context", "--context", "--color", "--colors",
+         "--context-separator", "--dfa-size-limit", "--encoding", "--engine",
+         "--field-context-separator", "--field-match-separator", "--file", "--glob",
+         "--iglob", "--ignore-file", "--max-columns", "--max-count", "--max-depth",
+         "--maxdepth", "--max-filesize", "--path-separator", "--pre", "--pre-glob",
+         "--regex-size-limit", "--regexp", "--replace", "--sort", "--sortr",
+         "--threads", "--type", "--type-not", "--type-add", "--type-clear",
+         "--hostname-bin", "--hyperlink-format", "--generate"}, takes=rg_takes)
+    names = {o for o, _ in opts}
+    if names & {"--help", "-h", "--version", "-V", "--type-list", "--generate",
+                "--pcre2-version"}:
+        return [], False, True
+    bounded = bool(names & {"-d", "--max-depth", "--maxdepth"})
+    files_mode = "--files" in names
+    roots = pos if (files_mode or names & {"-e", "--regexp", "-f", "--file"}) else pos[1:]
+    # rg searches stdin only when nothing else claims it: `-f -` reads patterns from it.
+    patterns_on_stdin = any(o in ("-f", "--file") and v is not None and v.text == "-"
+                            for o, v in opts)
+    stdin_fed = stdin_readable and not patterns_on_stdin
+    return roots, not roots and (files_mode or not stdin_fed), bounded
+
+
+def grep_model(name, args, ugrep):
+    """ugrep: the command runs ugrep, whose -NUM is a depth bound (GNU/BSD: context lines)."""
+    opts, pos, _ = getopt(
+        args, "ABCDdefmgOtMNKJ",
+        {"--regexp", "--file", "--max-count", "--after-context", "--before-context",
+         "--context", "--directories", "--devices", "--include", "--exclude",
+         "--exclude-dir", "--exclude-from", "--include-dir", "--include-from",
+         "--label", "--glob", "--iglob", "--file-extension", "--file-type",
+         "--file-magic", "--neg-regexp", "--range", "--jobs", "--format", "--sort",
+         "--tag", "--encoding", "--filter", "--depth", "--max-depth", "--maxdepth",
+         "--exclude-fs", "--include-fs", "--group-separator"})
+    names = {o for o, _ in opts}
+    recursive = name == "rgrep"
+    for o, v in opts:                           # the last directory action wins: -r -d skip is not
+        if o in ("-r", "-R", "--recursive", "--dereference-recursive"):
+            recursive = True
+        elif o in ("-d", "--directories") and v is not None:
+            recursive = v.text == "recurse"
+    if not recursive or names & {"--help", "-V", "--version"}:
+        return None
+    bounded = bool(names & {"--depth", "--max-depth", "--maxdepth"}) or (
+        ugrep and any(re.fullmatch(r"-[1-9]", o) for o in names))
+    roots = pos if names & {"-e", "--regexp", "-f", "--file"} else pos[1:]
+    return roots, not roots, bounded
+
+
+# ---------- analysis ----------
+class Hit(Exception):
+    def __init__(self, searcher, shown, resolved):
+        Exception.__init__(self, searcher)
+        self.searcher, self.shown, self.resolved = searcher, shown, resolved
+
+
+STALL_RE = re.compile(r"/(Volumes|Network|net|home)(/|$)", re.I)    # mounts a stat may hang on
+
+
+def is_dir(path):
+    """Whether cd can enter path now: a directory with search permission. Mounts that
+    may stall a stat are assumed enterable."""
+    if STALL_RE.match(path):
+        return True
+    try:
+        return os.path.isdir(path) and os.access(path, os.X_OK)
+    except (OSError, ValueError):
+        return True
+
+
+def physical(path):
+    """path with symlinks resolved, as the kernel walks it (not on mounts that may stall)."""
+    if STALL_RE.match(path):
+        return normalize(path)
+    try:
+        return normalize(os.path.realpath(path))
+    except (OSError, ValueError):
+        return normalize(path)
+
+
+def is_file(path):
+    """Whether path exists and is not a directory, so a search of it reads that one
+    file. Mounts that may stall a stat are not asked."""
+    if STALL_RE.match(path):
+        return False
+    try:
+        return os.path.exists(path) and not os.path.isdir(path)
+    except (OSError, ValueError):
+        return False
+
+
+def broad(path, home):
+    """The broad root a walk of path covers: path itself, or where its symlinks lead
+    (`cd link-to-root; rg x` walks /). None when it is scoped or a file."""
+    if is_broad(path, home):
+        return None if is_file(path) else path
+    real = physical(path)
+    return real if real != path and is_broad(real, home) and not is_file(real) else None
+
+
+class Analyzer(object):
+    def __init__(self, home, isdir=is_dir):
+        self.home = home
+        self.isdir = isdir
+        self.forks = 0
+        self.trace = None       # tests: record each searcher's (name, cwd, argvs, stdin), and
+        self.hits = []          # every hit, without stopping at the first
+        self.uncertain = 0      # cds that may fail (what runs next may not run)
+
+    def found(self, searcher, shown_root, path):
+        if self.trace is None:
+            raise Hit(searcher, shown_root, path)
+        self.hits.append((searcher, shown_root, path))
+
+    def run(self, nodes, env, nest=0):
+        """Walk a program in order, updating env (cwd, variables) the way the shell would."""
+        for k, node in enumerate(nodes):
+            if isinstance(node, Subshell):
+                sub = env.copy()                # cd and assignments inside do not leak
+                if node.op == "|":
+                    sub.stdin = "readable"
+                self.run(node.program, sub, nest)
+                continue
+            if node.nested:
+                envs = self.nested_envs(node, env)
+                for prog, j in zip(node.nested, node.nested_at):
+                    self.run(prog, envs[j].copy(), nest)
+            # A pipeline's commands run in subshells, all but zsh's last one, and so does a
+            # command sent to the background with &: their cd and assignments do not reach
+            # what runs next. bash runs the last one in this shell under lastpipe (4.2+), but
+            # the bash on PATH is 3.2, where `shopt -s lastpipe` fails: judge the rest both ways.
+            nxt = nodes[k + 1].op if k + 1 < len(nodes) else None
+            own = nxt != "&" and (nxt != "|" and (node.op != "|" or env.zsh))
+            lastpipe = (node.op == "|" and nxt not in ("|", "&") and not env.zsh
+                        and "lastpipe" in env.opts)
+            here = env if own or lastpipe else env.copy()
+            if lastpipe and k + 1 < len(nodes) and self.forks < MAX_FORKS:
+                self.forks += 1
+                self.uncertain += 1
+                self.run(nodes[k + 1:], env.fork(env.cwd), nest)   # as a subshell would leave it
+            before = env.cwd
+            prev = nodes[k - 1] if k and node.op == "|" else None
+            if self.command(node, node.words, here, nest, prev=prev) == "cd-fails" and own:
+                # The cd may fail and leave the shell where it was:
+                # judge what runs next on that path too, in the old directory.
+                self.uncertain += 1
+                rest = self.after_failure(nodes[k + 1:]) if self.forks < MAX_FORKS else []
+                if rest:
+                    self.forks += 1
+                    self.run(rest, env.fork(before), nest)
+
+    @staticmethod
+    def after_failure(rest):
+        """The commands that still run when the command before rest fails."""
+        k = 0
+        while k < len(rest) and rest[k].op in ("&&", "|"):
+            k += 1                              # `&& x` (and its pipeline) is skipped
+        if k < len(rest) and rest[k].op == "||":
+            words = command_words(rest[k].words) if getattr(rest[k], "words", None) else []
+            first = words[0].text if words else ""
+            if first in ("exit", "return"):
+                return []
+        return rest[k:]
+
+    def nested_text(self, text, env, nest):
+        if nest >= MAX_NEST:
+            raise TooDeep()
+        self.run(Parser(text, nest + 1).parse(), env, nest + 1)
+
+    def texts(self, word, env):
+        """A word's possible values as strings, unsplit (a script, a redirect target, a
+        mention); its raw text when the value cannot be known."""
+        outs = expand(word, env, self.home) if word.chars else [[]]
+        return ["".join(c for c, _, _ in o) for o in outs][:MAX_SCRIPTS] or [word.text]
+
+    def joined(self, words, env, sep=" "):
+        """The possible texts of several words joined, as eval or echo would."""
+        res = [""]
+        for k, w in enumerate(words):
+            res = [r + (sep if k else "") + t for r in res for t in self.texts(w, env)][:MAX_SCRIPTS]
+        return res
+
+    def argvs(self, words, env, glob, at=None):
+        """The argument lists the shell can pass (brace alternatives are separate words;
+        a word with several possible values gives several lists; "?" is unknown). at(w):
+        the env word w expands in, when it differs from env."""
+        res = [[]]
+        for w in words:
+            alts = [[]]
+            for alt in expand_braces(w):
+                outs = expand(alt, at(w) if at else env, self.home) or [[("?", False, False)]]
+                alts = [a + ["".join(c for c, _ in f) for f in fields(o) if f or not glob]
+                        for a in alts for o in outs]
+            res = [r + a for r in res for a in alts][:MAX_CANDIDATES]
+        return res
+
+    def scalar_values(self, word, env):
+        if not word.chars:
+            return [[]]
+        return [[(c, False) for c, _, _ in v] for v in expand(word, env, self.home)] or None
+
+    def elements(self, words, env):
+        """An array literal's elements, split and globbed as the shell would."""
+        elems, exact = [], True
+        for el in words:
+            for alt in expand_braces(el):
+                if not alt.chars:
+                    if alt.started:
+                        elems.append([[]])  # '' or "": an empty element
+                    continue
+                outs = expand(alt, env, self.home)
+                if len(outs) != 1:
+                    exact = False
+                    if outs:
+                        elems.append([f for o in outs for f in fields(o) if f])
+                    continue
+                fs = fields(outs[0])
+                if fs == [[]] and (alt.started or any(md != "u" for md in alt.modes)):
+                    elems.append([[]])      # a quoted empty word is an empty element
+                    continue
+                for f in fs:
+                    if any(g for _, g in f):
+                        exact = False       # a glob of unknown count
+                    if f:                   # an unquoted empty word is dropped
+                        elems.append([f])
+        arr = Arr(elems[:MAX_CANDIDATES])
+        arr.exact = exact and len(elems) <= MAX_CANDIDATES
+        return arr
+
+    def assign(self, env, word, into=None):
+        """NAME=value or NAME=(...) into env.vars, or into `into` for a VAR=x prefix."""
+        m = ASSIGN_RE.match(word.text)
+        name, target = m.group(1), env.vars if into is None else into
+        old = env.vars.get(name, MISSING)
+        if m.group(2):                          # NAME[i]=v
+            vals = self.scalar_values(word.tail(m.end()), env)
+            k = re.fullmatch(r"\[\s*(-?[0-9]+)\s*\]", m.group(2))
+            base = old if isinstance(old, Arr) and old.exact else (Arr() if old is UNSET else None)
+            ksh = not env.zsh or "ksharrays" in env.opts
+            idx = None
+            if k and base is not None and vals is not None and not m.group(3):
+                idx = int(k.group(1))
+                idx = idx + len(base) if idx < 0 else (idx if ksh else idx - 1)
+            if idx is not None and 0 <= idx < MAX_CANDIDATES:
+                # a literal index into a known array: zsh fills the gap with empty
+                # elements, bash leaves holes (unset elements, [] here) that expand to nothing
+                new = Arr(list(base) + ([[[]]] if env.zsh else [[]]) * max(0, idx + 1 - len(base)))
+                new[idx] = vals
+                new.exact = True
+            else:                               # position unknown: one more possible element
+                new = Arr((list(old) if isinstance(old, Arr) else []) + ([vals] if vals else []))
+                new.exact = False
+        elif word.array is not None:            # NAME=(...) / NAME+=(...)
+            new = self.elements(word.array, env)
+            if m.group(3):
+                if isinstance(old, Arr) or scalar(old) is not None:   # a scalar becomes element 1
+                    exact = (old.exact if isinstance(old, Arr) else True) and new.exact
+                    new = Arr((list(old) if isinstance(old, Arr) else [old]) + list(new))
+                    new.exact = exact
+                elif old is not UNSET:
+                    new.exact = False
+        else:                                   # an assignment neither splits nor globs
+            new = self.scalar_values(word.tail(m.end()), env)
+            if m.group(3) and isinstance(old, Arr):
+                # NAME+=v on an array: zsh appends an element, bash appends to element 0
+                if new is None:
+                    new = None
+                elif env.zsh:
+                    new = Arr(list(old) + [new])
+                    new.exact = old.exact
+                else:
+                    first = old[0] if old and old[0] else [[]]
+                    new = Arr([[a + b for a in first for b in new][:MAX_CANDIDATES]] + list(old[1:]))
+                    new.exact = old.exact
+            elif m.group(3) and old is not UNSET:  # NAME+=v
+                new = [a + b for a in scalar(old) for b in new][:MAX_CANDIDATES] \
+                    if scalar(old) is not None and new is not None else None
+            elif isinstance(old, Arr) and not env.zsh and new is not None:
+                new = Arr([new] + list(old[1:]))  # bash: NAME=v on an array sets element 0
+                new.exact = old.exact
+        target[name] = new
+        if into is None and "allexport" in env.opts:
+            env.exported.add(name)              # set -a: every assignment is exported
+
+    def nested_envs(self, cmd, env):
+        """The env the $(...) in each word of cmd runs in (index len(words): after the
+        last). An assignment's sees the assignments before it in the same command
+        (R=b x=$(find $R)); a command's own words see neither its VAR=x prefixes nor
+        anything after them, but do see a ${V:=x} in the words before."""
+        words, n = cmd.words, len(cmd.words)
+        i = 0
+        while i < n and words[i].text in KEYWORDS and words[i].modes[0] == "u":
+            i += 1
+        j = i
+        while j < n and is_assign(words[j]):
+            j += 1
+        pre, post, envs = env.copy(), env.copy(), []
+        seq = j >= n or self.sequential(env)
+        for k in range(n + 1):
+            if i <= k < j:
+                envs.append(pre.copy())
+                self.assign(pre if seq else env.copy(), words[k], into=pre.vars)
+                continue
+            envs.append(post.copy() if k >= j else env.copy())
+            if j <= k < n:
+                for ch in words[k].chars:
+                    if isinstance(ch, Param) and ch.op in (":=", "=") and ch.name and not ch.flags:
+                        param_values(ch, post, self.home)
+        return envs
+
+    @staticmethod
+    def sequential(env):
+        """Whether a VAR=x prefix sees the prefixes before it (R=b x=$R cmd: x=b). bash
+        outside POSIX mode expands them all first; $(...) in them sees the earlier ones."""
+        return env.zsh or "posix" in env.opts
+
+    @staticmethod
+    def with_vars(env, extra):
+        e = env.copy()
+        e.vars.update(extra)
+        return e
+
+    @staticmethod
+    def posix_builtins(env):
+        return "posix" in env.opts or "posixbuiltins" in env.opts
+
+    def word_envs(self, words, env):
+        """A ${V:=x} / ${V=x} in a command's words assigns V as the shell expands them, left
+        to right: words before it see the old V, words after it and later commands the new
+        one (`: ${R:=/}; rg x $R`). -> {id(word): the env it expands in}, or None when no
+        word assigns (every word then expands in env)."""
+        if not any(isinstance(ch, Param) and ch.op in (":=", "=") for w in words for ch in w.chars):
+            return None
+        at = {}
+        for w in words:
+            at[id(w)] = env.copy()
+            for ch in w.chars:
+                if isinstance(ch, Param) and ch.op in (":=", "=") and ch.name and not ch.flags:
+                    param_values(ch, env, self.home)
+        return at
+
+    def options(self, name, args, env):
+        """set -f / set -o X, setopt / unsetopt X, shopt -s / -u globstar, emulate sh: the
+        options that change expansion, globbing and MULTIOS."""
+        words = [lit(w) for w in args]
+        if (name == "shopt") == env.zsh:
+            return                              # bash has no setopt or emulate, zsh no shopt
+        if name == "emulate":
+            mode = next((w for w in words if not w.startswith("-")), "")
+            if mode in ("sh", "ksh", "bash"):
+                env.opts |= {"shwordsplit", "globsubst", "ksharrays", "shletters", "nomultios",
+                             "posixbuiltins", "typesettounset"}
+            elif mode in ("zsh", "csh"):
+                env.opts -= {"shwordsplit", "globsubst", "ksharrays", "noglob", "shletters", "nomultios",
+                             "posixbuiltins", "typesettounset"}
+            return
+        if name == "shopt":
+            for opt in ("globstar", "lastpipe"):
+                if opt in words and ("-s" in words or "-u" in words):
+                    (env.opts.add if "-s" in words else env.opts.discard)(opt)
+            return
+        pairs = []
+        if name != "set":
+            pairs = [(w, name == "setopt") for w in words if not w.startswith(("-", "+"))]
+        else:
+            # zsh's own -f is NO_RCS and -F is NO_GLOB; sh letters (bash, emulate sh) use -f
+            noglob_letter = "F" if env.zsh and "shletters" not in env.opts else "f"
+            k = 0
+            while k < len(words):
+                w = words[k]
+                if w in ("-o", "+o") and k + 1 < len(words):
+                    pairs.append((words[k + 1], w == "-o"))
+                    k += 1
+                elif len(w) > 1 and w[0] in "-+" and w[1:].isalpha():
+                    if noglob_letter in w[1:]:
+                        pairs.append(("noglob", w[0] == "-"))
+                    if "a" in w[1:]:
+                        pairs.append(("allexport", w[0] == "-"))
+                k += 1
+        for opt, on in pairs:
+            o = opt.lower().replace("_", "")
+            if o.startswith("no") and o[2:] in ("shwordsplit", "globsubst", "ksharrays", "glob", "multios",
+                                                "allexport"):
+                o, on = o[2:], not on
+            if o in ("glob", "multios"):
+                o, on = "no" + o, not on
+            if o == "posix" and env.zsh:
+                continue
+            if o in ("shwordsplit", "globsubst", "ksharrays", "noglob", "nomultios", "posixbuiltins", "posix",
+                     "allexport", "typesettounset"):
+                (env.opts.add if on else env.opts.discard)(o)
+
+    def stdin_of(self, cmd, env, prev):
+        """-> (what stdin is: "readable", "none" or "closed"; where a script read from it
+        comes from: ("text", body), ("word", Word), ("pipe", producer), ("multi", [...])
+        or None). Redirects apply in order. In zsh (MULTIOS) two or more inputs on one
+        fd since it was last closed, a pipe among them, become one pipe of them all."""
+        multios = env.zsh and "nomultios" not in env.opts
+        cur = {0: (env.stdin, None)}
+        added = {}
+        if cmd.op == "|":
+            cur[0] = ("readable", ("pipe", prev))
+            added[0] = [cur[0]]
+        for fd, kind, target in cmd.redirs:
+            t = lit(target) if kind == "dup" and target is not None else ""
+            if t == "-":
+                cur[fd], added[fd] = ("closed", None), []
+                continue
+            if kind == "heredoc":
+                new = ("readable", ("text", target or ""))
+            elif kind == "herestring":
+                new = ("readable", ("word", target or Word()))
+            elif kind == "dup":
+                new = cur.get(int(t), ("readable", None)) if t.isdigit() else ("readable", None)
+            elif target is not None:
+                new = self.file_stdin(target, env, cur)
+            else:
+                continue
+            ins = added.setdefault(fd, [])
+            ins.append(new)
+            cur[fd] = ("readable", ("multi", list(ins))) if multios and len(ins) > 1 else new
+        return cur.get(0, ("closed", None))
+
+    def file_stdin(self, word, env, fds):
+        """A file on an fd: a device (/dev/null) is no input; /dev/stdin and /dev/fd/N
+        are what that fd already holds. With several possible names, the worst wins."""
+        states = []
+        for t in self.texts(word, env):
+            if not t.startswith("/") and env.cwd:
+                t = normalize(env.cwd + "/" + t)
+            m = re.fullmatch(r"/dev/(?:fd/([0-9]+)|(stdin))", t)
+            if m:
+                states.append(fds.get(int(m.group(1) or 0), ("readable", None)))
+            elif t.startswith("/dev/"):
+                states.append(("none", None))
+            else:
+                states.append(("readable", None))
+        return next((s for s in states if s[0] != "readable"), states[0])
+
+    def scripts(self, source, env):
+        """The texts a shell reading its script from stdin would run."""
+        if source is None:
+            return []
+        kind, val = source
+        if kind == "text":
+            return [val]
+        if kind == "word":
+            return self.texts(val, env)
+        if kind == "multi":                     # zsh feeds every input in turn
+            res = [""]
+            for _, part in val:
+                res = [r + t + "\n" for r in res for t in (self.scripts(part, env) or [""])][:MAX_SCRIPTS]
+            return res
+        if not isinstance(val, Command):
+            return []
+        words = command_words(val.words)        # past `{`, `then`, `do`, VAR=x, command
+        while words:                            # env -C a printf ..., nice echo ...
+            name = posixpath.basename(words[0].literal() or "")
+            if name not in WRAPPERS:
+                break                           # (xargs echo X writes X and then its input)
+            words = words[wrapper_opts(name, words, 0)[0]:]
+        if not words:
+            return []
+        first, args = posixpath.basename(words[0].literal() or ""), words[1:]   # what it writes
+        if first in ("echo", "print"):
+            # its options, and zsh's - / -- that end them (dropping one bash would print
+            # only adds text); print -l writes a line per word
+            sep = " "
+            while args and re.fullmatch(r"-[neErRl]+|--?", lit(args[0])):
+                t, args = lit(args[0]), args[1:]
+                sep = "\n" if first == "print" and "l" in t else sep
+                if t in ("-", "--"):
+                    break
+            return self.joined(args, env, sep)
+        if first == "printf":
+            return self.joined(args, env, "\n")
+        if first == "cat" and not args:
+            src = self.stdin_of(val, env, None)[1]
+            return self.scripts(src, env) if src and src[0] != "pipe" else []
+        return []
+
+    def cd(self, name, args, env):
+        """Move env.cwd as cd / pushd / popd would. "cd-fails" when the cd may fail."""
+        if name == "popd":
+            env.cwd = None
+            return None
+        phys, rest = False, []
+        for k, w in enumerate(args):
+            t = lit(w)
+            if t == "--":
+                rest.extend(args[k + 1:])
+                break
+            if not rest and len(t) > 1 and t[0] == "-" and t[1:].isalpha():
+                if "P" in t or "L" in t:
+                    phys = t.rfind("P") > t.rfind("L")
+                continue
+            rest.append(w)
+        extra = False
+        if rest:
+            t = lit(rest[0])
+            if t == "-" or re.fullmatch(r"[+-][0-9]+", t) or (len(rest) > 1 and env.zsh):
+                env.cwd = None                  # OLDPWD, the directory stack, zsh `cd OLD NEW`
+                return None
+            outs = expand(rest[0], env, self.home)
+            fs = fields(outs[0]) if len(outs) == 1 else []
+            if not fs or any(g for f in fs for _, g in f):
+                env.cwd = None                  # unknown, several values, or a glob
+                return None
+            raw = "".join(c for c, _ in fs[0])
+            extra = len(rest) > 1 or len(fs) > 1    # bash 3.2 takes the first, bash 5 refuses
+        else:
+            hv = home_values(env, self.home)
+            if len(hv) != 1:
+                env.cwd = None
+                return None
+            raw = "".join(c for c, _ in hv[0])
+        if raw == "":
+            return None                         # cd "" stays put
+        env.cwd, ok = self.chdir(raw, env, phys)
+        return "cd-fails" if env.cwd is not None and (extra or not ok) else None
+
+    def chdir(self, raw, env, phys):
+        """-> (the directory cd lands in, or None when unknown; whether it can enter it:
+        it is a searchable directory now, or an earlier command may have made it)."""
+        base = env.cwd
+        here = (base.rstrip("/") + "/" + raw) if base else None
+        tries = [raw] if raw.startswith("/") else [here]
+        if not raw.startswith("/") and raw.split("/")[0] not in (".", ".."):
+            entries = self.cdpath(env)
+            via = [here if e in ("", ".") else e.rstrip("/") + "/" + raw if e.startswith("/")
+                   else (base.rstrip("/") + "/" + e + "/" + raw if base else None) for e in entries]
+            if entries:
+                tries = [here] + via if env.zsh and not ({"", "."} & set(entries)) else via + [here]
+        for t in tries:
+            if t is None:
+                return None, True
+            if self.isdir(t):                   # the raw path: a missing x in x/.. fails
+                return (physical(t) if phys else normalize(t)), True
+        target = normalize(here or tries[0])
+        last = next((c for c in reversed(raw.split("/")) if c not in ("", ".", "..")), "")
+        return target, bool(last) and any(last in made_names(t) for t in env.made)
+
+    @staticmethod
+    def cdpath(env):
+        v = env.vars.get("CDPATH", MISSING)
+        if v is MISSING and env.zsh and isinstance(env.vars.get("cdpath"), Arr):
+            return [e for el in env.vars["cdpath"] for c in el[:1] for e in ["".join(x for x, _ in c)]]
+        if v is MISSING:
+            text = os.environ.get("CDPATH", "")
+        elif scalar(v) is not None and len(v) == 1:
+            text = "".join(c for c, _ in v[0])
+        else:
+            return []
+        return text.split(":") if text else []
+
+    def command(self, cmd, words, env, nest, external=False, prev=None):
+        """Judge one simple command. external: it runs as an executable (find -exec,
+        fd -x), so shell functions such as grep (ugrep) do not apply."""
+        home = self.home
+        i, n = 0, len(words)
+        while i < n and words[i].text in KEYWORDS and words[i].modes[0] == "u":
+            i += 1
+        j = i
+        while j < n and is_assign(words[j]):
+            j += 1
+        if j >= n:                              # only assignments: they set shell variables
+            for w in words[i:j]:
+                self.assign(env, w)
+            return None
+        prefix = {}                             # VAR=x cmd: that command's environment only
+        for w in words[i:j]:
+            self.assign(self.with_vars(env, prefix) if self.sequential(env) else env, w, into=prefix)
+        i = j
+        wenv = self.word_envs(words[i:], env)
+        at = (lambda w: wenv.get(id(w), env)) if wenv else (lambda w: env)
+        run_cwd, via_xargs, noglob = env.cwd, False, False
+        in_shell, funcs = True, not external
+        while True:
+            while i < n and is_assign(words[i]):
+                self.assign(env, words[i], into=prefix)
+                i += 1
+            if i >= n:
+                return None
+            first = words[i].literal()
+            if first is None:                   # f=find; $f /  (bash also splits `$cmd args`)
+                outs = expand(words[i], env, home)
+                new = [Word([c for c, _ in f], ["u" if g else "s" for _, g in f])
+                       for f in (fields(outs[0]) if len(outs) == 1 else []) if f]
+                if not new:
+                    return None
+                words = words[:i] + new + words[i + 1:]
+                n = len(words)
+                first = words[i].text
+            bare = all(m == "u" for m in words[i].modes) and "/" not in first
+            name = posixpath.basename(first).lower()
+            args = words[i + 1:]
+            if in_shell and prefix and bare and name in SPECIAL_BUILTINS and self.posix_builtins(env):
+                env.vars.update(prefix)         # POSIX: a special builtin's VAR=x prefixes stay
+                prefix = {}
+            if name in CREATORS:
+                for w in args:
+                    env.made.extend(self.texts(w, env))
+            if in_shell:
+                if name in ("cd", "pushd", "popd"):
+                    return None if via_xargs else self.cd(name, args, env)
+                if name in DECLARERS:
+                    flags = "".join(lit(w)[1:] for w in args if re.fullmatch(r"-[a-zA-Z]+", lit(w)))
+                    export = name == "export" or "x" in flags
+                    # A bare name declares an unset variable set and empty, except export
+                    # and readonly in bash or under zsh's posixbuiltins, and nothing under
+                    # typesettounset (both set by emulate sh). -a: an empty array.
+                    declares = name not in ("export", "readonly") or (env.zsh and "posixbuiltins" not in env.opts)
+                    declares = declares and "typesettounset" not in env.opts
+                    for w in args:
+                        if is_assign(w):
+                            self.assign(env, w)
+                        elif NAME_ONLY_RE.match(w.text) and declares and env.vars.get(w.text) is UNSET:
+                            env.vars[w.text] = Arr() if "a" in flags else (Declared([[]]) if env.zsh else [[]])
+                        if export and (is_assign(w) or NAME_ONLY_RE.match(w.text)):
+                            env.exported.add(ASSIGN_RE.match(w.text).group(1) if is_assign(w) else w.text)
+                    return None
+                if name == "for":
+                    if len(args) >= 2 and args[1].text == "in" and NAME_ONLY_RE.match(args[0].text):
+                        vals = []
+                        for w in args[2:]:
+                            for alt in expand_braces(w):
+                                for out in expand(alt, env, home):
+                                    vals.extend(f for f in fields(out) if f)
+                        env.vars[args[0].text] = vals[:MAX_CANDIDATES] or None
+                    elif args:
+                        env.vars[args[0].text] = None
+                    if args and "allexport" in env.opts:
+                        env.exported.add(args[0].text)
+                    return None
+                if name == "read":
+                    for w in args:
+                        if NAME_ONLY_RE.match(w.text):
+                            env.vars[w.text] = None
+                            if "allexport" in env.opts:
+                                env.exported.add(w.text)
+                    return None
+                if name == "unset":
+                    if not any(lit(w) == "-f" for w in args):
+                        for w in args:
+                            if NAME_ONLY_RE.match(w.text):
+                                env.vars[w.text] = UNSET
+                    return None
+                if name in OPTION_SETTERS:
+                    self.options(name, args, env)
+                    return None
+            if name == "command" and any(lit(w) in ("-v", "-V") for w in args[:2]):
+                return None
+            if name not in WRAPPERS:
+                break
+            if not (bare and name in ("time", "noglob", "nocorrect")):
+                funcs = False                   # an executable, `command` or `exec`: no functions
+            in_shell = in_shell and bare and name in IN_SHELL
+            noglob = noglob or (bare and name == "noglob")
+            via_xargs = via_xargs or name == "xargs"
+            i, opts, assigns = wrapper_opts(name, words, i)
+            for w in assigns:
+                self.assign(env, w, into=prefix)
+            for opt, value, k in opts:
+                if opt in WRAPPERS[name][2] and value is not None:
+                    run_cwd = resolve_one(value, env, home, run_cwd)
+                if name == "env" and opt in ("-S", "--split-string") and value is not None:
+                    for text in self.joined([value] + words[k + 1:], env):
+                        self.nested_text(text, env.at(run_cwd), nest)   # env -S 'cmd args'
+                    return None
+        if name in SHELLS:
+            j, run_c, run_s = 0, False, False
+            while j < len(args):
+                t = args[j].text
+                if t in ("--rcfile", "--init-file"):
+                    j += 2
+                    continue
+                if t in ("--", "-"):
+                    j += 1
+                    break
+                if len(t) < 2 or t[0] not in "-+":
+                    break
+                if t[0] == "-" and t[1] != "-":
+                    run_c = run_c or "c" in t[1:]
+                    run_s = run_s or "s" in t[1:]
+                if t[1] != "-" and t[-1] in "oO":
+                    j += 1                  # -o OPTION / -O SHOPT (also -euo pipefail)
+                j += 1
+            state, source = self.stdin_of(cmd, env, prev)
+            posix = name in ("sh", "dash") or any(lit(w) == "--posix" for w in args[:j])
+            child = env.child(run_cwd, name == "zsh", state, prefix, ("posix",) if posix else ())
+            if run_c:
+                texts = self.texts(args[j], env) if j < len(args) else []
+            elif run_s or j >= len(args) or lit(args[j]) in ("/dev/stdin", "/dev/fd/0"):
+                texts = self.scripts(source, env)   # no script file: the shell runs what stdin holds
+            else:
+                texts = []
+            for text in texts:
+                self.nested_text(text, child.copy(), nest)
+            return None
+        if name == "eval":                      # runs in this shell: its cd and assignments stay
+            texts = self.joined(args, env)
+            # VAR=x eval '...': the text sees VAR=x (bash also exports it to what the text
+            # runs), and VAR gets its old value back afterwards
+            saved = {k: env.vars.get(k, MISSING) for k in prefix}
+            fresh = set(prefix) - env.exported if not env.zsh else set()
+            env.vars.update(prefix)
+            env.exported |= fresh
+            for text in texts:
+                self.nested_text(text, env if len(texts) == 1 else env.copy(), nest)
+            for k, v in saved.items():
+                if v is MISSING:
+                    env.vars.pop(k, None)
+                else:
+                    env.vars[k] = v
+            env.exported -= fresh
+            return None
+        if name not in SEARCHERS:
+            return None
+        glob = not noglob and "noglob" not in env.opts
+        if self.trace is not None:
+            self.trace.append((name, run_cwd, self.argvs(args, env, glob, at),
+                               self.stdin_of(cmd, env, prev)[0]))
+        if glob and (env.zsh or "globstar" in env.opts):    # the shell walks a `**/` glob itself
+            for w in args:
+                for p in tree_globs(w, at(w), home):
+                    if broad(p, home):
+                        self.found(name, shown(w), broad(p, home))
+        base_cwd = run_cwd
+        if name in FIND_NAMES:
+            roots, implicit, bounded, execs = find_model(args)
+            for kind, sub in execs:
+                self.command(Command(), sub, env.at(None if kind in ("-execdir", "-okdir") else run_cwd),
+                             nest, external=True)
+        elif name in FD_NAMES:
+            roots, implicit, bounded, execs, base = fd_model(args)
+            if base is not None:
+                base_cwd = resolve_one(base, at(base), home, run_cwd)
+            for _, sub in execs:
+                self.command(Command(), sub, env.at(None), nest, external=True)   # in each result's context
+        elif name in RG_NAMES:
+            roots, implicit, bounded = rg_model(args, self.stdin_of(cmd, env, prev)[0] == "readable")
+        else:
+            # Claude Code runs a bare `grep` as ugrep, a shell function (a path, `command`,
+            # a wrapper or find -exec reach the system grep instead).
+            ugrep = name == "ugrep" or (first == "grep" and funcs)
+            model = grep_model(name, args, ugrep)
+            if model is None:
+                return None                     # non-recursive grep: a filter, not a walk
+            roots, implicit, bounded = model
+        if bounded:                             # only the searcher's own depth options count
+            return None
+        for w in roots:
+            for p in resolve_all(w, at(w), home, base_cwd, glob):
+                if broad(p, home):
+                    self.found(name, shown(w), broad(p, home))
+            if glob:
+                for p in resolve_globs(w, at(w), home, base_cwd):
+                    self.found(name, shown(w), p)
+        if implicit and not via_xargs and base_cwd and broad(normalize(base_cwd), home):
+            self.found(name, ". (implicit)", broad(normalize(base_cwd), home))
+        return None
+
+
+# A searcher word, optionally through a path (/usr/bin/grep). Group 1 ends just
+# before it, group 2 is its name.
+RAW_SEARCHER_RE = re.compile(r"(^|[^\w./-])(?:[^\s'\"]*/)?(find|gfind|bfs|fd|fdfind|rg|rgrep)(\s|$)")
+# a grep-family word with a recursive flag before the end of its pipeline segment
+RAW_RGREP_RE = re.compile(
+    r"(^|[^\w./-])(?:[^\s'\"]*/)?([efgu]?grep)(\s+\S+)*?\s+(-[A-Za-z0-9]*[rR][A-Za-z0-9]*|--recursive"
+    r"|--dereference-recursive|--directories(=|\s+)recurse|-d\s*recurse)(\s|$)")
+RAW_SEGMENT_RE = re.compile(r"\$\(|[|;&()\n`]")
+RAW_EXEC_RE = re.compile(r"\s(-exec|-execdir|-ok|-okdir)(\s|$)")
+RAW_FD_EXEC_RE = re.compile(r"\s(-x|-X|--exec|--exec-batch)(\s|=|$)")
+RAW_DEPTH_RE = re.compile(r"(^|\s)(-maxdepth|--max-?depth|--exact-depth|--depth|-d)(=|\s+)['\"]?[0-9]")
+RAW_META = {"-help", "--help", "-version", "--version"}      # not -h: grep -h is a flag
+RAW_VAR_RE = re.compile(r"\$(?:\{(HOME|PWD)\}|(HOME|PWD))(?=/|$)")
+RAW_USER_RE = re.compile(r"~[A-Za-z0-9._-]+(?=/|$)")
+
+
+def fallback(src, cwd, home):
+    """Used only if the parser fails: the raw words after a searcher, per pipeline
+    segment and up to any -exec. A depth option with a number passes, as does
+    --help / --version as the first argument and a bare `grep -NUM` (ugrep); otherwise
+    a broad absolute, ~, ~name or ./.. path blocks, and so does a broad cwd when no
+    word looks like a path at all. Segments are judged in order, an -exec's command
+    right after its own, so the first walk is the one reported."""
+    here = normalize(cwd) if cwd and cwd.startswith("/") else None
+    todo = RAW_SEGMENT_RE.split(src)
+    while todo:
+        seg = todo.pop(0)
+        m = RAW_SEARCHER_RE.search(seg) or RAW_RGREP_RE.search(seg)
+        if not m:
+            continue
+        lead, seg = seg[:m.end(1)].split(), seg[m.end(1):]
+        x = (RAW_FD_EXEC_RE if m.group(2).startswith("fd") else RAW_EXEC_RE).search(seg)
+        if x:
+            todo.insert(0, seg[x.end():])       # the command it runs is judged on its own, next
+            seg = seg[:x.start()]
+        words = seg.split()
+        if RAW_DEPTH_RE.search(seg) or (len(words) > 1 and words[1] in RAW_META):
+            continue
+        if words[0] == "grep" and set(lead) <= {"time", "noglob", "nocorrect"} and \
+                any(re.fullmatch(r"-[1-9]", w) for w in words):
+            continue                            # the shell-function grep is ugrep: -NUM is depth
+        pathish = False
+        for tok in seg.split()[1:]:
+            for t in [tok] + tok.split("=", 1)[1:]:
+                t = t.replace("'", "").replace('"', "")
+                v = RAW_VAR_RE.match(t)
+                if t == "~" or t.startswith("~/"):
+                    t = (home or "") + t[1:]
+                elif RAW_USER_RE.match(t):
+                    t = "/Users/" + t[1:]       # ~name: that user's home, as the shell has it
+                elif v:                         # $HOME, ${PWD}/x: only as the whole start
+                    t = ((home if (v.group(1) or v.group(2)) == "HOME" else here) or "") + t[v.end():]
+                if t.startswith("/"):
+                    p = t
+                elif t in (".", "..") or t.startswith(("./", "../")):
+                    p = here and here + "/" + t
+                else:
+                    continue
+                pathish = True
+                if p and is_broad(normalize(p), home):
+                    return ("search", tok, normalize(p))
+        if not pathish and here and is_broad(here, home):
+            return ("search", ". (implicit)", here)
+    return None
+
+
+def analyze(src, cwd, home, isdir=is_dir, shell=""):
+    """-> (searcher, root as written, resolved root) or None. isdir answers whether cd
+    can enter a directory (tests pass a fake file system). shell is the Bash tool's
+    shell ($SHELL); anything but bash/sh/dash/ksh is taken as zsh."""
+    zsh = posixpath.basename(shell or "zsh") not in ("bash", "sh", "dash", "ksh")
+    try:
+        Analyzer(home, isdir).run(parse(src), Env(normalize(cwd) if cwd and cwd.startswith("/") else None,
+                                                  zsh=zsh))
+    except Hit as h:
+        return (h.searcher, h.shown, h.resolved)
+    except Exception:
+        return fallback(src, cwd, home)
+    return None
+
+
+def main(argv):
+    src = sys.stdin.read()
+    cwd = argv[1] if len(argv) > 1 else ""
+    home = argv[2] if len(argv) > 2 else ""
+    shell = argv[3] if len(argv) > 3 else ""
+    hit = analyze(src, cwd, home, shell=shell)
+    if hit:
+        sys.stdout.write("\n".join(s.replace("\n", " ") for s in hit) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
+__UNSCOPED_SEARCH_PY__
+}
+if [ -n "${us_ask-}" ]; then
+  us_boot='import os, signal
+signal.signal(signal.SIGALRM, signal.SIG_DFL)
+signal.alarm(5)
+with os.fdopen(3, "rb") as us_file:
+    us_source = us_file.read()
+exec(compile(us_source, "unscoped_search.py", "exec"), {"__name__": "__main__"})'
+  us_py=${CODEX_GUARD_TEST_PYTHON-}
+  if [ -z "$us_py" ]; then us_py=/opt/homebrew/bin/python3; [ -x "$us_py" ] || us_py=/usr/bin/python3; fi
+  if [ -x "$us_py" ] && us_hit=$(printf '%s' "$command" | us_parse 2>/dev/null) && [ -n "$us_hit" ]; then
+    us_tool=${us_hit%%$'\n'*} us_rest="" us_abs=""
+    case $us_hit in *$'\n'*) us_rest=${us_hit#*$'\n'} ;; esac
+    us_root=${us_rest%%$'\n'*}
+    case $us_rest in *$'\n'*) us_abs=${us_rest#*$'\n'}; us_abs=${us_abs%%$'\n'*} ;; esac
+    us_where=$us_root
+    [ -z "$us_abs" ] || [ "$us_abs" = "$us_root" ] || us_where="$us_root ($us_abs)"
+    pw_roots_msg="/, /Users, /Users/<user>, ~"
+    for pw_x in $pw_kids; do pw_roots_msg="$pw_roots_msg, ~/$pw_x"; done
+    pw_roots_msg="$pw_roots_msg, ~/.subfleet/<child>"
+    for pw_x in $pw_fixed; do
+      case "$pw_x" in /|/Users) ;; *) pw_roots_msg="$pw_roots_msg, $pw_x" ;; esac
+      [ "$pw_x" != /Volumes ] || pw_roots_msg="$pw_roots_msg, /Volumes/<entry>"
+    done
+    block "[unscoped-search] Whole-tree ${us_tool:-search} over a broad root (${pw_roots_msg}) — 8 of these ran in parallel on 8/8 and drove load to 47, and ~22 sol-lane finds on 8/18 held load at 57 for hours, beachballing the Mac. Scope it: exact subdirectory, -maxdepth/--max-depth, 'git ls-files' inside a repo, 'axiom-locate' (engine|release|pypkg|corpus-file) for Axiom artifacts, or the interpreter for python package paths (python -c 'import x; print(x.__file__)'). Matched broad root: '${us_where}'."
+  fi
+fi
+# <<< unscoped-search: parser end <<<
 # <<< unscoped-search: shared region end <<<
 
 # --- codex-lane additions (hf-dest via shell heredoc): begin ---

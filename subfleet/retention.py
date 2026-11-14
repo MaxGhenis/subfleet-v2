@@ -49,6 +49,7 @@ from typing import Any
 
 from . import retention_archive as rarch
 from . import retention_git as rgit
+from . import retention_marks as marks
 from . import retention_qos as rqos
 from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
@@ -574,6 +575,11 @@ class _Pass:
         reasons = self._reasons()
         for job_id in in_flight:
             reasons.pop(job_id, None)
+        # C-8.7: a job whose kept tree an operator's ruling deleted is kept for
+        # good (no retirement, no archive, no pruning of its rows or folder), and
+        # one whose deletion is in flight is the delete path's (`retention_marks`).
+        for job_id, why in marks.kept_for_good(self.root, by_id).items():
+            reasons[job_id] = why
         protected = set(reasons)
         for error in self.errors:
             protected.add(error["job_id"])
@@ -731,13 +737,16 @@ class _Pass:
         in_flight: list[str] = []
         now = time.time()
         found = rarch.journals(self.root)
+        # C-8.7: the delete path holds its job's leases under the same holder,
+        # with its own journal (`retention_marks`); they are its to release.
+        deleting = marks.journal_ids(self.root)
         # A `retention:` lease with no journal was taken by a selection that
         # died before its journal, or by the old proof-based retention killed
         # mid-removal (design 5.6). Release the orphan lease, but take the job
         # before ordinary candidates, archiving every remaining byte first.
         for row in self.store.query("SELECT lease_key,holder FROM leases WHERE holder LIKE 'retention:%'"):
             job_id = row["holder"][len("retention:"):]
-            if job_id not in found:
+            if job_id not in found and job_id not in deleting:
                 self.leftovers.add(job_id)
                 with self.store.transaction("retention.lease_released", job_id=job_id,
                                             data={"lease_key": row["lease_key"], "reason": "no journal"}) as conn:
