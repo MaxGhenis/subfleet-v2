@@ -158,7 +158,7 @@ class DaemonError(Exception):
         self.fix = fix
         from .refusals import task_hold_condition_details
         self.details = task_hold_condition_details(details) if reason == "task-hold-condition" else None
-        self.reason = reason if self.details is not None else None
+        self.reason = reason if reason == "task-hold-condition" else None
         # An enum selected by exact template validation, never diagnostic prose.
         # Suggestion CLI errors reconstruct templates from this enum, validated
         # structural fields and the exit code; arbitrary daemon prose is excluded.

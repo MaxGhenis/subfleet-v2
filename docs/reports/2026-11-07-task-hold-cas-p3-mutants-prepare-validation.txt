@@ -1,0 +1,2 @@
+Preparing source/config and Python test helpers: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/p3-mutant-source
+Prepared pristine source: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/p3-mutant-source

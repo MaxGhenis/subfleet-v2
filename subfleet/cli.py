@@ -2428,10 +2428,11 @@ def cmd_tasks(args: argparse.Namespace) -> int:
     prefix = getattr(args, "if_note_prefix", None)
     if prefix is not None:
         try:
-            prefix = task_holds.note_text(prefix)
+            if task_holds.note_text(prefix) != prefix:
+                raise ValueError("prefix has surrounding spaces")
         except ValueError:
             return fail(Exit.INVALID_INPUT, "task-hold-note: --if-note-prefix must be one line of printable "
-                        f"characters, at most {task_holds.NOTE_MAX}, with no credential")
+                        f"characters, at most {task_holds.NOTE_MAX}, with no credential or surrounding spaces")
     if action == "hold":
         if not (until or "").strip():
             return fail(Exit.INVALID_INPUT, "tasks hold: --until is required")
@@ -2452,24 +2453,32 @@ def cmd_tasks(args: argparse.Namespace) -> int:
     payload = _asdict(request)
     # An unconditional call keeps the old wire shape, even as TasksArgs grows.
     payload.pop("if_note_prefix", None)
+    if prefix is not None:
+        # Old daemons refuse these actions before opening a transaction, so a
+        # restart or retry can never turn a conditional call into a plain write.
+        payload["action"] = f"{action}-if"
+        payload["if_note_prefix"] = prefix
     try:
         client = _client(args)
-        if prefix is not None:
-            if protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY not in _daemon_capabilities(client):
-                if args.json:
-                    emit({"refused": "task-hold-capability", "capability": protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY})
-                return fail(Exit.CLI_TOO_OLD,
-                            "task-hold-capability: tasks --if-note-prefix needs daemon capability "
-                            f"`{protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY}`; this daemon would ignore the condition",
-                            RESTART_DAEMON)
-            payload["if_note_prefix"] = prefix
-        result = client.call("tasks", payload)
+        try:
+            result = client.call("tasks", payload)
+        except DaemonError as exc:
+            if prefix is not None and exc.code == Exit.INVALID_INPUT:
+                capability = protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY
+                if capability not in _daemon_capabilities(client):
+                    if args.json:
+                        emit({"refused": "task-hold-capability", "capability": capability})
+                    return fail(Exit.CLI_TOO_OLD,
+                                "task-hold-capability: tasks --if-note-prefix needs daemon capability "
+                                f"`{capability}`; this daemon refused the conditional action",
+                                RESTART_DAEMON)
+            raise
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
     except DaemonError as exc:
         if exc.reason == "task-hold-condition":
             if args.json:
-                emit({"refused": exc.reason, "task_hold": exc.details["task_hold"]})
+                emit({"refused": exc.reason, "task_hold": exc.details["task_hold"] if exc.details else None})
             return fail(exc.code, f"task-hold-condition: {exc}", exc.fix)
         if protocol.UNKNOWN_OP in str(exc):
             return fail(Exit.DAEMON_UNAVAILABLE, "the daemon does not hold tasks; it is older than this CLI",
@@ -3791,7 +3800,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "the write transaction. While a hold on a task is in force, no new attempt of a "
                              "detached job of that task starts; every other task, and every conversation turn, "
                              "is placed as before, and running attempts are never touched. "
-                             "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v1. "
+                             "Prefixes must have no surrounding spaces. "
+                             "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
                              "With --json each refusal is one JSON object on stdout; prose stays on stderr.")
     _add_json(p_tasks)
     p_tasks.set_defaults(handler=cmd_tasks, tasks_command=None)
@@ -3801,21 +3811,21 @@ def build_parser() -> argparse.ArgumentParser:
     t_hold = tasks_sub.add_parser("hold", help="hold a task until an instant; a second hold replaces the first",
                                  description="Hold a task. With --if-note-prefix P, write only if no hold is in force "
                                  "or its note starts with P; --note must also start with P. "
-                                 "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v1. "
+                                 "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
                                  "--json refusals are one object on stdout, with prose on stderr.")
     t_hold.add_argument("task", help=f"a task the policy routes ({', '.join(TASK_CHOICES)})")
     t_hold.add_argument("--until", help="ISO 8601 instant; no zone is UTC")
     t_hold.add_argument("--note", help=f"required: why, one line of at most {task_holds.NOTE_MAX} characters")
-    t_hold.add_argument("--if-note-prefix", metavar="P", help="case-sensitive note prefix after trimming spaces; "
+    t_hold.add_argument("--if-note-prefix", metavar="P", help="case-sensitive note prefix; no surrounding spaces; "
                         "one printable line, at most 160 characters, with no credential")
     _add_json(t_hold, nested=True)
     t_release = tasks_sub.add_parser("release", help="end a task's hold at once",
                                     description="Release a task's hold. With --if-note-prefix P, delete only if "
                                     "the stored note starts with P, even for an expired hold; no row succeeds. "
-                                    "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v1. "
+                                    "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
                                     "--json refusals are one object on stdout, with prose on stderr.")
     t_release.add_argument("task")
-    t_release.add_argument("--if-note-prefix", metavar="P", help="case-sensitive note prefix after trimming spaces; "
+    t_release.add_argument("--if-note-prefix", metavar="P", help="case-sensitive note prefix; no surrounding spaces; "
                            "one printable line, at most 160 characters, with no credential")
     _add_json(t_release, nested=True)
 

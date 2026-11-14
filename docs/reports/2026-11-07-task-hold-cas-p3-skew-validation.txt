@@ -1,0 +1,23 @@
+Traceback (most recent call last):
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-skew.py", line 129, in daemon
+    assert read_reply(process, log) == {"ready": True}
+           ~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-skew.py", line 110, in read_reply
+    raise AssertionError(f"daemon worker timed out; log: {log.read_text()}")
+AssertionError: daemon worker timed out; log: 
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-skew.py", line 246, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-skew.py", line 180, in main
+    with daemon(source, state, socket_root) as command:
+         ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py", line 203, in __enter__
+    return next(self.gen)
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-skew.py", line 152, in daemon
+    assert process.returncode == 0, log.read_text()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

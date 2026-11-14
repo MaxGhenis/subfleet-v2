@@ -1,0 +1,34 @@
+Archiving a8624a489
+Archive ready a8624a489: 932 source/config files
+Archiving e9e557b15
+Archive ready e9e557b15: 938 source/config files
+New CLI -> a8624a489 daemon
+  hold/foreign/text: 6
+  hold/foreign/json: 6
+  hold/own/text: 6
+  hold/own/json: 6
+  hold/absent/text: 6
+  hold/absent/json: 6
+  release/foreign/text: 6
+  release/foreign/json: 6
+  release/own/text: 6
+  release/own/json: 6
+  release/absent/text: 6
+  release/absent/json: 6
+Traceback (most recent call last):
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-skew.py", line 276, in <module>
+    raise SystemExit(cli_worker(Path(sys.argv[2]), sys.argv[3:]))
+                 ^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-skew.py", line 208, in main
+    state, socket_root = scratch / f"new-{version}", short / f"n-{version}"
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py", line 210, in __exit__
+    next(self.gen)
+    ~~~~^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-skew.py", line 171, in daemon
+    process.stdout.close()
+           ^^^^^^^^^^^^^^^
+AssertionError: worker: importing daemon fixture
+worker: imports ready; constructing isolated daemon
+worker: isolated daemon ready
+

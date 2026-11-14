@@ -69,3 +69,64 @@ Mutation results: **15/15 killed; zero survivors**. Each run failed its named te
 - `git diff --check`: passed. Read-only `rg` audits covered exact hold/event/error comparisons and capability/help tests.
 
 **Commits and deviations.** Named-file staging/commit attempts were made for the contract, implementation, CLI and invariant-test steps. Git could not create `/Users/maxghenis/subfleet-v2/.git/worktrees/20261106-192709-task-hold-cas-build2/index.lock` (`Operation not permitted`); no commit was created. Files remain in this workspace for hub collection. No history was rewritten and nothing was pushed. This Git permission failure and the permitted temporary-cache fallback are the execution deviations; no functional scope was deferred. The final report, mutation evidence and validation logs are included in the named-file commit attempt; Git did not permit committing.
+
+
+## Follow-up: review r1's P3s
+
+Implemented the follow-up from `e9e557b15190` in the assigned workspace. Work started 2026-11-11 at 17:05 UTC; the three-hour deadline is 20:05 UTC. The CAS tests, skew assertions, all six mutation checks and final guard group passed. The five-file legacy regression group did not complete. All test and skew processes finished before 19:55 UTC; this report was finalized before the 20:05 UTC deadline.
+
+**Findings.**
+
+- **P3-6:** conditional CLI requests use only `hold-if`/`release-if`, which require `if_note_prefix`. There is no capabilities preflight. After an invalid-input refusal the CLI queries capabilities: absent `tasks.if_note_prefix.v2` gives exit 6 and the capability JSON; advertised v2 preserves the original refusal. Older daemons reject these actions before any transaction, so replacement between connections or busy retries cannot turn the call into an unconditional write. The daemon advertises v1 and v2 and still honors the v1 encoding on plain `hold`/`release`. Unconditional payloads are unchanged.
+- **P3-5:** CLI and daemon reject a prefix changed by trimming, as `task-hold-note`/exit 2, with no request or write respectively. Notes still trim. C-11.10, its change log (without a PR number), and help were amended.
+- **P3-1:** the untrimmed-prefix mutant has no distinguishing accepted input under that rule. Its suggested test was replaced with 12 raw-protocol cases: leading, trailing and both-edge spaces, both verbs, both encodings, on an existing matching hold. Each refusal preserves all five checked tables.
+- **P3-2:** the no-row conditional release test first holds `review` and requires that hold in the returned listing.
+- **P3-3:** when checked details cannot be built, the wire retains `reason: "task-hold-condition"` and omits `details`. The client retains the reason; the CLI exits 7 and emits one stdout object, `{"refused":"task-hold-condition","task_hold":null}`. Both verbs are tested through store → daemon → socket → CLI with r1's synthetic masked note and `expires_at='not-an-instant'`, without any store change.
+- **P3-8:** null `since` stays null in structured data and omits the entire "since …" phrase in prose.
+- **P3-4 decision:** exit 6 stays. Review r1 found no better existing member: 69 collides with daemon unavailable or predating tasks. Failed conditions remain exit 7. Under `--json`, capability refusal is exactly `{"refused":"task-hold-capability","capability":"tasks.if_note_prefix.v2"}`; condition refusal contains exactly `refused: "task-hold-condition"` and `task_hold`, whose value is the checked four-field hold reply or null. Prose stays on stderr.
+- **P3-7 decision:** unchanged pre-existing behavior: unconditional release without a row can wake stale `task-held` jobs. The hub tracks **D-TASKHOLD-NOROW1**. Conditional release without a row still changes nothing.
+
+**Invariants and tests.** Daemon tests are in `tests/fake/test_task_hold_cas.py`; CLI, wire and integration tests are in the corresponding `tests/unit/test_task_hold_cas_*.py` files.
+
+| Invariant | Test evidence |
+|---|---|
+| 1. No unconditional write from a conditional call. | `test_condition_uses_refusable_action_without_capability_preflight`; `test_conditional_actions_require_prefix_before_any_write`; `test_foreign_hold_refuses_without_changing_any_row_or_event`; skew checks against a8624a489, e9e557b15 and this source. |
+| 2. Unconditional calls behave as before. | `test_unconditional_handlers_match_frozen_a8624a489_rows_replies_and_events`; `test_unconditional_requests_keep_old_payload_without_capability_query`. |
+| 3. The exit-code and JSON promises hold, including null. | `test_tasks_outcome_codes_are_distinct_by_outcome_category`; `test_refused_conditional_action_queries_capability_before_exit_6`; `test_condition_refusal_names_all_blocking_hold_fields_and_exit_7`; `test_json_condition_refusal_without_details_prints_null`; `test_unshowable_blocking_row_keeps_condition_json_and_store`. |
+| 4. A prefix is accepted only when trimming leaves it unchanged. | `test_bad_prefix_is_task_hold_note_before_any_request`; `test_raw_protocol_spaced_prefix_is_refused_without_changes_for_both_encodings`; `test_matching_hold_can_be_renewed_and_released_and_notes_still_trim`. |
+| 5. The e9e557b15 CLI retains conditional behavior against this daemon. | `test_legacy_conditional_encoding_still_checks_foreign_rows`; unchanged v1 model tests; six exact old-CLI comparisons against its own daemon and this source. |
+
+**Skew runs.** `docs/reports/2026-11-07-task-hold-cas-p3-skew.py` uses `git archive`, without worktrees, for `a8624a4899a2ce40c849cc5c6f7d74a7010f11b5` and `e9e557b151902140530f0d9c8eea97fa4bd63e9f`. All state roots are in permitted temporary folders. Real archived daemon/store/protocol code serves real CLI/client socket calls; the fixture supplies synthetic policy, empty lanes, a fixed clock and process/launch safety stubs. The socket-only CLI fixture bypasses PID verification, while preserving actual argument parsing, conditional requests and error handling.
+
+**Passed:** 36 new-CLI probes (three daemons × two verbs × foreign/own/absent rows × prose/JSON), and 12 old-CLI probes giving six exact comparisons of replies, leases and task events. Old-daemon refusals return 6 with unchanged `leases`, `jobs`, `attempts`, `events` and `closures`; head checks the condition. Results: `docs/reports/2026-11-07-task-hold-cas-p3-skew-results.json`.
+
+Two harness attempts failed: first, a worker exceeded its 120 s startup allowance before any operation; second, all 12 base probes passed but the 20 s teardown allowance expired. The successful retry reused that base proof, cached source archives, avoided Hypothesis helper imports, increased readiness/teardown allowances, and checkpointed each probe. Its exit was 0; every worker was stopped and joined. The three logs are `2026-11-07-task-hold-cas-p3-skew-validation.txt`, `...-skew-validation-2.txt` and `...-skew-validation-3.txt` under `docs/reports/`.
+
+**Mutants: 6/6 killed.** `docs/reports/2026-11-07-task-hold-cas-p3-mutants.py` applies each alone to a disposable source copy, restores pristine bytes in `finally`, checks bytes against both the pristine copy and workspace, and records SHA-256 values. No workspace production file was mutated by the mutation runs.
+
+| Mutant | Killing test |
+|---|---|
+| 1. Send the old plain-action encoding. | `test_condition_uses_refusable_action_without_capability_preflight` |
+| 2. Run `hold-if` without checking its condition. | `test_foreign_hold_refuses_without_changing_any_row_or_event` |
+| 3. Print nothing for a detail-free JSON refusal. | `test_json_condition_refusal_without_details_prints_null` |
+| 4. Accept a spaced prefix. | `test_raw_protocol_spaced_prefix_is_refused_without_changes_for_both_encodings` |
+| 5. Return an empty no-row release listing. | `test_conditional_release_with_no_row_is_successful_and_writes_nothing` |
+| 6. Classify any conditional-action refusal as exit 6 without capabilities. | `test_invalid_conditional_request_keeps_original_refusal_when_v2_is_advertised` |
+
+The first mutant invocation exceeded its 300 s allowance and established no kill. The prepared-source retry used 900 s per subprocess and incremental evidence; it exited 0 with six intended assertion failures, no setup/collection errors, and all restoration checks passing. Evidence: `docs/reports/2026-11-07-task-hold-cas-p3-mutation-results.json`; both mutant validation logs and the prepare log are retained.
+
+**Commands and results.** Full commands, read-only inspections, edits, retries and their results are recorded in `docs/reports/2026-11-07-task-hold-cas-p3-build-commands.txt` and `docs/reports/2026-11-07-task-hold-cas-p3-driver-commands.txt`. Exact pytest argv/output/status are in `docs/reports/2026-11-07-task-hold-cas-p3-validation.txt`.
+
+- `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and default-cache `uv sync --group dev`: cache initialization refused, exit 2. Fallback sync under the permitted child succeeded, installing nine packages. Thereafter `TMPDIR=R`, `UV_CACHE_DIR=R/uv-cache`, and `uv --cache-dir "$UV_CACHE_DIR"` were used. R is `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3`.
+- `uv run --no-sync --with 'pytest-xdist>=3.6' pytest -q -n 4 --tb=short --basetemp R/cas-1` over the five requested CAS files plus capability ordering: **137 passed, 834.93 s, exit 0**. This includes all added tests, the independent model and frozen-handler differential.
+- Skew driver: two harness failures above, then **48 probes passed, exit 0**.
+- Mutation driver: initial timeout; narrow prepare-only **exit 0**; retry **6/6 killed, exit 0**.
+- Requested task-hold regression group: **started after skew, then interrupted during xdist worker startup at 19:39 UTC for the time budget; exit 2, zero completed tests and no assertion failure. The five requested legacy task-hold files remain unverified**.
+- Requested host-push/refusal/registry/secrecy/state-contract/module-name/invariants guard group: **764 passed, 709.20 s, exit 0**.
+- Driver syntax checks, mutation-result validation and pristine-source SHA-256 checks: passed. Final `git diff --check` passed; status contains only the intended 25 changed/new files. Named-file commit results are recorded below.
+
+**What did not run.** The full suite was left to CI, as requested. The original 15-mutant matrix, opt-in legacy task-hold mutation matrix and Swift/frontend suite were not rerun. The five requested legacy task-hold files remain unverified: `tests/unit/test_task_holds.py`, `tests/fake/test_task_hold_admission.py`, `tests/fake/test_task_hold_clocks.py`, `tests/fake/test_task_hold_properties.py` and `tests/fake/test_task_hold_reset_demand.py`. No passing result is inferred for them.
+
+**Commits and scope.** The assigned branch is already held by the caller's checkout: `git switch -c fix/task-hold-cas-p3-217` refused because it exists, and `git switch fix/task-hold-cas-p3-217` refused because that checkout owns it. The caller was left untouched. Named-file staging/commit attempts for the implementation and proof-driver steps failed: Git could not create this worktree's `index.lock` (`Operation not permitted`); the untracked-driver commit subsequently reported unknown pathspecs because staging had failed. No commit was created, no history was rewritten, and nothing was pushed. Files remain in the assigned detached workspace for Subfleet collection. Final report/evidence commit attempt: **named-file `git add` and `git commit -m 'Document conditional task hold P3 follow-up and verification'` both failed with exit 128 because `index.lock` creation was denied**.
+
+Head built on: `e9e557b151902140530f0d9c8eea97fa4bd63e9f`
