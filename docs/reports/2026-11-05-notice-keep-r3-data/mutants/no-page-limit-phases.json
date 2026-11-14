@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_lookup_pages_never_exceed_1000_events",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_lookup_pages_never_exceed_1000_events",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-page-limit-basetemp/test_lookup_pages_never_exceed0')\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b196780>\n\n    def test_lookup_pages_never_exceed_1000_events(tmp_path, monkeypatch):\n        root, writer, _ = _ledger(tmp_path, 2503)\n        real_query = Store.query\n        pages = []\n    \n        def observe_page(reader, sql, params=()):\n            rows = real_query(reader, sql, params)\n            if _is_page(reader, sql):\n                pages.append([row[\"event_id\"] for row in rows])\n                assert not reader.connection.in_transaction\n            return rows\n    \n        monkeypatch.setattr(Store, \"query\", observe_page)\n        try:\n            report, error = _lookup_result(root)\n            assert error is None, error\n            assert report[\"errors\"] == []\n            assert len(report[\"outcomes\"]) == 2503\n>           assert [len(page) for page in pages] == [1000, 1000, 503]\nE           assert [2503] == [1000, 1000, 503]\nE             \nE             At index 0 diff: 2503 != 1000\nE             Right contains 2 more items, first extra item: 1000\nE             Use -v to get more diff\n\ntests/unit/test_retention_outcome_pages.py:71: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_lookup_pages_never_exceed_1000_events",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-page-limit/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-page-limit/subfleet/retention_notices.py"
+  }
+}

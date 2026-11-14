@@ -564,8 +564,9 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
         checked_hold = task_hold_condition_details(details)
         if checked_hold is not None:
             hold = checked_hold["task_hold"]
-            message += (f": task {hold['task']}, until {hold['until']}, "
-                        f"note {hold['note']!r}, since {hold['since']}")
+            message += f": task {hold['task']}, until {hold['until']}, note {hold['note']!r}"
+            if hold['since'] is not None:
+                message += f", since {hold['since']}"
     if reason == "guard-preflight" and checked("guard_kind", details.get("guard_kind")):
         kind = details["guard_kind"]
         if kind == "trust":
