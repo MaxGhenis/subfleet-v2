@@ -158,15 +158,19 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     snapshot-5, and its r3c (2026-10-26) closed the hub's review r2's
     walk-arounds (globs matching every entry, /Volumes/<entry> paths,
     braces, links before .., searcher names, escapes, nesting), and its r4
-    to r8 (2026-10-26 to 2026-10-29) closed the hub's reviews r3 to r7. The
-    guard sync (2026-11-11) replaced the [keychain-dump] block's last
+    to r8 (2026-10-26 to 2026-10-29) closed the hub's reviews r3 to r7,
+    and D-SEARCH-REL1 (2026-11-05) embedded the Claude hook's analyzer,
+    unscoped_search.py, byte for byte, which judges relative roots and cd
+    against the cwd after the regex judgment (hook e869dd4c… before it).
+    The guard sync (2026-11-11) replaced the [keychain-dump] block's last
     sentence, which advised the bare `security find-generic-password` read
     the agent-secrets skill bars (tests/unit/test_guard_sync.py), and its
     r2 (2026-11-14) pasted the Claude hook's [axiom-brief-regime] and
     [hand-authored-rulespec] blocks byte for byte and re-copied its
-    prefilter line; TRUST pins those bytes. That TRUST is the installed one of
-    2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with hook a60d1c51… it
-    is the rollback) with the new hook hash and six dated provenance
+    prefilter line. Both were built on hook e869dd4c… and merged on
+    2026-11-14 (hook ed31bcac…); TRUST pins those bytes. That TRUST is the
+    installed one of 2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with
+    hook a60d1c51… it is the rollback) with the new hook hash and six dated provenance
     additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
     r3b's one, whose mount clause r3c corrected, and the guard sync's two).
     The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
@@ -175,8 +179,8 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "6c1beb64d961b0f0225853c7ec3e2434d90026897e3f2dc9627aab5143634d04",
-        "TRUST": "2955f02bc22b88e57ee72fc92e7bef61f07d349f2d53d5d156f908e240f2316c",
+        "never-rules-hook.sh": "ed31bcaca0800e611cda54642abd8245a8316e3fc11638be30cf1effca3d65f3",
+        "TRUST": "990dcbb8c1eefad6d4db8f710a83f8c41759c0df59d5e4307df74accaca0d31c",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

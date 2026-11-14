@@ -35,7 +35,7 @@ NEW_ROOTS = "|\\.subfleet(/[^/[:space:]'\\\"]+)?"
 ENV_ROOTS = "|\\\\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\\\"]+)?"
 ENV_SED = " s/\\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g'"
 OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db"
-NEW_HOOK_SHA256 = "6c1beb64d961b0f0225853c7ec3e2434d90026897e3f2dc9627aab5143634d04"
+NEW_HOOK_SHA256 = "ed31bcaca0800e611cda54642abd8245a8316e3fc11638be30cf1effca3d65f3"
 ROOT_CORE = 'root_core="/|/\\\\*|/Users/?|(${broad_re})/?"'
 
 # name -> (file, old text, new text, the named test that must kill it)

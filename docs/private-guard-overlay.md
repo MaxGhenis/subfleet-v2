@@ -564,6 +564,55 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     'for d in ~/*; do du -sh "$d"; done; for d in src tests; do rg -n foo "$d"; done'`). Neither shell
     walks a root on any (`R11_STRICTER`, `REVIEW_R11_STRICTER`).
 
+### Relative roots: the embedded parser (D-SEARCH-REL1, 2026-11-05)
+
+The regex judgment above reads the command's words. It resolves an absolute root, and `.` when
+the cwd itself is a broad root, but it never resolved a relative root against the cwd: from a job
+worktree (`~/.subfleet/worktrees/<job>`), `find ..` walks every job worktree, and the rule let it
+run. On 11/04 one lane's `find ..` did that for 38 minutes. The Claude session's hook has no such
+gap: it calls `unscoped_search.py`, a parser that splits the command as the shell does, follows
+`cd` and resolves every root against the cwd.
+
+The hook now carries that parser byte for byte (SHA-256
+`0ec2f7aa2cbdc1718e1424c18c8f46dac2bdafdc70faa16c9e03c7d079fdb207`, the hub's copy read on
+2026-11-05) as the body of a quoted heredoc in the region's `unscoped-search: parser` block, so
+TRUST's `hook_sha256` covers the parser's bytes and nothing new is staged. What judges the rule
+now:
+
+- **The regex judgment** runs first, as before. Every block it makes stays, with its message.
+- **The parser** runs next, when the rule's prefilter (`pw_named`) found a searcher in the command
+  and the regex judgment did not block. A hit (searcher, root as written, root resolved) becomes
+  the rule's block message, which names the root as written and the root resolved:
+  `Matched broad root: '.. (/Users/<user>/.subfleet/worktrees)'`. So the hook blocks when either
+  judgment blocks.
+- **The interpreter** is the session hook's: `/opt/homebrew/bin/python3` when it is executable,
+  else `/usr/bin/python3`, isolated (`-I -S`), with the command on stdin and the cwd, `$HOME` and
+  `$SHELL` as its arguments.
+- **The fallback:** with no interpreter, a nonzero exit, or no answer within 5 s (the loader arms
+  an alarm whose signal ends the parser), the regex judgment decides alone, as it did before this
+  revision.
+
+The parser is not run as `python3 -I -S /dev/fd/3`. Apple's Python 3.9 (`/usr/bin/python3`) run
+that way, with descriptor 3 a file (bash 3.2 writes a heredoc to a temporary file), ran nothing and
+exited 0, so every command would have passed in silence: on macOS an open of `/dev/fd/3` shares the
+descriptor's offset, and Python 3.9's zip-archive probe of the path leaves it at the end of the
+file (observed 2026-11-05; Homebrew's Python 3.14 is not affected). A loader given to `-c` reads
+descriptor 3 itself, arms the alarm and runs the bytes as `__main__`.
+
+The parser starts Python only for a command that names a searcher, and only when the regex
+judgment let it pass. Bash parses the heredoc, under 1 ms of CPU, for every command that reaches
+the region; a command the prefilter turns away never reaches it. One test seam, which the daemon's
+launch environment never carries to a lane: `CODEX_GUARD_TEST_PYTHON` names the interpreter
+instead (a path that is not executable is no interpreter). `tests/unit/test_guard_search_rel.py`
+holds the hub's 17 rows, the corpus comparison, the fallback, the alarm, the drift check against
+`~/.claude/hooks/unscoped_search.py` (skipped where that file is absent) and the cost;
+`docs/reports/2026-11-05-search-rel-parser.md` has the measurements. A change to the session
+parser comes here in one reviewed step, between the heredoc's lines, with `hook_sha256` moved.
+The rollback is the previous pair: hook `e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed` with TRUST
+`36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0`.
+
+### The guard sync (2026-11-11) and its r2 (2026-11-14)
+
 The guard sync (2026-11-11, the hub's instruction audit) changed one sentence outside the
 unscoped-search region: the `[keychain-dump]` block's last sentence now reads "Read one secret
 with 'agent-secret get <service>'; 'agent-secret search <query>' finds its name. A bare 'security
@@ -584,10 +633,44 @@ pins the blocks and the line (`tests/fixtures/guard/claude-blocks/`) and checks 
 reach the same decisions. Its rollback is the guard sync's pair: hook `34682488…3983`, TRUST
 `680f864e…12d9`.
 
+The overlay now denies eleven rules, as its header lists them: nine Bash rule blocks copied byte
+for byte from the Claude hook, in its order (tg-getupdates, keychain-dump, trust-root,
+axiom-brief-regime, hand-authored-rulespec, corpus-squash, corpus-push, stash-shared and
+local-main), the unscoped-search region with its parser, and the hf-dest adapter.
+
+### The merged pair (2026-11-14)
+
+D-SEARCH-REL1 (on release/217) and the guard sync (#303) were each built on hook `e869dd4c…`, and
+release/217 at `82d3dd819` was merged into the guard sync on 2026-11-14. The merged hook is that
+hook with both lines' edits and nothing else: removing the parser and undoing its other edits gives
+#303's hook (`6c1beb64…`), and undoing the guard sync's two steps gives release/217's (`af5e7239…`)
+(`tests/unit/test_guard_subfleet_root.py`, the `test_gs_undoing_…` and `test_merge_undoing_…` tests).
+The two lines touch no common state:
+
+- The two Axiom blocks run before the region. They read `$command`, `$cwd` and `$HOME`, assign
+  their own names (`seg`, `wd`, `pf`, `gdir`, `origin_url`, `missing`, `f`, `m` and the `_abs`
+  forms), and never change `$command` or `$cwd`. Release/217 changed only header comments before
+  them, so they run on the code they ran on in #303. `corpus-push` assigns `seg` and `origin_url`
+  before it reads them.
+- The parser block reads `$command`, `$cwd`, `$HOME`, `$SHELL` and the region's own `us_*` and
+  `pw_*` names. Every region function that uses `f` or `m` declares it `local`.
+- The parser runs only when `pw_named` sets `us_ask`. `pw_named`'s four terms are the prefilter's
+  third to sixth terms, which neither line changed, so a command that reaches the parser passes
+  the prefilter under the old first literal and the Claude line alike. The wider first literal
+  lets more commands (`git commit`, `pgrep`, `subfleet run`, `fd`) reach the Bash branch, and
+  each such command that reaches the region's end costs bash a parse of the heredoc (under 1 ms of
+  CPU, as above) without starting Python unless `pw_named` names a searcher. A command an Axiom
+  block denies never reaches the parser, as with every earlier rule block.
+
+`test_guard_search_rel.py`'s "r12d hook" (the hook before the parser) is #303's hook on this line, so
+its fallback comparison holds the guard sync's denials constant. Rolling back the guard sync alone
+restores release/217's pair (hook `af5e7239…`, TRUST `4ff9cb86…`). Rolling back the parser alone
+restores #303's pair (hook `6c1beb64…`, TRUST `2955f02b…`).
+
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `6c1beb64d961b0f0225853c7ec3e2434d90026897e3f2dc9627aab5143634d04` |
-| `TRUST` | `2955f02bc22b88e57ee72fc92e7bef61f07d349f2d53d5d156f908e240f2316c` |
+| `never-rules-hook.sh` | `ed31bcaca0800e611cda54642abd8245a8316e3fc11638be30cf1effca3d65f3` |
+| `TRUST` | `990dcbb8c1eefad6d4db8f710a83f8c41759c0df59d5e4307df74accaca0d31c` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending six dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,

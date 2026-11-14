@@ -1,0 +1,3513 @@
+{
+ "summary": {
+  "pairs": 389,
+  "hook_blocks": 389,
+  "mutant_passes": 377,
+  "mutant_blocks": 12,
+  "mutant_asked": 379,
+  "hook_asked": 0
+ },
+ "rows": [
+  {
+   "command": "rg -t py foo '$HOME'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd /Users/maxghenis && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'rg -l foo '\"'\"'$HOME/PolicyEngine'\"'\"''",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd '${HOME}/PolicyEngine' && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd \"/Users/maxghenis/PolicyEngine/\" && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo '/Users/tester/PolicyEngine/' | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -l foo '$HOME/Library/Caches' | head -n 5",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo /Users/tester/Library/Caches | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'find -L \"~/.cache/\" -name x'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"find \\\"~/.cache\\\" -name AGENTS.md\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd '/Users/maxghenis/.cache' && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo \"/Users/tester/.cache\" | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -rn x \"~/.subfleet\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -rn x \"~/.cache\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -rn x \"$SUBFLEET_ROOT\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -rn x \"${SUBFLEET_ROOT}\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -rn x \"$SUBFLEET_HOME\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -rn x \"${SUBFLEET_HOME}\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files -g AGENTS.md $SUBFLEET_ROOT/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files -g AGENTS.md ${SUBFLEET_ROOT}/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files -g AGENTS.md $SUBFLEET_HOME/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files -g AGENTS.md ${SUBFLEET_HOME}/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"grep -rn x '~/.subfleet/'\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"grep -rn x '~/.cache/'\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"grep -rn x '$SUBFLEET_ROOT/'\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"grep -rn x '${SUBFLEET_ROOT}/'\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"grep -rn x '$SUBFLEET_HOME/'\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"grep -rn x '${SUBFLEET_HOME}/'\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep --recursive -l x $SUBFLEET_ROOT/",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep --recursive -l x ${SUBFLEET_ROOT}/",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep --recursive -l x $SUBFLEET_HOME/",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep --recursive -l x ${SUBFLEET_HOME}/",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'grep -r x \"$SUBFLEET_ROOT\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'grep -r x \"${SUBFLEET_ROOT}\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'grep -r x \"$SUBFLEET_HOME\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'grep -r x \"${SUBFLEET_HOME}\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -n -e foo $SUBFLEET_ROOT | head -n 5",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -n -e foo ${SUBFLEET_ROOT} | head -n 5",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -n -e foo $SUBFLEET_HOME | head -n 5",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -n -e foo ${SUBFLEET_HOME} | head -n 5",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd $SUBFLEET_ROOT && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ${SUBFLEET_ROOT} && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd $SUBFLEET_HOME && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ${SUBFLEET_HOME} && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -r x '$SUBFLEET_ROOT/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -r x '${SUBFLEET_ROOT}/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -r x '$SUBFLEET_HOME/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -r x '${SUBFLEET_HOME}/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd /Users/maxghenis/.subfleet/ && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd /Users/maxghenis/.cache/ && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd $SUBFLEET_ROOT/ && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ${SUBFLEET_ROOT}/ && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd $SUBFLEET_HOME/ && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ${SUBFLEET_HOME}/ && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in \"$SUBFLEET_ROOT\"; do find $d -name x; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in \"${SUBFLEET_ROOT}\"; do find $d -name x; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in \"$SUBFLEET_HOME\"; do find $d -name x; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in \"${SUBFLEET_HOME}\"; do find $d -name x; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -l foo $SUBFLEET_ROOT",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -l foo ${SUBFLEET_ROOT}",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -l foo $SUBFLEET_HOME",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -l foo ${SUBFLEET_HOME}",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo /Users/tester/.subfleet | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo /Users/tester/.cache | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $SUBFLEET_ROOT | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo ${SUBFLEET_ROOT} | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $SUBFLEET_HOME | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo ${SUBFLEET_HOME} | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files -g AGENTS.md $SUBFLEET_ROOT/jobs/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files -g AGENTS.md ${SUBFLEET_ROOT}/jobs/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files -g AGENTS.md $SUBFLEET_HOME/jobs/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files -g AGENTS.md ${SUBFLEET_HOME}/jobs/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"rg -t py foo \\\"~/.subfleet/jobs\\\"\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"rg -t py foo \\\"~/Library/Caches\\\"\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"rg -t py foo \\\"$SUBFLEET_ROOT/jobs\\\"\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"rg -t py foo \\\"${SUBFLEET_ROOT}/jobs\\\"\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"rg -t py foo \\\"$SUBFLEET_HOME/jobs\\\"\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c \"rg -t py foo \\\"${SUBFLEET_HOME}/jobs\\\"\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'rg --files -g AGENTS.md $SUBFLEET_ROOT/jobs/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'rg --files -g AGENTS.md ${SUBFLEET_ROOT}/jobs/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'rg --files -g AGENTS.md $SUBFLEET_HOME/jobs/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval 'rg --files -g AGENTS.md ${SUBFLEET_HOME}/jobs/'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "git ls-files | xargs grep -rn x $SUBFLEET_ROOT/jobs/",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "git ls-files | xargs grep -rn x ${SUBFLEET_ROOT}/jobs/",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "git ls-files | xargs grep -rn x $SUBFLEET_HOME/jobs/",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "git ls-files | xargs grep -rn x ${SUBFLEET_HOME}/jobs/",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd $SUBFLEET_ROOT/jobs && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ${SUBFLEET_ROOT}/jobs && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd $SUBFLEET_HOME/jobs && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ${SUBFLEET_HOME}/jobs && find . -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in $SUBFLEET_ROOT/jobs; do find $d -name x; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ${SUBFLEET_ROOT}/jobs; do find $d -name x; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in $SUBFLEET_HOME/jobs; do find $d -name x; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ${SUBFLEET_HOME}/jobs; do find $d -name x; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find -L $SUBFLEET_ROOT/jobs -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find -L ${SUBFLEET_ROOT}/jobs -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find -L $SUBFLEET_HOME/jobs -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find -L ${SUBFLEET_HOME}/jobs -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo /Users/tester/.subfleet/jobs | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $SUBFLEET_ROOT/jobs | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo ${SUBFLEET_ROOT}/jobs | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $SUBFLEET_HOME/jobs | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo ${SUBFLEET_HOME}/jobs | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd \"/Users/maxghenis/.subfleet/subfleetd.log/\" && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd \"/Users/maxghenis/Library/Caches/\" && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo '/Users/tester/Library/Caches' | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo \"/\" | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo /tmp | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo ~/.subfleet/jobs/?*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ~/PolicyEngine/policyengine-us && rg foo",
+   "cwd": "/Users/tester",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "(cd / && ls); cd src && find . -name x",
+   "cwd": "/Users/tester",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find '~' -name x",
+   "cwd": "/tmp/work",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'cd /'; find . -name x",
+   "cwd": "/tmp/work",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -n --no-heading -iE '12\\.5|outperform' ~/obsidian-vault/exports/public/ | head",
+   "cwd": "/Users/tester",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "security dump-keychain -d; rg --files $SUBFLEET_ROOT",
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd policyengine-uk-data && apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: upload.py\n@@\n+repo_id = 'other/x'\n*** End Patch\nEOF; rg --files ~/.subfleet",
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "hf-dest",
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd policyengine-uk-data && apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: upload.py\n@@\n+repo_id = 'other/x'\n*** End Patch\nEOF; rg --files $SUBFLEET_ROOT",
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "hf-dest",
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "git stash list; rg --files $SUBFLEET_ROOT",
+   "cwd": "<scratch>/bt-sr2/rule-repos0/worktrees",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "git checkout -b feature origin/main; rg --files $SUBFLEET_ROOT",
+   "cwd": "<scratch>/bt-sr2/rule-repos0/main",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "gh variable list; rg --files $SUBFLEET_ROOT",
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "security find-generic-password -s x; rg --files $SUBFLEET_ROOT",
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files -g AGENTS.md \"$SUBFLEET_ROOT\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files -g AGENTS.md $SUBFLEET_ROOT/worktrees",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find \"$SUBFLEET_HOME\" -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -r x ${SUBFLEET_ROOT}/jobs",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ~/.subfleet/jobs && rg -n foo 20261024-115712-x/a1/out.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "ls -t ~/.subfleet/jobs | head -5 | xargs -I{} rg -l foo ~/.subfleet/jobs/{}/a1",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg -l foo ~/.subfleet/jobs/*/a1",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files $SUBFLEET_ROOT'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg x ~/.subfleet/$OTHER",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo \"$SUBFLEET_HOME\"/worktrees/*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo $SUBFLEET_ROOT/worktrees/*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ~/.subfleet/jobs/* && rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg x ~/.subfleet/jobs/2026*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=/; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "function f { d=/; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=~/.subfleet; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { if true; then d=/; fi; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo \"$(for d in ~/.subfleet/*; do :; done; false && d=--max-depth=1; rg foo \"$d\")\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; f() { for d in src; do :; done; }; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; echo src | while read d; do :; done; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\n{\nfor d in src; do :; done\n} | cat\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; coproc for d in src; do :; done; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=/; }; echo src | while read d; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "function f { d=/; }; echo src | while read d; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=~/.subfleet; }; ls src | while read d; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { if true; then d=/; fi; }; echo src | while read d; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=/; }; echo src | while read -r d; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 0 -exec rg foo {} \\;",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo \"/V*/Macintosh HD\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/{PolicyEngine,{a,b}}",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/{a..z}*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/{a,b,c,d,e,f,g,h,i}{1,2,3,4,5,6,7,8}",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/work/jl/..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/work/repo/wt/..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find /Users/tester/work/jl/.. -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find /Users/tester/work/jl/.. -name x",
+   "cwd": "/Users/tester/work/jl/..",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "$(which rg) --files ~/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "$(command -v rg) --files ~/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "`which rg` --files ~/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files -g AGENTS.md \"/Volumes/Macintosh HD/Users/tester/.subfleet\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files -g AGENTS.md \"/Volumes/Macintosh HD/Users/tester/.subfleet\"",
+   "cwd": "/Volumes/Macintosh HD/Users/tester/.subfleet",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find \"/Volumes/Macintosh HD/Users\" -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find \"/Volumes/Macintosh HD/Users\" -name AGENTS.md",
+   "cwd": "/Volumes/Macintosh HD/Users",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/tester\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/tester\"",
+   "cwd": "/Volumes/Macintosh HD/Users/tester",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/tmp\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/tmp\"",
+   "cwd": "/Volumes/Macintosh HD/tmp",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/private/tmp\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/private/tmp\"",
+   "cwd": "/Volumes/Macintosh HD/private/tmp",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/\"*/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/tester/.subfleet/jobs/\"2026*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /Volumes/Ext/Users",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /Volumes/Ext/Users",
+   "cwd": "/Volumes/Ext/Users",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find /Volumes/Ext/Users/someone/PolicyEngine -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find /Volumes/Ext/Users/someone/PolicyEngine -name x",
+   "cwd": "/Volumes/Ext/Users/someone/PolicyEngine",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/\"U*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/\"t*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/?*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/*?",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/[!.]*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/[0-9]*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet/jobs/?* -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/worktrees/?*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files $SUBFLEET_ROOT/jobs/?*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/PolicyEngine/?*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /tmp/?*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /usr/?*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/*/./",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/*/.",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/*/..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "grep -r x ~/.subfleet/jobs/*/..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/PolicyEngine/*/.",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo ~/.subfleet/jobs/link-u*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /[^/]*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find /[!/]* -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/[!/]*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/[^/]*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /{Users/{tester,x},y}/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /{Users/tester,x}/.{s..s}ubfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /{Users/tester,x}/.subfleet{,}{,}{,}{,}{,}{,}",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/work/{..,x}{,}{,}{,}{,}{,}{,}/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files {/Users/${USER},x}/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.sub*/jobs/20261024-115712-x/.. -name AGENTS.md",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/20261024-115712-x/a*/../..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/work/r*/../../.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/*/policyengine-us/..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/w*/jl/..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/*/../..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~$USER/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~${USER}/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~$(whoami)/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files $\"/Users/tester/.subfleet\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c $\"rg --files /Users/tester/.subfleet\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files \"/Volumes/Macintosh HD/../Users/tester/.subfleet\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo / | xargs -I {} /usr/bin/find {} -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "eval -- 'rg --files ~/.subfleet'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo ~/PolicyEngine/?*/**/*.py",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo ~/PolicyEngine/[!.]*/**/*.py",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 -type d | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 0 | xargs rg --files",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~ -maxdepth 1 -name .subfleet | xargs rg --files",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 | xargs -I{} rg --files {}",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 -exec rg foo {} \\;",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/PolicyEngine -maxdepth 1 -type d | xargs rg foo",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo ~/work/.*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/20261024-115712-x/.*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/.subfleet/jobs/20261024-115712-x/.?",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/work/.?/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/work/.* -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files ~/work/.*'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/work/.[.]/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~/work/.[!a]/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~$USERNAME/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~$LOGNAME/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~${LOGNAME}/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~$(id -un)/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files ~`whoami`/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg --files /Volumes/M*/../Users/tester/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "=rg --files ~/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "=find / -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo 'rg --files ~/.subfleet' | cat | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo 'rg --files ~/.subfleet' | tee /dev/null | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "printf 'rg --files %s\\n' ~/.subfleet | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "printf 'rg --files ~/.subfleet' | xargs -0 bash -c",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh -c '\"$@\"' sh \\rg --files ~/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c '$@' sh rg --files ~/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo src $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo src x#################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo src \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "echo `=rg --files ~/.subfleet`",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "x=`=find / -name x`",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "tee <<'EOF' | bash\n/usr/bin/find / -name x\nEOF",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sed -n p <<'EOF' | bash\n\\rg --files ~/.subfleet\nEOF",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "tee <<< '/usr/bin/find / -name x' | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat > notes.md <<'EOF'\nRun `cd repo && rg --files ~/.subfleet` to see\nEOF",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 | while read d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo ~/.subfleet | while read -r d; do grep -r x $d; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash <(echo 'rg --files ~/.subfleet')",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "source <(echo '/usr/bin/find / -name x')",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sh <(echo 'rg --files ~/.subfleet')",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": ". <(printf '%s\\n' '/usr/bin/find / -name x')",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash < <(echo 'rg --files ~/.subfleet')",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat > notes.md <<'EOF'\nRun cd repo && rg --files ~/.subfleet to see\nEOF",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat > notes.md <<'EOF'\nRun `cd repo && rg --files '~/.subfleet'` to see\nEOF",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <<NOPE; cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <<NOPE\ncat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I{} sh -c 'rg -l foo {}'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I{} bash -c 'cd {} && rg foo'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo ~/.subfleet | xargs -I{} sh -c 'rg --files \"$1\"' _ {}",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 -type d -print0 | xargs -0 -n1 sh -c 'rg foo \"$0\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo \"$HOME/.subfleet\" | xargs -I{} zsh -c 'rg --files {}'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "printf '%s\\n' ~/.subfleet | xargs -n1 dash -c 'find \"$0\" -name x'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo \"$((1<<X\n))\"\n/usr/bin/find / -name x\nX\ncase x in x) : ;; y) : ;; esac; echo \"a\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $((1<<X\n))\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "((y = 1<<X\n))\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "x=$(echo $((1<<X\n))\n/usr/bin/find / -name x\nX\n)",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo \"$(echo $((1<<X\n)))\"\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $[1<<X\n]\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; false && d=src; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo 'rg --files ~/.subfleet') | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(printf '%s\\n' '/usr/bin/find / -name x') | sh",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "tee < <(echo 'rg --files ~/.subfleet') | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sort <(echo 'rg --files ~/.subfleet') | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo hi) <(echo 'rg --files ~/.subfleet') | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo x | cat <(echo '/usr/bin/find / -name x') | sh",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo 'rg --files ~/.subfleet') | sort | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(cat <(echo 'rg --files ~/.subfleet')) | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $((1) + (1<<X\n))\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "x=\"$((1) + (1<<X\n))\"\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo src ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo src; echo `:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:`",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "cat > notes.md <<'EOF'\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nEOF\nrg foo src",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; false &&\nd=src\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; true ||\nd=src\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; echo x |\nd=src\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\ntime if false; then\nd=src\nfi\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\ntime while false; do\nd=src\ndone\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\ntime for x in; do\nd=src\ndone\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\ntime case x in\n(y)\nd=src\n;;\nesac\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\nif false; then time while false; do :; done; d=src; fi; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { for d in ~/.subfleet/*; do :; done; }; d=src; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() {\nfor d in ~/.subfleet/*; do :; done\n}\nd=src\nf\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; f(); d=src; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\nf()\nd=src\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\nrepeat 0 do\nd=src\ndone\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; d='src /'; rg foo $d",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\ntime -p while false; do\nd=src\ndone\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo 'rg --files ~/.subfleet' |\nbash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo 'rg --files ~/.subfleet') |\n\nbash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(find ~/.subfleet -maxdepth 1) | while read d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo ~/.subfleet) | while read d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo src) <(echo ~/.subfleet) | while read -r d; do grep -r x $d; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; if false; then d=--max-depth=1; fi; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; false && d=--max-depth=1; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo src; echo '\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "cat > notes.md <<'EOF'\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nEOF\nrg foo src",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in src; do :; done\ntime { d=~/.subfleet; }\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=/; }; for d in src; do :; done; f; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=src; d=/; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { g() { d=/; }; }; for d in src; do :; done; f; g; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "function f() { d=/; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=/; }; g() { f; }; for d in src; do :; done; g; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=/; }\nfor d in src; do :; done\nf\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() {\n  d=/\n}\nfor d in src; do :; done\nf\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=/; }; for d in src; do f; done; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "f() { d=/; }; for d in src; do f; rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'f() { d=/; }; for d in src; do :; done; f; rg foo \"$d\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo \"$(f() { d=/; }; for d in src; do :; done; f; rg foo \"$d\")\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; f() { d=src; }; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in src; do :; done; eval -- d=/; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; for d in $(true); do :; done; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'rg --files /[^/]*'; rg --files /[^/]*",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -c 'find /[!/]* -name x'; find /[!/]* -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ~/work/jl/.. 2>/dev/null; rg --files ~/work/jl/..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cd ~/w*/jl/.. 2>/dev/null; rg --files ~/w*/jl/..",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "function f { /usr/bin/find / -name x; }; f",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 -exec rg foo {}/ \\;",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find src ~/.subfleet -maxdepth 1 -exec rg foo {} \\;",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find -L ~/.subfleet -maxdepth 1 -exec rg foo {} \\;",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "nice =rg --files ~/.subfleet",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sudo =find / -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -J % sh -c 'rg -l foo \"$0\"' %",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I% sh -c 'rg -l foo %'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 -type d | xargs -P4 -n1 bash -c 'rg foo \"$1\"' _",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "ls -d ~/.subfleet/* | xargs -n1 sh -c 'rg foo \"$0\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 | xargs -n1 env sh -c 'rg foo \"$0\"'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "printf '%s\\n' \"$HOME/.subfleet\" | xargs -I{} sh -c 'rg --files {}'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $[1<<2]; cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash <(printf '%s\\n' 'rg --files ~/.subfleet')",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "bash -s < <(echo 'rg --files ~/.subfleet')",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 -print0 | while IFS= read -r -d '' d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "find ~/.subfleet -maxdepth 1 | sort | while read -r d; do rg -l foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $(( $[1<<X\n] + 1 ))\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $[ $((1<<X\n)) + 1 ]\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <<Y; echo $((1<<X\n))\nY\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo $((1<<X\n)) <<Y\nY\n/usr/bin/find / -name x\nX",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "tee /dev/null < <(echo 'rg --files ~/.subfleet') | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo 'rg --files ~/.subfleet') | tee /dev/null | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo 'rg --files ~/.subfleet') | head -1 | sh",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo 'rg --files ~/.subfleet') | xargs -0 sh -c",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat - <(echo 'rg --files ~/.subfleet') <<< 'echo a' | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo 'rg --files ~/.subfleet') >/dev/null | bash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo ~/.subfleet) | xargs -I{} sh -c 'rg --files {}'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; true || d=src; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; while false; do\nd=src\ndone; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\ncase x in\n(y)\nd=src\n;;\nesac\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; d=/*; rg foo $d",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo src; echo \"'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "rg foo src; echo '`````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````'",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "block",
+   "hook": "block",
+   "mutant_rule": "unscoped-search",
+   "mutant_asked": false,
+   "hook_asked": false
+  },
+  {
+   "command": "x=\"$(echo 'rg --files ~/.subfleet' |\nbash)\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "x=`echo 'rg --files ~/.subfleet' |\nbash`",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo 'rg --files ~/.subfleet' |\nbash)",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "x=\"$(find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done)\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "x=`find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done`",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done)",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; false && # note\nd=src\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo 'rg --files ~/.subfleet' | # note\nbash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo 'rg --files ~/.subfleet' |\n# note\n\nbash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "echo 'rg --files ~/.subfleet' |&\nbash",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done; cat <<X ||\nbody\nX\nd=src\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\n! time while false; do\nd=src\ndone\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\nif false; then time { :; }; d=src; fi; rg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "for d in ~/.subfleet/*; do :; done\ntime { false && d=src; }\nrg foo \"$d\"",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(find ~/.subfleet -maxdepth 1) | sort | while read d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "sort <(echo ~/.subfleet) | uniq | while read d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo ~/.subfleet) | head -1 | tail -1 | while read d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  },
+  {
+   "command": "cat <(echo src) | cat - <(echo ~/.subfleet) | while read d; do rg foo \"$d\"; done",
+   "cwd": "/Users/tester/work/repo",
+   "mutant": "pass",
+   "hook": "block",
+   "mutant_rule": null,
+   "mutant_asked": true,
+   "hook_asked": false
+  }
+ ]
+}

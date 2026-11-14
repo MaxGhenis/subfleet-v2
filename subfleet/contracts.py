@@ -331,6 +331,11 @@ RETENTION_MAX_BYTES = 2 * 1024 ** 3
 TURN_RETENTION_MAX_JOBS = 2000
 TURN_RETENTION_MAX_BYTES = 4 * 1024 ** 3
 TURN_RETENTION_KEEP_DAYS = 14
+# C-8.4 (D-NOTICE-KEEP1): an unread notice addressed to a session keeps its job
+# this many days after the notice was written, and no longer; 0 keeps it for
+# ever. A session that never runs again never reads its notice, and on
+# 2026-11-05 such notices alone kept 88 trees (25.47 GB) on disk.
+NOTICE_RETENTION_KEEP_DAYS = 7
 # d635, final review of e50716e8 (N1): a job whose baseline no network remote
 # holds bundles the shared history no remote holds as well as its own; above
 # this many bytes (git's measure on disk) the job is kept instead. 0 keeps
