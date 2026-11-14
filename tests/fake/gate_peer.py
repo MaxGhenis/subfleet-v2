@@ -17,6 +17,11 @@ FIXTURE = Path(__file__).parents[1] / "fixtures/gates/peer-verdict.txt"
 # before its block, as live peers did (C-23.9), until the gate's format re-ask.
 PROSE_MARKER = "FAKE-GATE-PEER: prose before the block until re-asked"
 PROSE = "All the brief's items check out against the source.\n\n"
+# The checkout this file is in. A provider's environment never inherits PYTHONPATH
+# (launch_env), and the child runs in the neutral review directory, so without this
+# `-m tests.fake.gate_peer` imports whatever checkout the interpreter's editable
+# install names: one without PROSE_MARKER answers at once, and no re-ask runs.
+REPOSITORY = Path(__file__).resolve().parents[2]
 
 
 class FakeGateAdapter(FakeAdapter):
@@ -32,7 +37,7 @@ class FakeGateAdapter(FakeAdapter):
             argv=(sys.executable, "-m", "tests.fake.gate_peer", "--model", model_id,
                   "--evidence", str(attempt_dir / "fake-model-evidence.json"),
                   "--stream", str(attempt_dir / "stream.jsonl")),
-            env_add={"SUBFLEET_LANE": lane.lane_id},
+            env_add={"SUBFLEET_LANE": lane.lane_id, "PYTHONPATH": str(REPOSITORY)},
             env_remove=("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
             cwd=job.workdir, stdin_path=str(prompt_path),
             stdout_path=str(attempt_dir / "stdout"), stderr_path=str(attempt_dir / "stderr"),
