@@ -22,12 +22,13 @@ jobs:
     # each job spreads the suite across the runner's cores (pytest -n auto). On 3.14
     # that day it took the release line 4.5 minutes, against 17 to 18 serially, and
     # main 2.2, against 7. 3.12 is the floor the acceptance contract promises
-    # (hooks run outside the venv); 3.14 is the live daemon's interpreter.
+    # (hooks run outside the venv); 3.14 is the live daemon's interpreter; 3.15 is
+    # the newest CPython release.
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.12", "3.14"]
+        python: ["3.12", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
