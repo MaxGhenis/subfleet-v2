@@ -179,8 +179,11 @@ R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a51
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
 #: The overlay's hook after r12d (the xargs door charged; e5b387c4... at r12's end), which the guard sync replaces.
 R12D_HOOK_SHA256 = "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed"
-#: The overlay's hook after the guard sync (2026-11-11: the keychain-dump block's last sentence): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "34682488eea6a6ef8049407e1c2ecc24fbef3e9eb399236f072f4f7e9e0f3983"
+#: The overlay's hook after the guard sync (2026-11-11: the keychain-dump block's last sentence), which its r2 replaces.
+GS_HOOK_SHA256 = "34682488eea6a6ef8049407e1c2ecc24fbef3e9eb399236f072f4f7e9e0f3983"
+#: The overlay's hook after the guard sync r2 (2026-11-14: the two Axiom blocks and the Claude prefilter line):
+#: TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "6c1beb64d961b0f0225853c7ec3e2434d90026897e3f2dc9627aab5143634d04"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -510,6 +513,46 @@ GS_KEYCHAIN_NEW = ("Read one secret with 'agent-secret get <service>'; 'agent-se
                    "password dialog while that keychain stays locked.")
 GS_TEXT = [(GS_KEYCHAIN_NEW + '"\n', GS_KEYCHAIN_OLD + '"\n')]
 R3_TEXT = GS_TEXT + R3_TEXT
+#: The guard sync r2 (2026-11-14, the hub's brief of 2026-11-11): the two Axiom blocks the hub cut from the
+#: Claude hook (tests/fixtures/guard/claude-blocks/, pinned in tests/unit/test_guard_sync.py), pasted between
+#: trust-root and corpus-squash; the Claude hook's prefilter line as the first prefilter literal, with its
+#: comment; and the header's counts, rule list and drift note, as (r2 text, guard-sync text). Undone before
+#: GS_TEXT, the blocks first.
+GS2_BLOCKS = "".join((REPO / f"tests/fixtures/guard/claude-blocks/{rule}.sh").read_text(encoding="utf-8")
+                     for rule in ("axiom-brief-regime", "hand-authored-rulespec"))
+GS2_TEXT = [
+    (GS2_BLOCKS, ""),
+    ('# subfleet codex lanes. Denies the eleven standing NEVER rules that\n',
+     '# subfleet codex lanes. Denies the nine standing NEVER rules that\n'),
+    ('#   - The nine Bash rule blocks below are copied from that file BYTE-FOR-BYTE,\n',
+     '#   - The seven Bash rule blocks below are copied from that file BYTE-FOR-BYTE,\n'),
+    ('#     identity, the prefilter literal, and the hf-dest literals. In this\n'
+     '#     repository tests/unit/test_guard_sync.py::DriftTests pins each block\n'
+     '#     held in tests/fixtures/guard/claude-blocks/ and the prefilter literal.\n'
+     '#     The guard sync r2 (2026-11-11) ported axiom-brief-regime and\n'
+     '#     hand-authored-rulespec, which follow trust-root in the Claude hook.\n',
+     '#     identity, the prefilter literal, and the hf-dest literals.\n'),
+    ('#   axiom-brief-regime  a subfleet run into TheAxiomFoundation whose brief names\n'
+     '#                    RuleSpec or encoding but carries no ENCODING REGIME block\n'
+     '#   hand-authored-rulespec  a git commit in a TheAxiomFoundation/rulespec-* checkout\n'
+     '#                    staging rule YAML with no encoder apply manifest\n',
+     ''),
+    ('# block: every rule (the nine verbatim Claude blocks, the shared region, and\n',
+     '# block: every rule (the seven verbatim Claude blocks, the shared region, and\n'),
+    ("# grep literal is BYTE-IDENTICAL to the Claude hook's prefilter line (the\n"
+     '# guard sync r2, 2026-11-11, re-copied it: it adds `subfleet run` and the\n'
+     '# `git [-C <dir>] commit` term the two Axiom blocks need, words of\n'
+     '# Claude-only rules that no block here reads, and a wider searcher term at\n'
+     '# its tail; tests/unit/test_guard_sync.py pins it against\n'
+     '# tests/fixtures/guard/claude-blocks/prefilter.txt); the second is the\n',
+     "# grep literal is BYTE-IDENTICAL to the Claude hook's prefilter (its tail is\n"
+     '# the searcher term the drift tests pin in both hooks); the second is the\n'),
+    ('printf \'%s\' "$command" | grep -qE \'pending_deployments|deployment_protection_rule|approveDeployments|pkill|killall|pgrep|stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|subfleet[[:space:]]+run|git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit|(^|[^[:alnum:]_.-])(find|gfind|bfs|fd|fdfind|rg|grep|egrep|fgrep|rgrep|ggrep|ugrep)([^[:alnum:]_.-]|$)\' \\\n',
+     'printf \'%s\' "$command" | grep -qE \'stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|(^|[[:space:];&|(])(find|rg|grep)[[:space:]]\' \\\n'),
+    ('# all run for real. Runs AFTER the nine Bash rules and the shared region;\n',
+     '# all run for real. Runs AFTER the seven Bash rules and the shared region;\n'),
+]
+R3_TEXT = GS2_TEXT + R3_TEXT
 
 
 def rebuild_r2(text: str) -> str:
@@ -961,6 +1004,14 @@ def test_gs_the_pinned_claude_keychain_block_is_the_reviewed_hooks(hooks):
     assert old == pinned
     assert old.count(GS_KEYCHAIN_OLD) == 1 and new == old.replace(GS_KEYCHAIN_OLD, GS_KEYCHAIN_NEW)
     assert _rule_block(hooks["r2"].read_text(encoding="utf-8"), "keychain-dump") == pinned
+
+
+def test_gs_undoing_the_r2_step_gives_the_guard_sync_hook():
+    """The guard sync r2's undo step (GS2_TEXT), each edit found exactly once, gives the guard sync's hook
+    (GS_HOOK_SHA256, the rollback hook); the two Axiom blocks sit back to back before corpus-squash."""
+    text = HOOK.read_text(encoding="utf-8")
+    assert text.count(GS2_BLOCKS + "# --- corpus-squash:") == 1
+    assert hashlib.sha256(undo(text, GS2_TEXT).encode("utf-8")).hexdigest() == GS_HOOK_SHA256
 
 
 # ---------------------------------------------------------------- TRUST

@@ -572,14 +572,26 @@ stays locked." The old sentence advised that bare read, which the agent-secrets 
 rule's logic did not move, and the hub edits the Claude hook's block to the same sentence at
 install, so the block stays byte-identical on both sides (`tests/unit/test_guard_sync.py`).
 
+The guard sync r2 (2026-11-14, the hub's brief of 2026-11-11) ported two rules the Claude hook
+enforced and the overlay let through. `[axiom-brief-regime]` denies a `subfleet run` into
+`TheAxiomFoundation` whose brief names RuleSpec or encoding but carries no `ENCODING REGIME`
+block. `[hand-authored-rulespec]` denies a `git commit` in a `TheAxiomFoundation/rulespec-*`
+checkout that stages rule YAML with no encoder apply manifest. The hub cut both blocks from the
+Claude hook; they sit in the overlay byte for byte, between trust-root and corpus-squash as in
+the Claude hook, and the first prefilter literal is again the Claude hook's prefilter line, whose
+`subfleet run` and `git [-C <dir>] commit` terms let them run. `tests/unit/test_guard_sync.py`
+pins the blocks and the line (`tests/fixtures/guard/claude-blocks/`) and checks that both hooks
+reach the same decisions. Its rollback is the guard sync's pair: hook `34682488…3983`, TRUST
+`680f864e…12d9`.
+
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `34682488eea6a6ef8049407e1c2ecc24fbef3e9eb399236f072f4f7e9e0f3983` |
-| `TRUST` | `680f864e8eea198099b89570914af8348203d53663d5c7b2f80ad193f86b12d9` |
+| `never-rules-hook.sh` | `6c1beb64d961b0f0225853c7ec3e2434d90026897e3f2dc9627aab5143634d04` |
+| `TRUST` | `2955f02bc22b88e57ee72fc92e7bef61f07d349f2d53d5d156f908e240f2316c` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
-appending five dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
-r3b's one, whose mount clause r3c corrected, and the guard sync's one); `hooks_trust_hash` and
+appending six dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
+r3b's one, whose mount clause r3c corrected, and the guard sync's two); `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
