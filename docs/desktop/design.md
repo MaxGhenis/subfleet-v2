@@ -544,17 +544,34 @@ cwd and first-prompt preview across the whole index (review U-F5). The daemon
 never scans the Claude projects tree or Codex session trees on a request or
 control thread.
 
-**D-24. One feed, one focused poll, and notifications.** The app long-polls
-one global `conversation.watch` (a compact change feed: conversation, message,
+**D-24. One feed, one focused poll, and notifications.** The app long-polls one
+global `conversation.watch` (a compact change feed: conversation, message,
 state, pending approvals) and `conversation.events` only for the conversation
 on screen. A row whose `state` is null says something else about its message
 changed (an approval asked or answered, or its turn's end snapshot recorded,
 D-25) and carries no kind: the app fetches that message again. Both polls run
-on a dedicated bounded pool (8 threads) with at most one of each per client;
-the `requests` pool that `message.submit` and the session hooks use is never
-held by a poll (review U-F3). A turn that completes, fails, needs approval, or
-becomes `delivery-unknown` while its conversation is not focused posts a local
-notification; the Dock badge counts pending approvals.
+on a dedicated pool, `subfleet-poll`, with a thread for every connection the
+daemon may hold (C-16.7), and at most one of each per client; the `requests`
+pool that `message.submit` and the session hooks use is never held by a poll
+(review U-F3). A turn that completes, fails, needs approval, or becomes
+`delivery-unknown` while its conversation is not focused posts a local
+notification; the Dock badge counts pending approvals. A notification carries
+its conversation and its kind; a tool approval's also carries the one request
+it advertises, for its Allow once action (C-29.9). Clicking it, or choosing
+Allow once, opens the main window on that conversation, and an approval's
+brings the conversation's oldest waiting card into view (C-27.5) while one
+still waits. A response that comes before the app has its first conversation
+list and feed baseline (the click that launched the app) waits for them, and is
+dropped if the person opens something else or starts a conversation meanwhile;
+with the daemon's endpoint refused there is nothing to open. A click that
+replaces the focused conversation closes an approval request open in it, so an
+answer never goes to a conversation the window no longer shows. The model's
+notification delegate, the only one, is set before launch ends, as the system
+requires for the click that launched the app to reach it. While the app is
+frontmost the system shows a notification only if the app asks. The app asks
+for every one whose conversation is still not the one open: the window shows at
+most a sidebar badge for it (a count of waiting approvals, a turn no longer
+running), and each kind is something the person acts on.
 
 **D-25. Changes are shown per turn and per conversation.** At the start and
 end of each writable turn (any permission but `read-only`) in a workspace that
