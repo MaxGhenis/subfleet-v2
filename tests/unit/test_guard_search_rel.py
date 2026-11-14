@@ -35,6 +35,12 @@ R5 (bytes) The heredoc's body is the hub's parser (``PARSER_SHA256``) and its op
    the interpreter gets those bytes on descriptor 3, the command on stdin and ``-I -S -c <loader>
    <cwd> <home> <shell>`` as its arguments.
 
+"The r12d hook" here is the hook before this change on this line. Since release/217 was merged into
+the guard sync (2026-11-14) that is r12d with the guard sync's two steps (the keychain-dump sentence,
+the two Axiom blocks and the Claude prefilter line), #303's hook before the merge: the same removal
+gives it, pinned as ``base.GS2_HOOK_SHA256``. The guard sync edits nothing in the region, and the
+four prefilter terms ``pw_named`` repeats are in both hooks, so R1 and R3 compare like with like.
+
 The disagreements between the two judgments over the corpus, in each direction, are written to
 ``$SEARCH_REL_REPORT`` when it is set (JSON). ``$SEARCH_REL_TIMING`` (a JSON path) runs the cost
 measurement: each row and three commands with no walk, 20 runs each, before (r12d) and after.
@@ -141,7 +147,8 @@ def loader() -> str:
 
 
 def rebuild_r12d(text: str) -> bytes:
-    """The hook before D-SEARCH-REL1: the parser block removed whole, then its header and flag edits undone."""
+    """The hook before D-SEARCH-REL1: the parser block removed whole, then its header and flag edits undone.
+    On this line, since the merge (2026-11-14), that is the guard sync r2's hook (``base.GS2_HOOK_SHA256``)."""
     begin, end = PARSER_BLOCK
     start = text.index(begin)
     text = text[:start] + text[text.index(end, start) + len(end):]
@@ -151,7 +158,7 @@ def rebuild_r12d(text: str) -> bytes:
 @pytest.fixture(scope="module")
 def r12d_hook(tmp_path_factory) -> Path:
     data = rebuild_r12d(hook_text())
-    assert hashlib.sha256(data).hexdigest() == base.R12D_HOOK_SHA256
+    assert hashlib.sha256(data).hexdigest() == base.GS2_HOOK_SHA256
     path = tmp_path_factory.mktemp("r12d-guard") / "never-rules-hook.sh"
     path.write_bytes(data)
     path.chmod(0o755)

@@ -1047,10 +1047,25 @@ def test_gs_the_pinned_claude_keychain_block_is_the_reviewed_hooks(hooks):
 
 def test_gs_undoing_the_r2_step_gives_the_guard_sync_hook():
     """The guard sync r2's undo step (GS2_TEXT), each edit found exactly once, gives the guard sync's hook
-    (GS_HOOK_SHA256, the rollback hook); the two Axiom blocks sit back to back before corpus-squash."""
+    (GS_HOOK_SHA256, the rollback hook) from the guard sync r2's; the two Axiom blocks sit back to back before
+    corpus-squash. Since the merge (2026-11-14) this hook also holds D-SEARCH-REL1, so it is first removed as
+    tests/unit/test_guard_search_rel.py removes it (its parser block whole, SR_TEXT and its flag undone), which
+    gives #303's hook before the merge (GS2_HOOK_SHA256): the merge kept every byte of the guard sync's line."""
+    from tests.unit.test_guard_search_rel import rebuild_r12d   # that module imports this one at its top
     text = HOOK.read_text(encoding="utf-8")
     assert text.count(GS2_BLOCKS + "# --- corpus-squash:") == 1
-    assert hashlib.sha256(undo(text, GS2_TEXT).encode("utf-8")).hexdigest() == GS_HOOK_SHA256
+    gs2 = rebuild_r12d(text)
+    assert hashlib.sha256(gs2).hexdigest() == GS2_HOOK_SHA256
+    assert hashlib.sha256(undo(gs2.decode("utf-8"), GS2_TEXT).encode("utf-8")).hexdigest() == GS_HOOK_SHA256
+
+
+def test_merge_undoing_the_guard_sync_gives_the_d_search_rel1_hook():
+    """The merge of release/217 into the guard sync (2026-11-14) kept every byte of release/217's line: undoing
+    the guard sync's two steps (GS2_TEXT, then GS_TEXT) gives D-SEARCH-REL1's hook (SR_HOOK_SHA256), release/217's
+    before the merge. With the test above, which gives #303's from this one, the merged hook is r12d with both
+    lines' edits and nothing else."""
+    text = HOOK.read_text(encoding="utf-8")
+    assert hashlib.sha256(undo(text, GS2_TEXT + GS_TEXT).encode("utf-8")).hexdigest() == SR_HOOK_SHA256
 
 
 # ---------------------------------------------------------------- TRUST
