@@ -83,7 +83,10 @@ one of its first 20,000 matches is a broad root, and allowed when nothing matche
 (decision 3); every direct child of ~/.subfleet stays a root (decision 4); a denial for
 decision 2 or 3 names the word as written plus ``(glob)`` (decision 5). Every hook run here
 judges paths in a fixture filesystem through the hook's test seam (FS_SEAM, FS_LAYOUT), so
-no test stats, globs or reads a real home. S1 counts a command holding such a word
+no test stats, globs or reads a real home. Since D-SEARCH-REL1 (2026-11-05) the hook also runs an
+embedded parser, which judges on the real file system and has no such seam; every run here names
+no interpreter for it (PY_SEAM), so the regex judgment decides alone, as these tests state it, and
+tests/unit/test_guard_search_rel.py covers the parser and the two judgments together. S1 counts a command holding such a word
 (``r3_labels``) as an intended difference, and S1-r3 holds each decision to its direction
 against the r2 hook (r3's base, rebuilt from this one). The property test (Hypothesis,
 PROPERTY_SEED, PROPERTY_EXAMPLES) states its oracle in its docstring: a plain word is broad
@@ -175,8 +178,11 @@ R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7
 R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
 #: The overlay's hook after r3c (review r2's walk-arounds closed), which r4 replaces.
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
-#: The overlay's hook after r12d (the xargs door charged; e5b387c4... at r12's end): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed"
+#: The overlay's hook after r12d (the xargs door charged; e5b387c4... at r12's end), which D-SEARCH-REL1 replaces.
+R12D_HOOK_SHA256 = "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed"
+#: The overlay's hook after D-SEARCH-REL1 (2026-11-05: the Claude hook's analyzer embedded after the regex
+#: judgment; tests/unit/test_guard_search_rel.py): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "af5e723943b1f7462c19a4cbc5007e70b3c228c050c30f470f204d2f81c1398f"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -262,7 +268,9 @@ def undo(text: str, edits) -> str:
 #: r2 text).
 R3_BLOCKS = [("# >>> r3 path words: begin >>>\n", "# <<< r3 path words: end <<<\n"),
              ("  # >>> r3 path words: judge >>>\n", "  # <<< r3 path words: judge <<<\n"),
-             ("    # >>> r3 path words: name >>>\n", "    # <<< r3 path words: name <<<\n")]
+             ("    # >>> r3 path words: name >>>\n", "    # <<< r3 path words: name <<<\n"),
+             # D-SEARCH-REL1 (2026-11-05): the embedded parser and its call, after the regex judgment
+             ("# >>> unscoped-search: parser begin >>>\n", "# <<< unscoped-search: parser end <<<\n")]
 #: r3c (2026-10-26): the edits outside the path-word blocks, as (r3c text, r3b text): the header's
 #: r3c sentence, the prefilter's third term, the region's header, pw_cmd in the detection, the judged
 #: lines and the cwd rule, and the message's root list. Undone first, so the r3 and r3b pairs below
@@ -497,6 +505,25 @@ R6_TEXT = [
 """),
 ]
 R3_TEXT = R6_TEXT + R3_TEXT
+#: D-SEARCH-REL1 (2026-11-05): the edits outside the blocks, as (its text, r12d's text): the header's paragraph and
+#: the rule list's incident dates. Its flag (us_ask) sits in r3's begin block and its parser in its own block, both
+#: removed whole by ``rebuild_r2``. Undone before R6_TEXT.
+SR_TEXT = [
+    ("""#     <(...) scripts and loop variables.
+#     D-SEARCH-REL1 (2026-11-05) added a second judgment after that regex
+#     judgment: unscoped_search.py, the analyzer the Claude hook calls,
+#     embedded in the region byte for byte (the "unscoped-search: parser"
+#     block), so this file's pin covers it. The regex judgment never resolved
+#     a relative root against the cwd: on 11/04 one lane's find .. from its
+#     job worktree walked every job worktree for 38 minutes. The parser
+#     splits the command as the shell does, follows cd and resolves every
+#     root against the cwd. The hook blocks when either judgment blocks; when
+#     the parser cannot run, the regex judgment decides alone, as before.
+""", """#     <(...) scripts and loop variables.
+"""),
+    ("over broad roots (8/8, 8/18, 10/24 and 11/04 incidents)", "over broad roots (8/8, 8/18 and 10/24 incidents)"),
+]
+R3_TEXT = SR_TEXT + R3_TEXT
 
 
 def rebuild_r2(text: str) -> str:
@@ -554,6 +581,11 @@ def hooks(tmp_path_factory) -> dict[str, Path]:
 #: /Users/maxghenis/.subfleet); CODEX_GUARD_TEST_GLOB_CAP is the glob match cap.
 FS_SEAM = "CODEX_GUARD_TEST_FSROOT"
 CAP_SEAM = "CODEX_GUARD_TEST_GLOB_CAP"
+#: D-SEARCH-REL1's seam: the interpreter for the hook's embedded parser. The parser judges on the real file system
+#: (FS_SEAM does not reach it), so ``run_hook`` names a path that is no interpreter, and the regex judgment decides
+#: alone in the fixture filesystem, as before the parser; tests/unit/test_guard_search_rel.py runs the parser.
+PY_SEAM = "CODEX_GUARD_TEST_PYTHON"
+NO_PYTHON = "/nonexistent/subfleet-guard-test/python3"
 JOB = "20261024-115712-x"
 #: The fixture filesystem under the seam: (path under /, kind, link target). The home is
 #: FAKE_HOME; /Users/nojobs is a home whose ~/.subfleet has no jobs/; /Users/prop holds the
@@ -627,12 +659,14 @@ def log_dir(tmp_path_factory) -> Path:
 def run_hook(hook: Path, command: str, cwd: str = SCOPED_CWD, *, tool: str = "Bash",
              log: Path | None = None, home: str = FAKE_HOME, extra: dict | None = None) -> str:
     """The hook's stdout for one PreToolUse payload: empty to allow, the deny JSON otherwise.
-    Paths are judged in the fixture filesystem (the r3 seam); the environment's SUBFLEET_ROOT
-    and SUBFLEET_HOME are dropped (the hook must never read them; one test sets them)."""
+    Paths are judged in the fixture filesystem (the r3 seam), by the regex judgment alone (PY_SEAM
+    names no interpreter for the embedded parser); the environment's SUBFLEET_ROOT and
+    SUBFLEET_HOME are dropped (the hook must never read them; one test sets them)."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("CARPOOL_")
-           and k not in ("SUBFLEET_ROOT", "SUBFLEET_HOME", FS_SEAM, CAP_SEAM)}
+           and k not in ("SUBFLEET_ROOT", "SUBFLEET_HOME", FS_SEAM, CAP_SEAM, PY_SEAM)}
     env.update(HOME=home, CODEX_GUARD_LOG=str(log) if log else os.devnull)
     env[FS_SEAM] = str(_FS["root"])
+    env[PY_SEAM] = NO_PYTHON
     env.update(extra or {})
     payload = json.dumps({"tool_name": tool, "cwd": cwd, "tool_input": {"command": command}})
     out = subprocess.run(["/bin/bash", str(hook)], input=payload, capture_output=True, text=True,
@@ -2133,7 +2167,7 @@ def test_r3_glob_expansion_restores_every_setting(state):
 def test_r3_test_seams_never_reach_a_lane():
     """The seams are names the daemon's launch environment, an exact allowlist, never carries."""
     from subfleet import launch_env
-    for name in (FS_SEAM, CAP_SEAM):
+    for name in (FS_SEAM, CAP_SEAM, PY_SEAM):
         assert not launch_env.inherited_name(name), name
         assert name not in launch_env.build_environment(environ={"PATH": "/usr/bin:/bin", name: "/x"})
 
