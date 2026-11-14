@@ -1,0 +1,35 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  6%]
+........................................................................ [ 13%]
+........................................................................ [ 20%]
+........................................................................ [ 27%]
+........................................................................ [ 34%]
+........................................................................ [ 41%]
+........................................................................ [ 48%]
+........................................................................ [ 55%]
+........................................................................ [ 61%]
+........................................................................ [ 68%]
+........................................................................ [ 75%]
+........................................................................ [ 82%]
+........................................................................ [ 89%]
+........................................................................ [ 96%]
+......................................                                   [100%]
+============================= slowest 15 durations =============================
+203.99s call     tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository
+152.56s call     tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline
+102.10s call     tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted
+98.49s call     tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires
+93.40s call     tests/unit/test_notice_keep.py::test_property_acknowledging_a_notice_never_adds_a_pin
+84.99s call     tests/unit/test_notice_keep.py::test_property_the_pinned_set_is_the_jobs_with_a_fresh_unread_notice_to_a_session
+79.32s call     tests/unit/test_retention_archive.py::test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass
+75.68s call     tests/unit/test_retention_archive.py::test_an_anchor_a_network_remote_already_holds_needs_no_bundle
+64.52s call     tests/unit/test_retention_archive.py::test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that
+59.72s call     tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it
+58.80s call     tests/unit/test_retention_archive.py::test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move
+57.60s call     tests/unit/test_notice_keep.py::test_property_the_pinned_set_only_shrinks_as_the_clock_moves_forward
+57.23s call     tests/unit/test_retention_archive.py::test_stale_resume_fence_is_released
+55.74s call     tests/unit/test_retention_archive.py::test_a_host_that_is_there_without_the_registration_holds_nothing_up
+55.49s call     tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job
+1046 passed in 1385.48s (0:23:05)

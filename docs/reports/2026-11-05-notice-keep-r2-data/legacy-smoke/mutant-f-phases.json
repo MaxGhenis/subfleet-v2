@@ -1,0 +1,30 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "retained = (<subfleet.store.Store object at 0x10bf4aa50>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sub...tempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-mutant-f-s6tq0_9v/basetemp/test_the_outcome_pins_nothing0'))\n\n    def test_the_outcome_pins_nothing(retained):\n        \"\"\"Written beside a job that still has its rows, a fresh outcome adds no pin; once\n        the job is retired, no pin names it at any keep, for ever included.\"\"\"\n        store, root = retained\n        now = datetime.now(UTC)\n        add_job(store, root, \"job\")\n        add_notice(store, \"job\", \"s1\", ago(8 * DAY, now))\n        assert pins(store, 7 * DAY, now) == {}\n        with store.transaction(\"test.outcome\") as conn:\n            rnotices.write_outcomes(conn, \"job\", keep_s=7 * DAY, archive=None, name=None, now=now)\n>       assert outcomes(store, \"s1\") and pins(store, 7 * DAY, now) == {}\nE       AssertionError: assert ([{'notice_id': 1, 'session_id': 's1', 'text': 'job: succeeded; rc=0; deliverable=-; out=/tmp/out-job.md\\nretention ret... its notice unread (queued 2026-10-30T13:59:39Z) after retention.notice_keep_days (7 days).', 'state': 'pending', ...}] and {'job': 'retention-outcome'} == {}\nE        +  where [{'notice_id': 1, 'session_id': 's1', 'text': 'job: succeeded; rc=0; deliverable=-; out=/tmp/out-job.md\\nretention ret... its notice unread (queued 2026-10-30T13:59:39Z) after retention.notice_keep_days (7 days).', 'state': 'pending', ...}] = outcomes(<subfleet.store.Store object at 0x10bf4aa50>, 's1')\nE         \nE         Left contains 1 more item:\nE         {'job': 'retention-outcome'}\nE         Use -v to get more diff)\n\ntests/unit/test_notice_keep.py:589: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": []
+}

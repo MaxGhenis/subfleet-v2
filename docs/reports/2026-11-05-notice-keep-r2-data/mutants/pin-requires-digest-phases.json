@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_pin_noticed_associations_match_the_previous_key_function",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_pin_noticed_associations_match_the_previous_key_function",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "def test_pin_noticed_associations_match_the_previous_key_function():\n        # Copy of the head's key function, using its legacy default. In particular,\n        # neither a missing digest nor a different text changes a pin association.\n        def previous_key(data_json):\n            try:\n                data = json.loads(data_json or \"{}\")\n            except ValueError:\n                return None\n            if not isinstance(data, dict) or not isinstance(data.get(\"service_notice_id\"), int):\n                return None\n            return data[\"service_notice_id\"], data.get(\"session_id\"), data.get(\"created_at\")\n    \n        rows = [notice(1, text=\"different from the original pin\"), notice(2), notice(3)]\n        data = [\"{\", \"null\", \"[]\", '{}', '{\"service_notice_id\":1.0,\"session_id\":\"s\",\"created_at\":\"t\"}',\n                '{\"service_notice_id\":1,\"session_id\":\"different\",\"created_at\":\"t\"}',\n                '{\"service_notice_id\":1,\"session_id\":\"s\",\"created_at\":\"different\"}',\n                '{\"service_notice_id\":true,\"session_id\":\"s\",\"created_at\":\"t\"}',\n                '{\"service_notice_id\":2,\"session_id\":\"s\",\"created_at\":\"t\"}',\n                '{\"service_notice_id\":3,\"session_id\":\"s\",\"created_at\":\"t\",\"outcome_sha256\":\"wrong\"}',\n                '{\"service_notice_id\":2,\"session_id\":\"s\",\"created_at\":\"t\"}']\n        events = [{\"event_id\": index, \"kind\": \"job.pin_noticed\", \"job_id\": f\"job-{index}\", \"data_json\": payload}\n                  for index, payload in enumerate(data)]\n        wanted = {(row[\"notice_id\"], row[\"session_id\"], row[\"created_at\"]): row[\"notice_id\"] for row in rows}\n        expected = {}\n        for item in reversed(events):\n            key = previous_key(item[\"data_json\"])\n            if key in wanted:\n                expected.setdefault(wanted[key], item[\"job_id\"])\n>       assert pin_notice_jobs(query_for(events), rows, kinds=(\"job.pin_noticed\",)) == expected\nE       AssertionError: assert {} == {2: 'job-10',...', 1: 'job-7'}\nE         \nE         Right contains 3 more items:\nE         {1: 'job-7', 2: 'job-10', 3: 'job-9'}\nE         Use -v to get more diff\n\ntests/unit/test_pin_notice_identity.py:128: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_pin_noticed_associations_match_the_previous_key_function",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/pin-requires-digest/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/pin-requires-digest/subfleet/retention_notices.py"
+  }
+}
