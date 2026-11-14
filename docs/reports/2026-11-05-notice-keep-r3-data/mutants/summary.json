@@ -1,0 +1,249 @@
+{
+  "measured_at": "2026-11-13T12:54:05.590246+00:00",
+  "mutants": {
+    "no-page-limit": {
+      "description": "remove the page limit, reading the ledger in one statement",
+      "killer": "tests/unit/test_retention_outcome_pages.py::test_lookup_pages_never_exceed_1000_events"
+    },
+    "no-captured-upper-id": {
+      "description": "read to the changing table end instead of a captured upper event id",
+      "killer": "tests/unit/test_retention_outcome_pages.py::test_events_arriving_between_pages_stay_past_captured_upper_id"
+    },
+    "deadline-returns-partial": {
+      "description": "return accumulated events as successful history after a deadline",
+      "killer": "tests/unit/test_retention_outcome_pages.py::test_overall_deadline_never_returns_pages_read_so_far"
+    },
+    "limit-one": {
+      "description": "r3: restrict the lookup statement to LIMIT 1",
+      "killer": "tests/unit/test_retention_outcomes.py::test_outcomes_cli_has_json_and_readable_offline_output"
+    }
+  },
+  "runs": [
+    {
+      "mutant": null,
+      "status": "passed",
+      "seconds": 146.17802345799282,
+      "exit_code": 0,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_r3_phases",
+        "--timeout=90",
+        "--override-ini",
+        "pythonpath=.",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/controls-basetemp",
+        "tests/unit/test_retention_outcome_pages.py::test_lookup_pages_never_exceed_1000_events",
+        "tests/unit/test_retention_outcome_pages.py::test_events_arriving_between_pages_stay_past_captured_upper_id",
+        "tests/unit/test_retention_outcome_pages.py::test_overall_deadline_never_returns_pages_read_so_far",
+        "tests/unit/test_retention_outcomes.py::test_outcomes_cli_has_json_and_readable_offline_output"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/controls",
+      "worktree_source_sha256": {
+        "subfleet/retention_notices.py": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+        "tests/unit/test_retention_outcome_pages.py": "b3b53d84236a38310a90b181638fc4263e00adb716d01f976c80fc41e9bda734",
+        "tests/unit/test_retention_outcomes.py": "7a640aaf7fd1e79e174f531b1fe715f388c59ded4842125d55df28413b19a148"
+      },
+      "worktree_source_unchanged": true,
+      "pristine_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "mutated_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "restored_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "restored_pristine_bytes": true,
+      "calls": {
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0
+      },
+      "assertion_failures": 0,
+      "setup_or_teardown_failures": 0,
+      "collection_errors": [],
+      "imported_sources": {
+        "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/controls/subfleet/store.py",
+        "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/controls/subfleet/retention_notices.py"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/controls.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/controls-phases.json"
+    },
+    {
+      "mutant": "no-page-limit",
+      "status": "killed",
+      "seconds": 66.09338254202157,
+      "exit_code": 1,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_r3_phases",
+        "--timeout=90",
+        "--override-ini",
+        "pythonpath=.",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-page-limit-basetemp",
+        "tests/unit/test_retention_outcome_pages.py::test_lookup_pages_never_exceed_1000_events"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-page-limit",
+      "worktree_source_sha256": {
+        "subfleet/retention_notices.py": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+        "tests/unit/test_retention_outcome_pages.py": "b3b53d84236a38310a90b181638fc4263e00adb716d01f976c80fc41e9bda734",
+        "tests/unit/test_retention_outcomes.py": "7a640aaf7fd1e79e174f531b1fe715f388c59ded4842125d55df28413b19a148"
+      },
+      "worktree_source_unchanged": true,
+      "pristine_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "mutated_sha256": "574b8777c53d81598fe6a09e12dae3438b4bb24de487583da6ebf9802013602f",
+      "restored_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "restored_pristine_bytes": true,
+      "calls": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0
+      },
+      "assertion_failures": 1,
+      "setup_or_teardown_failures": 0,
+      "collection_errors": [],
+      "imported_sources": {
+        "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-page-limit/subfleet/store.py",
+        "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-page-limit/subfleet/retention_notices.py"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/no-page-limit.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/no-page-limit-phases.json"
+    },
+    {
+      "mutant": "no-captured-upper-id",
+      "status": "killed",
+      "seconds": 44.542314416961744,
+      "exit_code": 1,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_r3_phases",
+        "--timeout=90",
+        "--override-ini",
+        "pythonpath=.",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-captured-upper-id-basetemp",
+        "tests/unit/test_retention_outcome_pages.py::test_events_arriving_between_pages_stay_past_captured_upper_id"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-captured-upper-id",
+      "worktree_source_sha256": {
+        "subfleet/retention_notices.py": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+        "tests/unit/test_retention_outcome_pages.py": "b3b53d84236a38310a90b181638fc4263e00adb716d01f976c80fc41e9bda734",
+        "tests/unit/test_retention_outcomes.py": "7a640aaf7fd1e79e174f531b1fe715f388c59ded4842125d55df28413b19a148"
+      },
+      "worktree_source_unchanged": true,
+      "pristine_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "mutated_sha256": "451c48480cfdadcc4ab7e43967ad1e64f15ef6032fd7dd1dc59d69bf3239e596",
+      "restored_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "restored_pristine_bytes": true,
+      "calls": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0
+      },
+      "assertion_failures": 1,
+      "setup_or_teardown_failures": 0,
+      "collection_errors": [],
+      "imported_sources": {
+        "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-captured-upper-id/subfleet/store.py",
+        "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-captured-upper-id/subfleet/retention_notices.py"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/no-captured-upper-id.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/no-captured-upper-id-phases.json"
+    },
+    {
+      "mutant": "deadline-returns-partial",
+      "status": "killed",
+      "seconds": 42.94385791604873,
+      "exit_code": 1,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_r3_phases",
+        "--timeout=90",
+        "--override-ini",
+        "pythonpath=.",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/deadline-returns-partial-basetemp",
+        "tests/unit/test_retention_outcome_pages.py::test_overall_deadline_never_returns_pages_read_so_far"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/deadline-returns-partial",
+      "worktree_source_sha256": {
+        "subfleet/retention_notices.py": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+        "tests/unit/test_retention_outcome_pages.py": "b3b53d84236a38310a90b181638fc4263e00adb716d01f976c80fc41e9bda734",
+        "tests/unit/test_retention_outcomes.py": "7a640aaf7fd1e79e174f531b1fe715f388c59ded4842125d55df28413b19a148"
+      },
+      "worktree_source_unchanged": true,
+      "pristine_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "mutated_sha256": "0b6ff2673c6f3d33fb30d6529b32c4ae7042189509ac354ca6d8f508356e3a30",
+      "restored_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "restored_pristine_bytes": true,
+      "calls": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0
+      },
+      "assertion_failures": 1,
+      "setup_or_teardown_failures": 0,
+      "collection_errors": [],
+      "imported_sources": {
+        "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/deadline-returns-partial/subfleet/store.py",
+        "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/deadline-returns-partial/subfleet/retention_notices.py"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/deadline-returns-partial.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/deadline-returns-partial-phases.json"
+    },
+    {
+      "mutant": "limit-one",
+      "status": "killed",
+      "seconds": 39.394421292003244,
+      "exit_code": 1,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_r3_phases",
+        "--timeout=90",
+        "--override-ini",
+        "pythonpath=.",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one-basetemp",
+        "tests/unit/test_retention_outcomes.py::test_outcomes_cli_has_json_and_readable_offline_output"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one",
+      "worktree_source_sha256": {
+        "subfleet/retention_notices.py": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+        "tests/unit/test_retention_outcome_pages.py": "b3b53d84236a38310a90b181638fc4263e00adb716d01f976c80fc41e9bda734",
+        "tests/unit/test_retention_outcomes.py": "7a640aaf7fd1e79e174f531b1fe715f388c59ded4842125d55df28413b19a148"
+      },
+      "worktree_source_unchanged": true,
+      "pristine_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "mutated_sha256": "c1b8c74135244400aa0a251c2dcba97adf9faaaf74d4af64bc0cbf43a531854e",
+      "restored_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+      "restored_pristine_bytes": true,
+      "calls": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0
+      },
+      "assertion_failures": 1,
+      "setup_or_teardown_failures": 0,
+      "collection_errors": [],
+      "imported_sources": {
+        "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one/subfleet/store.py",
+        "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one/subfleet/retention_notices.py"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/limit-one.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/limit-one-phases.json"
+    }
+  ],
+  "killed": 4,
+  "survived": 0,
+  "invalid": 0
+}

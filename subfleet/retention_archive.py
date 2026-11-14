@@ -48,6 +48,7 @@ from typing import Any
 from . import dependencies, folders
 from . import retention_fs as rfs
 from . import retention_git as rgit
+from . import retention_notices as rnotices
 from . import retention_qos as rqos
 from .retention_holders import Watch
 
@@ -240,6 +241,9 @@ class Context:
     #: Repository discovery must yield to the pass deadline. Archive slices
     #: still use their own bounds, and verified archives may finish the pass.
     deadline: float | None = None
+    #: C-8.4: how long an unread notice keeps its job (0: for ever), named in
+    #: the outcome a retirement writes for a notice still unread.
+    notice_keep_s: float = 0
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
@@ -966,6 +970,13 @@ class Retirement:
                     elif j["worktree"] and held.get(f"worktree:{j['worktree']}") != f"retention:{self.job_id}":
                         outcome = "worktree lease lost"
                     else:
+                        # C-8.4 (D-NOTICE-KEEP1): a notice still unread goes with the
+                        # rows; its session is told what became of the job instead,
+                        # in this transaction, by a service notice that pins nothing.
+                        outcomes = rnotices.write_outcomes(conn, self.job_id, keep_s=self.ctx.notice_keep_s,
+                                                           archive=str(self.root / "archive" / name), name=name)
+                        if outcomes:
+                            data_event["outcome_notices"] = [o["service_notice_id"] for o in outcomes]
                         attempts = "attempt_id IN (SELECT attempt_id FROM attempts WHERE job_id=?)"
                         conn.execute(f"DELETE FROM artifacts WHERE {attempts}", (self.job_id,))
                         conn.execute(f"DELETE FROM readings WHERE {attempts}", (self.job_id,))
