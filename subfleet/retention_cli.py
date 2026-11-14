@@ -1,11 +1,13 @@
-"""`subfleet retention archives | restore | survey | delete` (C-17.1, C-8.7, design d635).
+"""`subfleet retention archives | restore | survey | outcomes | delete` (C-17.1, C-8.7, design d635).
 
-The first three run offline, without the daemon: `archives` lists what
+The first four run offline, without the daemon: `archives` lists what
 retention has archived, `restore` puts an archive back (it touches only its
-destinations), and `survey` is a read-only dry run of retention over the state
-root. `delete` asks the daemon to remove the kept trees of an operator-approved
-list of finished jobs (`retention_delete`, decision d2660): `--dry-run` says
-what it would do, `--apply` does it, `--status` and `--stop` read and end it.
+destinations), `survey` is a read-only dry run of retention over the state
+root, and `outcomes` reads what happened to a session's jobs whose notices
+were retired unread. `delete` asks the daemon to remove the kept trees of an
+operator-approved list of finished jobs (`retention_delete`, decision d2660):
+`--dry-run` says what it would do, `--apply` does it, `--status` and `--stop`
+read and end it.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ DELETE_POLL_S = 2.0
 
 
 def add_verbs(sub) -> None:
-    parser = sub.add_parser("retention", help="archives of retired jobs: list, restore, survey")
+    parser = sub.add_parser("retention", help="archives of retired jobs: list, restore, survey, outcomes")
     verbs = parser.add_subparsers(dest="retention_command")
     parser.set_defaults(handler=cmd_retention, retention_command=None)
     listing = verbs.add_parser("archives", help="every archive retention has written")
@@ -40,6 +42,9 @@ def add_verbs(sub) -> None:
     survey.add_argument("--sample", type=int, metavar="N",
                         help="estimate from N sampled jobs what retirement frees versus archives (read-only)")
     survey.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    outcomes = verbs.add_parser("outcomes", help="retired unread job outcomes, even after their notices expired")
+    outcomes.add_argument("--session", required=True, help="the session whose archived outcomes to read")
+    outcomes.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     delete = verbs.add_parser("delete", help="delete the kept trees of an approved list of finished jobs (C-8.7)")
     delete.add_argument("--request", type=Path, metavar="FILE",
                         help="the request: ruling, jobs, age_exempt, min_age_days, exclude_repositories, min_free_gb")
@@ -66,6 +71,23 @@ def cmd_retention(args: argparse.Namespace) -> int:
     if command == "delete":
         return _delete(args, as_json)
     root = state_root()
+    if command == "outcomes":
+        from .retention_notices import OutcomesLookupError, archived_outcomes
+        import sqlite3
+        try:
+            result = archived_outcomes(root, args.session)
+        except (OutcomesLookupError, OSError, ValueError, sqlite3.Error) as exc:
+            return fail(Exit.OPERATIONAL, f"retention outcomes: {exc}")
+        if as_json:
+            emit(result)
+        else:
+            for outcome in result["outcomes"]:
+                out(outcome["text"])
+            if not result["outcomes"] and not result["errors"]:
+                out(f"No retired unread job outcomes for session {args.session}.")
+            for error in result["errors"]:
+                out(f"{error['job_id']}: outcome unavailable: {error['error']}")
+        return int(Exit.OPERATIONAL if result["errors"] else Exit.OK)
     if command in (None, "archives"):
         archives = rarch.list_archives(root)
         if as_json:

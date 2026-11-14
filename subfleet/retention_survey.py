@@ -150,16 +150,18 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     budgets = budgets or {"detached": (int(budget["jobs"]), int(budget["bytes"])),
                           "turn": (int(budget["turn_jobs"]), int(budget["turn_bytes"]))}
     turn_keep_s = float(budget["turn_keep_days"]) * 86400
+    notice_keep_s = float(budget["notice_keep_days"]) * 86400        # C-8.4, as the pass reads it
     report: dict[str, Any] = {"state_root": str(root), "read_only": True,
                               "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                               "budgets": {k: {"max_jobs": v[0], "max_bytes": v[1]} for k, v in budgets.items()},
+                              "notice_keep_days": budget["notice_keep_days"],
                               "notes": ["the conversation service's in-memory pins are not visible offline; "
                                         "turn jobs it needs would also be kept"]}
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
         reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=turn_keep_s,
-                                   hosted=ret.nested_hosts(jobs, root), root=root)
+                                   notice_keep_s=notice_keep_s, hosted=ret.nested_hosts(jobs, root), root=root)
         journals = rarch.journals(root)
         live_trees = [job.get("worktree") for job in jobs] + [
             j.get("worktree") for j in journals.values() if isinstance(j, dict)]
@@ -620,12 +622,16 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
     hours on the live tree). `progress(job_report)` is called after each job."""
     root = Path(root).resolve()
     started = time.monotonic()
-    remote_less = int(_budget(root)["remote_less_history_bytes"])
+    budget = _budget(root)
+    remote_less = int(budget["remote_less_history_bytes"])
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
-        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0, hosted=ret.nested_hosts(jobs, root),
-                                   root=root)
+        # An unread notice keeps its job as the pass reads it (C-8.4); 0 here
+        # would keep every such job for ever, the rule before D-NOTICE-KEEP1.
+        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0,
+                                   notice_keep_s=float(budget["notice_keep_days"]) * 86400,
+                                   hosted=ret.nested_hosts(jobs, root), root=root)
         salvage: dict[str, dict[str, str]] = defaultdict(dict)
         for row in store.query("SELECT r.path,r.sha256,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
                                "WHERE r.role='salvage' ORDER BY r.artifact_id"):

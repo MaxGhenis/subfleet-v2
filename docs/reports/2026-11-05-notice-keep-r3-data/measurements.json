@@ -1,0 +1,479 @@
+{
+  "failure_semantics": "A named deadline failure returns no history; materialized query rows are diagnostic counts only",
+  "finished_at": "2026-11-13T12:57:29.992166+00:00",
+  "fixture": "Retirement events for another session; current schema; construction excluded; reused between samples",
+  "fixtures": [
+    {
+      "database_bytes": 3092480,
+      "fixture_seed_s": 2.2976400000043213,
+      "retirement_events": 6000
+    },
+    {
+      "database_bytes": 49483776,
+      "fixture_seed_s": 3.3045737920328975,
+      "retirement_events": 100000
+    },
+    {
+      "database_bytes": 497315840,
+      "fixture_seed_s": 41.79815112496726,
+      "retirement_events": 1000000
+    },
+    {
+      "database_bytes": 1494962176,
+      "fixture_seed_s": 131.2813787079649,
+      "retirement_events": 3000000
+    }
+  ],
+  "lookup_deadline_s": 30.0,
+  "measured_at": "2026-11-13T12:53:10.163405+00:00",
+  "page_size": 1000,
+  "samples": [
+    {
+      "complete_lookup_s": 0.6102940420387313,
+      "error": null,
+      "lookup_elapsed_s": 0.6102940420387313,
+      "maximum_page_s": 0.013809667085297406,
+      "maximum_statement_s": 0.013809667085297406,
+      "outcomes": 0,
+      "pages_attempted": 6,
+      "pages_completed": 6,
+      "query_errors": [],
+      "query_materialization_s": 0.044569874298758805,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 6000,
+      "rows_materialized_in_completed_queries": 6000,
+      "sample": 1,
+      "status": "succeeded",
+      "upper_bound_s": 0.0008168750209733844,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 0.05089254199992865,
+      "error": null,
+      "lookup_elapsed_s": 0.05089254199992865,
+      "maximum_page_s": 0.00891029101330787,
+      "maximum_statement_s": 0.00891029101330787,
+      "outcomes": 0,
+      "pages_attempted": 6,
+      "pages_completed": 6,
+      "query_errors": [],
+      "query_materialization_s": 0.021132165216840804,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 6000,
+      "rows_materialized_in_completed_queries": 6000,
+      "sample": 2,
+      "status": "succeeded",
+      "upper_bound_s": 7.48330494388938e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 0.05401316692586988,
+      "error": null,
+      "lookup_elapsed_s": 0.05401316692586988,
+      "maximum_page_s": 0.0016494999872520566,
+      "maximum_statement_s": 0.0016494999872520566,
+      "outcomes": 0,
+      "pages_attempted": 6,
+      "pages_completed": 6,
+      "query_errors": [],
+      "query_materialization_s": 0.007519499980844557,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 6000,
+      "rows_materialized_in_completed_queries": 6000,
+      "sample": 3,
+      "status": "succeeded",
+      "upper_bound_s": 5.7124998420476913e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 3.1185430421028286,
+      "error": null,
+      "lookup_elapsed_s": 3.1185430421028286,
+      "maximum_page_s": 0.3042956250719726,
+      "maximum_statement_s": 0.3042956250719726,
+      "outcomes": 0,
+      "pages_attempted": 100,
+      "pages_completed": 100,
+      "query_errors": [],
+      "query_materialization_s": 1.9718919976148754,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 100000,
+      "rows_materialized_in_completed_queries": 100000,
+      "sample": 1,
+      "status": "succeeded",
+      "upper_bound_s": 4.3042004108428955e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 0.7641421250300482,
+      "error": null,
+      "lookup_elapsed_s": 0.7641421250300482,
+      "maximum_page_s": 0.03475474996957928,
+      "maximum_statement_s": 0.03475474996957928,
+      "outcomes": 0,
+      "pages_attempted": 100,
+      "pages_completed": 100,
+      "query_errors": [],
+      "query_materialization_s": 0.2908707450842485,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 100000,
+      "rows_materialized_in_completed_queries": 100000,
+      "sample": 2,
+      "status": "succeeded",
+      "upper_bound_s": 4.837499000132084e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 0.6005538750905544,
+      "error": null,
+      "lookup_elapsed_s": 0.6005538750905544,
+      "maximum_page_s": 0.004394083051010966,
+      "maximum_statement_s": 0.004394083051010966,
+      "outcomes": 0,
+      "pages_attempted": 100,
+      "pages_completed": 100,
+      "query_errors": [],
+      "query_materialization_s": 0.15322641434613615,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 100000,
+      "rows_materialized_in_completed_queries": 100000,
+      "sample": 3,
+      "status": "succeeded",
+      "upper_bound_s": 3.766606096178293e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 11.396707082982175,
+      "error": null,
+      "lookup_elapsed_s": 11.396707082982175,
+      "maximum_page_s": 0.22236658306792378,
+      "maximum_statement_s": 0.22236658306792378,
+      "outcomes": 0,
+      "pages_attempted": 1000,
+      "pages_completed": 1000,
+      "query_errors": [],
+      "query_materialization_s": 5.090096133877523,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 1000000,
+      "rows_materialized_in_completed_queries": 1000000,
+      "sample": 1,
+      "status": "succeeded",
+      "upper_bound_s": 6.354192737489939e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 7.700736374943517,
+      "error": null,
+      "lookup_elapsed_s": 7.700736374943517,
+      "maximum_page_s": 0.05211954202968627,
+      "maximum_statement_s": 0.05211954202968627,
+      "outcomes": 0,
+      "pages_attempted": 1000,
+      "pages_completed": 1000,
+      "query_errors": [],
+      "query_materialization_s": 3.135440519778058,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 1000000,
+      "rows_materialized_in_completed_queries": 1000000,
+      "sample": 2,
+      "status": "succeeded",
+      "upper_bound_s": 6.849993951618671e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 5.070311291026883,
+      "error": null,
+      "lookup_elapsed_s": 5.070311291026883,
+      "maximum_page_s": 0.06990437500644475,
+      "maximum_statement_s": 0.06990437500644475,
+      "outcomes": 0,
+      "pages_attempted": 1000,
+      "pages_completed": 1000,
+      "query_errors": [],
+      "query_materialization_s": 2.2160373226506636,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 1000000,
+      "rows_materialized_in_completed_queries": 1000000,
+      "sample": 3,
+      "status": "succeeded",
+      "upper_bound_s": 0.00010933307930827141,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 11.631100790924393,
+      "error": null,
+      "lookup_elapsed_s": 11.631100790924393,
+      "maximum_page_s": 0.013121374999172986,
+      "maximum_statement_s": 0.013121374999172986,
+      "outcomes": 0,
+      "pages_attempted": 3000,
+      "pages_completed": 3000,
+      "query_errors": [],
+      "query_materialization_s": 4.7612758540781215,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 3000000,
+      "rows_materialized_in_completed_queries": 3000000,
+      "sample": 1,
+      "status": "succeeded",
+      "upper_bound_s": 5.316606257110834e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 13.521442124969326,
+      "error": null,
+      "lookup_elapsed_s": 13.521442124969326,
+      "maximum_page_s": 0.05452045798301697,
+      "maximum_statement_s": 0.05452045798301697,
+      "outcomes": 0,
+      "pages_attempted": 3000,
+      "pages_completed": 3000,
+      "query_errors": [],
+      "query_materialization_s": 5.639037476037629,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 3000000,
+      "rows_materialized_in_completed_queries": 3000000,
+      "sample": 2,
+      "status": "succeeded",
+      "upper_bound_s": 4.666694439947605e-05,
+      "upper_bound_statements": 1
+    },
+    {
+      "complete_lookup_s": 25.67922654096037,
+      "error": null,
+      "lookup_elapsed_s": 25.67922654096037,
+      "maximum_page_s": 0.24414550000801682,
+      "maximum_statement_s": 0.24414550000801682,
+      "outcomes": 0,
+      "pages_attempted": 3000,
+      "pages_completed": 3000,
+      "query_errors": [],
+      "query_materialization_s": 10.627819846384227,
+      "query_plans": {
+        "page": [
+          {
+            "detail": "SEARCH events USING INDEX events_kind (kind=? AND event_id>? AND event_id<?)",
+            "id": 5,
+            "notused": 49,
+            "parent": 0
+          }
+        ],
+        "upper_bound": [
+          {
+            "detail": "SEARCH events USING COVERING INDEX events_kind (kind=?)",
+            "id": 3,
+            "notused": 54,
+            "parent": 0
+          }
+        ]
+      },
+      "result_returned": true,
+      "retirement_events": 3000000,
+      "rows_materialized_in_completed_queries": 3000000,
+      "sample": 3,
+      "status": "succeeded",
+      "upper_bound_s": 0.00012379197869449854,
+      "upper_bound_statements": 1
+    }
+  ],
+  "samples_per_fixture": 3,
+  "statement_deadline_s": 1.0,
+  "timing_scope": "Store.query includes SQLite execution, fetchall and Python dictionary conversion; failed queries are timed too"
+}
