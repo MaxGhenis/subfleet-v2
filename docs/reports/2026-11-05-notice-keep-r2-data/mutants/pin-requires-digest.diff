@@ -1,0 +1,11 @@
+--- subfleet/store.py
++++ subfleet/store.py
+@@ -235,7 +235,7 @@
+             events += query(f"SELECT event_id,kind,job_id,data_json FROM events WHERE kind='{kind}' AND "
+                             f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
+     for event in sorted(events, key=lambda event: event["event_id"], reverse=True):
+-        retired = event["kind"] == "retention.notice_retired"
++        retired = True
+         key = _pin_notice_key(event["data_json"], include_outcome_digest=retired)
+         if key is None or not event["job_id"]:
+             continue

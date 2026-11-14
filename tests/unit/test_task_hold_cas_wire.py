@@ -25,7 +25,9 @@ def condition(hold=HOLD, **extra):
 
 def test_this_daemon_advertises_transactional_task_note_conditions():
     assert protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY == "tasks.if_note_prefix.v1"
+    assert protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY == "tasks.if_note_prefix.v2"
     assert protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY in CAPABILITIES
+    assert protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY in CAPABILITIES
     args = protocol.coerce_args(protocol.TasksArgs, {"if_note_prefix": "battery-backoff:", "unknown": True})
     assert args.if_note_prefix == "battery-backoff:"
 
@@ -71,20 +73,22 @@ def test_existing_refusals_keep_their_exact_wire_error_shape():
 def test_invalid_hold_details_are_not_a_generic_refusal_reflection_channel(changed):
     response = wire_reply(op="tasks", error=condition({**HOLD, **changed}))
     assert response["error"] == {"code": 7, "message": refusals.HANDLER_MESSAGES["task-hold-condition"][0],
-                                  "fix": None}
+                                  "fix": None, "reason": "task-hold-condition"}
 
 
 def test_incomplete_or_extra_details_are_not_exposed():
     incomplete = {key: value for key, value in HOLD.items() if key != "since"}
     for error in (condition(incomplete), condition(extra="untrusted words")):
         shown = wire_reply(op="tasks", error=error)["error"]
-        assert "details" not in shown and "reason" not in shown and "untrusted" not in shown["message"]
+        assert "details" not in shown and shown["reason"] == "task-hold-condition"
+        assert "untrusted" not in shown["message"]
 
 
 def test_nullable_since_keeps_the_hold_reply_value_type():
     hold = {**HOLD, "since": None}
     shown = wire_reply(op="tasks", error=condition(hold))["error"]
     assert shown["details"] == {"task_hold": hold}
+    assert "since" not in shown["message"] and "None" not in shown["message"]
 
 
 def test_legacy_credential_note_is_scrubbed_equally_in_text_and_structured_details():
@@ -100,10 +104,11 @@ def test_legacy_credential_note_is_scrubbed_equally_in_text_and_structured_detai
 def test_client_does_not_trust_unchecked_arbitrary_structured_details():
     error = DaemonError(7, "opaque older message", reason="task-hold-condition",
                         details={"task_hold": {**HOLD, "since": "untrusted words"}})
-    assert error.reason is None and error.details is None
+    assert error.reason == "task-hold-condition" and error.details is None
 
 
 def test_a_legacy_note_with_an_embedded_joiner_credential_is_never_reflected():
     secret = "sk-" + "a" * 25
     shown = wire_reply(op="tasks", error=condition({**HOLD, "note": "booking-" + secret}))["error"]
     assert secret not in json.dumps(shown)
+    assert shown["reason"] == "task-hold-condition" and "details" not in shown
