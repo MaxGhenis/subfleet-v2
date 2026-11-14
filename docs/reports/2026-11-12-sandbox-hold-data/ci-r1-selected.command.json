@@ -1,0 +1,14 @@
+{
+  "command": "uv --cache-dir /private/tmp/sf-sbh-c1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -q -p no:cacheprovider -p pytest_scratch --basetemp /private/tmp/sf-sbh-c1/pytest-selected -n 4 tests/fake/test_admission_properties.py tests/fake/test_detached_cwd_pins.py tests/fake/test_probe_cancel.py tests/fake/test_probe_deadline.py tests/fake/test_probe_turn.py tests/fake/test_reset_credit_incident.py tests/fake/test_retention_dependency_review_r5.py tests/fake/test_sandbox_hold_continuity.py tests/fake/test_sandbox_hold_interleavings.py tests/fake/test_sandbox_hold_properties.py tests/fake/test_task_hold_admission.py tests/fake/test_task_hold_cas.py tests/fake/test_task_hold_cas_properties.py tests/fake/test_task_hold_clocks.py tests/fake/test_task_hold_mutants.py tests/fake/test_task_hold_properties.py tests/fake/test_task_hold_reset_demand.py tests/fake/test_turn_relay_exit_r3.py tests/fake/test_unadmittable_pin_admission.py tests/fake/test_unadmittable_pin_rereview.py tests/fake/test_unadmittable_pin_review.py tests/fake/test_unrun_worktrees.py tests/unit/test_host_push.py tests/unit/test_host_push_admission.py tests/unit/test_host_push_build.py tests/unit/test_host_push_build_budget.py tests/unit/test_host_push_cli.py tests/unit/test_host_push_config_cost.py tests/unit/test_host_push_copy.py tests/unit/test_host_push_export.py tests/unit/test_host_push_intake.py tests/unit/test_host_push_metadata.py tests/unit/test_host_push_mutations.py tests/unit/test_host_push_names.py tests/unit/test_host_push_quarantine_restart.py tests/unit/test_host_push_restart.py tests/unit/test_host_push_retention.py tests/unit/test_host_push_sandbox_hold.py tests/unit/test_host_push_storage_recovery.py tests/unit/test_host_push_storage_retry_budget.py tests/unit/test_host_push_store_completion_pr183.py tests/unit/test_host_push_store_interleavings.py tests/unit/test_host_push_trees.py tests/unit/test_host_push_validated_top.py tests/unit/test_reset_credit_claim_timing.py tests/unit/test_retention_folded_pin.py tests/unit/test_sandbox_hold_cli.py tests/unit/test_sandbox_hold_contract.py tests/unit/test_sandbox_hold_reapers.py tests/unit/test_task_hold_cas_cli.py tests/unit/test_task_hold_cas_integration.py tests/unit/test_task_hold_cas_wire.py tests/unit/test_task_holds.py tests/unit/test_timers_reset_credits.py tests/unit/test_unadmittable_pin.py --durations=15",
+  "environment": {
+    "TMPDIR": "/private/tmp/sf-sbh-c1",
+    "UV_CACHE_DIR": "/private/tmp/sf-sbh-c1/uv-cache",
+    "UV_PROJECT_ENVIRONMENT": "/private/tmp/sf-sbh-c1/venv",
+    "UV_PYTHON_INSTALL_DIR": "/private/tmp/sf-sbh-c1/python",
+    "PYTHONPYCACHEPREFIX": "/private/tmp/sf-sbh-c1/pycache",
+    "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-sbh-c1/hypothesis",
+    "PYTHONPATH": "/private/tmp/sf-sbh-c1:/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1"
+  },
+  "returncode": 1,
+  "seconds": 3134.79
+}

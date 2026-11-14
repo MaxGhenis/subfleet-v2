@@ -274,7 +274,7 @@ def until_validated_at_request_clock(patch):
 
 
 def _request_clock_mutant(patch, old, new):
-    declaration = '    data: dict[str, Any] = {"task": task, "note": note, "replaced": None}\n'
+    declaration = '    data: dict[str, Any] = {**target, "note": note, "replaced": None}\n'
     source = textwrap.dedent(inspect.getsource(Daemon._hold_task))
     assert declaration in source and old in source
     source = source.replace(declaration, declaration + "    asked = utcnow()\n").replace(old, new)

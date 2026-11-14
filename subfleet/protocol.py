@@ -363,6 +363,7 @@ class TasksArgs:
     until: str | None = None
     note: str | None = None
     if_note_prefix: str | None = None
+    sandbox: str | None = None
 
 
 @dataclass

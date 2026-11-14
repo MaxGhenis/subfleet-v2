@@ -1,0 +1,62 @@
+[
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/.hypothesis",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/0",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/.pytest_cache",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/1",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/docs/reports/2026-11-12-sandbox-hold-data/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/2",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/3",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/adapters/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/4",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/conversations/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/5",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/gate/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/6",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/guard/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/7",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/subfleet/sessions/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/8",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/tests/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/9",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/tests/fake/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/10",
+    "deleted": true
+  },
+  {
+    "original": "/Users/maxghenis/.subfleet/worktrees/20261111-122607-sbh-build-r1s/tests/unit/__pycache__",
+    "relocated": "/private/tmp/sf-sbh-b1/relocated-worktree-caches/11",
+    "deleted": true
+  }
+]

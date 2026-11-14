@@ -1,0 +1,99 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+___ test_generated_preparation_pass_completion_cancel_restart_interleavings ____
+
+self = <subfleet.daemon.Daemon object at 0x10c43e840>
+job = {'job_id': '0', 'state': 'queued', 'cancel_requested_at': None, 'worktree': None, ...}
+future = None
+
+    def _finish_push_workspace(self, job: dict, future: Future | None) -> bool | None:
+        """Apply completion: True is owned, False settled, None needs a later pass.
+    
+        Transient writes retain the construction result for a bounded number
+        of failures. Permanent or exhausted failures retain their cause until
+        this job's failure and notice commit together.
+        """
+        job_id = job["job_id"]
+        try:
+            if exc := self._push_workspace_store_errors.get(job_id):
+>               raise exc
+
+subfleet/daemon.py:6201: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:6352: in _push_workspace_ready
+    if self._task_held_at_write(tx, job, None) is None:     # C-11.10 (R3-1)
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:1747: in _task_held_at_write
+    hold = task_holds.job_held(tx, job["job_id"], utcnow())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+conn = <sqlite3.Connection object at 0x10c4a1210>, job_id = '0'
+now = '2026-11-13T12:59:52Z'
+
+    def job_held(conn: Any, job_id: str, now: str | datetime) -> dict[str, Any] | None:
+        """C-11.10: the covering task or sandbox hold in force at `now`, read on `conn` (the caller's
+        own transaction, so it judges the rows it commits beside), or None. A conversation
+        turn and a job with no task are never held."""
+>       row = conn.execute("SELECT kind, task, sandbox FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       sqlite3.OperationalError: no such column: kind
+
+subfleet/task_holds.py:242: OperationalError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/tmp/sf-sbh-c1/pytest-repro-store-completion/test_generated_preparation_pas0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10be47200>
+
+    @settings(max_examples=80, deadline=None,
+>             suppress_health_check=[HealthCheck.function_scoped_fixture])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_host_push_store_completion_pr183.py:252: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_host_push_store_completion_pr183.py:259: in test_generated_preparation_pass_completion_cancel_restart_interleavings
+    run_interleavings(Path(directory), count, steps, patch)
+tests/unit/test_host_push_store_completion_pr183.py:180: in run_interleavings
+    detached_pass()
+tests/unit/test_host_push_store_completion_pr183.py:168: in detached_pass
+    if core._push_workspace_ready(job):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:6359: in _push_workspace_ready
+    self._finish_push_workspace(job, None)
+subfleet/daemon.py:6234: in _finish_push_workspace
+    self._fail_queued(job, f"workspace completion could not be recorded{tail}: {refusals.fixed_error(exc)}",
+subfleet/daemon.py:9733: in _fail_queued
+    job = self._job(job["job_id"])
+          ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <subfleet.daemon.Daemon object at 0x10c43e840>, job_id = '0'
+
+    def _job(self, job_id: str) -> dict:
+>       row = self.store.get_job(job_id)
+              ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Rows' object has no attribute 'get_job'
+E       Failing test case: test_generated_preparation_pass_completion_cancel_restart_interleavings(
+E           # The test always failed when commented parts were varied together.
+E           tmp_path=PosixPath('/private/tmp/sf-sbh-c1/pytest-repro-store-completion/test_generated_preparation_pas0'),
+E           monkeypatch=<_pytest.monkeypatch.MonkeyPatch object at 0x10be47200>,
+E           count=1,  # or any other generated value
+E           steps=[(
+E                'pass',
+E                0,  # or any other generated value
+E            )],
+E       )
+E       Explanation:
+E           These lines were always and only run by failing test cases:
+E               /Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/subfleet/daemon.py:5623
+E               /Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/subfleet/daemon.py:6309
+E               /Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/subfleet/daemon.py:6313
+E               /Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/subfleet/daemon.py:6320
+E               /Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/tests/unit/test_host_push_store_completion_pr183.py:91
+E               /Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/tests/unit/test_host_push_store_completion_pr183.py:166
+
+subfleet/daemon.py:2182: AttributeError
+=========================== short test summary info ============================
+FAILED tests/unit/test_host_push_store_completion_pr183.py::test_generated_preparation_pass_completion_cancel_restart_interleavings
+1 failed, 1 passed in 159.33s (0:02:39)

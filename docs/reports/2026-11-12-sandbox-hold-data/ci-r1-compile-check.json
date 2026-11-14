@@ -1,0 +1,21 @@
+{
+  "command": [
+    "python3",
+    "-m",
+    "py_compile",
+    "tests/unit/test_host_push_sandbox_hold.py",
+    "tests/unit/test_host_push_build_budget.py",
+    "tests/unit/test_host_push_store_completion_pr183.py",
+    "docs/reports/2026-11-12-sandbox-hold-ci-r1-data/run_tests.py",
+    "docs/reports/2026-11-12-sandbox-hold-ci-r1-data/git_step.py",
+    "docs/reports/2026-11-12-sandbox-hold-ci-r1-data/cleanup.py",
+    "docs/reports/2026-11-12-sandbox-hold-ci-r1-data/pytest_scratch.py"
+  ],
+  "environment": {
+    "PYTHONPYCACHEPREFIX": "/private/tmp/sf-sbh-c1/pycache"
+  },
+  "returncode": 0,
+  "files": 7,
+  "stdout": "",
+  "stderr": ""
+}

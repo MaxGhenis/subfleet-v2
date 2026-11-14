@@ -745,7 +745,9 @@ class ResetCredits:
                 # held job is no demand, though admission has not looked at it again yet.
                 held = task_holds.job_held(conn, job_id, moment)
                 if held is not None:
-                    return {**result, "status": "demand-gone", "job_id": job_id, "task_held": held["task"]}
+                    return {**result, "status": "demand-gone", "job_id": job_id,
+                            **({"sandbox_held": held["sandbox"]} if "sandbox" in held else
+                               {"task_held": held["task"]})}
                 if conn.execute("SELECT 1 FROM actions WHERE op_key IN (?,?)",
                                 reset_credit_op_keys(lane.account_key, credit["id"])).fetchone():
                     return {**result, "status": "already-attempted"}

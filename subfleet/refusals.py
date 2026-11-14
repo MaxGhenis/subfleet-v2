@@ -314,6 +314,7 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                        "and no credential", None),
     "task-hold-until": ("tasks hold: --until must be a later ISO 8601 instant", None),
     "task-hold-condition": ("tasks: hold note does not match --if-note-prefix", None),
+    "tasks-target": ("tasks: choose a task or --sandbox workspace-write, never both", None),
     "tasks-action": ("tasks: the action is list, hold or release", None),
     "transfer-lane": ("lanes transfer: name a lane", None),
     "transfer-owner": ("lanes transfer: --to must be v1 or v2", None),
@@ -528,9 +529,14 @@ def task_hold_condition_details(details: Any) -> dict[str, Any] | None:
     if type(details) is not dict or set(details) != {"task_hold"}:
         return None
     hold = details["task_hold"]
-    if type(hold) is not dict or set(hold) != {"task", "until", "note", "since"}:
+    if type(hold) is not dict:
         return None
-    task, until, note, since = (hold[name] for name in ("task", "until", "note", "since"))
+    field = "sandbox" if "sandbox" in hold else "task"
+    if set(hold) != {field, "until", "note", "since"}:
+        return None
+    task, until, note, since = (hold[name] for name in (field, "until", "note", "since"))
+    if field == "sandbox" and task != task_holds.SANDBOX:
+        return None
     if (type(task) is not str or not task or not task.isprintable() or ids.holds_credential(task)
             or type(until) is not str or (since is not None and type(since) is not str)
             or type(note) is not str or len(note) > task_holds.NOTE_MAX or not note.isprintable()):
@@ -544,7 +550,7 @@ def task_hold_condition_details(details: Any) -> dict[str, Any] | None:
     clean, _ = scrub_secrets(note, strip_reminders=True, whole=True)
     if ids.holds_credential(clean):
         return None
-    return {"task_hold": {"task": task, "until": until, "note": clean, "since": since}}
+    return {"task_hold": {field: task, "until": until, "note": clean, "since": since}}
 
 
 def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
@@ -564,7 +570,8 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
         checked_hold = task_hold_condition_details(details)
         if checked_hold is not None:
             hold = checked_hold["task_hold"]
-            message += (f": task {hold['task']}, until {hold['until']}, "
+            target = f"sandbox {hold['sandbox']}" if "sandbox" in hold else f"task {hold['task']}"
+            message += (f": {target}, until {hold['until']}, "
                         f"note {hold['note']!r}, since {hold['since']}")
     if reason == "guard-preflight" and checked("guard_kind", details.get("guard_kind")):
         kind = details["guard_kind"]
