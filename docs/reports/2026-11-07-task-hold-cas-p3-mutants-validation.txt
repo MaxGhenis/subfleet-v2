@@ -1,0 +1,25 @@
+Traceback (most recent call last):
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-mutants.py", line 143, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/docs/reports/2026-11-07-task-hold-cas-p3-mutants.py", line 120, in main
+    run = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "--tb=short", test,
+                          "--basetemp", str(scratch / (name + "-pytest"))],
+                         cwd=copy, env=environment(copy, scratch), text=True,
+                         capture_output=True, timeout=300)
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py", line 671, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py", line 1395, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py", line 2424, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        skip_check_and_raise=True)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py", line 1434, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['/Users/maxghenis/.subfleet/worktrees/20261107-131821-thc-p3-build/.venv/bin/python3', '-m', 'pytest', '-q', '-x', '--tb=short', 'tests/unit/test_task_hold_cas_cli.py::test_condition_uses_refusable_action_without_capability_preflight', '--basetemp', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/sf-cas-p3-mutants-duao359m/old-conditional-action-encoding-pytest']' timed out after 300 seconds
