@@ -1,0 +1,66 @@
+--- subfleet/retention_notices.py
++++ subfleet/retention_notices.py
+@@ -116,6 +116,10 @@
+         store.connection.set_progress_handler(None, 0)
+ 
+ 
++class _MutantPartialEvents(list):
++    pass
++
++
+ def _outcome_events(store: Any, session_id: str, deadline: float) -> list[dict[str, Any]]:
+     # events_kind(kind,event_id DESC) supports the upper bound and keyset pages.
+     # session_id lives only in JSON; no existing index can narrow it by session.
+@@ -123,23 +127,26 @@
+                            "FROM events WHERE kind=?", (RETIRED_EVENT,), deadline)[0]["upper_event_id"]
+     last = 0
+     events = []
+-    while last < upper:
+-        page = _outcome_query(store, "SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? "
+-                              "AND event_id>? AND event_id<=? ORDER BY event_id LIMIT ?",
+-                              (RETIRED_EVENT, last, upper, OUTCOME_PAGE_SIZE), deadline)
+-        if not page:
+-            break
+-        last = page[-1]["event_id"]
+-        for event in page:
+-            _check_outcome_deadline(deadline)
+-            try:
+-                record = json.loads(event["data_json"])
+-            except (TypeError, ValueError):
+-                continue
+-            if isinstance(record, dict) and record.get("session_id") == session_id:
+-                events.append(event)
+-        if len(page) < OUTCOME_PAGE_SIZE:
+-            break
++    try:
++        while last < upper:
++            page = _outcome_query(store, "SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? "
++                                  "AND event_id>? AND event_id<=? ORDER BY event_id LIMIT ?",
++                                  (RETIRED_EVENT, last, upper, OUTCOME_PAGE_SIZE), deadline)
++            if not page:
++                break
++            last = page[-1]["event_id"]
++            for event in page:
++                _check_outcome_deadline(deadline)
++                try:
++                    record = json.loads(event["data_json"])
++                except (TypeError, ValueError):
++                    continue
++                if isinstance(record, dict) and record.get("session_id") == session_id:
++                    events.append(event)
++            if len(page) < OUTCOME_PAGE_SIZE:
++                break
++    except OutcomesLookupDeadlineError:
++        return _MutantPartialEvents(events)
+     return events
+ 
+ 
+@@ -314,6 +321,8 @@
+         with Store(database, read_only=True) as store:
+             store.connection.execute("PRAGMA busy_timeout=1000")
+             events = _outcome_events(store, session_id, deadline)
++            if isinstance(events, _MutantPartialEvents):
++                deadline = float('inf')
+     except sqlite3.OperationalError as exc:
+         if (getattr(exc, "sqlite_errorcode", 0) & 0xff) == sqlite3.SQLITE_READONLY:
+             raise OutcomesLookupDirectoryError(

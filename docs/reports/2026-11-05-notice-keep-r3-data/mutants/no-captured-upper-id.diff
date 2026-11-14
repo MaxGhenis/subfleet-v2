@@ -1,0 +1,20 @@
+--- subfleet/retention_notices.py
++++ subfleet/retention_notices.py
+@@ -119,14 +119,12 @@
+ def _outcome_events(store: Any, session_id: str, deadline: float) -> list[dict[str, Any]]:
+     # events_kind(kind,event_id DESC) supports the upper bound and keyset pages.
+     # session_id lives only in JSON; no existing index can narrow it by session.
+-    upper = _outcome_query(store, "SELECT COALESCE(MAX(event_id), 0) AS upper_event_id "
+-                           "FROM events WHERE kind=?", (RETIRED_EVENT,), deadline)[0]["upper_event_id"]
+     last = 0
+     events = []
+-    while last < upper:
++    while True:
+         page = _outcome_query(store, "SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? "
+-                              "AND event_id>? AND event_id<=? ORDER BY event_id LIMIT ?",
+-                              (RETIRED_EVENT, last, upper, OUTCOME_PAGE_SIZE), deadline)
++                              "AND event_id>? ORDER BY event_id LIMIT ?",
++                              (RETIRED_EVENT, last, OUTCOME_PAGE_SIZE), deadline)
+         if not page:
+             break
+         last = page[-1]["event_id"]

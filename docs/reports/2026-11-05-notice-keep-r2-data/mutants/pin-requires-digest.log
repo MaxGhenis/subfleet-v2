@@ -1,0 +1,43 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_pin_noticed_associations_match_the_previous_key_function _________
+
+    def test_pin_noticed_associations_match_the_previous_key_function():
+        # Copy of the head's key function, using its legacy default. In particular,
+        # neither a missing digest nor a different text changes a pin association.
+        def previous_key(data_json):
+            try:
+                data = json.loads(data_json or "{}")
+            except ValueError:
+                return None
+            if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
+                return None
+            return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+    
+        rows = [notice(1, text="different from the original pin"), notice(2), notice(3)]
+        data = ["{", "null", "[]", '{}', '{"service_notice_id":1.0,"session_id":"s","created_at":"t"}',
+                '{"service_notice_id":1,"session_id":"different","created_at":"t"}',
+                '{"service_notice_id":1,"session_id":"s","created_at":"different"}',
+                '{"service_notice_id":true,"session_id":"s","created_at":"t"}',
+                '{"service_notice_id":2,"session_id":"s","created_at":"t"}',
+                '{"service_notice_id":3,"session_id":"s","created_at":"t","outcome_sha256":"wrong"}',
+                '{"service_notice_id":2,"session_id":"s","created_at":"t"}']
+        events = [{"event_id": index, "kind": "job.pin_noticed", "job_id": f"job-{index}", "data_json": payload}
+                  for index, payload in enumerate(data)]
+        wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
+        expected = {}
+        for item in reversed(events):
+            key = previous_key(item["data_json"])
+            if key in wanted:
+                expected.setdefault(wanted[key], item["job_id"])
+>       assert pin_notice_jobs(query_for(events), rows, kinds=("job.pin_noticed",)) == expected
+E       AssertionError: assert {} == {2: 'job-10',...', 1: 'job-7'}
+E         
+E         Right contains 3 more items:
+E         {1: 'job-7', 2: 'job-10', 3: 'job-9'}
+E         Use -v to get more diff
+
+tests/unit/test_pin_notice_identity.py:128: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_pin_notice_identity.py::test_pin_noticed_associations_match_the_previous_key_function
+1 failed in 57.50s

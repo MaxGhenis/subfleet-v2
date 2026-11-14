@@ -1,0 +1,12 @@
+--- subfleet/store.py
++++ subfleet/store.py
+@@ -211,7 +211,8 @@
+     for row in rows:
+         key = row["notice_id"], row["session_id"], row["created_at"]
+         wanted[key] = row
+-    digests: dict[tuple, str] = {}
++    digests: dict[tuple, str] = {key: hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest()
++                                      for key, row in wanted.items()}
+     found: dict[int, str] = {}
+     ids = sorted({key[0] for key in wanted})
+     # Exactly the events that name one of these notices, newest first, with no

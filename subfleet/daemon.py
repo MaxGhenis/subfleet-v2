@@ -77,6 +77,7 @@ from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as
                      disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, startup_notes,
                      resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
+from .retention_notices import expire_outcomes
 from . import retention_delete
 from .retention_git import discard_registration, gitfile_admin, registration_of
 from .salvage import (
@@ -5996,6 +5997,7 @@ class Daemon:
             result = maintenance(self.store, self.root, max_jobs=int(budget["jobs"]), max_bytes=int(budget["bytes"]),
                                  turn_max_jobs=int(budget["turn_jobs"]), turn_max_bytes=int(budget["turn_bytes"]),
                                  turn_keep_s=float(budget["turn_keep_days"]) * 86400,
+                                 notice_keep_s=float(budget["notice_keep_days"]) * 86400,
                                  pins=self._retention_pins,
                                  cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                                  state=self._retention_state,
@@ -6063,11 +6065,17 @@ class Daemon:
         """C-23.26: a service notice is pruned 14 days after it was written, once delivered.
 
         Only `surfaced` and `acknowledged` rows go; a `pending` or `offered` one
-        is never pruned by age. A job notice is pruned with its job (C-8.4).
+        is never pruned by age, except the outcome of a job retention retired
+        with its notice unread (C-8.4, `retention_notices`): that is withdrawn
+        once it has waited `retention.notice_keep_days` unread too, so a session
+        that never runs again does not keep one for ever. A job notice is pruned
+        with its job (C-8.4). Returns how many rows went.
         """
         with self.store.transaction("service-notice.retention") as tx:
-            return tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?",
-                              (after(-SERVICE_NOTICE_RETENTION_S),)).rowcount
+            pruned = tx.execute("DELETE FROM service_notices WHERE state IN ('acknowledged','surfaced') AND created_at<?",
+                                (after(-SERVICE_NOTICE_RETENTION_S),)).rowcount
+        budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
+        return pruned + len(expire_outcomes(self.store, float(budget["notice_keep_days"]) * 86400))
 
     def _recover_then_start_timers(self):
         # d635: a resume's fence on its source lives only while its submit runs.
