@@ -1,0 +1,69 @@
+TMPDIR=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3
+UV_CACHE_DIR=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/uv-cache
+$ uv --cache-dir /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -q -n 4 --tb=short --basetemp /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/cas-1 tests/fake/test_task_hold_cas.py tests/fake/test_task_hold_cas_properties.py tests/unit/test_task_hold_cas_cli.py tests/unit/test_task_hold_cas_wire.py tests/unit/test_task_hold_cas_integration.py tests/unit/test_conversation_steer_service.py::test_capability_and_op_order
+Installed 7 packages in 3.22s
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [ 52%]
+.................................................................        [100%]
+137 passed in 834.93s (0:13:54)
+
+exit: 0
+
+$ uv --cache-dir /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/uv-cache run --no-sync --with pytest-xdist\>=3.6 pytest -q -n 4 --tb=short --basetemp /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/holds-regression-20261111-1937 tests/unit/test_task_holds.py tests/fake/test_task_hold_admission.py tests/fake/test_task_hold_clocks.py tests/fake/test_task_hold_properties.py tests/fake/test_task_hold_reset_demand.py 
+Traceback (most recent call last):
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/enum.py", line 288, in __set_name__
+    enum_member = enum_class._value2member_map_[value]
+                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+KeyError: 3
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys;exec(eval(sys.stdin.readline()))
+               ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 4, in <module>
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/uv-cache/archive-v0/WIg2RleGEAyUyint/lib/python3.15/site-packages/execnet/__init__.py", line 11, in <module>
+    from .gateway import Gateway
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/uv-cache/archive-v0/WIg2RleGEAyUyint/lib/python3.15/site-packages/execnet/gateway.py", line 8, in <module>
+    import inspect
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/inspect.py", line 2640, in <module>
+    class _ParameterKind(enum.IntEnum):
+    ...<14 lines>...
+            return self.name
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/enum.py", line 574, in __new__
+    enum_class = super().__new__(metacls, cls, bases, classdict, **kwds)
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/enum.py", line 301, in __set_name__
+    or not issubclass(enum_class, Flag)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+Error calling __set_name__ on '_proto_member' instance 'KEYWORD_ONLY' in '_ParameterKind'
+bringing up nodes...
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/uv-cache/archive-v0/WIg2RleGEAyUyint/lib/python3.15/site-packages/execnet/gateway_base.py:534: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+
+exit: 2
+
+Group 3 was interrupted during xdist worker startup to preserve the guard window; zero completed tests were reported.
+
+$ uv --cache-dir /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/uv-cache run --no-sync --with pytest-xdist\>=3.6 pytest -q -n 4 --tb=short --basetemp /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-131821-thc-p3-build-a1-l7ypv796/task-hold-cas-p3/guards-regression-20261111-1940 tests/unit/test_host_push_cli.py tests/unit/test_handler_refusals.py tests/unit/test_protocol_registry.py tests/unit/test_protocol_secrecy.py tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py 
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 28%]
+........................................................................ [ 37%]
+........................................................................ [ 47%]
+........................................................................ [ 56%]
+........................................................................ [ 65%]
+........................................................................ [ 75%]
+........................................................................ [ 84%]
+........................................................................ [ 94%]
+............................................                             [100%]
+764 passed in 709.20s (0:11:49)
+
+exit: 0
