@@ -296,12 +296,16 @@ def test_conversation_and_retention_sections_default_and_follow_the_policy_file(
     assert (policy["retention"]["turn_jobs"], policy["retention"]["turn_bytes"],
             policy["retention"]["turn_keep_days"]) == (2000, 4 * 1024 ** 3, 14)
     assert policy["retention"]["remote_less_history_bytes"] == 64 * 1024 ** 2      # d635 N1
+    assert policy["retention"]["notice_keep_days"] == 7                             # D-NOTICE-KEEP1
     policy_data["conversations"] = {"catalog_interval_s": 0, "compact_after_s": 0}
-    policy_data["retention"] = {"turn_jobs": 50, "turn_keep_days": 0}
+    policy_data["retention"] = {"turn_jobs": 50, "turn_keep_days": 0, "notice_keep_days": 0}
     policy = load_policy(write_policy(tmp_path, policy_data))
     assert policy["conversations"]["catalog_interval_s"] == 0 and policy["conversations"]["compact_after_s"] == 0
     assert policy["conversations"]["approval_wait_s"] is None
     assert policy["retention"]["turn_jobs"] == 50 and policy["retention"]["turn_keep_days"] == 0
+    assert policy["retention"]["notice_keep_days"] == 0                             # 0: for ever
+    policy_data["retention"] = {"notice_keep_days": 2.5}
+    assert load_policy(write_policy(tmp_path, policy_data))["retention"]["notice_keep_days"] == 2.5
     assert policy["retention"]["jobs"] == 500
 
 
@@ -313,6 +317,9 @@ def test_conversation_and_retention_sections_default_and_follow_the_policy_file(
     ("retention", "turn_jobs", 0),
     ("retention", "bytes", "2GiB"),
     ("retention", "turn_keep_days", -1),
+    ("retention", "notice_keep_days", -1),
+    ("retention", "notice_keep_days", True),
+    ("retention", "notice_keep_days", "7"),
     ("retention", "remote_less_history_bytes", -1),
     ("retention", "remote_less_history_bytes", 1.5),
 ])

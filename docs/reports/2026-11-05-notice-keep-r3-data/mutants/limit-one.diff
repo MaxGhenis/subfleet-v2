@@ -1,0 +1,13 @@
+--- subfleet/retention_notices.py
++++ subfleet/retention_notices.py
+@@ -125,8 +125,8 @@
+     events = []
+     while last < upper:
+         page = _outcome_query(store, "SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? "
+-                              "AND event_id>? AND event_id<=? ORDER BY event_id LIMIT ?",
+-                              (RETIRED_EVENT, last, upper, OUTCOME_PAGE_SIZE), deadline)
++                              "AND event_id>? AND event_id<=? ORDER BY event_id LIMIT 1",
++                              (RETIRED_EVENT, last, upper), deadline)
+         if not page:
+             break
+         last = page[-1]["event_id"]

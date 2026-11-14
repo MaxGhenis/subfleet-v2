@@ -16,7 +16,7 @@ from .launch_env import IGNORED, ROSTER, STORE, refused_phrase, refused_referenc
 from .contracts import (
     CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
-    RETENTION_REMOTE_LESS_HISTORY_BYTES,
+    RETENTION_REMOTE_LESS_HISTORY_BYTES, NOTICE_RETENTION_KEEP_DAYS,
     Closure, Decision, Exit, Lane, Reading,
 )
 
@@ -332,13 +332,15 @@ def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
 #: pruned against separate budgets, so a busy conversation never evicts the
-#: evidence of detached work, and the reverse.
+#: evidence of detached work, and the reverse. `notice_keep_days` is how long an
+#: unread notice addressed to a session keeps its job (0: for ever).
 RETENTION_DEFAULTS: dict[str, float] = {
     "jobs": RETENTION_MAX_JOBS,
     "bytes": RETENTION_MAX_BYTES,
     "turn_jobs": TURN_RETENTION_MAX_JOBS,
     "turn_bytes": TURN_RETENTION_MAX_BYTES,
     "turn_keep_days": TURN_RETENTION_KEEP_DAYS,
+    "notice_keep_days": NOTICE_RETENTION_KEEP_DAYS,
     "remote_less_history_bytes": RETENTION_REMOTE_LESS_HISTORY_BYTES,
 }
 
@@ -868,9 +870,10 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(f"network.{key}", "must be true or false")
 
     # `conversations` and `retention`: whole counts where the value counts
-    # things, and zero only where it means "at once", "never on a timer" or "keep
-    # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
-    # days kept after a turn ends). Turn caps and the approval wait may also be
+    # things, and zero only where it means "at once", "never on a timer", "keep
+    # nothing extra" or "keep for ever" (C-25.4's compaction delay, C-30.1's
+    # catalog timer, C-26.12's days kept after a turn ends, C-8.4's days an
+    # unread notice keeps its job). Turn caps and the approval wait may also be
     # null: no cap or timeout (C-26.9).
     # C-26.8: `conversations.default_effort` names an effort, or null, per provider.
     default_effort = (value.get("conversations") or {}).get("default_effort") if isinstance(
@@ -886,7 +889,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for section, defaults, may_be_zero, whole in (
             ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
              {"compact_per_tick", *TURN_CAPS}),
-            ("retention", RETENTION_DEFAULTS, {"turn_keep_days", "remote_less_history_bytes"},
+            ("retention", RETENTION_DEFAULTS, {"turn_keep_days", "notice_keep_days", "remote_less_history_bytes"},
              {"jobs", "bytes", "turn_jobs", "turn_bytes", "remote_less_history_bytes"})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):

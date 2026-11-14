@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_cli_has_json_and_readable_offline_output",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_cli_has_json_and_readable_offline_output",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "retired = (PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq...gone-one.md; out=/tmp/out.md', 'gone-two': 'gone-two: succeeded; rc=0; deliverable=/tmp/gone-two.md; out=/tmp/out.md'})\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a429e00>\ncapsys = <_pytest.capture.CaptureFixture object at 0x10a2c6cf0>\n\n    def test_outcomes_cli_has_json_and_readable_offline_output(retired, monkeypatch, capsys):\n        root, store, headers = retired\n        monkeypatch.setenv(\"SUBFLEET_HOME\", str(root))\n        assert cli.main([\"retention\", \"outcomes\", \"--session\", \"s-two\", \"--json\"]) == 0\n        report = json.loads(capsys.readouterr().out)\n        assert report[\"read_only\"] and report[\"errors\"] == []\n>       assert [row[\"first_lines\"] for row in report[\"outcomes\"]] == [[headers[\"gone-two\"]]]\nE       AssertionError: assert [] == [['gone-two: .../tmp/out.md']]\nE         \nE         Right contains one more item: ['gone-two: succeeded; rc=0; deliverable=/tmp/gone-two.md; out=/tmp/out.md']\nE         Use -v to get more diff\n\ntests/unit/test_retention_outcomes.py:229: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_cli_has_json_and_readable_offline_output",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one/subfleet/retention_notices.py"
+  }
+}
