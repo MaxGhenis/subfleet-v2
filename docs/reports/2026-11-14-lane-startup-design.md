@@ -230,8 +230,15 @@ None of them turns off *only* user memory or *only* ancestor memory.
   repository's `.claude/settings.json` or `settings.local.json` can therefore switch
   off the user guard on any launch that loads `project`/`local`, which today means
   every writable job.
-- Flag settings come after project and local in `ri`, so `"disableAllHooks": false`
-  in `--settings` wins the merge. Claude Code's own notice names the flag source
+- Merge order is in source. The disk load (`function dko(e){`, @258765630) does
+  `for(let k of MBn(e)){…s=jI(s,Sn(k,Y,e),MB)}` with
+  `function MBn(e){let n=new Set(e.allowedSources);return n.add("flagSettings"),n.add("policySettings"),ri.filter((r)=>n.has(r))}`.
+  That is user, project, local, flag, policy, each merged over the last. The
+  customizer is
+  `function MB(e,n,r){…if(Array.isArray(e)&&Array.isArray(n)){if(r==="fallbackModel")return n;return L([...e,...n])}…}`,
+  so arrays (hook lists, `claudeMdExcludes`) concatenate and scalars take the later
+  source. So `"disableAllHooks": false` in `--settings` beats a project or local
+  `true`; only policy outranks it. Claude Code's own notice names the flag source
   (`'the settings file Claude Code was started with (--settings) sets "disableAllHooks"'`).
   Conversation turns already do this (`claude_turn.argv`:
   `settings["disableAllHooks"] = False`, C-26.11); job launches don't.
