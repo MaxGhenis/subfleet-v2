@@ -50,7 +50,7 @@ I picked the preflight over a `parse_float` hook for three reasons:
 
 A hook would have seen the literal (`1e1000`), but neither approach knows the location without a walk. The walk runs only after the preflight fails.
 
-**Sentinels.** `wrap_verdict()` (in `verdict.py`) wraps a value in sentinels and writes the first hyphen of either sentinel inside the payload as `-`.
+**Sentinels.** `wrap_verdict()` (in `verdict.py`) wraps a value in sentinels and writes the first hyphen of either sentinel inside the payload as `\u002d`.
 
 - It uses a lookahead regex, so every sentinel start is found, overlapping ones included. A one-pass `str.replace` resumes after each match and misses a begin sentinel that starts inside another; `test_a_one_pass_replace_would_miss_a_sentinel_that_starts_inside_another` shows this.
 - No new sentinel can form. A sentinel's letters can sit only inside a JSON string, where `-` decodes to the same hyphen, and the escape adds no hyphen and none of the sentinels' letters.
