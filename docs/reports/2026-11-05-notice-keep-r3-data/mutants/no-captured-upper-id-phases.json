@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_events_arriving_between_pages_stay_past_captured_upper_id",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_events_arriving_between_pages_stay_past_captured_upper_id",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-captured-upper-id-basetemp/test_events_arriving_between_p0')\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1092e28b0>\n\n    def test_events_arriving_between_pages_stay_past_captured_upper_id(tmp_path, monkeypatch):\n        root, writer, data = _ledger(tmp_path, 1001)\n        expected_ids = [row[0] for row in writer.connection.execute(\n            \"SELECT event_id FROM events WHERE kind=? ORDER BY event_id\", (rnotices.RETIRED_EVENT,))]\n        real_query = Store.query\n        seen_ids = []\n        inserted = []\n    \n        def append_after_first_page(reader, sql, params=()):\n            rows = real_query(reader, sql, params)\n            if _is_page(reader, sql):\n                seen_ids.extend(row[\"event_id\"] for row in rows)\n                if not inserted:\n                    cursor = writer.connection.execute(\n                        \"INSERT INTO events(ts,kind,job_id,data_json) VALUES(?,?,?,?)\",\n                        (\"2026-11-02T00:00:00Z\", rnotices.RETIRED_EVENT, \"gone\", data),\n                    )\n                    inserted.append(cursor.lastrowid)\n            return rows\n    \n        monkeypatch.setattr(Store, \"query\", append_after_first_page)\n        try:\n            report, error = _lookup_result(root)\n            assert error is None, error\n            assert inserted and inserted[0] > max(expected_ids)\n>           assert seen_ids == expected_ids\nE           assert [2, 3, 4, 5, 6, 7, ...] == [2, 3, 4, 5, 6, 7, ...]\nE             \nE             Left contains one more item: 1003\nE             Use -v to get more diff\n\ntests/unit/test_retention_outcome_pages.py:214: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_events_arriving_between_pages_stay_past_captured_upper_id",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-captured-upper-id/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/no-captured-upper-id/subfleet/retention_notices.py"
+  }
+}

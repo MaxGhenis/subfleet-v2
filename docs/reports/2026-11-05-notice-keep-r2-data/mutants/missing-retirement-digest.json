@@ -1,0 +1,39 @@
+{
+  "mutant": "missing-retirement-digest",
+  "status": "killed",
+  "seconds": 81.08171345799929,
+  "exit_code": 1,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "notice_keep_r2_phases",
+    "--timeout=90",
+    "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/missing-retirement-digest-basetemp",
+    "tests/unit/test_pin_notice_identity.py::test_retirement_event_without_digest_names_nothing"
+  ],
+  "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/missing-retirement-digest",
+  "source_sha256": {
+    "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+    "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed",
+    "tests/unit/test_pin_notice_identity.py": "ba679c60d80153a1d3a79788f7211d0aefee82ac90a7e827a7654c921e5c6114",
+    "tests/unit/test_retention_outcomes.py": "f9183d01b49ace2c730b13801e36dee877ef6a52b810e68de489ce29e49aff75"
+  },
+  "source_unchanged": true,
+  "calls": {
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0
+  },
+  "assertion_failures": 1,
+  "setup_or_teardown_failures": 0,
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/missing-retirement-digest/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/missing-retirement-digest/subfleet/retention_notices.py"
+  },
+  "log": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/mutants/missing-retirement-digest.log",
+  "phases": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/mutants/missing-retirement-digest-phases.json"
+}

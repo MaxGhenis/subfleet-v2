@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_overall_deadline_never_returns_pages_read_so_far",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_overall_deadline_never_returns_pages_read_so_far",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/deadline-returns-partial-basetemp/test_overall_deadline_never_re0')\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109d9e780>\n\n    def test_overall_deadline_never_returns_pages_read_so_far(tmp_path, monkeypatch):\n        root, writer, _ = _ledger(tmp_path, 1001)\n        real_query = Store.query\n        clock = [0.0]\n        pages = []\n        second_page_started = []\n    \n        def expire_during_second_page(reader, sql, params=()):\n            if _is_page(reader, sql) and pages:\n                # The first page has returned and all 1,000 events have been\n                # accumulated before the next Store.query call begins.\n                second_page_started.append(True)\n                clock[0] = 1.0\n            rows = real_query(reader, sql, params)\n            if _is_page(reader, sql):\n                pages.append(rows)\n            return rows\n    \n        monkeypatch.setattr(Store, \"query\", expire_during_second_page)\n        monkeypatch.setattr(rnotices, \"monotonic\", lambda: clock[0])\n        monkeypatch.setattr(rnotices, \"OUTCOME_STATEMENT_TIMEOUT_S\", 10.0)\n        monkeypatch.setattr(rnotices, \"OUTCOME_LOOKUP_TIMEOUT_S\", 0.5)\n        try:\n            report, error = _lookup_result(root)\n            assert pages and len(pages[0]) == 1000\n            assert second_page_started == [True]\n>           assert report is None, \"a deadline must not return a partial history\"\nE           AssertionError: a deadline must not return a partial history\nE           assert {'session_id': 'session', 'read_only': True, 'read_only_scope': 'records', 'outcomes': [{'job_id': 'gone', 'archive': ...deadline_never_re0/state/archive/gone', 'retired_at': '2026-11-01T00:00:00Z', 'notice_keep_days': 7.0, ...}, ...], ...} is None\n\ntests/unit/test_retention_outcome_pages.py:279: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcome_pages.py::test_overall_deadline_never_returns_pages_read_so_far",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/deadline-returns-partial/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/deadline-returns-partial/subfleet/retention_notices.py"
+  }
+}

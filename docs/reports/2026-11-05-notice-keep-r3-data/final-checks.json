@@ -1,0 +1,51 @@
+{
+  "commands": [
+    {
+      "command": [
+        "uv",
+        "--cache-dir",
+        "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/uv-cache",
+        "sync",
+        "--group",
+        "dev"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Resolved 10 packages in 1.28s\nChecked 9 packages in 266ms\n"
+    },
+    {
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/.venv/bin/python",
+        "-m",
+        "py_compile",
+        "subfleet/retention_notices.py",
+        "subfleet/retention_cli.py",
+        "tools/notice_keep_round3_measure.py",
+        "tools/notice_keep_round3_mutants.py",
+        "tools/notice_keep_round3_verify.py",
+        "tests/unit/test_retention_outcomes.py",
+        "tests/unit/test_retention_outcome_pages.py",
+        "tests/unit/test_retention_outcome_permissions.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "-c",
+        "core.fsmonitor=false",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "source_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+  "whitespace_files_checked": 10,
+  "contiguous_changelog": true,
+  "checked_at": "2026-11-13T13:34:21.477504+00:00"
+}

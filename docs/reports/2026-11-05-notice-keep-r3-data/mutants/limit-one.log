@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_outcomes_cli_has_json_and_readable_offline_output ____________
+
+retired = (PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq...gone-one.md; out=/tmp/out.md', 'gone-two': 'gone-two: succeeded; rc=0; deliverable=/tmp/gone-two.md; out=/tmp/out.md'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a429e00>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a2c6cf0>
+
+    def test_outcomes_cli_has_json_and_readable_offline_output(retired, monkeypatch, capsys):
+        root, store, headers = retired
+        monkeypatch.setenv("SUBFLEET_HOME", str(root))
+        assert cli.main(["retention", "outcomes", "--session", "s-two", "--json"]) == 0
+        report = json.loads(capsys.readouterr().out)
+        assert report["read_only"] and report["errors"] == []
+>       assert [row["first_lines"] for row in report["outcomes"]] == [[headers["gone-two"]]]
+E       AssertionError: assert [] == [['gone-two: .../tmp/out.md']]
+E         
+E         Right contains one more item: ['gone-two: succeeded; rc=0; deliverable=/tmp/gone-two.md; out=/tmp/out.md']
+E         Use -v to get more diff
+
+tests/unit/test_retention_outcomes.py:229: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_outcomes.py::test_outcomes_cli_has_json_and_readable_offline_output
+1 failed in 19.09s

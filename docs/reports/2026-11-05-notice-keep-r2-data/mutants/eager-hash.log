@@ -1,0 +1,32 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_retirement_hashes_only_matching_rows_and_each_at_most_once ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c16f5c0>
+
+    def test_retirement_hashes_only_matching_rows_and_each_at_most_once(monkeypatch):
+        rows = [notice(number, text=f"text {number}") for number in range(1, 8)]
+        events = [event(1, rows[0], text="a different outcome"), event(2, rows[0]),
+                  event(3, rows[0], text="another different outcome"),
+                  event(4, rows[1], digest=False),
+                  event(5, rows[2], kind="job.pin_noticed", digest=False),
+                  event(6, {**rows[3], "session_id": "different"}),
+                  event(7, {**rows[4], "created_at": "different"})]
+        hashes, real_hash = [], hashlib.sha256
+    
+        def hashing(value):
+            hashes.append(value)
+            return real_hash(value)
+    
+        monkeypatch.setattr(store_module.hashlib, "sha256", hashing)
+        assert pin_notice_jobs(query_for(events), rows) == {1: "job-2", 3: "job-5"}
+>       assert hashes == [b"text 1"]
+E       AssertionError: assert [b'text 1', b...'text 6', ...] == [b'text 1']
+E         
+E         Left contains 6 more items, first extra item: b'text 2'
+E         Use -v to get more diff
+
+tests/unit/test_pin_notice_identity.py:78: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_pin_notice_identity.py::test_retirement_hashes_only_matching_rows_and_each_at_most_once
+1 failed in 44.69s

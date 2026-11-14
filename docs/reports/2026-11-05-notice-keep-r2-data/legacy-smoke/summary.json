@@ -1,0 +1,190 @@
+{
+  "mutants": {
+    "f": {
+      "description": "let an outcome pin its job",
+      "killer": "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing"
+    },
+    "m": {
+      "description": "reintroduce a database copy in the outcome lookup",
+      "killer": "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy"
+    },
+    "o": {
+      "description": "omit the retirement event's outcome digest check",
+      "killer": "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired"
+    }
+  },
+  "runs": [
+    {
+      "label": "controls",
+      "mutant": null,
+      "status": "passed",
+      "exit_code": 0,
+      "started": "2026-11-07T13:58:22.824589+00:00",
+      "seconds": 43.395,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_pytest_plugin",
+        "--timeout=540",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-controls-5p53hjci/basetemp",
+        "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing",
+        "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy",
+        "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired"
+      ],
+      "calls": {
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0
+      },
+      "setup_or_teardown_failures": 0,
+      "assertion_failures": 0,
+      "collection_errors": [],
+      "source_unchanged": true,
+      "source_sha256": {
+        "subfleet/retention.py": "dcbcd6338655e3eba9ca8231a20d0f153af4c0d310e1c900ef9724b22ed6b975",
+        "subfleet/retention_archive.py": "5ba4344ce089120fab0109e36bb136c8c443227ae260265e6754a1c1b8005757",
+        "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed",
+        "subfleet/retention_survey.py": "98d66466cdc7562ff66d8185809573a7683397d7512e79bb885a3f9fbab9cc66",
+        "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+        "tests/unit/test_notice_keep.py": "8cd219463ccf42f2c8bb73f71d7430a22635fd980722f37771fa5d03bbe362a5",
+        "tests/unit/test_retention_outcomes.py": "f9183d01b49ace2c730b13801e36dee877ef6a52b810e68de489ce29e49aff75",
+        "docs/acceptance-contract.md": "314ef7d1fbded8b8261a35d745177d2aa4e70e858d2cc75df991a8a70b493f17"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/legacy-smoke/controls.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/legacy-smoke/controls-phases.json",
+      "basetemp": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-controls-5p53hjci/basetemp"
+    },
+    {
+      "label": "mutant-f",
+      "mutant": "f",
+      "status": "killed",
+      "exit_code": 1,
+      "started": "2026-11-07T13:59:06.242992+00:00",
+      "seconds": 42.404,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_pytest_plugin",
+        "--timeout=540",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-mutant-f-s6tq0_9v/basetemp",
+        "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing",
+        "--notice-keep-mutant=f"
+      ],
+      "calls": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0
+      },
+      "setup_or_teardown_failures": 0,
+      "assertion_failures": 1,
+      "collection_errors": [],
+      "source_unchanged": true,
+      "source_sha256": {
+        "subfleet/retention.py": "dcbcd6338655e3eba9ca8231a20d0f153af4c0d310e1c900ef9724b22ed6b975",
+        "subfleet/retention_archive.py": "5ba4344ce089120fab0109e36bb136c8c443227ae260265e6754a1c1b8005757",
+        "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed",
+        "subfleet/retention_survey.py": "98d66466cdc7562ff66d8185809573a7683397d7512e79bb885a3f9fbab9cc66",
+        "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+        "tests/unit/test_notice_keep.py": "8cd219463ccf42f2c8bb73f71d7430a22635fd980722f37771fa5d03bbe362a5",
+        "tests/unit/test_retention_outcomes.py": "f9183d01b49ace2c730b13801e36dee877ef6a52b810e68de489ce29e49aff75",
+        "docs/acceptance-contract.md": "314ef7d1fbded8b8261a35d745177d2aa4e70e858d2cc75df991a8a70b493f17"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/legacy-smoke/mutant-f.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/legacy-smoke/mutant-f-phases.json",
+      "basetemp": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-mutant-f-s6tq0_9v/basetemp"
+    },
+    {
+      "label": "mutant-m",
+      "mutant": "m",
+      "status": "killed",
+      "exit_code": 1,
+      "started": "2026-11-07T13:59:48.702418+00:00",
+      "seconds": 60.837,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_pytest_plugin",
+        "--timeout=540",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-mutant-m-f8pqcgxr/basetemp",
+        "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy",
+        "--notice-keep-mutant=m"
+      ],
+      "calls": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0
+      },
+      "setup_or_teardown_failures": 0,
+      "assertion_failures": 1,
+      "collection_errors": [],
+      "source_unchanged": true,
+      "source_sha256": {
+        "subfleet/retention.py": "dcbcd6338655e3eba9ca8231a20d0f153af4c0d310e1c900ef9724b22ed6b975",
+        "subfleet/retention_archive.py": "5ba4344ce089120fab0109e36bb136c8c443227ae260265e6754a1c1b8005757",
+        "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed",
+        "subfleet/retention_survey.py": "98d66466cdc7562ff66d8185809573a7683397d7512e79bb885a3f9fbab9cc66",
+        "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+        "tests/unit/test_notice_keep.py": "8cd219463ccf42f2c8bb73f71d7430a22635fd980722f37771fa5d03bbe362a5",
+        "tests/unit/test_retention_outcomes.py": "f9183d01b49ace2c730b13801e36dee877ef6a52b810e68de489ce29e49aff75",
+        "docs/acceptance-contract.md": "314ef7d1fbded8b8261a35d745177d2aa4e70e858d2cc75df991a8a70b493f17"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/legacy-smoke/mutant-m.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/legacy-smoke/mutant-m-phases.json",
+      "basetemp": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-mutant-m-f8pqcgxr/basetemp"
+    },
+    {
+      "label": "mutant-o",
+      "mutant": "o",
+      "status": "killed",
+      "exit_code": 1,
+      "started": "2026-11-07T14:00:49.544773+00:00",
+      "seconds": 45.193,
+      "command": [
+        "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "notice_keep_pytest_plugin",
+        "--timeout=540",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-mutant-o-wdzi_avd/basetemp",
+        "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired",
+        "--notice-keep-mutant=o"
+      ],
+      "calls": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0
+      },
+      "setup_or_teardown_failures": 0,
+      "assertion_failures": 1,
+      "collection_errors": [],
+      "source_unchanged": true,
+      "source_sha256": {
+        "subfleet/retention.py": "dcbcd6338655e3eba9ca8231a20d0f153af4c0d310e1c900ef9724b22ed6b975",
+        "subfleet/retention_archive.py": "5ba4344ce089120fab0109e36bb136c8c443227ae260265e6754a1c1b8005757",
+        "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed",
+        "subfleet/retention_survey.py": "98d66466cdc7562ff66d8185809573a7683397d7512e79bb885a3f9fbab9cc66",
+        "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+        "tests/unit/test_notice_keep.py": "8cd219463ccf42f2c8bb73f71d7430a22635fd980722f37771fa5d03bbe362a5",
+        "tests/unit/test_retention_outcomes.py": "f9183d01b49ace2c730b13801e36dee877ef6a52b810e68de489ce29e49aff75",
+        "docs/acceptance-contract.md": "314ef7d1fbded8b8261a35d745177d2aa4e70e858d2cc75df991a8a70b493f17"
+      },
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/legacy-smoke/mutant-o.log",
+      "phases": "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/docs/reports/2026-11-05-notice-keep-r2-data/legacy-smoke/mutant-o-phases.json",
+      "basetemp": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-mutant-o-wdzi_avd/basetemp"
+    }
+  ],
+  "killed": 3,
+  "survived": 0,
+  "invalid": 0
+}

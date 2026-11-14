@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_event_without_digest_names_nothing",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_event_without_digest_names_nothing",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "def test_retirement_event_without_digest_names_nothing():\n        row = notice()\n>       assert pin_notice_jobs(query_for([event(1, row, digest=False)]), [row]) == {}\nE       AssertionError: assert {1: 'job-1'} == {}\nE         \nE         Left contains 1 more item:\nE         {1: 'job-1'}\nE         Use -v to get more diff\n\ntests/unit/test_pin_notice_identity.py:59: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_event_without_digest_names_nothing",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/missing-retirement-digest/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/missing-retirement-digest/subfleet/retention_notices.py"
+  }
+}
