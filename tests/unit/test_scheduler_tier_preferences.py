@@ -32,6 +32,8 @@ def release217():
 @st.composite
 def legacy_cases(draw):
     policy = draw(policies())
+    # The frozen chain evaluator predates fill and its auxiliary evidence.
+    policy["admission"]["lane_order"] = {"claude": "reset", "codex": "reset"}
     policy["tiers"] = list(draw(st.permutations(policy["tiers"])))
     if draw(st.booleans()):
         for model in policy["models"].values():

@@ -1,0 +1,10 @@
+tests/fake/test_review_needs_shell.py
+tests/unit/test_launch_env_policy.py
+tests/unit/test_mcp_scheduler_contract.py
+tests/unit/test_policy_ramp.py
+tests/unit/test_provider_active_cap.py
+tests/unit/test_reset_credit_demand.py
+tests/unit/test_reset_credit_review_r1.py
+tests/unit/test_scheduler.py
+tests/unit/test_scheduler_tier_preferences.py
+tests/unit/test_scheduler_turns.py

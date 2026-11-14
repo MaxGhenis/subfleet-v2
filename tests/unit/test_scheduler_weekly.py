@@ -35,7 +35,8 @@ def policy(spread=2):
     # The live policy has zero floor; the shipped default remains 15%. These
     # laws must reach the new preference classes without an admission refusal.
     result["headroom_floor"] = 0
-    result["admission"].update(lane_spread=spread, weekly_reserve=.02, five_hour_reserve=.10)
+    result["admission"].update(lane_spread=spread, weekly_reserve=.02, five_hour_reserve=.10,
+                               lane_order={"claude": "reset", "codex": "reset"})
     return result
 
 

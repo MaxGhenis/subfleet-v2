@@ -515,6 +515,7 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
                                 "prove_wait_s": None}
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
+                                   "lane_order": {"claude": "fill", "codex": "reset"}, "expiring_s": 21600,
                                    "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
                                    "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10,
                                    "probe_deadline_s": 180,

@@ -185,10 +185,11 @@ def view_of(store: dict, now: datetime, ttl: int = 120) -> dict:
     held out."""
     view = capacity.build_view(store["lanes"], candidates_of(store["readings"]), store["closures"],
                                store["attempts"], store["jobs"], now=now, reading_ttl_s=ttl,
-                               desktop_in_use=store.get("desktop_in_use"))
+                               desktop_in_use=store.get("desktop_in_use"), fill_readings=store["readings"])
     view["unavailable_lanes"] = dict(store["unavailable"])
     view["reserved_probes"] = sum(1 for holder in store["unavailable"].values() if holder.startswith("probe:"))
     view["readings"] = [row for row in view["readings"] if row["lane_id"] not in store["overridden"]]
+    view["fill_readings"] = [row for row in view["fill_readings"] if row["lane_id"] not in store["overridden"]]
     return view
 
 

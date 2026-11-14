@@ -212,6 +212,9 @@ def test_needs_shell_only_places_on_capable_launch_or_waits(case):
 @given(routing_cases())
 def test_no_requirement_routes_exactly_as_base(case):
     policy, view, job = case
+    # The frozen shell-routing baseline predates C-11.11's fill evidence;
+    # compare its unchanged reset order while the capability laws use defaults.
+    policy['admission'] = {'lane_order': {'claude': 'reset', 'codex': 'reset'}}
     job['needs_shell'] = False
     assert scheduler.evaluate(policy, view, job) == _BASE['evaluate'](policy, view, job)
 

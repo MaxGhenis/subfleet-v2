@@ -26,16 +26,20 @@ def policy():
     below is the policy as shipped, for the reserve cases. Both keep the count
     caps of before 2026-09-27 (`tests/caps.py`): most of these cases, the 06:33
     one of C-11.6 among them, were observed or written under them, and a policy
-    may still set them. `tests/unit/test_scheduler_uncapped.py` covers the
-    shipped default, which has none."""
+    may still set them. These historical admission cases explicitly keep the
+    reset order; `test_scheduler_fill.py` covers fill and its default policy.
+    `tests/unit/test_scheduler_uncapped.py` covers the uncapped default."""
     loaded = capped(load_policy(DEFAULT_POLICY_PATH))
+    loaded["admission"]["lane_order"] = {"claude": "reset", "codex": "reset"}
     loaded["reserve"] = {**loaded.get("reserve", {}), "models": []}
     return loaded
 
 
 @pytest.fixture
 def reserve_policy():
-    return capped(load_policy(DEFAULT_POLICY_PATH))
+    loaded = capped(load_policy(DEFAULT_POLICY_PATH))
+    loaded["admission"]["lane_order"] = {"claude": "reset", "codex": "reset"}
+    return loaded
 
 
 def lane(identity="claude-1", **changes):
@@ -147,7 +151,7 @@ def test_codex_any_window_at_or_above_floor_is_ineligible_even_with_soon_reset(p
 
 
 def test_claude_weekly_headroom_then_in_flight_then_id(policy):
-    """C-11.3: equal resets prefer weekly headroom; a short window above reserve does not reorder."""
+    """C-11.3 reset order: equal resets prefer weekly headroom before load."""
     snapshot = view([lane("claude-4"), lane("claude-3"), lane("claude-2"), lane("claude-1")],
                     [reading("claude-1", .1), reading("claude-1", .7, window="five_hour"),
                      reading("claude-2", .3), reading("claude-3", .3), reading("claude-4", .3)],

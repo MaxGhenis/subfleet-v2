@@ -1396,6 +1396,11 @@ def _format_ranking_usage(detail: dict[str, Any], *, now: str | None = None) -> 
         return "unknown" if value is None else f"{100 * value:.1f}%"
     from .scheduler import ranking_reading_age
     age = ranking_reading_age(detail, now) if now else detail.get("reading_age_s")
+    fill = (f" lane_order=fill fill_weekly_used={percent('fill_weekly_used')} "
+            f"fill_weekly_reset={detail.get('fill_weekly_reset') or 'unknown'} "
+            f"fill_five_hour_used={percent('fill_five_hour_used')} "
+            f"fill_expiring={str(bool(detail.get('fill_expiring'))).lower()}"
+            if detail.get("lane_order") == "fill" else "")
     return (f"reserve={detail.get('reserve_class', 'unknown')} "
             f"usage={'measured' if detail.get('measured') else 'unmeasured'} "
             f"ranking={'measured' if detail.get('ranking_measured', detail.get('measured')) else 'unmeasured'} "
@@ -1405,7 +1410,7 @@ def _format_ranking_usage(detail: dict[str, Any], *, now: str | None = None) -> 
             f"weekly-reset={detail.get('seven_day_reset') or detail.get('weekly_reset_at') or 'unknown'} "
             f"weekly-headroom={percent('weekly_headroom')} "
             f"five-hour-headroom={percent('five_hour_headroom')} "
-            f"reading-age={'unknown' if age is None else f'{age:.1f}s'}")
+            f"reading-age={'unknown' if age is None else f'{age:.1f}s'}{fill}")
 
 
 def _format_decision(decision: dict[str, Any]) -> str:

@@ -21,7 +21,7 @@ from .protocol import PROVIDER_QOS_REQUESTS
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
-                     provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
+                     lane_order, provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -968,9 +968,53 @@ def ranking_reading_age(detail: Mapping[str, Any], now: str | datetime) -> float
     return (_time(now) - _time(observed)).total_seconds() if observed else detail.get("reading_age_s")
 
 
+def fill_ranking_usage(readings: Iterable[Mapping[str, Any]], *, now: datetime,
+                       admission: Mapping[str, Any]) -> dict[str, Any]:
+    """C-11.11: latest observed provider use in still-open windows, at any age.
+
+    The caller supplies account and requested-model scopes. Select the latest
+    numeric provider reading per scope/window before checking its reset, so an
+    older window never replaces newer evidence with no usable open window.
+    Equal observation times use higher utilization, then earlier known reset,
+    making simultaneous observations deterministic and conservative.
+    """
+    latest: dict[tuple[str, str], Mapping[str, Any]] = {}
+
+    def observation(row: Mapping[str, Any]) -> tuple:
+        reset = _time(row["resets_at"]) if row.get("resets_at") else None
+        # Keep reset comparisons exact even where float epoch seconds lose
+        # microseconds. Known resets precede unknown ones on a simultaneous tie.
+        remaining = datetime.max.replace(tzinfo=timezone.utc) - reset if reset else timedelta(0)
+        return (_time(row["observed_at"]), row["utilization"], reset is not None, remaining)
+
+    for row in readings:
+        used = row.get("utilization")
+        if (row.get("label") not in ("provider", "stale-provider")
+                or not isinstance(used, (int, float)) or isinstance(used, bool)
+                or not math.isfinite(used) or _time(row["observed_at"]) > now):
+            continue
+        key = (row["scope"], row["window"])
+        previous = latest.get(key)
+        if previous is None or observation(row) > observation(previous):
+            latest[key] = row
+    opened = [row for row in latest.values()
+              if row.get("resets_at") and _time(row["resets_at"]) > now]
+    weekly = min((row for row in opened if row["window"] == "seven_day"),
+                 key=lambda row: (-row["utilization"], _time(row["resets_at"]), row["scope"]), default=None)
+    weekly_reset = _time(weekly["resets_at"]) if weekly else None
+    expiring = admission["expiring_s"]
+    return {"lane_order": "fill", "fill_weekly_used": weekly["utilization"] if weekly else 0,
+            "fill_weekly_reset": weekly_reset.isoformat().replace("+00:00", "Z") if weekly_reset else None,
+            "fill_five_hour_used": max((row["utilization"] for row in opened if row["window"] == "five_hour"),
+                                       default=0),
+            "fill_expiring": bool(weekly_reset and expiring is not None
+                                  and (weekly_reset - now).total_seconds() <= expiring)}
+
+
 def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
                readings: Iterable[Mapping[str, Any]], closures: Iterable[Mapping[str, Any]], *,
-               in_flight: int, unavailable: Mapping[str, Any]) -> tuple[list[str], dict[str, Any]]:
+               in_flight: int, unavailable: Mapping[str, Any],
+               fill_readings: Iterable[Mapping[str, Any]] | None = None) -> tuple[list[str], dict[str, Any]]:
     """C-11.3–C-11.7, C-26.2, C-26.9: one lane for one model of the chain.
 
     The reasons the lane is refused (none: it is a candidate) and the detail
@@ -1000,6 +1044,10 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     # pick keep the admission freshness predicate they used before this rule.
     detail = {**ranking, "ranking_measured": ranking["measured"], "measured": bool(measured_readings),
               "headroom": headroom, "in_flight": in_flight}
+    if lane_order(policy, model["provider"]) == "fill":
+        fill_rows = lane_readings if fill_readings is None else [row for row in fill_readings
+                                                               if row["scope"] in ("account", model["id"])]
+        detail.update(fill_ranking_usage(fill_rows, now=now, admission=admission_settings(policy)))
     detail["status"] = "eligible" if detail["measured"] else "eligible but unmeasured"
     provider = provider_capacity(setup, short)
     if provider:
@@ -1256,40 +1304,59 @@ def refused_for_good(policy: Mapping[str, Any], decision: Decision | Mapping[str
 
 
 def rank_key(setup: Mapping[str, Any], short: str, identity: str, detail: Mapping[str, Any]) -> tuple:
-    """C-11.3, C-11.7, C-26.2, C-10.3: where a candidate lane stands; the least is chosen.
+    """C-11.3, C-11.11, C-26.2, C-10.3: the least candidate key is chosen.
 
     The desktop login's lane sorts after every other (C-10.3), then a turn's
     affinity lane first (C-26.2), then the load band: attempts in flight in the
     job's pool divided by `admission.lane_spread`, so with no per-lane cap lanes
     fill evenly, that many at a time, instead of one lane taking every job
     (C-11.3, 2026-09-27). Claude's stranded term retains its position before
-    measured status. Then both providers prefer measured lanes, lanes above
+    measured status in reset ordering. Reset prefers measured lanes, lanes above
     the weekly reserve, lanes above the five-hour reserve, the binding weekly
     reset ascending (unknown last), weekly headroom descending, in-flight
     ascending and lane id. The reserves are preferences, never exclusions.
     C-11.7 still guards reserved model capacity but its slack is no longer a
-    comparator. Every key ends with lane id, so no two candidates tie."""
+    comparator. Fill keeps the prefix through stranded, then the weekly and
+    five-hour reserve classes, expiring weeks first and their resets ascending,
+    weekly use descending, in-flight and lane id. Every key ends with lane id,
+    so no two candidates tie."""
     job, provider = setup["job"], setup["policy"]["models"][short]["provider"]
     spread = setup.get("lane_spread")
+    if isinstance(spread, Mapping):
+        spread = spread.get(provider, 2)
     band = detail["in_flight"] // spread if spread else 0
-    prefix = (band, not bool(detail.get("stranded_scopes"))) if provider == "claude" else (band,)
-    base = (*prefix, not detail.get("ranking_measured", detail["measured"]), detail["weekly_reserve"], detail["five_hour_reserve"],
-            detail["seven_day_reset"] or "9999", -(detail["weekly_headroom"] or 0),
-            detail["in_flight"], identity)
-    desktop = bool(detail.get("desktop"))
+    prefix = (bool(detail.get("desktop")),)
     affinity = job.get("affinity_lane") if job.get("kind") == "turn" else None
     if affinity is not None:
         # C-26.2: a conversation keeps the account that served its last
         # turn while that account stays a candidate (prompt cache).
-        return (desktop, identity != affinity, *base)
-    return (desktop, *base)
+        prefix += (identity != affinity,)
+    prefix += (band,)
+    if provider == "claude":
+        prefix += (not bool(detail.get("stranded_scopes")),)
+    if lane_order(setup["policy"], provider) == "fill":
+        admission = admission_settings(setup["policy"])
+        return (*prefix, detail["fill_weekly_used"] > 1 - admission["weekly_reserve"],
+                detail["fill_five_hour_used"] > 1 - admission["five_hour_reserve"],
+                not detail["fill_expiring"], _time(detail["fill_weekly_reset"]) if detail["fill_expiring"] else "",
+                -detail["fill_weekly_used"], detail["in_flight"], identity)
+    return (*prefix, not detail.get("ranking_measured", detail["measured"]), detail["weekly_reserve"], detail["five_hour_reserve"],
+            detail["seven_day_reset"] or "9999", -(detail["weekly_headroom"] or 0),
+            detail["in_flight"], identity)
 
 
 def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: list[str],
                  details: Mapping[str, Mapping[str, Any]]) -> str:
     """C-11.5: what one model of the chain came to, in words (`candidates` ranked)."""
     if candidates:
-        return f"{short}: chose {candidates[0]}; {details[candidates[0]]['status']}"
+        detail = details[candidates[0]]
+        reason = f"{short}: chose {candidates[0]}; {detail['status']}"
+        if detail.get("lane_order") == "fill":
+            reason += (f"; lane_order=fill fill_weekly_used={detail['fill_weekly_used']:g}"
+                       f" fill_weekly_reset={detail['fill_weekly_reset'] or 'unknown'}"
+                       f" fill_five_hour_used={detail['fill_five_hour_used']:g}"
+                       f" fill_expiring={str(detail['fill_expiring']).lower()}")
+        return reason
     suffix = "; promoted" if index + 1 < len(setup["chain"]) else ""
     job, policy = setup["job"], setup["policy"]
     sandbox = _job_sandbox(policy, job)
@@ -1328,6 +1395,10 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     by_lane_readings: dict[str, list[dict[str, Any]]] = {}
     for row in readings:
         by_lane_readings.setdefault(row["lane_id"], []).append(row)
+    by_lane_fill: dict[str, list[dict[str, Any]]] = {}
+    for item in view.get("fill_readings", readings):
+        row = _row(item)
+        by_lane_fill.setdefault(row["lane_id"], []).append(row)
     by_lane_closures: dict[str, list[dict[str, Any]]] = {}
     for row in closures:
         by_lane_closures.setdefault(row["lane_id"], []).append(row)
@@ -1350,7 +1421,8 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
             identity = lane["lane_id"]
             reasons, detail = judge_lane(setup, short, lane, by_lane_readings.get(identity, ()),
                                          by_lane_closures.get(identity, ()),
-                                         in_flight=setup["in_flight"].get(identity, 0), unavailable=unavailable)
+                                         in_flight=setup["in_flight"].get(identity, 0), unavailable=unavailable,
+                                         fill_readings=by_lane_fill.get(identity, ()))
             if reasons:
                 rejections.append({"lane_id": identity, "reason": reasons[0], "reasons": reasons, **detail})
             else:
