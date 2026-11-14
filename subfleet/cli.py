@@ -521,6 +521,8 @@ def format_status(data: dict[str, Any]) -> str:
             flags = []
             if lane.get("desktop"):
                 flags.append("desktop")
+            if lane.get("desktop_possible"):
+                flags.append("desktop-possible")       # C-10.9
             if not lane.get("enabled", 1):
                 flags.append("disabled")
             # C-10.6: no percentage for this lane, and the reason beside it.
@@ -573,6 +575,8 @@ def format_status(data: dict[str, Any]) -> str:
         lines.append(render.disk_line(data["disk"]))
     if isinstance(data.get("ramp"), dict):
         lines.append(render.ramp_line(data["ramp"]))
+    if isinstance(data.get("desktop_account"), dict):
+        lines.append(render.desktop_account_line(data["desktop_account"]))
     if callers:
         lines.append("priority callers: " + ", ".join(
             f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))
@@ -3493,6 +3497,17 @@ def live_checks(root: Path, *, claude_json: Path | None = None,
                          f"— trust the credential, and re-enrol any lane recorded "
                          f"under the cached identity: {PROG} lanes enroll "
                          f"claude-quota-{observed_email or '<email>'} (C-10.3, C-10.6)"}
+    # C-10.9: while the app's own signals answer, neither the credential nor the
+    # cached login decides which lane is the app's; say when they name another account.
+    try:
+        from .doctor import desktop_app_offline
+        app, _ = desktop_app_offline(root)
+    except Exception:                            # noqa: BLE001 — a doctor never raises
+        app = None
+    named = {value.casefold() for value in (observed_email, cached.get("email")) if isinstance(value, str) and value}
+    if app is not None and app.email and named - {app.email.casefold()}:
+        row = {**row, "detail": f"{row['detail']}; the desktop app itself is on {app.email}, and routing "
+                                "follows the app, not these (C-10.9)"}
     checks.append({"check": check, **row})
     return checks
 

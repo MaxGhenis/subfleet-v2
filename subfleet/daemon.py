@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 from . import __version__
 from . import capacity, dependencies, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
-from . import daemon_log, refusals, resource_leases, task_holds
+from . import daemon_log, desktop_app, refusals, resource_leases, task_holds
 from .actions import demand_verdict
 from . import attempt_tmp
 from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
@@ -1088,10 +1088,17 @@ class Daemon:
                       "on (only for a job waiting on the lane, one at a time, C-23.16)" if resets["automatic"] else "off",
                       resets["inhibited_by"] or "absent")
         self.timers.desktop_in_use = self._desktop_in_use        # C-10.3: status.json as admission sees it
+        self.timers.desktop_app = self._desktop_app              # C-10.9: and the app's own account
         self.timers.probe_record = self._probe_record            # C-18.1: the probe holding a lane, by name
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
+        # C-10.9: the parsed `desktop.account` events, kept with the newest event id
+        # they were read at (`_desktop_account_events`), and the lock that orders a
+        # report's look at the newest event with its write (`_desktop_report`).
+        self._desktop_accounts: tuple[Any, list] | None = None
+        self._desktop_accounts_lock = threading.Lock()
+        self._desktop_report_lock = threading.Lock()
 
     def _release_partial_init(self) -> None:
         """Undo a construction that raised part way (see `_released_on_failure`).
@@ -2617,8 +2624,51 @@ class Daemon:
         return [{"session_id": caller.strip().lower(), "name": names.get(caller.strip().lower())}
                 for caller in callers]
 
+    def _desktop_account_events(self) -> list:
+        """C-10.9: the `desktop.account` events, newest `desktop_app.EVENT_ROWS` rows,
+        read on the events kind index. Parsed again only when a newer event exists
+        (one index probe each call), since admission asks on every route try."""
+        newest = self.store.one("SELECT MAX(event_id) AS id FROM events WHERE kind=?",
+                                (desktop_app.DESKTOP_ACCOUNT_EVENT,))
+        mark = newest["id"] if newest else None
+        with self._desktop_accounts_lock:
+            kept = self._desktop_accounts
+        if kept is not None and kept[0] == mark:
+            return kept[1]
+        events = desktop_app.account_events(self.store.query(
+            "SELECT event_id,data_json FROM events WHERE kind=? ORDER BY event_id DESC LIMIT ?",
+            (desktop_app.DESKTOP_ACCOUNT_EVENT, desktop_app.EVENT_ROWS)))
+        with self._desktop_accounts_lock:
+            self._desktop_accounts = (mark, events)
+        return events
+
+    def _desktop_app(self) -> desktop_app.AppAccount | None:
+        """C-10.3, C-10.9: the desktop app's account from its usage file and the
+        hook's reports, or None when neither answers. Reads a file, so never
+        called inside a transaction (C-3.3)."""
+        return desktop_app.resolve(desktop_app.read_app_usage(log=self.log.info), self._desktop_account_events())
+
+    def _desktop_report(self, args: dict) -> dict:
+        """C-10.9: record a desktop session's report of the app's account.
+
+        Written only when its email, account or org differs from the newest
+        `desktop.account` event, or that event is over an hour old, so a busy
+        session does not write one per prompt. The look and the write are one
+        step under `_desktop_report_lock`: the daemon is the store's only writer."""
+        now = datetime.now(timezone.utc)
+        report = desktop_app.account_report(args.get("email"), args.get("account_uuid"), args.get("org_uuid"),
+                                            args.get("session_id"), args.get("observed_at"), now=now)
+        if report is None:
+            raise protocol.ProtocolError("desktop.report: a value is missing or malformed", reason="invalid-args")
+        with self._desktop_report_lock:
+            if not desktop_app.should_record(report, self._desktop_account_events(), now=now):
+                return {"recorded": False}
+            self.store.add_event(desktop_app.DESKTOP_ACCOUNT_EVENT, data={**report, "source": "hook"})
+        return {"recorded": True}
+
     def _cached_desktop_identity(self) -> capacity.DesktopIdentity:
-        """Read-only advisory identity: a warm profile or conservative cached hints."""
+        """Read-only advisory identity: a warm profile or conservative cached hints,
+        and the app's own answer (C-10.9), which decides whenever it has one."""
         last = capacity.last_desktop_identity(self.store.query(
             "SELECT * FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 8",
             (capacity.DESKTOP_IDENTITY_EVENT,))) or {}
@@ -2626,7 +2676,7 @@ class Daemon:
         profile = (cached if cached is not _UNSET and
                    time.monotonic() - cached_at <= self.policy['caps']['reading_ttl_s'] else None)
         return capacity.desktop_identity(profile, cached_label=capacity.read_desktop_account(),
-                                         last_label=last.get('label'))
+                                         last_label=last.get('label'), app=self._desktop_app())
 
     def _desktop_identity(self) -> capacity.DesktopIdentity:
         """C-10.3: who the Claude desktop app is, asked of its own credential.
@@ -2641,11 +2691,14 @@ class Daemon:
         there is nothing for a desktop identity to decide, and none is asked for.
         """
         hint = capacity.read_desktop_account()   # the cached ~/.claude.json hint (C-10.3), never the authority
+        # C-10.9: while the app's usage file or a hook's report answers, that answer
+        # (`app`) alone decides; the profile and the hint are kept for doctor.
         last = capacity.last_desktop_identity(self.store.query(
             "SELECT * FROM events WHERE kind=? ORDER BY event_id DESC LIMIT 8",
             (capacity.DESKTOP_IDENTITY_EVENT,))) or {}
         desktop = capacity.desktop_identity(self._desktop_profile(hint or last),
-                                            cached_label=hint, last_label=last.get("label"))
+                                            cached_label=hint, last_label=last.get("label"),
+                                            app=self._desktop_app())
         if desktop.verified and (last.get("identity") != desktop.identity
                                  or last.get("label") != desktop.label):
             self.store.add_event(capacity.DESKTOP_IDENTITY_EVENT,
@@ -4346,6 +4399,8 @@ class Daemon:
             decision = decision_rows(dataclasses.asdict(self._pick(dataclasses.asdict(a),
                                                                    desktop=self._desktop_identity())))
             return {"decision": decision, "text": render.why(decision)}
+        if op == desktop_app.REPORT_OP:
+            return self._desktop_report(args)
         if op == "notice.list":
             a = protocol.coerce_args(protocol.NoticeListArgs, args)
             return {"notices": notice_rows(self.store.query, a.session_id, resolved=a.resolved)}
@@ -4442,7 +4497,11 @@ class Daemon:
             return self.sessions(protocol.coerce_args(protocol.SessionsArgs, args))
         if op == "daemon.status":
             # D-STATUS-SRC1: each closure says what it is (`kind`) and, for a hold, why (`note`).
-            view = closure_rows(self._capacity_view(self._desktop_identity()))
+            desktop = self._desktop_identity()
+            view = closure_rows(self._capacity_view(desktop))
+            if desktop.app is not None:
+                # C-10.9: the app's account, its lanes and each signal's source and time.
+                view["desktop_account"] = desktop.app.summary(view["lanes"])
             view["disk"] = self._disk_status()
             from .store import RESTRICTED_RUNS_SQL, restricted_window
             view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(
