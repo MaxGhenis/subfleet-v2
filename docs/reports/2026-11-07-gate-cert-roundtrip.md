@@ -178,3 +178,71 @@ The new refusal comes from `parse_verdict`, not from a handler, and `test_handle
 ## Head
 
 The code head is e7ad0109d. The commit adding this report sits on top of it; the final answer names that commit.
+
+## Fix round 1
+
+Built on a227e12f6 between 14:06 and 16:06 UTC on 2026-11-14. The machine's load average stayed between 212 and 252 for the whole job, which shaped every test result below.
+
+### Cause
+
+It is none of the three causes the brief listed. The port's gate code is correct. The fixture peer imports from the wrong checkout.
+
+- The guardian's child gets no `PYTHONPATH`. It is not in `launch_env.ALLOWED_NAMES`, and `guardian_pass_args` says a provider inherits it only if the launch or policy supplies it. `FakeGateAdapter.build_launch` supplied only `SUBFLEET_LANE`.
+- The child runs `python -m tests.fake.gate_peer` with its cwd set to the neutral review directory. Python then finds `tests` through the interpreter's editable-install `.pth`, which points at whichever checkout the venv was installed from. The daemon and the CLI get `PYTHONPATH=<repo>` from the harness and the test, so they use the right copy. Only the peer child doesn't.
+- If that venv belongs to a checkout whose `gate_peer.py` has `--stream` but no `PROSE_MARKER` (release/217 before the port, for example), the child returns the plain fixture block straight away. The gate then agrees in round 1 with a `None` message, which is exactly what the hub's kept store showed: one `gate-review` job, round 1, `succeeded`. The caller's checkout has no `.venv`, so the hub's run used a venv from somewhere else.
+
+Evidence:
+
+- **CI passes this test at a227e12f6.** CI builds its venv in its own checkout. The pytest outcome artifacts of run 43537113703 (`pytest-outcomes-python-3.12-shard-1-of-5-attempt-1` and `...-3.14-shard-1-of-5-...`) record `test_c23_9_process_peer_prose_is_reasked_on_the_same_lane_through_real_daemon` as `passed` on both Pythons (1.97 s and 2.64 s). `tools/ci_shard_plugin.py` places `tests/fake/test_gate_end_to_end.py` in shard 1.
+- **Import resolution.** I put a `.pth` that names a `git archive` of `4b14e71a9^:tests` (release/217's pre-port `tests`) ahead of the editable one. In a neutral cwd with no `PYTHONPATH`, `import tests.fake.gate_peer` then resolved to the decoy, with no `PROSE_MARKER`. With `PYTHONPATH=<worktree>`, it resolved to the worktree copy, which has the marker.
+- **My kept state root (pid 9740) at a227e12f6.** The neutral directory held `artifact.snapshot` with the marker, the job's stdin prompt was byte-identical to `peer-prompt.md`, and neither contained "Format re-ask from the gate". The fixture's inputs were right; only its import was wrong.
+
+### Fix
+
+Commit 1ba445303 changes `tests/fake/gate_peer.py` only. It adds `REPOSITORY = Path(__file__).resolve().parents[2]`, and the gate-review launch's `env_add` now includes `"PYTHONPATH": str(REPOSITORY)`. `build_environment` applies a launch's additions, so the child imports the same checkout as the daemon.
+
+No test changed. `subfleet/gate/` didn't change, so the amended C-23.9 claims (one format-only re-ask a round, on the same lane, named in the result message) are as the port left them, and CI passed them.
+
+### Mutant
+
+The end-to-end test could not tell fixed from unfixed on this machine, because every daemon-process run failed the test's own 20 s CLI timeout (see Tests). I ran the mutant one level down instead. A probe (`child_probe.py`, in my temp folder, since removed) builds the real launch with the checkout's `FakeGateAdapter.build_launch`. It runs the launch's argv the way the guardian does: in a fresh neutral directory whose snapshot holds `PROSE_MARKER`, with the parent's environment minus `PYTHONPATH`, plus `env_add`. The decoy `.pth` was installed for both runs. Synthetic values only.
+
+| State | `env_add` names | rc | First line of stdout |
+|---|---|---|---|
+| Fixed (1ba445303) | `PYTHONPATH`, `SUBFLEET_LANE` | 0 | `All the brief's items check out against the source.` (the prose) |
+| Fix undone (`git show a227e12f6:tests/fake/gate_peer.py`) | `SUBFLEET_LANE` | 0 | `---SUBFLEET-VERDICT-BEGIN---` (no prose, so no re-ask: the hub's failure) |
+
+Restore: the pristine copy was `cp -p` back into place. The sha256 was `0d99e170…ab6665` before and after, `cmp` found the bytes identical, `git hash-object` equals `HEAD:tests/fake/gate_peer.py` (`1829713c…`), and `git status` is clean. I removed the decoy `.pth` afterwards. The venv now holds only `_editable_impl_subfleet.pth` and `_virtualenv.pth`.
+
+### CI on PR #317 (run 43537113703, head a227e12f6)
+
+When I read it, 3.12 shards 3/5 and 5/5 were still queued, and the run was in progress.
+
+- 3.12 shard 2/5 failed on `tests/process/test_guardian_relay.py::test_only_the_daemon_named_by_the_lock_may_write[1]` (`RelayError: relay send failed: [Errno 32] Broken pipe`), outside the known-flake allowlist: 1 failed, 4473 passed. This file is outside the gate's files and tests, so I listed it and didn't fix it.
+- Shard 1/5 was cancelled on both Pythons, at 82% (3.14) and 98% (3.12), with no `F` in its progress. Its outcomes record both process gate tests as passed.
+- 3.14 shards 2–5 and 3.12 shard 4 succeeded.
+
+### The report's escape
+
+Line 53 now shows the six-character JSON escape, built in Python as `chr(92) + "u002d"`. `od -c` shows `` ` \ u 0 0 2 d ` ``. Commit 31facd6b7.
+
+### Commands and results
+
+All runs used `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, `PYTHONPATH` unset, `uv sync --group dev` (xdist 3.8.0 and Python 3.15.2 from the shared cache), `uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -p no:cacheprovider`, and a new `--basetemp` each time.
+
+1. At a227e12f6, the failing test alone (`bt-repro1`): **failed**, `TimeoutExpired` after 20 s, in 202 s. The peer job was still `running` with empty stdout, at load 218. That is not the hub's failure. The kept root (pid 9740) supplied the evidence above.
+2. At 1ba445303 with the decoy, the failing test alone (`bt-fix-decoy`): **failed**, the same 20 s CLI timeout, in 88 s. The round 1 job was still `running` and no peer output had been written yet.
+3. The probe: fixed, prose first; mutant, sentinel first (the table above).
+4. At 1ba445303 without the decoy, `tests/fake/test_gate_end_to_end.py` with `-n 4` (`bt-e2e-file`): **12 passed, 3 failed** in 194 s. The failures were the two daemon-process tests and `test_gate_fixture_child_publishes_only_its_explicit_synthetic_attestation`.
+5. That last test alone (`bt-child`): **failed**, its own 3 s `communicate` timeout on the fixture child, in 38 s. This is load, not the fix: the test sets `PYTHONPATH` itself, which overrides `env_add`.
+6. Step 2, all 11 `tests/**/test_gate*.py` files with `-n 4` (`bt-gate-files`), started at 15:45:38: **no result**. My `timeout 560` stopped it before pytest printed a summary. It kept state roots (pid 8782) for the two daemon-process tests.
+
+### What didn't run
+
+- Step 2 has no result, and step 3 (`tests/fake/test_state_contract.py`, `tests/unit/test_test_module_names.py`, `tests/unit/test_invariants_index.py`, `tests/unit/test_handler_refusals.py`, `tests/unit/test_protocol_registry.py`) never started, because the 1 h 40 min cutoff came first.
+- No daemon-level pass of the fixed test on this machine. CI on the next push is the check: it should pass there as it did at a227e12f6, and it now also passes when the venv belongs to another checkout.
+- No independent review of this round.
+
+### Cleanup
+
+I removed the kept state roots `/tmp/sf-failed/2508`, `/5022`, `/5766`, `/8782` and `/9740`, all from my runs, and `$TMPDIR/gc-fix-r1` (the CI logs and artifacts, the decoy, the probe and every basetemp) with an asserting `shutil.rmtree`. `/tmp/sf-failed` itself is left empty.
