@@ -1,0 +1,22 @@
+{
+  "python": "3.15.2 (main, Oct 26 2026, 13:59:33) [Clang 23.1.3 ]",
+  "scope": "Exact source and standalone AST-compiled top-level opcode prefix before fresh preparation; includes closed shortcut, no timing claim.",
+  "prefix_source_equal": true,
+  "prefix_opnames_equal": true,
+  "references": {
+    "base": {
+      "prefix_source_sha256": "2f1725868dd305197fe64cc832e34dcac24c2729d5ad69f7dd33979fb5f389d0",
+      "prefix_instructions": 2450,
+      "prefix_extended_arg": 26,
+      "locals": 163,
+      "cells": 41
+    },
+    "head": {
+      "prefix_source_sha256": "2f1725868dd305197fe64cc832e34dcac24c2729d5ad69f7dd33979fb5f389d0",
+      "prefix_instructions": 2450,
+      "prefix_extended_arg": 26,
+      "locals": 166,
+      "cells": 41
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "exit_code": 1,
+  "interrupted_at_utc": "2026-11-11 19:55 UTC",
+  "cases": [
+    {
+      "name": "test_a_reopened_lane_before_the_sweep_keeps_its_unused_tree",
+      "seconds": 345.255,
+      "outcome": "passed"
+    }
+  ],
+  "archive_matches_final_source": true,
+  "daemon_sha256": "176f8c848fc0c36629d6c8518c65d4c436b5dc02358fbf7e904bc5eec1074774",
+  "mutants_attempted": 0,
+  "executed_kills": 0,
+  "not_completed": [
+    "test_the_contract_no_git_for_a_waiter_covers_a_lease_arriving_during_preparation",
+    "test_i1_two_pinned_lanes_can_each_lose_a_prepared_tree_in_one_pass",
+    "test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head"
+  ]
+}

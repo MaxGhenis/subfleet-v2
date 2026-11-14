@@ -1,0 +1,172 @@
+bringing up nodes...
+bringing up nodes...
+
+...............FF..................................F
+=================================== FAILURES ===================================
+____________ test_c6_16_why_names_priority_class_and_policy[False] _____________
+[gw1] darwin -- Python 3.14.7 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/builds-v0/.tmpXaGevq/bin/python
+subfleet/salvage.py:208: in _git
+    result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1268: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['git', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw1/test_c6_16_why_names_priority_0/routing-state/work', 'rev-parse', '--verify', 'HEAD']' timed out after 60 seconds
+
+The above exception was the direct cause of the following exception:
+subfleet/daemon.py:3082: in submit
+    head = push_head if args.push_branch is not None else git_head(
+subfleet/salvage.py:257: in git_head
+    return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True, timeout_s=timeout_s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/salvage.py:214: in _git
+    raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
+E   subfleet.salvage.SalvageError: git rev-parse timed out after 60 s
+
+The above exception was the direct cause of the following exception:
+tests/fake/test_admission_visibility.py:76: in test_c6_16_why_names_priority_class_and_policy
+    root = submit(service, harness, caller_session="chosen", pinned_model="astra")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_admission_visibility.py:33: in submit
+    return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:4219: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:3230: in submit
+    raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+E   subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4468083408:daemon.py:998 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4468083408:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4468083408:daemon.py:3229 submit could not inspect /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw1/test_c6_16_why_names_priority_0/routing-state/work: SalvageError: git rev-parse timed out after 60 s
+_ test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass _
+[gw3] darwin -- Python 3.14.7 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/builds-v0/.tmpXaGevq/bin/python
+subfleet/salvage.py:208: in _git
+    result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1268: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['git', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw3/test_c6_12_the_incident_a_job_0/routing-state/work', 'rev-parse', '--verify', 'HEAD']' timed out after 60 seconds
+
+The above exception was the direct cause of the following exception:
+subfleet/daemon.py:3082: in submit
+    head = push_head if args.push_branch is not None else git_head(
+subfleet/salvage.py:257: in git_head
+    return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True, timeout_s=timeout_s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/salvage.py:214: in _git
+    raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
+E   subfleet.salvage.SalvageError: git rev-parse timed out after 60 s
+
+The above exception was the direct cause of the following exception:
+tests/fake/test_admission_route_isolation.py:98: in test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass
+    stuck = legacy(service, harness, EMAIL, pinned_model=None, task="review", tier="standard")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_admission_route_isolation.py:79: in legacy
+    job_id = submit(service, harness, **{"pinned_lane": "claude-a", **changes})
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_admission_route_isolation.py:74: in submit
+    return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:4219: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:3230: in submit
+    raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+E   subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4479668576:daemon.py:998 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4479668576:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4479668576:daemon.py:3229 submit could not inspect /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw3/test_c6_12_the_incident_a_job_0/routing-state/work: SalvageError: git rev-parse timed out after 60 s
+_________ test_a_job_cancelled_before_any_attempt_gives_back_its_tree __________
+[gw0] darwin -- Python 3.14.7 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/builds-v0/.tmpXaGevq/bin/python
+subfleet/salvage.py:208: in _git
+    result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1268: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['git', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw0/test_a_job_cancelled_before_an0/repo', 'rev-parse', '--verify', 'HEAD']' timed out after 60 seconds
+
+The above exception was the direct cause of the following exception:
+subfleet/daemon.py:3082: in submit
+    head = push_head if args.push_branch is not None else git_head(
+subfleet/salvage.py:257: in git_head
+    return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True, timeout_s=timeout_s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/salvage.py:214: in _git
+    raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
+E   subfleet.salvage.SalvageError: git rev-parse timed out after 60 s
+
+The above exception was the direct cause of the following exception:
+tests/fake/test_unrun_worktrees.py:100: in test_a_job_cancelled_before_any_attempt_gives_back_its_tree
+    job_id = submit(daemon, harness, repo)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_unrun_worktrees.py:69: in submit
+    return daemon.dispatch("submit", args)["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:4219: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:3230: in submit
+    raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+E   subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4448996384:daemon.py:998 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4448996384:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4448996384:daemon.py:3229 submit could not inspect /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw0/test_a_job_cancelled_before_an0/repo: SalvageError: git rev-parse timed out after 60 s
+============================= slowest 15 durations =============================
+404.73s setup    tests/fake/test_unrun_worktrees.py::test_a_job_cancelled_before_any_attempt_gives_back_its_tree
+66.62s call     tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass
+65.01s call     tests/fake/test_unrun_worktrees.py::test_a_job_cancelled_before_any_attempt_gives_back_its_tree
+62.58s call     tests/fake/test_admission_visibility.py::test_c6_16_why_names_priority_class_and_policy[False]
+33.11s call     tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[offline]
+32.61s call     tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[daemon]
+13.55s setup    tests/fake/test_admission_visibility.py::test_c6_16_why_names_priority_class_and_policy[False]
+13.07s setup    tests/fake/test_task_hold_admission.py::test_a_held_build_waits_while_a_review_on_the_same_lane_is_placed
+12.28s setup    tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass
+11.23s call     tests/fake/test_task_hold_admission.py::test_quarantined_probe_can_recover_without_a_person
+9.95s teardown tests/fake/test_task_hold_admission.py::test_status_counts_every_held_job_past_the_jobs_it_lists[daemon]
+9.21s setup    tests/fake/test_task_hold_admission.py::test_a_second_hold_replaces_the_first
+7.64s call     tests/fake/test_task_hold_admission.py::test_a_release_mid_pass_lets_the_later_jobs_of_that_pass_start
+6.86s setup    tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args9-task-hold-note]
+6.68s setup    tests/fake/test_task_hold_admission.py::test_a_refused_hold_or_release_writes_nothing[args10-task-hold-note]
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_visibility.py::test_c6_16_why_names_priority_class_and_policy[False]
+FAILED tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass
+FAILED tests/fake/test_unrun_worktrees.py::test_a_job_cancelled_before_any_attempt_gives_back_its_tree
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 3 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!! xdist.dsession.Interrupted: stopping after 1 failures !!!!!!!!!!!!!
+3 failed, 49 passed in 725.64s (0:12:05)

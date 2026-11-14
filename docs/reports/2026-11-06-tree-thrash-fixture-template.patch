@@ -1,0 +1,17 @@
+--- a/tests/fake/test_unrun_worktrees.py
++++ b/tests/fake/test_unrun_worktrees.py
+@@ -36,6 +36,14 @@
+ @pytest.fixture
+ def repo(tmp_path):
+     path = tmp_path / "repo"
++    template = os.environ.get("SUBFLEET_TREE_THRASH_REPO_TEMPLATE")
++    if template:
++        # Mutation-runner infrastructure: isolated copies of a genuine Git
++        # baseline avoid repeated init/config/add/commit under host load.
++        registered = Path(template) / ".git" / "worktrees"
++        assert not registered.exists() or not list(registered.iterdir())
++        shutil.copytree(template, path)
++        return path
+     path.mkdir()
+     git(path, "init", "-b", "task/example")
+     git(path, "config", "user.name", "Test User")

@@ -1,0 +1,8 @@
+..........................                                               [100%]
+============================= slowest 5 durations ==============================
+11.12s setup    tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own
+2.48s call     tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own
+0.24s setup    tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps
+0.17s setup    tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement
+0.13s setup    tests/unit/test_invariants_index.py::test_test_names_are_unique
+26 passed in 42.09s

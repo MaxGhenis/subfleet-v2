@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="1519.722" timestamp="2026-11-11T12:28:09.812023-05:00" hostname="MacBook-Pro-1306.local"><testcase classname="tests.fake.test_admission_tree_thrash" name="test_i3_generated_head_movements_keep_the_submitted_tree_and_baseline" time="233.180" /><testcase classname="tests.fake.test_admission_tree_thrash" name="test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees" time="1222.396"><failure message="Failed: Timeout (&gt;1200.0s) from pytest-timeout.">tests/fake/test_admission_tree_thrash.py:228: in test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees
+    old = measured_shape(fleet_factory, repo, base=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_admission_tree_thrash.py:198: in measured_shape
+    service._admit()
+subfleet/daemon.py:7285: in _admit
+    self._admit_kind("detached")
+subfleet/daemon.py:7312: in _admit_kind
+    self._admit_pass(holds, tally, kind=kind)
+a8624a4899a2/subfleet/daemon.py:609: in _admit_pass
+    ???
+tests/fake/test_admission_tree_thrash.py:132: in cut
+    result = workspace(job)
+             ^^^^^^^^^^^^^^
+subfleet/daemon.py:6362: in _workspace
+    result = subprocess.run([*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]],
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:671: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:1395: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:2412: in _communicate
+    new_offset, completed = _communicate_io_posix(
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:291: in _communicate_io_posix
+    ready = selector.select(remaining)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/selectors.py:398: in select
+    fd_event_list = self._selector.poll(timeout)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: Timeout (&gt;1200.0s) from pytest-timeout.</failure></testcase><testcase classname="tests.fake.test_admission_tree_thrash" name="test_i2_i5_generated_reservations_holds_and_capacity_clocks_equal_the_base" time="1008.206" /></testsuite></testsuites>

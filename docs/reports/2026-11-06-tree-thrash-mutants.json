@@ -1,0 +1,64 @@
+{
+  "source_sha256": "c7ad4e3fd54ffb5409c5189a4cfda8dbf4f18fb5b6fccf0c95398b8b04e0e079",
+  "runs": [
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]",
+      "exit_code": 0,
+      "seconds": 395.321,
+      "failed": [],
+      "selected_failed": false,
+      "mutation": "baseline",
+      "killed": false
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head",
+      "exit_code": 0,
+      "seconds": 298.278,
+      "failed": [],
+      "selected_failed": false,
+      "mutation": "baseline",
+      "killed": false
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_the_one_cut_whose_lane_closes_between_evaluation_and_reservation_is_given_back",
+      "exit_code": 0,
+      "seconds": 285.964,
+      "failed": [],
+      "selected_failed": false,
+      "mutation": "baseline",
+      "killed": false
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]",
+      "exit_code": 0,
+      "seconds": 221.175,
+      "failed": [],
+      "selected_failed": false,
+      "mutation": "baseline",
+      "killed": false
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]",
+      "exit_code": 1,
+      "seconds": 350.989,
+      "failed": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]"
+      ],
+      "selected_failed": true,
+      "mutation": "eager-waiter-tree",
+      "killed": true
+    },
+    {
+      "test": "tests/fake/test_admission_tree_thrash.py::test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head",
+      "exit_code": 1,
+      "seconds": 515.682,
+      "failed": [
+        "tests/fake/test_admission_tree_thrash.py::test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head"
+      ],
+      "selected_failed": true,
+      "mutation": "reserve-without-tree",
+      "killed": true
+    }
+  ],
+  "error": "Command '['/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/bin/python', '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', '--basetemp', '/tmp/tree-thrash-mutant-72zc1tb5/pytest', 'tests/fake/test_admission_tree_thrash.py::test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head']' timed out after 900.0 seconds"
+}

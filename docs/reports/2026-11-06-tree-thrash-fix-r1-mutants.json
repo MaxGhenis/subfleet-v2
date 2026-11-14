@@ -1,0 +1,29 @@
+{
+  "source_sha256": "02f1ea4c17d2252192fb4dedfa9b67080c0084deb671b0e72569129174f01583",
+  "tests_sha256": "d2685d7bfb043de368998a48d9aae52f781971bd8d0be091a8ddee82287783ba",
+  "temp_root": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/fix-r1-mutant-tests",
+  "repository_template": null,
+  "fixture_sha256": "f92ce2ce26172532868b6e15231db298967157289ec1f3fd1ef2294ac0f96ff3",
+  "runs": [
+    {
+      "test": "baseline-controls",
+      "tests": [
+        "tests/fake/test_admission_tree_thrash.py::test_a_reopened_lane_before_the_sweep_keeps_its_unused_tree",
+        "tests/fake/test_admission_tree_thrash.py::test_the_contract_no_git_for_a_waiter_covers_a_lease_arriving_during_preparation",
+        "tests/fake/test_admission_tree_thrash.py::test_i1_two_pinned_lanes_can_each_lose_a_prepared_tree_in_one_pass",
+        "tests/fake/test_admission_tree_thrash.py::test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head"
+      ],
+      "exit_code": 124,
+      "seconds": 691.376,
+      "failed": [],
+      "selected_failed": false,
+      "timed_out": true,
+      "infrastructure_error": true,
+      "failure_evidence": [],
+      "mutation": "baseline",
+      "intended_failure": false,
+      "killed": false
+    }
+  ],
+  "error": "baseline: baseline or infrastructure failure, exit 124"
+}
