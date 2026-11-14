@@ -749,14 +749,16 @@ id, so a cut-off run says exactly what passed.
 | `tests/unit/test_census_recycled_pid.py::test_e_recycled_root_never_becomes_a_new_kill_target`, 3 runs | **passed 3 of 3**: 21.6 s, 19.0 s, 58.4 s. I didn't touch census code |
 | `tests/fake/test_state_contract.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py tests/unit/test_test_module_names.py`, plus every test that reads `docs/acceptance-contract.md` (`test_desktop_ledger.py`, `test_protocol_registry.py`, `test_retention_turn_contract.py`, and the four contract tests in `test_live_store_guard_round8/9/10.py`), `-n 4` | cut at 520 s: **427 passed, 0 failed**; the 22 left (by `--deselect` of the 427), `-n 2`: **22 passed** in 381 s. **All 449 passed**: state contract 37, invariants index 25, handler refusals 372, module names 1, the contract readers 14 |
 | every `tests/unit/test_retention_delete_*.py` (211 tests), `-n 4` | cut at 572 s: **2 passed, 0 failed** (load 176 to 236) |
+| `test_retention_delete_request.py test_retention_delete_request_record.py` (81), `-n 4`, after the report commit | cut at 533 s: **80 passed, 0 failed** (request 67 of 67, record 13 of 14; `test_canary_crash_keeps_the_next_fixture_tree[marker-written]` was still running) |
 | `test_retention_delete_apply.py` whole (13), `-n 2` | cut at 541 s: none finished (the rich and dry-run tests were still running) |
 | the other 12 apply tests, `-n 4` | cut at 547 s: none finished (load 251) |
 | the rich test alone, `--timeout 500 --timeout-method thread` | cut at 562 s: didn't finish. pytest-timeout's timer, which starts after collection, hadn't fired, so it was slow, not shown hung |
 
 ### What didn't run
 
-- **Every `tests/unit/test_retention_delete_*.py`.** Only 2 of 211 finished.
-  The in-flight test passed alone (twice), and the rich test reached its last
+- **Every `tests/unit/test_retention_delete_*.py`.** 82 of 211 finished, all
+  passed: 2 in the whole-set run, and 80 of the two request modules. The
+  in-flight test passed alone (twice), and the rich test reached its last
   invariant-6 assertion under mutant 9. The rich test didn't complete without
   a mutant. The 11 apply tests that call no `maintenance` can't see the
   marker. The other 16 delete modules don't carry it. On ec6d40517, CI failed
@@ -775,9 +777,12 @@ CI runs the whole suite on push.
 
 - 2295ecaaf: `test_retention_delete_apply.py` marked `retention_catch_up`.
 - f050f91fa: the C-8.7, C-8.4 change-log line.
-- This report section is the next commit.
+- f55261d1b: this report section.
+- The next commit adds the request modules' run to this section.
 
 Git let me commit every step. HEAD is detached in this job's worktree. The hub
-should move `fix/holders-narrow-217` to the commit that adds this section.
+should move `fix/holders-narrow-217` to the commit that adds the request
+modules' run, whose parent is f55261d1b.
 
-Head built: the commit that adds this section, whose parent is f050f91fa.
+Head built: the commit that adds the request modules' run, whose parent is
+f55261d1b.
