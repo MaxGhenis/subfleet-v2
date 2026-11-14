@@ -578,7 +578,15 @@ listing takes its own stamp before its cwd scan. Stamps are nanoseconds, each
 above every stamp the daemon has seen in a journal (`Context.stamp`), so a clock
 stepped back or a restart cannot order a listing before an event that preceded
 it; a journal written before stamps existed reads as 0, which only says it was
-saved before this pass. The cwd scan of moved worktrees still runs first. A
+saved before this pass. The comparison is defence the code's order already
+guarantees, and no test can reach it (review r1, finding 2): every quarantine a
+listing could serve ran before the listing took its stamp, every archive it could
+serve ended in an earlier pass (this pass archives only after its listing), and
+recovery raises the floor above every journal's stamps before the listing stamps,
+so the comparison never refuses a job; replaced by `True`, it survives every test
+(fix round 1's mutant 1). It stays so a future caller that lists earlier, or a
+journal stamped by a clock it never saw, still can't be served by a listing that
+began first. The cwd scan of moved worktrees still runs first. A
 process holds a job if it has its current or root directory, a text or memory
 mapping, any directory descriptor, or a descriptor open for writing, under the
 job's quarantine, its original paths, or its admin directory, or at the second
@@ -586,14 +594,27 @@ check on one of the archived (device, inode) pairs (regenerable ones
 included: a process running from the job's virtualenv holds it). A read-only
 descriptor on a file is not a hold. The check fails closed: `lsof` missing,
 failing or timing out (15 minutes) defers the batch. `lsof` runs under the
-retention clamp (section 12).
+retention clamp (section 12). Check 2 reads each job's manifest for its archived
+inodes, one job at a time: a manifest that can't be read puts back that job
+alone, as an error (`error: manifest: ...`, the error backoff), before the
+listing, which still serves the rest. It neither fails the listing nor sets
+`holder_scan_failed` (review r1, finding 4); the final check treats an
+unreadable manifest the same way.
 
-Every listing writes one line to `daemon.log` (D-HOLDERS-LSOF1): `retention:
-holder listing check=<first|second|both> jobs=<n> reader=<name> seconds=<s>`, then
-`ok` (with what the reader asked about, counts only, such as `processes=`) or
-`failed: <reason>`. A pass's result counts its listings (`listings`) and their
-wall seconds (`listing_s`), with the last listing's stamps (`listing`) and the
-jobs waiting for check 2 (`awaiting_check2`).
+Every listing a pass takes writes one line to `daemon.log` (D-HOLDERS-LSOF1):
+`retention: holder listing check=<first|second|both> jobs=<n> reader=<name>
+seconds=<s>`, then `ok` (with what the reader asked about, counts only, such as
+`processes=`) or `failed: <reason>`, the reason scrubbed by
+`refusals.scrubbed_line` as the daemon's other retention error lines are (review
+r1, finding 5). A pass's result counts its listings (`listings`) and their wall
+seconds (`listing_s`), with the last listing's stamps (`listing`) and the jobs
+waiting for check 2 (`awaiting_check2`). The read-only survey (`subfleet
+retention survey`, section 13) takes its own listing in the CLI's process and
+writes no such line (review r1, finding 3): it has no `daemon.log`, its report
+already gives the listing's seconds (`holders.scan_seconds`) and any failure
+(`notes`), and the line exists to count the daemon's listings, which the survey's
+is not. Its estimate counts one listing a pass, and one more pass for the last
+batch's check 2.
 
 ## 9. Verified deletion
 
@@ -870,7 +891,11 @@ until they expire.
   precedence, marks `CancelledError` and rearms the hour. A completed or
   non-advancing batch also waits the hour. A failed batch holder scan marks
   `ScanFailed` and waits the hour even after quarantine or rollback, since another
-  batch would need the same unavailable listing. Status is marked before the hour is
+  batch would need the same unavailable listing, unless a job archived in that
+  pass waits for its check 2 (a scan failed for another job, or the listing failed
+  before a parked job archived): then the next pass comes 5 s later, still marked
+  `ScanFailed`, so that job takes the next listing; if that listing fails too, it
+  puts the job back and the hour applies (review r1, finding 1). Status is marked before the hour is
   rearmed; failed bookkeeping leaves retention due. The service-notice prune
   runs first, once per retention call (one bounded batch), and its failure is
   logged without failing job retention. The worker pool has one more thread for retention.

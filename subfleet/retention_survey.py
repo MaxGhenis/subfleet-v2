@@ -303,15 +303,19 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         rate = _throughput([Path(r["worktree"]) for r in wt_retiring[:6]])
     reads = omittable + 2 * archived
     passes = max(1, math.ceil(len(retire) / max(1, batch)))
+    # One listing a pass (D-HOLDERS-LSOF1): each pass commits the last pass's
+    # archives and starts the next batch under one listing, so the batches take
+    # one more pass, for the last one's check 2, and one listing each.
+    listings = passes + 1
     per_job_git_s = 3.0
     report["estimate"] = {
         "hash_read_bytes_per_s": round(rate) if rate else None,
         "bytes_read": reads,
         "read_hours": round(reads / rate / 3600, 2) if rate else None,
         "passes": passes, "batch": batch,
-        "listing_seconds_per_pass": (2 * scan_s) if scan_s is not None else None,
+        "listing_seconds_per_pass": scan_s, "listings": listings,
         "git_hours_assumed": round(len(wt_retiring) * per_job_git_s / 3600, 2),
-        "total_hours": round((reads / rate if rate else 0) / 3600 + passes * 2 * (scan_s or 60) / 3600
+        "total_hours": round((reads / rate if rate else 0) / 3600 + listings * (scan_s or 60) / 3600
                              + len(wt_retiring) * per_job_git_s / 3600, 2) if rate else None,
     }
     report["candidates"] = [rows[j] for j in retire]
