@@ -1,0 +1,72 @@
+Receipt review/test commands; working directory was assigned workspace throughout.
+
+cat subfleet/notice_claims.py
+cat subfleet/caller_wakes.py
+rg -n 'notice_claims|caller_wakes|consume|claim|hook_activity|surface' subfleet/hooks.py subfleet/daemon.py subfleet/protocol.py
+sed -n '1,170p' tests/unit/test_hooks.py
+Result: all exit 0; read implementation and hook fixtures.
+
+sed -n '478,535p' subfleet/hooks.py
+sed -n '292,321p' subfleet/protocol.py
+sed -n '4338,4358p' subfleet/daemon.py
+sed -n '5756,5800p' subfleet/daemon.py
+rg -n 'def notice_decide|notice_wake' subfleet/sessions/nudge.py subfleet/policy.py
+sed -n '220,242p' subfleet/store.py
+sed -n '1,120p' tests/fake/test_notice_delivery.py
+Result: all exit 0; checked integration, durable fingerprint semantics and in-process fixture style.
+
+sed -n '232,290p' subfleet/sessions/nudge.py
+sed -n '815,840p' subfleet/policy.py
+sed -n '284,335p' subfleet/notify_push.py
+rg -n 'def _conversation_binding|def _lane_session_ids|def sessions' subfleet/daemon.py
+rg -n '^def test_.*offline|offline.*pending' tests/unit/test_hooks.py
+sed -n '4708,4800p' subfleet/daemon.py
+Result: all exit 0; reviewed caps and conversation/transport guards.
+
+rg -n '^class DaemonUnavailable|^class DaemonError' subfleet/client.py
+sed -n '1,100p' tests/conftest.py
+sed -n '320,365p' subfleet/hooks.py
+sed -n '330,354p' subfleet/protocol.py
+rg -n 'notice.pending' subfleet/protocol.py | head -20
+Result: all exit 0; checked exception type, isolated test roots, hook rendering and signed notice ids.
+
+apply_patch: added tests/unit/test_notice_claims.py (only test file owned in this step). Success.
+python3 /private/tmp/sf-wc-b1/run.py notice-claims pytest -q tests/unit/test_notice_claims.py
+Result: exit 1, 11 passed / 4 failed in 26.62 s. Corrupt list/dict receipt fields raised TypeError; bool/string ids were accepted rather than failing closed. Parent notified to fix production validation.
+write_stdin: polled test session until complete; no running process left.
+
+Production review findings sent to parent: notify_push.find_session omitted busy/activity registry fields consumed by new engine; corrupt receipt fields lacked validation; retry expiry came after quiet/source eligibility; stale initial candidates only rechecked notice id.
+
+python3 /private/tmp/sf-wc-b1/run.py notice-claims-fixed pytest -q tests/unit/test_notice_claims.py
+Result: exit 0, 15 passed in 6.33 s after parent's receipt validation fix; unique basetemp pytest-notice-claims-fixed-e36a024024; log notice-claims-fixed.log.
+write_stdin: polled test session until complete; no process remains running. Stopped tests as directed.
+
+Final documentation/evidence step (no production/test-source edits; no tests run):
+cat docs/reports/2026-11-12-wake-caller.md
+rg -n 'C-15\.9|C-15\.1' docs/acceptance-contract.md | tail -12
+rg --files /private/tmp/sf-wc-b1 | rg 'pristine|baseline|\.original|\.orig' | head -30
+Result: each exit 0; read draft and contract, located immutable pristine source snapshots while mutants ran.
+sed -n '1,180p' /private/tmp/sf-wc-b1/run.py
+rg -n '^(class CallerWakeEngine|def surface|def |    def (pass_once|recover))' /private/tmp/sf-wc-b1/mutants/caller_wakes.py.pristine /private/tmp/sf-wc-b1/mutants/nudge.py.pristine
+rg -n '^(NOTICE_WAKE_MIGRATION|SCHEMA_VERSION|def (receipt_path|activity_path|read_activity|record_offline_activity|reserve_offline|reconcile)|    def _wake_callers|class NoticePendingArgs|def (notice_decide|caps|find_session|_activity_time))|notice.pending.*a.surface|caller-notices|before_send|BeforeSendError' subfleet/notice_claims.py subfleet/hooks.py subfleet/notify_push.py subfleet/daemon.py subfleet/protocol.py subfleet/store.py subfleet/sessions/nudge.py subfleet/descriptors.py
+Result: each exit 0; verified runner temp/cache paths and source declaration line locations; mutant-owned behavior read only from pristine snapshots, not transient mutated logic.
+rg -n 'NOTICE_WAKE_MIGRATION|notices_caller_wake|caller_wake_sessions' subfleet/store.py subfleet/store_schema.sql
+Result: exit 0, schema/migration/index line references verified.
+rg -n 'surface|notice.pending|notice_wake|nudge_max_sessions' subfleet/descriptors.py subfleet/policy.py subfleet/hooks.py policy.example.json
+Result: exit 2, proposed policy.example.json absent; useful code matches returned, no live path involved.
+tail -12 /private/tmp/sf-wc-b1/commands.jsonl
+Result: exit 0, confirmed final focused/guard run records and active mutant records; no tests run by docs agent.
+apply_patch: updated report environment discovery, focused totals, final-suite pending placeholders, offline activity/transport descriptions and current line references. Success.
+apply_patch: amended C-15.9 prose by hand for durable offline activity/source/human reset and safe connect retries; numbering unchanged. Success.
+sed -n '18,47p' docs/reports/2026-11-12-wake-caller.md
+sed -n '74,112p' docs/reports/2026-11-12-wake-caller.md
+rg -n '^\- \*\*C-15\.[89]\*\*|^\- \*\*C-16\.1\*\*' docs/acceptance-contract.md
+Result: each exit 0; reviewed edits and neighboring unchanged clause numbers. Second report range is beyond EOF and printed nothing.
+Focused totals recorded from completed runs/root-confirmed results: 33 caller; 49 helper; 24 receipt/activity; 7 migration; 84 hook + 1 skipped; 33 transport; 425 required guards. Final combined run and cleanup/head/bundle remain explicitly pending in draft.
+
+Final running-suite documentation update (docs only, no tests):
+cat docs/reports/2026-11-12-wake-caller.md
+Result: exit 0, read current draft before changes.
+rg --files docs/reports/2026-11-12-wake-caller-data | rg 'commands|ledger|baseline|identity'
+Result: exit 0, verified names of linked ledgers and baseline artifacts.
+apply_patch: recorded initial combined totals 14308 passed / 108 failed / 115 skipped / 8 xfailed in 3258.50 s; seven representative baseline proofs and 99 temp-root / 8 unsupported native capability / 1 retained pre-existing canonical-identity categories; verified two 6/6 assertion mutant passes; extra identity-correction repeat and final combined results explicitly pending at 35%; added e6e47054a and isolated metadata relocation; linked available ledgers without a fixed count. Success. No source/test edits, tests or predicted final head/result.

@@ -1,0 +1,20 @@
+--- subfleet/caller_wakes.py
++++ subfleet/caller_wakes.py
+@@ -138,8 +138,6 @@
+             if not session:
+                 self._failure(candidates, "no-caller-session", now, retry=False)
+                 continue
+-            if self.daemon._conversation_binding(session):
+-                continue  # C-24.10 is the only wake path for this session.
+             with notice_claims.delivery_lock(self.daemon.root, session) as held:
+                 if not held:
+                     continue
+@@ -188,7 +186,7 @@
+                     continue
+                 claimed = []
+                 with self.store.transaction("notice.wake_claimed", data={"session_id": session}) as tx:
+-                    if self.daemon._conversation_binding(session) or not self._eligibility(
++                    if not self._eligibility(
+                             session, entry, after, limits, now)[0]:
+                         continue
+                     previous_clock = self.store.one(

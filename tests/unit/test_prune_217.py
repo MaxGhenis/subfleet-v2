@@ -28,7 +28,7 @@ STATES = ('queued', 'waiting', 'running', 'succeeded', 'failed', 'cancelled', 'l
 TABLES = {
     'schema_version', 'lanes', 'readings', 'closures', 'jobs', 'job_owned_branches',
     'job_pushes', 'attempts', 'artifacts', 'notices', 'decisions', 'leases',
-    'actions', 'events', 'service_notices',
+    'actions', 'events', 'service_notices', 'caller_wake_sessions',
 }
 # Independent copies of the live readers, including why's evaluation timestamp.
 WHY = ('SELECT decision_json,evaluated_at FROM decisions WHERE job_id=? '

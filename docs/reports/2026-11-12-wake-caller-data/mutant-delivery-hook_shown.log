@@ -1,0 +1,21 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________________ test_c15_9_hook_shown_notice_never_wakes ___________________
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10b3b8590>
+
+    def test_c15_9_hook_shown_notice_never_wakes(callers):
+        callers.register("hook-first")
+        notice = callers.finish("hook-first")
+        assert callers.notices[notice] in surface(callers.daemon, callers.harness.root, "hook-first")
+        callers.pass_once()
+>       assert callers.counts()[notice] == 0
+E       assert 1 == 0
+
+tests/fake/test_caller_notice_wakes.py:265: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4497934048:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4497934048:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_hook_shown_notice_never_wakes
+1 failed in 0.21s

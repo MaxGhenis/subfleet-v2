@@ -220,8 +220,11 @@ def _schema_before_migration(conn, migration):
         if version >= migration:
             for statement in reversed(statements):
                 parts = statement.split()
-                assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
-                conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
+                if parts[:2] == ['CREATE', 'TABLE'] and parts[2:5] == ['IF', 'NOT', 'EXISTS']:
+                    conn.execute(f'DROP TABLE "{parts[5]}"')
+                else:
+                    assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
+                    conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
     conn.execute("INSERT INTO schema_version VALUES (?,'2026-10-14T00:00:00Z')", (migration - 1,))
 
 

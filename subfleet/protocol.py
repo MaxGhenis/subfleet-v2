@@ -301,6 +301,15 @@ class NoticeArgs:
 
 
 @dataclass
+class NoticePendingArgs(NoticeArgs):
+    """C-15.9: a session hook atomically claims the rows it will print."""
+
+    surface: str | None = None
+    jobs_only: bool = False
+    source: str | None = None
+
+
+@dataclass
 class NoticeMarkArgs:
     """`notice.mark` (C-15.3): the non-terminal halves of the delivery ladder.
 

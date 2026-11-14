@@ -125,6 +125,8 @@ def caps(policy: dict[str, Any]) -> dict[str, float]:
         "cooldown_s": float(settings.get("nudge_cooldown_min", 1.5)) * 60,
         "delay_s": float(settings.get("nudge_delay_s", 8)),
         "sample_s": float(settings.get("nudge_sample_s", 3)),
+        "max_sessions": float(settings.get("nudge_max_sessions", 8)),
+        "notice_quiet_s": float(settings.get("notice_wake_quiet_s", 300)),
         "sweep_quiet_s": float(settings.get("sweep_quiet_s", 120)),
         "muster_max_age_s": float(settings.get("muster_max_age_h", 2)) * 3600,
         "muster_quiet_s": float(settings.get("muster_quiet_s", 120)),
@@ -231,6 +233,50 @@ def _age_s(stamp: str, now: datetime) -> float | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return (now - parsed).total_seconds()
+
+
+def notice_decide(state: TurnState, *, limits: dict[str, float],
+                  active_at: float = 0, source: str | None = None,
+                  retired: dict | None = None, last_nudge: dict | None = None,
+                  wake_streak: int = 0, last_wake_at: float | None = None,
+                  now: datetime | None = None) -> tuple[bool, str]:
+    """Whether a completion notice may wake its quiet caller (C-15.9).
+
+    Completion notices can arrive long after a turn ended, so the resume age
+    maximum does not apply. The last real transcript turn and durable caller
+    activity both count towards the quiet gate. Read the timestamp itself:
+    `TurnState.age_s` is rounded and can otherwise open the gate early.
+    """
+    from ..conversations.wakes import COOLDOWN_S, MAX_STREAK
+
+    now = now or datetime.now(timezone.utc)
+    if not enabled():
+        return False, f"disabled ({TICKLE_ENV}=off)"
+    if not source_allows(source):
+        return False, f"source {source!r} is not a restart"
+    if retired:
+        return False, f"retired by the operator ({retired.get('reason') or 'no reason recorded'})"
+    if state.state not in ("interrupted", "completed"):
+        return False, f"{state.state}: {state.detail}"
+    age_s = _age_s(state.timestamp, now)
+    if age_s is None:
+        return False, "last activity has no usable timestamp"
+    if active_at:
+        age_s = min(age_s, now.timestamp() - active_at)
+    if age_s < limits["notice_quiet_s"]:
+        return False, (f"last activity {age_s:g}s ago; completion notices wait "
+                       f"{limits['notice_quiet_s']:g}s of quiet")
+    if last_nudge and last_nudge.get("at"):
+        elapsed = _age_s(last_nudge["at"], now)
+        if elapsed is not None and elapsed < limits["cooldown_s"]:
+            return False, "resume nudge cooldown"
+    if last_wake_at is not None:
+        elapsed = now.timestamp() - last_wake_at
+        if elapsed < limits["cooldown_s"]:
+            return False, "completion wake cooldown"
+        if wake_streak >= MAX_STREAK and elapsed < COOLDOWN_S:
+            return False, "completion wake streak cooldown"
+    return True, f"{state.state}: quiet for {age_s:g}s"
 
 
 @dataclass
@@ -442,4 +488,4 @@ def lane_ids_of(facts: dict[str, Any]) -> set[str]:
 
 
 __all__ = ["Outcome", "Report", "SCOPES", "caps", "decide", "lane_ids_of",
-           "muster_text", "nudge_text", "render", "source_allows", "sweep", "wake"]
+           "muster_text", "notice_decide", "nudge_text", "render", "source_allows", "sweep", "wake"]

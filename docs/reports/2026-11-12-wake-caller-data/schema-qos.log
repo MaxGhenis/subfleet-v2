@@ -1,0 +1,31 @@
+.F...........                                                            [100%]
+=================================== FAILURES ===================================
+______ test_d_qos_booked1_an_old_store_opens_and_its_jobs_read_as_utility ______
+
+tmp_path = PosixPath('/private/tmp/sf-wc-b1/pytest-schema-qos-356a405c63/test_d_qos_booked1_an_old_stor0')
+
+    def test_d_qos_booked1_an_old_store_opens_and_its_jobs_read_as_utility(tmp_path):
+        path = old_store(tmp_path / "old.sqlite3")
+        with sqlite3.connect(path) as conn:
+            assert "provider_qos" not in {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+        with Store(path) as store:
+            assert store.one("SELECT MAX(version) AS v FROM schema_version")["v"] == SCHEMA_VERSION
+            # Raw SQL keeps what was stored: nothing.
+            assert [row["provider_qos"] for row in store.query("SELECT provider_qos FROM jobs ORDER BY job_id")] == [
+                None, None]
+            # Domain reads say what NULL means.
+            assert store.get_job("old-dispatch")["provider_qos"] == "utility"
+            assert store.get_job_by_request("old-turn")["provider_qos"] == "utility"
+            assert {job["provider_qos"] for job in store.list_jobs()} == {"utility"}
+            migrated = [row["data_json"] for row in store.query("SELECT data_json FROM events WHERE kind='schema.migrated'")]
+>           assert migrated == [f'{{"version":{version}}}' for version in
+                                range(store_module.PROVIDER_QOS_MIGRATION, SCHEMA_VERSION + 1)]
+E           assert ['{"version":...version":10}'] == ['{"version":...version":11}']
+E             
+E             At index 0 diff: '{"version":11}' != '{"version":10}'
+E             Use -v to get more diff
+
+tests/unit/test_store_qos_migration.py:58: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_store_qos_migration.py::test_d_qos_booked1_an_old_store_opens_and_its_jobs_read_as_utility
+1 failed, 12 passed in 6.98s

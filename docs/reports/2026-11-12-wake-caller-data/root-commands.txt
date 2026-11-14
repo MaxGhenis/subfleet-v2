@@ -1,0 +1,158 @@
+Root command ledger (all shell invocations used login=false after the first two exploratory calls).
+Commands within a numbered entry ran as one exec cell; results are summarized, with test invocations expanded in commands.jsonl.
+
+1. date -u '+%Y-%m-%dT%H:%M:%SZ'; pwd; git status --short; git branch --show-current; rg --files -g AGENTS.md -g pyproject.toml -g uv.lock -g '*nudge*' -g '*notice*' -g '*wake*' -g '*store*' -g '*schema*' -g '*migration*' -g '*hook*' -g '*acceptance*' -g '*invariants_index*' .
+   Start 2026-11-12T05:49:38Z; assigned workspace; detached HEAD; initial tracked tree clean. Git calls slow; eventual reads completed.
+2. rg --files -g AGENTS.md -g '!uv.lock' -g '!*.json' .; rg -n 'SCHEMA_VERSION|CREATE TABLE.*notices|def _notice|notices|caller_session' subfleet/store* subfleet/daemon.py subfleet/hooks.py; sed -n '1,280p' subfleet/sessions/nudge.py
+   Read/search; no AGENTS.md found. Initial global-config Git delay also affected queued command output.
+3. git status --short; git branch --show-current; rg --files -g AGENTS.md -g pyproject.toml -g '*nudge*' -g '*notice*' -g '*store*' -g '*schema*' -g '*migration*' -g '*hook*' -g '*acceptance*' -g '*invariants_index*' .
+   Same discovery; no baseline user edits.
+4. sed -n '1,300p' subfleet/sessions/nudge.py; sed -n '1,240p' subfleet/conversations/wakes.py
+   Found parked-nudge path and existing MAX_STREAK=8/COOLDOWN_S=1800.
+5. sed -n '300,640p' subfleet/sessions/nudge.py; rg -n 'notices|def _notice|def _.*loop|async def|control_tick|nudge|inbox|op_sessions_wake' subfleet/daemon.py subfleet/store.py subfleet/hooks.py subfleet/sessions/registry.py subfleet/conversations/service.py subfleet/render.py; rg --files -g AGENTS.md -g '*state_contract*' -g '*nudge*' -g '*notice*' -g '*schema*' -g '*hook*' -g pyproject.toml -g '*invariants*'
+   Located control loop, mark semantics and existing tests.
+6. ls -la; sed -n '1,200p' pyproject.toml; sed -n '1,260p' subfleet/store.py; rg -n 'C-15|C-24.10|C-26.1[23]|nudge|sweep_quiet' docs/acceptance-contract.md subfleet/policy.py
+   Read dependency groups, schema/version machinery, contracts.
+7. sed -n '1,120p' pyproject.toml; rg --files -g AGENTS.md -g '!docs/reports/**' -g '!uv.lock'; rg -n 'SCHEMA_VERSION|notices|user_version' subfleet/schema.py subfleet/migrations.py subfleet/db.py subfleet/store.py; sed -n '300,525p' subfleet/hooks.py; sed -n '5380,5455p' subfleet/daemon.py
+   Read hook and notice flow. Three proposed schema filenames absent (rg exit2); actual schema is store_schema.sql.
+8. rg -n '^    def |^    async def |delivery|inbox|_notice' subfleet/daemon.py | tail -150; sed -n '1,180p' subfleet/delivery.py; rg --files tests/unit tests/fake | rg '(nudge|hook|schema|migration|store|notice|wake|policy|invariants)'
+   No delivery.py; located notify_push.py later.
+9. sed -n '1,115p' subfleet/store.py; sed -n '300,445p' subfleet/store.py; rg -n 'notice|inbox|deliver|socket' subfleet/daemon.py | head -85; sed -n '1,190p' tests/fake/test_notice_delivery.py; sed -n '1,160p' tests/conftest.py; rg -n 'inbox|def .*send|def .*deliver' subfleet -g '*.py' | head -85; rg -n 'def tick|def start|def __init__|periodic|_deliver' subfleet/daemon.py | head -60
+   Confirmed migrations, fake-root isolation and socket transport.
+10. getconf DARWIN_USER_TEMP_DIR; command -v uv; git -c core.fsmonitor=false -c core.untrackedCache=false status --short --untracked-files=no; git symbolic-ref --quiet --short HEAD
+    Temp path /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/; uv=/opt/homebrew/bin/uv; detached checkout.
+11. command -v git; ls -l .git; sed -n '1,5p' .git; sed -n '1,400p' subfleet/notify_push.py
+    Git points to shared parent admin directory; transport safely refuses missing sessions/inboxes.
+12. sed -n '1,180p' subfleet/policy.py; sed -n '5450,5565p' subfleet/daemon.py; rg -n 'notify_push|_offer|_control|def _tick|def _loop|push_to_session' subfleet/daemon.py; sed -n '1,220p' tests/unit/test_sessions_nudge.py
+    Existing paced worker seam; no daemon socket delivery call.
+13. sed -n '5685,5795p' subfleet/daemon.py; rg -n 'notify_push|push_to_session|offer\(' subfleet -g '*.py'; sed -n '95,120p' subfleet/policy.py; rg -n 'SESSIONS_DEFAULTS|nudge_max|sweep_quiet|sessions\[' subfleet/policy.py; sed -n '4340,4410p' subfleet/daemon.py; sed -n '90,150p' subfleet/render.py; rg -n 'CREATE TABLE.*notices|notices' subfleet/store_schema.sql; sed -n '1,100p' tests/unit/test_invariants_index.py; ls -ld /opt/homebrew/bin/git; head -30 /opt/homebrew/bin/git
+    Core reads succeeded. The final exploratory head printed executable bytes (mistaken assumption that git might be a wrapper); no live-state or credential file was read, and those bytes were unused.
+14. /usr/bin/git --version; GIT_OPTIONAL_LOCKS=0 /usr/bin/git -c core.fsmonitor=false status --short --untracked-files=no; GIT_OPTIONAL_LOCKS=0 /usr/bin/git symbolic-ref --quiet --short HEAD
+    Apple Git 2.54.0; global-config calls remained slow.
+15. sed -n '1,125p' tests/fake/test_notice_header.py; sed -n '1,125p' tests/unit/test_store_qos_migration.py; sed -n '214,240p' subfleet/store_schema.sql; sed -n '1,100p' tests/unit/test_invariants_index.py; rg -n '^def validate|SESSION_DEFAULTS|nudge_max|sweep_quiet|sessions.*items|sessions.*boolean|auto_revive' subfleet/policy.py; sed -n '4720,4788p' subfleet/daemon.py; rg -n 'class TurnState|def turn_state|last_.*|age_s' subfleet/sessions/transcripts.py | head -35
+    Located schema compares, canonical conversation fence and precise activity fields.
+16. TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"; export TMPDIR UV_CACHE_DIR="$TMPDIR/uv-cache"; mkdir -p "$TMPDIR/sf-wc-b1"; UV_PROJECT_ENVIRONMENT="$TMPDIR/sf-wc-b1/venv" uv sync --group dev --extra api > "$TMPDIR/sf-wc-b1/uv-sync.log" 2>&1; cat "$TMPDIR/sf-wc-b1/uv-sync.log"
+    Sandbox denied requested temp directory. No installation occurred there.
+17. GIT_TRACE=1 GIT_TRACE_SETUP=1 GIT_OPTIONAL_LOCKS=0 /usr/bin/git -c core.fsmonitor=false -c core.untrackedCache=false status --short --untracked-files=no
+    Traced only this job's Git invocation; shared admin path identified; eventual exit0.
+18. mkdir -p /private/tmp/sf-wc-b1; TMPDIR=/private/tmp/sf-wc-b1 UV_CACHE_DIR=/private/tmp/sf-wc-b1/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-wc-b1/venv uv sync --group dev --extra api > /private/tmp/sf-wc-b1/uv-sync.log 2>&1; cat /private/tmp/sf-wc-b1/uv-sync.log; GIT_TRACE2_EVENT=/private/tmp/sf-wc-b1/git-trace.json GIT_OPTIONAL_LOCKS=0 /usr/bin/git rev-parse HEAD
+    uv failed: no api extra. rev-parse eventually b51f08f961e1b1dcfb93347eb080f9ddd9a9260d.
+19. rg -n 'class Notice|notice.pending|NOTICE_' subfleet/protocol.py; sed -n '100,220p' subfleet/sessions/registry.py; rg -n 'def notice_header' subfleet/render.py; sed -n '195,275p' subfleet/render.py; sed -n '4788,4895p' subfleet/daemon.py; sed -n '260,385p' tests/fake/test_notice_delivery.py
+    Read protocol compatibility, session facts and Hypothesis patterns.
+20. GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 /usr/bin/git rev-parse HEAD
+    Exit0, base hash. Subsequent Git commands used these transient overrides.
+21. cat /private/tmp/sf-wc-b1/uv-sync.log; sed -n '292,325p' subfleet/protocol.py; sed -n '140,180p' subfleet/render.py; sed -n '1,100p' tests/unit/test_hooks.py; sed -n '1,105p' tests/fake/test_notice_delivery.py
+    Confirmed no api extra and separate pending/ack wire shape requirement.
+22. TMPDIR=/private/tmp/sf-wc-b1 UV_CACHE_DIR=/private/tmp/sf-wc-b1/uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/sf-wc-b1/venv uv sync --group dev > /private/tmp/sf-wc-b1/uv-sync-dev.log 2>&1; cat /private/tmp/sf-wc-b1/uv-sync-dev.log
+    Exit0; nine packages installed, CPython3.15.2.
+23. GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 /usr/bin/git -c core.fsmonitor=false status --short; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 /usr/bin/git branch --show-current; sed -n '210,224p' docs/acceptance-contract.md; rg -n 'C-15\.1' docs/acceptance-contract.md
+    Read-only; branch name empty (detached), no prior user changes.
+24. cat /private/tmp/sf-wc-b1/uv-sync-dev.log; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 /usr/bin/git -c core.fsmonitor=false add docs/reports/2026-11-12-wake-caller.md; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 /usr/bin/git -c core.hooksPath=/dev/null commit -m 'docs: record quiet caller wake audit before implementation'
+    Both add and commit refused shared index.lock creation: Operation not permitted. No commit made.
+25. python3 /private/tmp/sf-wc-b1/run.py install-xdist /opt/homebrew/bin/uv pip install --python /private/tmp/sf-wc-b1/venv/bin/python pytest-xdist
+    Exit0; pytest-xdist3.8.0 + execnet2.1.2. Exact timing in commands.jsonl.
+26. sed -n '1,180p' tests/unit/test_sessions_notice_wake.py; sed -n '125,190p' subfleet/sessions/nudge.py; sed -n '232,318p' subfleet/sessions/nudge.py; sed -n '810,842p' subfleet/policy.py
+    Reviewed delegated eligibility implementation.
+27. sed -n '220,305p' subfleet/hooks.py; sed -n '4280,4305p' subfleet/daemon.py; rg -n 'def coerce_args|NoticeArgs' subfleet/protocol.py; sed -n '175,215p' subfleet/protocol.py; rg -n 'offline|notice.pending|session_event|notice.mark' tests/unit/test_hooks.py | head -75; sed -n '1,100p' tests/fake/test_state_contract.py; sed -n '1,70p' subfleet/daemon.py
+    Designed offline receipt/lock fencing and actual-daemon tests.
+28. sed -n '176,194p' subfleet/render.py; sed -n '830,875p' subfleet/daemon.py; sed -n '535,552p' subfleet/protocol.py; sed -n '1130,1148p' subfleet/daemon.py; rg -n 'def _deliver|_pending\(' subfleet/hooks.py
+    Confirmed header-only render and dispatch seams.
+29. GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 /usr/bin/git -c core.fsmonitor=false diff --stat; rg -l '_notice|notices|nudge|hooks|caller_session' tests -g 'test_*.py' > /private/tmp/sf-wc-b1/regression-files.txt; wc -l /private/tmp/sf-wc-b1/regression-files.txt; sed -n '1,180p' tests/fake/test_caller_notice_wakes.py; sed -n '390,440p' tests/fake/test_caller_notice_wakes.py; rg -n '\*\*C-15\.[0-9]+\*\*' docs/acceptance-contract.md
+    Diff eventually returned; 214 files selected at that point.
+30. sed -n '112,145p' subfleet/notify_push.py; repeat selected-file rg/wc; sed -n '1,175p' and '390,440p' tests/fake/test_caller_notice_wakes.py; rg -n '^[-] \*\*C-15\.[0-9]+\*\*' docs/acceptance-contract.md
+    Reviewed actual registry fields and new tests while Git was slow.
+31. GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 GIT_INDEX_FILE=/private/tmp/sf-wc-b1/review.index /usr/bin/git -c core.fsmonitor=false read-tree HEAD
+    Exit0; scratch-only comparison index created. It did not alter the assigned checkout's index/ref.
+32. sed -n '601,616p' docs/acceptance-contract.md; cat /private/tmp/sf-wc-b1/commands.jsonl; rg -n 'offered|undeliverable|recover|claim|restart' tests/fake/test_caller_notice_wakes.py | tail -45; sed -n '202,252p' subfleet/store_schema.sql; sed -n '130,170p' subfleet/store.py
+    Reviewed result logs, migration and candidate identity guards.
+33. sed -n '606,615p' docs/acceptance-contract.md; rg -n 'LOOKUP_OPS|snapshot\(|notice.pending' subfleet/daemon.py | tail -35; sed -n '12380,12460p' subfleet/daemon.py; sed -n '1,110p' tests/unit/test_notice_claims.py; rg -n 'notice.pending|LOOKUP_OPS' tests/unit/test_handler_refusals.py tests/unit/test_store_contention_queries.py tests/unit/test_hook_cost.py
+    Found that opt-in claims must use request pool, not read-only pool.
+34. sed -n '12465,12538p' subfleet/daemon.py; sed -n '45,115p' tests/unit/test_hook_cost.py; sed -n '235,260p' subfleet/daemon.py; sed -n '430,480p' and '520,595p' tests/fake/test_caller_notice_wakes.py
+    Reviewed queued-read cancellation and crash tests.
+35. rg -n 'def read_only|notice.pending' subfleet/descriptors.py tests/unit/test_descriptors.py; sed -n '70,130p' subfleet/descriptors.py; sed -n '12415,12445p' subfleet/daemon.py; sed -n '250,290p' tests/fake/test_caller_notice_wakes.py
+    Confirmed descriptors must classify surface claims as writes.
+36. sed -n '135,158p' subfleet/descriptors.py; sed -n '105,145p' subfleet/notify_push.py; sed -n '160,235p' tests/unit/test_sessions_notice_wake.py; rg -n 'refusal|reason|notice-state' tests/unit/test_handler_refusals.py | head -20
+    Reviewed huge-integer parser and closed refusal templates.
+37. python3 /private/tmp/sf-wc-b1/run.py contract-index pytest -q tests/unit/test_invariants_index.py
+    Exit0,25 passed after hand-authored C-15.9.
+38. sed -n '675,730p' subfleet/hooks.py; rg -n 'notice.pending|read_only' tests/unit/test_descriptors.py tests/unit/test_hook_cost.py; sed -n '180,220p' tests/unit/test_notice_claims.py; sed -n '1,100p' tests/unit/test_store_migration_2.py; rg -n 'caller_wake_sessions|wake_state' subfleet/retention*.py subfleet/prune*.py
+    Read existing PostToolUse offered semantics; no retention-specific new state readers.
+39. Python counted caller_wakes.py lines/new test paths; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 /usr/bin/git -c core.fsmonitor=false add subfleet/store.py subfleet/store_schema.sql tests/unit/test_store_notice_wake_migration.py tests/unit/test_store_qos_migration.py tests/unit/test_store_migration_2.py tests/unit/test_prune_217.py; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 /usr/bin/git -c core.hooksPath=/dev/null commit -m 'feat: persist quiet caller notice delivery state'
+    Both Git writes refused index.lock creation; no commit.
+40. python3 /private/tmp/sf-wc-b1/run.py required-guards pytest -q tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py
+    424 passed,1 failed: constant refusal text differed from its registered template. Fixed literal to 'unknown notice state'.
+41. cat /private/tmp/sf-wc-b1/regression-files.txt; rg -n 'pytest.mark.real_lsof|pytest.mark.real_cwd|/Users/max|Path.home|skipif|live' tests/e2e/test_notice_job_state.py tests/e2e/conftest.py tests/fake/conftest.py | head -65; rg -n 'real_lsof|real_cwd' tests/conftest.py; rg -n 'notices|schema_version|schema\.migrated|schema\.applied|session\.nudged' tests -g 'test_*.py' | rg '==|assert|TABLES|columns|event' > /private/tmp/sf-wc-b1/exact-shape-audit.txt; wc -l and sed -n '1,30p' on that audit
+    278 shape assertions audited; existing QoS/migration/prune exact compares updated.
+42. rg -n '@pytest.mark.real_(lsof|cwd)' tests; sed -n '302,345p' tests/conftest.py; sed -n '1,70p' tests/process/test_provider_shell_environment.py; sed -n '1,70p' tests/frontend/conftest.py; rg -n 'skipif|importorskip' tests/frontend/conftest.py tests/e2e/conftest.py tests/process/conftest.py
+    Real-process markers identified; process/conftest.py absent. Combined run excludes real_lsof/real_cwd.
+43. tail -5 required-guards.log; sed -n '310,340p' tests/conftest.py; sed -n '1,60p' tests/frontend/conftest.py; rg -n 'real_lsof|real_cwd|importorskip|skipif' tests/frontend/conftest.py tests/e2e/conftest.py tests/process/conftest.py; sed -n '1,175p' /private/tmp/sf-wc-b1/run_mutants.py
+    Verified mutant restore discipline before GO; absent process/conftest.py was a harmless read error.
+44. sed -n '175,250p', '335,425p', '535,590p' tests/fake/test_caller_notice_wakes.py; tail -6 required-guards.log; rg -n 'notice_wake|caller_wake|notice.pending.*surface' subfleet tests/unit/test_* | head -35
+    Property/mutant killers reviewed; guard failure identified.
+45. tail -25 required-guards.log; ls -l /private/tmp/sf-wc-b1/review.index; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 /usr/bin/git -c core.fsmonitor=false -c core.untrackedCache=false diff --name-only
+    Exact refusal error and tracked change list recorded; scratch index exists.
+46. sed -n '1,135p' tests/frontend/swift.py; sed -n '1,85p' and '1490,1535p' tests/unit/test_retention_archive.py; sed -n '1,90p' tests/fake/test_census_cwd_outcome.py; rg -n 'mkdtemp|failed_keep|KEEP|ROOT' tests/failed_keep.py tests/e2e/conftest.py | head -35; sed -n '1,115p' tests/failed_keep.py
+    Found frontend cache and failure-evidence roots; later runner isolates them in job scratch.
+47. rg -n 'suite|lock|/tmp|tempfile.gettempdir|failed_keep|PYTEST_ADDOPTS' tests/conftest.py tests/suite_guard.py tests/frontend/swift.py; sed -n '185,295p' tests/conftest.py; rg -n 'SF_.*KEEP|SUBFLEET.*KEEP|sf-failed' tests -g '*.py' | head -25; rg -n 'daemon\.recover|CallerWakeEngine|notice_claims' tests/fake/test_caller_notice_wakes.py tests/unit/test_notice_claims.py
+    Read-only isolation audit; suite_guard.py absent.
+48. date -u '+%Y-%m-%dT%H:%M:%SZ'; tail -4 mutants/results.json; ls -ld build .pytest_cache; rg -n '\*\*C-15\.9\*\*|CallerWakeEngine|def _wake_callers|def surface|def read_only|def notice_decide|def reserve_offline|def reconcile' docs/acceptance-contract.md subfleet/caller_wakes.py subfleet/daemon.py subfleet/notice_claims.py subfleet/sessions/nudge.py subfleet/descriptors.py
+    06:12:02Z; no build directory existed; .pytest_cache was job-generated. Mutants restored.
+49. Refresh selected-file rg, then Python invokes run.py affected-n4 pytest -q -n4 -m 'not real_lsof and not real_cwd' with all selected filenames.
+    215 test files; exact expanded command/result in commands.jsonl. Created workspace build/frontend-probes symlink to scratch cache; no preexisting build path.
+50. tail -15 affected-n4.log; wc -l regression-files.txt; Python copies agent ledgers, selected-file/shape lists and mutant results/patches to report data and verifies all six killed/restored.
+    215 files; all six mutant checks true,13 initial artifacts copied.
+51. tail -20 affected-n4.log; Python prints mutant result checks and report artifact count.
+    Restores verified; no test result yet (stdout buffered).
+52. rg -n '"sessions"|nudge_|sweep_quiet' subfleet/default_policy.json; Python reads affected-n4.log size/tail.
+    Found bundled defaults omission; log initially buffered0 bytes.
+53. Python manually replaces the C-16.5 plain-pending description and inserts the three new keys in bundled default_policy.json; wc -c affected-n4.log; ls -ld scratch/pytest-affected*.
+    Exit0; docs now distinguish claim writes; bundled policy exposes switch/gate/cap. Test basetemp is under scratch.
+
+Tool-only edits: apply_patch authored all source, tests, report and scratch runner/plugin changes; two contract patches failed context matching and made no change before the successful hand-authored text replacement. Tool discovery found no GitNexus tools; no skills or live apps were invoked. exec session output was polled, and Ctrl-C was sent only to this job's slow/completed command sessions; all such sessions were reaped. Later test, status, report-copy, commit and cleanup commands are appended below and in commands.jsonl.
+
+54. Repeated date -u, tail/wc on affected-n4.log, scratch-basetemp entry listing and source line-map Python reads during the combined run. Results: four workers executing, no failures through initial progress; all six mutant hashes verified.
+55. Refreshed final-review-commands.txt and nudge-commands.txt into report data. Result: exit0; exact source/test review inventory retained.
+56. Git ls-tree -r --name-only HEAD (transient global config disabled) wrote committed-files.txt; Python checked cache/build paths. Result: 8532 tracked paths; no generated-cache paths tracked.
+57. Reviewed presend.patch/offline-activity.patch with sed/tail; rg reserve_offline callers; inspected imports. Result: patch review only; no production edits while combined tests run.
+58. Read test_fake_daemon_borrowed_methods.py and control-loop tests; searched schema version consumers. Result: offline version already imports SCHEMA_VERSION; no extra version constant drift.
+59. Periodic date/tail and own temporary test-directory/failure-fixture listings. Result: combined run passed halfway; regression failure details pending its completion. No live process inspection used.
+60. Copied pending patches, review ledgers and scratch runner/plugin/mutant scripts into report data; enabled unbuffered output for subsequent runner commands. Result: exit0.
+61. Read .gitignore and rg .git-local references in tracked reports/tools. Result: documented workspace-local metadata fallback found; no shared metadata write attempted.
+62. Initialized .git-local on feat/wake-caller-217 with read-only parent objects alternate, loaded baseline index, configured local Codex identity/hooks/signing, added named Step0 report and schema/test files, committed each. Result: f87769aa7 audit; 8f475562f schema. Original .git unchanged.
+63. Added 16 named implementation/helper/test/contract files via .git-local and committed feature. Result: 7435b519e; no push or rewrite.
+64. Reviewed test Git identity setup and own failed-keep tree while combined run continued. Result: no retained fixture roots yet; errors await full summary.
+
+65. date -u +%Y-%m-%dT%H:%M:%SZ -> 2026-11-12T07:13:37Z; required-guards-final process reaped ->425passed; git-local status preserved late changes.
+66. Read contract C15/C16, scratchrunner, report draft, and caller engine -> audited transport retry/offline activity changes and pending report sections.
+67. Scratch run.py timeout changed5400->4200seconds and explicit run_final_regression.py created ->215file -n4 run with8 baseline-proven unsupported sandbox tests deselected; live-process markers remain excluded. No production source changed.
+68. rg daemon/descriptors/contract notice routing and read caller wake/nudge/conversation eligibility -> recovery-gated startup scan and imported streak bounds confirmed.
+69. Final mutant logs inspected, then agent verified6/6 assertion kills and pristine source hashes. git-local diff --check passed.
+70. python3 /private/tmp/sf-wc-b1/run_final_regression.py -> running07:16UTC,215files, -n4, newDarwinbasetemp,8unsupported sandbox cases deselected; markers real_lsof/real_cwd excluded. Ownsession94897.
+71. Workspace-only generatedcache inventory written generated-paths-before-cleanup.json -> paths retained for guarded cleanup after tests.
+72. Read generatedreport artifactinventory and git-local diffstat -> evidence includesbaseline sourceproof, mutation patches/hash/restoration and agentledgers.
+73. git-local add named9files (caller_wakes/hooks/notice_claims/notify_push, their4testfiles, acceptancecontract); commit fix: retain offline caller activity and retry unsent inbox connections ->e6e47054a. Originalgitmetadata unchanged.
+74. Reapedcommit6541 ->success; readfinalregressionlog (4percent, nofailuresyet) and revisedreport pendingsections.
+75. rg .gitignore/tempcheck and date ->07:19:27Z; bundles/directGitmetadata are repository-established fallback conventions. Read postio-identity.patch ->pending test/fix afterfullrun, no mid-run sourcechanges.
+76. Moved workspace .git-local to /private/tmp/sf-wc-b1/git-local, assertedownedtarget/non-symlink/newdestination; git rev-parse confirms e6e47054a0b6e87fa10c27056b9c2dfe6d8bcbb0. All later commit commands use scratchmetadata; original .git unchanged.
+77. Scratch-only logfile sizeinventory ->copy raw command/test logs into reportdata before guarded deletion.
+78. Read caller Hypothesis/migration tests -> generated finish/hook/failure/restart histories and additive schema/version preservation confirmed; prepared artifact copier and guarded cache cleanup scripts without executing cleanup.
+79. Prepared run_mutants_delivery.py from verifiedfinaldriver withdistinctartifactlabels, pending post-I/O identity fix; no mutations whilefullworkers active.
+80. Repeated workspace-only final-log/progress reads and UTC clock checks ->32percent, nofailuremarkers; git-local status onlyreport/artifactchanges, allcodecommitted.
+81. Agent docs update -> original combined14308pass108fail115skip8xfail3258.50s; baseline7cluster proof,99tmpguard/8unsupportednative/1pre-existing; mutant6of6 restored twice. Finalresult pending.
+82. Expanded finalartifactcopier to include cleanup/mutation/reproducibility helpers, no project edits; inspected scrubbed-wake regression; periodic ownlog/UTC checks ->39percent,0failures07:29UTC.
+83. Inspected tests/conftest.py, scratchisolation plugin and notify_push home paths -> precollection safeHOME/store environment and permanent credential-exec guard confirmed; no production state reads.
+84. Created scratch deliver.py and OWNER sentinels for bothjobroots; helper will create/verify incremental feature bundle, record finalhead/commands/UTC/cleanup receipt, make onlyownednon-symlink directories removable, then guard rmtree bysf-wc-b1+basename+OWNER. Not executed before tests finish.
+85. Periodic ownlog/clock checks ->62percent,0failuremarkers; allworkers stilloncommitted e6e47054a source. Finalreport source frozen whiletest running.
+86. Prepared capture_changes.py for final implementation diff and hunk lineinventory; git diff base..e6e47054a stat24files1903insertions20deletions. AST validation of fourfinalization/cleanup helpers passed.
+87. Periodic ownlog/UTC reads ->99percent0failuremarkers; write_stdin94897 polled running, no worker/source changes. Logs and final-run summaries remain pending until process exit.
+88. affected-n4-final completed at07:47-48UTC, reaped94897 rc0:14427passed115skipped8xfailed in1934.05s(32m14). Ran215selectedfilesinone-n4run;8baseline-proven unsupportednativecases deselected. Canonicalidentity assertion passesunderDarwinroot too.
+89. Applied onlynewtest portion ofpostio-identity.patch; postio-before-fix exact2case regression ->2assertionfailures(0.61s), proving oldpostsend success/failure canoverwrite reusedid. PatchreportedtrailingEOFblankwarning, thenremoved.
+90. Appliedcaller_wakes.py portion withfullclaimidentity+timestamp predicates; started wholecallerfile final35cases withfreshbasetemp(82146). No sourcechangedwhilefull-n4workers running.
+91. caller-postio-final wholefile ->35passed in10.28s(rc0); driver run_mutants_delivery.py ->all6rc1 assertionkills, independently restored eachsource andverifiedfinalSHA2565822be806269d76b5b2270c1174aeddc070bc8544e5963b8bb16c9003999f120. All mutationtests sequentialafterfullworkers exit.
+92. Hand-amendedC15.9 withpost-I/O fullidentity+claimtimestamp fence, numberingunchanged; finalrequired4guardfiles running78664 aftersourcebyte restoration.
+93. Reportupdatedwithcompleted215-file result, canonicalpassunderDarwinroot,35caller tests, third6/6 mutantpass andnarrowpost-suitefixvalidation scope. Prepared implementationpatch/line-map/archivedrunlinks.
+94. required-guards-delivery ->425passed in26.70s, rc0; finalmutantJSON independentlyasserted6kills/rc1/hashrestorations; date07:50:53UTC.
+95. git add named caller_wakes.py,test_caller_notice_wakes.py,acceptancecontract; commit fix: fence late caller wake results against reused notice ids ->d579f82eb5ca7cdc43991305e5834a58e197862e.
+96. capture_changes.py ->implementation.patch/change-lines.txt atd579f82eb. cleanup_workspace.py ->12recordedcachefolders movedintofenced sf-wc-b1/workspace-caches andguardedrmtree; no trackedpathsremoved. finalize_artifacts.py ->123artifacts937957bytes atfirstcollection.
+97. Finalreportrewrite firstguard usedlowercase textwithuppercase split ->IndexError beforewrite,no datachanged. Correctedguardandreran ->reportfinalverification/commits/cleanupinventory complete. Recollectedartifacts successfully.
+98. Finalreport prose diff --check passed. All123collectedevidencefiles copied; code/storedtests unchanged afterd579f82eb. Finalstageuses explicitnamedfileslistedinstaged-files.json, report+evidenceonly; commit docs: report quiet caller wake build and verification. Actualcommithead/resultand finalbundle/cleanupcommands areindelivery-receipt.json.

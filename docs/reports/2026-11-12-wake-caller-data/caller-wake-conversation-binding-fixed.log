@@ -1,0 +1,61 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine _____
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x1070b0830>
+
+    def test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine(callers):
+        """Invariant 6 One path: a conversation's caller never gets this second wake."""
+        callers.register("conversation")
+        notice = callers.finish("conversation")
+>       conversation, _ = callers.daemon.conversations.store.create_conversation(
+            provider="claude", workspace=str(callers.harness.workdir), workspace_kind="in-place",
+            settings={"model": "opus", "permission": "ask"},
+            origin="test", native_session_id="conversation")
+
+tests/fake/test_caller_notice_wakes.py:366: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/conversations/store.py:591: in create_conversation
+    cid = self.insert_conversation(tx, provider=provider, workspace=workspace, workspace_kind=workspace_kind,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <subfleet.conversations.store.ConversationStore object at 0x107fd2660>
+tx = <sqlite3.Connection object at 0x107f8d540>, provider = 'claude'
+workspace = '/private/tmp/sf-wc-b1/pytest-caller-wake-conversation-binding-fixed-ade995dd42/test_c15_9_one_path_conversati0/state/work'
+workspace_kind = 'in-place'
+settings = {'model': 'opus', 'effort': None, 'fast': False, 'permission': 'ask', ...}
+origin = 'test', native_session_id = 'conversation', title = None
+allow_main = False, lane_id = None, request_id = None, handoff_from = None
+legacy_hold = None, now = '2026-11-12T06:06:37.219Z'
+
+    def insert_conversation(self, tx: sqlite3.Connection, *, provider: str, workspace: str, workspace_kind: str,
+                            settings: dict, origin: str, native_session_id: str | None = None,
+                            title: str | None = None, allow_main: bool = False, lane_id: str | None = None,
+                            request_id: str | None = None, handoff_from: dict | None = None,
+                            legacy_hold: str | None = None, now: str | None = None) -> str:
+        """A new conversation's row and its feed row, inside the caller's transaction
+        (`create_conversation`, and a suggestion's start, C-25.7, which writes it with
+        its own claim). The caller has checked the request id and native session."""
+        if provider not in PROVIDERS:
+            raise ConversationError("bad-provider", "provider must be claude or codex")
+        settings = validate_settings(provider, settings)
+        if isinstance(title, str):
+            title = title.strip() or None
+        now = now or utcnow()
+        cid = new_id("cv")
+>       tx.execute(
+            "INSERT INTO conversations(conversation_id,provider,native_session_id,title,title_source,workspace,workspace_kind,"
+            "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
+            "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (cid, provider, native_session_id, title, "person" if title else None, workspace, workspace_kind, int(allow_main), lane_id,
+             json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
+             legacy_hold, now, now))
+E       sqlite3.IntegrityError: CHECK constraint failed: origin IN ('new','native','handoff','legacy')
+
+subfleet/conversations/store.py:612: IntegrityError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4427990752:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4427990752:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine
+1 failed, 26 deselected in 11.62s

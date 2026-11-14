@@ -4354,8 +4354,11 @@ class Daemon:
         if op.startswith("notice."):
             a = protocol.coerce_args(
                 protocol.NoticeMarkArgs if op == "notice.mark" else
-                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticePendingArgs,
                 args)
+            if op == "notice.pending" and a.surface:
+                from .caller_wakes import surface
+                return surface(self, a)
             # C-15.3: a negated id is a service notice, on every op that takes
             # ids back (`protocol.notice_row`), and `acknowledged` is terminal
             # in both tables: a notice is acknowledged once.
@@ -5775,6 +5778,7 @@ class Daemon:
                 for job_id in self._pending_worktree_holds():
                     self._schedule("cwd:" + job_id, self._release_worktree_hold, job_id, paced=True)
                 if self._recovery_complete.is_set():
+                    self._schedule("caller-notices", self._wake_callers, paced=True)
                     self._schedule("conversations", self.conversations.tick, paced=True)
                     self._schedule("admission", self._admit, paced=True)
                     # C-26.9: turns also have a pass of their own, so a person's
@@ -5788,6 +5792,17 @@ class Daemon:
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
             self.stopping.wait(self.tick_s)
+
+    def _wake_callers(self) -> None:
+        """C-15.9: startup and periodic scans share durable delivery state."""
+        now = time.monotonic()
+        if now < self.__dict__.get("_caller_wake_next", 0):
+            return
+        self._caller_wake_next = now + 1
+        from .caller_wakes import CallerWakeEngine
+        if "_caller_wakes" not in self.__dict__:
+            self._caller_wakes = CallerWakeEngine(self)
+        self._caller_wakes.pass_once()
 
     def _timer_notice(self, notice: dict) -> bool:
         """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
@@ -12465,7 +12480,7 @@ class Daemon:
         # ordinary read/cancel operations stay responsive.
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
                 self.waiters if req.op == "wait" else
-                self.lookups if req.op in LOOKUP_OPS else self.requests)
+                self.lookups if req.op in LOOKUP_OPS and descriptors.read_only(req.op, req.args) else self.requests)
         return pool.submit(self._run_worker, self._respond, conn, write_lock, req, arrived,
                            **({"peer": peer} if req.op == "kill" else {}))
 

@@ -1,0 +1,164 @@
+.........FFFF..                                                          [100%]
+=================================== FAILURES ===================================
+_ test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook[[{"notice_id":[],"fingerprint":"bad"}]] _
+
+self = <test_notice_claims.OfflineClient object at 0x10a187690>
+_args = ('notice.pending', {'session_id': 'receipt-session', 'surface': 'UserPromptSubmit', 'jobs_only': None, 'source': None})
+_kwargs = {}
+
+    def call(self, *_args, **_kwargs):
+>       raise DaemonUnavailable("fixture daemon is stopped")
+E       subfleet.client.DaemonUnavailable: fixture daemon is stopped
+
+tests/unit/test_notice_claims.py:22: DaemonUnavailable
+
+During handling of the above exception, another exception occurred:
+
+core = namespace(root=PosixPath('/private/tmp/sf-wc-b1/pytest-notice-claims-a110ece098/test_c15_9_corrupt_receipts_fa4'), store=<subfleet.store.Store object at 0x10a1bc950>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10a1a94e0>)
+contents = '[{"notice_id":[],"fingerprint":"bad"}]'
+
+    @pytest.mark.parametrize("contents", [
+        "{not-json", "{}", "[null]", "[{}]",
+        '[{"notice_id":[],"fingerprint":"bad"}]',
+        '[{"notice_id":1,"fingerprint":{}}]',
+        '[{"notice_id":true,"fingerprint":"bad"}]',
+        '[{"notice_id":"1","fingerprint":"bad"}]',
+    ])
+    def test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook(core, contents):
+        """A malformed receipt cannot authorize printing or make a prompt fail."""
+        add_notice(core)
+        path = notice_claims.receipt_path(core.root, SESSION)
+        path.parent.mkdir(parents=True)
+        path.write_text(contents)
+>       assert offline_hook(core) == ""
+               ^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_notice_claims.py:136: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_notice_claims.py:54: in offline_hook
+    assert hooks.session_event("UserPromptSubmit", {"session_id": SESSION}, core.root,
+subfleet/hooks.py:508: in session_event
+    rows = reserve_offline(root, session, pending)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/private/tmp/sf-wc-b1/pytest-notice-claims-a110ece098/test_c15_9_corrupt_receipts_fa4')
+session = 'receipt-session'
+rows = [{'notice_id': 1, 'job_id': 'job-done', 'session_id': 'receipt-session', 'text': 'job-done succeeded; rc=0; -o /fake/result.md', ...}]
+
+    def reserve_offline(root: Path, session: str, rows: list[dict]) -> list[dict]:
+        """Called under delivery_lock, before an offline hook prints anything."""
+        receipts = read_receipts(root, session)
+>       seen = {(item["notice_id"], item["fingerprint"]) for item in receipts}
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: cannot use 'tuple' as a set element (unhashable type: 'list')
+
+subfleet/notice_claims.py:58: TypeError
+_ test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook[[{"notice_id":1,"fingerprint":{}}]] _
+
+self = <test_notice_claims.OfflineClient object at 0x10a10fa00>
+_args = ('notice.pending', {'session_id': 'receipt-session', 'surface': 'UserPromptSubmit', 'jobs_only': None, 'source': None})
+_kwargs = {}
+
+    def call(self, *_args, **_kwargs):
+>       raise DaemonUnavailable("fixture daemon is stopped")
+E       subfleet.client.DaemonUnavailable: fixture daemon is stopped
+
+tests/unit/test_notice_claims.py:22: DaemonUnavailable
+
+During handling of the above exception, another exception occurred:
+
+core = namespace(root=PosixPath('/private/tmp/sf-wc-b1/pytest-notice-claims-a110ece098/test_c15_9_corrupt_receipts_fa5'), store=<subfleet.store.Store object at 0x10a1bcd50>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10a1c40f0>)
+contents = '[{"notice_id":1,"fingerprint":{}}]'
+
+    @pytest.mark.parametrize("contents", [
+        "{not-json", "{}", "[null]", "[{}]",
+        '[{"notice_id":[],"fingerprint":"bad"}]',
+        '[{"notice_id":1,"fingerprint":{}}]',
+        '[{"notice_id":true,"fingerprint":"bad"}]',
+        '[{"notice_id":"1","fingerprint":"bad"}]',
+    ])
+    def test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook(core, contents):
+        """A malformed receipt cannot authorize printing or make a prompt fail."""
+        add_notice(core)
+        path = notice_claims.receipt_path(core.root, SESSION)
+        path.parent.mkdir(parents=True)
+        path.write_text(contents)
+>       assert offline_hook(core) == ""
+               ^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_notice_claims.py:136: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_notice_claims.py:54: in offline_hook
+    assert hooks.session_event("UserPromptSubmit", {"session_id": SESSION}, core.root,
+subfleet/hooks.py:508: in session_event
+    rows = reserve_offline(root, session, pending)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/private/tmp/sf-wc-b1/pytest-notice-claims-a110ece098/test_c15_9_corrupt_receipts_fa5')
+session = 'receipt-session'
+rows = [{'notice_id': 1, 'job_id': 'job-done', 'session_id': 'receipt-session', 'text': 'job-done succeeded; rc=0; -o /fake/result.md', ...}]
+
+    def reserve_offline(root: Path, session: str, rows: list[dict]) -> list[dict]:
+        """Called under delivery_lock, before an offline hook prints anything."""
+        receipts = read_receipts(root, session)
+>       seen = {(item["notice_id"], item["fingerprint"]) for item in receipts}
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: cannot use 'tuple' as a set element (unhashable type: 'dict')
+
+subfleet/notice_claims.py:58: TypeError
+_ test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook[[{"notice_id":true,"fingerprint":"bad"}]] _
+
+core = namespace(root=PosixPath('/private/tmp/sf-wc-b1/pytest-notice-claims-a110ece098/test_c15_9_corrupt_receipts_fa6'), store=<subfleet.store.Store object at 0x10a1bd250>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10a1c47d0>)
+contents = '[{"notice_id":true,"fingerprint":"bad"}]'
+
+    @pytest.mark.parametrize("contents", [
+        "{not-json", "{}", "[null]", "[{}]",
+        '[{"notice_id":[],"fingerprint":"bad"}]',
+        '[{"notice_id":1,"fingerprint":{}}]',
+        '[{"notice_id":true,"fingerprint":"bad"}]',
+        '[{"notice_id":"1","fingerprint":"bad"}]',
+    ])
+    def test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook(core, contents):
+        """A malformed receipt cannot authorize printing or make a prompt fail."""
+        add_notice(core)
+        path = notice_claims.receipt_path(core.root, SESSION)
+        path.parent.mkdir(parents=True)
+        path.write_text(contents)
+>       assert offline_hook(core) == ""
+E       assert '{"hookSpecif...how <id>"}}\n' == ''
+E         
+E         + {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "subfleet: 1 detached run dispatched by this session finished while it was not running:\n\njob-done succeeded; rc=0; -o /fake/result.md\n\nList: subfleet runs --mine \u00b7 details: subfleet runs show <id>"}}
+
+tests/unit/test_notice_claims.py:136: AssertionError
+_ test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook[[{"notice_id":"1","fingerprint":"bad"}]] _
+
+core = namespace(root=PosixPath('/private/tmp/sf-wc-b1/pytest-notice-claims-a110ece098/test_c15_9_corrupt_receipts_fa7'), store=<subfleet.store.Store object at 0x10a1bd850>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10a1c50c0>)
+contents = '[{"notice_id":"1","fingerprint":"bad"}]'
+
+    @pytest.mark.parametrize("contents", [
+        "{not-json", "{}", "[null]", "[{}]",
+        '[{"notice_id":[],"fingerprint":"bad"}]',
+        '[{"notice_id":1,"fingerprint":{}}]',
+        '[{"notice_id":true,"fingerprint":"bad"}]',
+        '[{"notice_id":"1","fingerprint":"bad"}]',
+    ])
+    def test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook(core, contents):
+        """A malformed receipt cannot authorize printing or make a prompt fail."""
+        add_notice(core)
+        path = notice_claims.receipt_path(core.root, SESSION)
+        path.parent.mkdir(parents=True)
+        path.write_text(contents)
+>       assert offline_hook(core) == ""
+E       assert '{"hookSpecif...how <id>"}}\n' == ''
+E         
+E         + {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "subfleet: 1 detached run dispatched by this session finished while it was not running:\n\njob-done succeeded; rc=0; -o /fake/result.md\n\nList: subfleet runs --mine \u00b7 details: subfleet runs show <id>"}}
+
+tests/unit/test_notice_claims.py:136: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_notice_claims.py::test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook[[{"notice_id":[],"fingerprint":"bad"}]]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook[[{"notice_id":1,"fingerprint":{}}]]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook[[{"notice_id":true,"fingerprint":"bad"}]]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook[[{"notice_id":"1","fingerprint":"bad"}]]
+4 failed, 11 passed in 26.62s

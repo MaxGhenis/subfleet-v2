@@ -1,0 +1,92 @@
+Implementation head: d579f82eb5ca7cdc43991305e5834a58e197862e
+Base: b51f08f961e1b1dcfb93347eb080f9ddd9a9260d
+
+docs/acceptance-contract.md
+@@ -604,6 +604,8 @@ D-WALL1: `max_wall_s` counts summed provider running time across attempts, from
+@@ -611,7 +613,7 @@ D-WALL1: `max_wall_s` counts summed provider running time across attempts, from
+
+docs/reports/2026-11-12-wake-caller.md
+@@ -0,0 +1,20 @@
+
+subfleet/caller_wakes.py
+@@ -0,0 +1,252 @@
+
+subfleet/daemon.py
+@@ -4345,8 +4345,11 @@ class Daemon:
+@@ -5766,6 +5769,7 @@ class Daemon:
+@@ -5780,6 +5784,17 @@ class Daemon:
+@@ -12416,7 +12431,7 @@ class Daemon:
+
+subfleet/default_policy.json
+@@ -155,6 +155,9 @@
+
+subfleet/descriptors.py
+@@ -136,6 +136,8 @@ def open_descriptors() -> int | None:
+
+subfleet/hooks.py
+@@ -493,9 +493,23 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
+
+subfleet/notice_claims.py
+@@ -0,0 +1,167 @@
+
+subfleet/notify_push.py
+@@ -33,6 +33,7 @@ Two rules this module keeps from v1 and one it adds:
+@@ -57,6 +58,10 @@ _ENVELOPE_CLOSE = "</cross-session-message>"
+@@ -97,6 +102,15 @@ def _load_json(path: Path) -> Any:
+@@ -109,6 +123,7 @@ def find_session(session_id: str) -> dict[str, Any] | None:
+@@ -120,6 +135,9 @@ def find_session(session_id: str) -> dict[str, Any] | None:
+@@ -130,12 +148,29 @@ def find_session(session_id: str) -> dict[str, Any] | None:
+@@ -263,7 +298,10 @@ def send_to_socket(socket_path: str, token: str | None, content: str, *,
+@@ -322,6 +360,11 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
+
+subfleet/policy.py
+@@ -102,6 +102,9 @@ SESSION_DEFAULTS: dict[str, Any] = {
+@@ -824,6 +827,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
+
+subfleet/protocol.py
+@@ -300,6 +300,15 @@ class NoticeArgs:
+
+subfleet/sessions/nudge.py
+@@ -125,6 +125,8 @@ def caps(policy: dict[str, Any]) -> dict[str, float]:
+@@ -233,6 +235,50 @@ def _age_s(stamp: str, now: datetime) -> float | None:
+@@ -442,4 +488,4 @@ def lane_ids_of(facts: dict[str, Any]) -> set[str]:
+
+subfleet/sessions/transcripts.py
+@@ -223,7 +223,7 @@ def _instant(value: Any) -> datetime | None:
+
+subfleet/store.py
+@@ -43,7 +43,8 @@ from .lockwatch import WatchedLock, thread_name
+@@ -129,6 +130,19 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
+
+subfleet/store_schema.sql
+@@ -226,10 +226,26 @@ CREATE TABLE IF NOT EXISTS notices (
+
+tests/fake/test_caller_notice_wakes.py
+@@ -0,0 +1,629 @@
+
+tests/unit/test_hooks.py
+@@ -45,7 +45,7 @@ def payload(event: str, **extra) -> dict:
+@@ -1062,3 +1062,23 @@ def test_idle_hook_backoff_preserves_delivery_reserve(root):
+
+tests/unit/test_notice_claims.py
+@@ -0,0 +1,285 @@
+
+tests/unit/test_notify_push.py
+@@ -408,3 +408,41 @@ def test_offer_returns_one_result_per_row_in_order():
+
+tests/unit/test_prune_217.py
+@@ -28,7 +28,7 @@ STATES = ('queued', 'waiting', 'running', 'succeeded', 'failed', 'cancelled', 'l
+
+tests/unit/test_sessions_notice_wake.py
+@@ -0,0 +1,236 @@
+
+tests/unit/test_store_migration_2.py
+@@ -220,8 +220,11 @@ def _schema_before_migration(conn, migration):
+
+tests/unit/test_store_notice_wake_migration.py
+@@ -0,0 +1,99 @@
+
+tests/unit/test_store_qos_migration.py
+@@ -19,9 +19,9 @@ from subfleet.store import SCHEMA_VERSION, Store, job_flags, shell_flags
+@@ -54,8 +54,10 @@ def test_d_qos_booked1_an_old_store_opens_and_its_jobs_read_as_utility(tmp_path)
+@@ -91,7 +93,7 @@ def test_d_qos_booked1_attempt_rows_gain_no_job_field(tmp_path, read_only):

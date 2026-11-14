@@ -1,0 +1,50 @@
+[
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/.pytest_cache",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/.hypothesis",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/build",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/adapters/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/sessions/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/conversations/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/gate/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/subfleet/guard/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/unit/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/__pycache__",
+    "operation": "move into scratch then guarded shutil.rmtree"
+  }
+]
