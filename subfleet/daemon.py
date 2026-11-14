@@ -232,7 +232,8 @@ PROBE_RECORD = (
 #: most `store.READ_WAIT_S` (1 s), then opens one of its own, and says so.
 READ_CONNECTIONS = 6
 #: d635: seconds a retention pass may start new work; a started job gets its
-#: archive slice (`retention.SLICE_S`) and the batch's two holder listings.
+#: archive slice (`retention.SLICE_S`), and the pass its one holder listing
+#: (D-HOLDERS-LSOF1).
 RETENTION_PASS_S = 180
 #: C-8.4: an idle, cancelled or non-advancing pass waits an hour from its end.
 RETENTION_INTERVAL_S = 3600
@@ -5940,7 +5941,8 @@ class Daemon:
                                  pins=self._retention_pins,
                                  cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                                  state=self._retention_state,
-                                 remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+                                 remote_less_history_bytes=int(budget["remote_less_history_bytes"]),
+                                 log=self.log)
         if self._unrun_dirty:
             # C-6.20: a sweep offered while this pass ran found the lock taken.
             self._sweep_unrun_worktrees()
@@ -5956,6 +5958,18 @@ class Daemon:
             self._last_maintenance = time.monotonic()
             return
         if result.get("holder_scan_failed"):
+            if result.get("awaiting_check2"):
+                # A job archived in this pass waits for its check 2 from the next
+                # pass's listing (D-HOLDERS-LSOF1). The failed scan put back only
+                # the jobs it was for, so the waiting job keeps catch-up pacing;
+                # if the next listing fails too, it puts that job back, and then
+                # the hour applies (review r1, finding 1).
+                delay = RETENTION_CATCH_UP_S
+                self.timers.mark("retention", error="ScanFailed", next_due=after(delay))
+                self.log.warning("retention: holder scan failed; %d jobs wait for their holder check 2; "
+                                 "next pass in %g seconds", len(result["awaiting_check2"]), delay)
+                self._last_maintenance = time.monotonic() - RETENTION_INTERVAL_S + delay
+                return
             # Quarantining and rolling back is action, but another batch cannot
             # retire jobs while the shared process listing is unavailable.
             self.timers.mark("retention", error="ScanFailed", next_due=after(RETENTION_INTERVAL_S))

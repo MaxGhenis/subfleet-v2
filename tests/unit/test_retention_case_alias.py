@@ -37,6 +37,10 @@ from subfleet.adapters.base import AdapterError
 from tests.unit.retention_world import World, git, snapshot
 from tests.unit.test_retention_shared_folders import nested_repository, run
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def tree_and_alias(daemon, harness, where: str) -> tuple[Path, str, Path, str]:
     """A finished job `Job` with its own worktree under the state root, as retention

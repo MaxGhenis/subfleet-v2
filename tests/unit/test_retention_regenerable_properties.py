@@ -49,6 +49,11 @@ from subfleet import retention
 from subfleet import retention_archive as rarch
 from subfleet import retention_git as rgit
 from tests.unit.retention_world import World, git, snapshot
+import pytest
+
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
 
 EXAMPLES = int(os.environ.get("RETENTION_PROP_EXAMPLES", "8"))
 PHASES = ((Phase.explicit, Phase.reuse, Phase.generate) if os.environ.get("RETENTION_PROP_NO_SHRINK")

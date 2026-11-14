@@ -17,6 +17,11 @@ from subfleet import dependencies, folders, retention
 from subfleet.store import Store
 from tests.fake.test_retention_dependency_spelling import alias_waits
 from tests.unit.test_retention_folded_pin import ID, respelled
+import pytest
+
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
 
 TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 STATES = ("queued", "waiting", "running", *TERMINAL)

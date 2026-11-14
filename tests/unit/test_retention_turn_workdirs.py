@@ -1,6 +1,11 @@
 """Review 4: live turn cwd guards use the live-state index."""
 from subfleet import retention
 from tests.unit.retention_world import World, trust_temporary_directories
+import pytest
+
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
 
 
 def test_live_turn_workdir_guard_uses_an_index(tmp_path, monkeypatch):

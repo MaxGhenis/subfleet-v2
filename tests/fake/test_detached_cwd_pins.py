@@ -15,6 +15,10 @@ from tests.fake.test_writer_retention_fence import checkout, measured as measure
 from tests.unit.retention_world import git
 from tests.unit.test_retention_shared_folders import retiring_tree
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def measured(daemon, harness):
     measure_fixture(daemon, harness)

@@ -16,11 +16,17 @@ does not hold, and the archive is read back before the job's rows go. A pass:
 2. picks the oldest unpinned jobs of each pool over its budget, a bounded batch,
    without sizing the whole tree first (sizes are measured lazily, cached, and
    only a lower bound is needed to know a pool is over);
-3. quarantines them and checks, with one process listing for the batch, that
-   nothing holds them;
-4. archives each within a time slice (a job that needs more is parked with its
-   progress and continues next pass; the others go on);
-5. checks holders again, re-validates every signature, commits, and deletes.
+3. quarantines them, then takes one process listing for the whole pass: it
+   checks that nothing holds the jobs just quarantined (check 1) and the jobs
+   whose archive ended in an earlier pass (check 2), and each of the latter
+   that nothing holds is re-validated, committed and deleted at once;
+4. archives each quarantined job within a time slice (a job that needs more is
+   parked with its progress and continues next pass; the others go on). A job
+   whose archive ends here waits, archived, for the next pass's listing.
+
+A listing serves a job's check only if it started after the event the check
+covers (the job's quarantine, the end of its archive), by the stamps the
+journal keeps (D-HOLDERS-LSOF1), so a pass takes at most one listing.
 
 A busy, changed or failing job is put back and deferred, so the queue keeps
 moving; progress survives an interruption so the driver can retry promptly.
@@ -29,6 +35,7 @@ moving; progress survives an interruption so the driver can retry promptly.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil  # noqa: F401  (kept for callers that patch it)
 import subprocess
@@ -48,10 +55,14 @@ from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
-from . import dependencies, folders, procs
+from . import dependencies, folders, procs, refusals
 from .attempt_tmp import cleared_tmpdirs, job_tmpdirs, probe_tmpdir_rows
-from .retention_holders import ScanFailed, lsof_holders
+from .retention_holders import ScanFailed, lsof_holders, reader_name
 from .store import Store
+
+#: Where a pass's listing lines go when its caller passes no logger (the daemon
+#: passes its own, so they land in `daemon.log`).
+LOG = logging.getLogger("subfleet.retention")
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 
@@ -390,6 +401,9 @@ class RetentionState:
     #: Orphan leases recovered before an interruption or a full batch. Keep
     #: their priority until selection, even though the leases were released.
     leftovers: set[str] = field(default_factory=set)
+    #: The latest holder-check stamp given (`rarch.Context.stamp`): every later
+    #: one is later still, even after the journal that recorded it is gone.
+    stamp_floor: int = 0
 
     def defer(self, job_id: str, seconds: float, reason: str, now: float) -> None:
         self.deferred[job_id] = (now + seconds, reason)
@@ -418,7 +432,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 holders: Callable[..., dict[str, list[str]]] | None = None,
                 clock: Callable[[], float] | None = None, batch: int = BATCH,
                 slice_s: float = SLICE_S, measure_s: float | None = None,
-                remote_less_history_bytes: int | None = RETENTION_REMOTE_LESS_HISTORY_BYTES) -> dict[str, Any]:
+                remote_less_history_bytes: int | None = RETENTION_REMOTE_LESS_HISTORY_BYTES,
+                log: logging.Logger | None = None, stamp: Callable[[], int] | None = None) -> dict[str, Any]:
     """Retire the oldest unpinned terminal jobs of each pool over its budget.
 
     Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
@@ -432,7 +447,12 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     every file, including paths salvage skipped, still needs archive verification. A job
     whose baseline no network remote holds, and whose bundle would carry more
     than `remote_less_history_bytes` of history, is kept (`remote-less-history`;
-    None: no limit).
+    None: no limit). Every holder listing writes one line to `log` (default
+    `LOG`), and the result counts them (`listings`) and their seconds
+    (`listing_s`). A pass takes at most one listing; `stamp` is the wall clock
+    (integer nanoseconds) the holder check's ordering stamps read. A job left
+    archived for the next pass's listing is in `awaiting_check2` and keeps the
+    pass reporting more work and progress, so the daemon comes back in seconds.
     """
     budgets = {"detached": (max_jobs, max_bytes), "turn": (turn_max_jobs, turn_max_bytes)}
     if any(limit < 0 for pair in budgets.values() for limit in pair) or turn_keep_s < 0:
@@ -442,6 +462,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
                                 "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
                                 "progressed": False, "holder_scan_failed": False, "tmpdir_left": [],
+                                "listings": 0, "listing_s": 0.0, "listing": None, "awaiting_check2": [],
                                 **dict.fromkeys(FREED_KEYS, 0)}
     try:
         _checkpoint(cancel, deadline, clock=clock)
@@ -453,7 +474,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 explicit=set(referenced_job_ids), salvage_referenced_elsewhere=salvage_referenced_elsewhere,
                 cancel=cancel, deadline=deadline, state=state, holders=holders or lsof_holders, clock=clock,
                 batch=batch, slice_s=slice_s, measure_s=measure_s, progress=progress,
-                remote_less_history_bytes=remote_less_history_bytes)
+                remote_less_history_bytes=remote_less_history_bytes, log=log or LOG, stamp=stamp)
     try:
         return run.run()
     except (_Interrupted, rarch.Interrupted, rgit.Cancelled) as exc:
@@ -461,13 +482,16 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
         return {**progress, "protected": sorted(job["job_id"] for job in jobs), "bytes_after": None,
                 "jobs_after": len(jobs), "interrupted": "cancelled" if "cancel" in str(exc) else str(exc),
                 "more": True, "progressed": run.acted > 0}
+    finally:
+        state.stamp_floor = max(state.stamp_floor, run.ctx.stamp_floor)
 
 
 class _Pass:
     def __init__(self, store, root, *, budgets, turn_keep_s, pins, explicit, salvage_referenced_elsewhere,
                  cancel, deadline, state, holders, clock, batch, slice_s, measure_s, progress,
-                 remote_less_history_bytes=RETENTION_REMOTE_LESS_HISTORY_BYTES):
+                 remote_less_history_bytes=RETENTION_REMOTE_LESS_HISTORY_BYTES, log=LOG, stamp=None):
         self.store = store
+        self.log = log
         self.root = root
         self.budgets = budgets
         self.turn_keep_s = turn_keep_s
@@ -485,7 +509,11 @@ class _Pass:
         self.progress = progress
         self.errors: list[dict[str, str]] = progress["errors"]
         self.ctx = rarch.Context(root, store, cancel=cancel, clock=clock, pinned=self._pinned_at_commit,
-                                 remote_less_history_bytes=remote_less_history_bytes, deadline=deadline)
+                                 remote_less_history_bytes=remote_less_history_bytes, deadline=deadline,
+                                 stamp_clock=stamp or time.time_ns, stamp_floor=state.stamp_floor)
+        #: Jobs whose check 2 this pass's listing passed: the only ones that may
+        #: take the final check this pass (no job finishes without check 2).
+        self.check2: set[str] = set()
         self.sizes: dict[str, int] = {}
         #: Jobs whose size could not be measured: decided, size unknown (N2).
         self.unknown: set[str] = set()
@@ -591,6 +619,12 @@ class _Pass:
         now = self.clock()
         waiting = False
         chosen: list[str] = []
+        retirements = {job_id: rarch.Retirement(self.ctx, job_id) for job_id in in_flight}
+        # Jobs archived in an earlier pass take check 2 from this pass's listing
+        # and finish right after it, so they hold no place in the batch and do
+        # not stop the first start past the deadline: each pass commits the
+        # last pass's archives and starts the next ones under one listing.
+        finishing = {job_id for job_id, retirement in retirements.items() if retirement.state == "archived"}
         for job in sorted(jobs, key=lambda job: job["job_id"] not in self.leftovers):
             job_id = job["job_id"]
             pool = _pool(job)
@@ -604,32 +638,41 @@ class _Pass:
                 self.errors.append({"job_id": job_id, "error": "invalid job directory name"})
                 protected.add(job_id)
                 continue
-            if len(in_flight) + len(chosen) >= self.batch:
+            if len(in_flight) - len(finishing) + len(chosen) >= self.batch:
                 waiting = True          # an eligible job waits for the next pass
                 break
             chosen.append(job_id)
             counts[pool] -= 1
             totals[pool] -= self.sizes.get(job_id, 0)
-        retirements = {job_id: rarch.Retirement(self.ctx, job_id) for job_id in in_flight}
         for job_id in chosen:
             self.ctx.check()
             # Slow recovery or pin reads must still permit the first job.
-            if self.deadline is not None and self.clock() >= self.deadline and retirements:
+            if self.deadline is not None and self.clock() >= self.deadline and set(retirements) - finishing:
                 waiting = True
                 break
             retirement = self._start(by_id[job_id], protected)
             if retirement is not None:
                 retirements[job_id] = retirement
-        self._check_holders(retirements, second=False)
-        archived: dict[str, rarch.Retirement] = {}
+        # One listing, after the quarantines: check 1 for the jobs quarantined
+        # before it, check 2 for those archived before it (D-HOLDERS-LSOF1).
+        # Each job check 2 passes takes the final check and commits now, close
+        # to the listing; one archived later in this pass waits for the next.
+        for job_id in self._holder_listing(retirements):
+            # The deadline limits starts; verified archives finish this pass.
+            self.ctx.check()
+            retirement = retirements.get(job_id)
+            if retirement is not None and retirement.state == "archived":
+                self._finish(retirement, protected)
         sliced = False
         # Least recently sliced first (never sliced first of all, oldest first
         # among them): the pass's time goes round the in-flight jobs (N3).
         for job_id in sorted(retirements, key=lambda job_id: self.state.sliced.get(job_id, float("-inf"))):
             retirement = retirements[job_id]
             self.ctx.check()
-            if retirement.state == "archived":
-                archived[job_id] = retirement
+            if retirement.state != "quarantined":
+                continue          # finished, put back, or archived and waiting for its check 2
+            if not retirement.journal.get("check1"):
+                self.progress["in_flight"].append(job_id)       # check 1 waits for a later listing
                 continue
             # Give at least one job its slice even if pre-selection work used
             # the entire deadline and grace. Later slices keep the pass bound.
@@ -651,14 +694,12 @@ class _Pass:
                 if retirement.last_work:
                     self.acted += 1       # a slice that only re-walked cached entries changed nothing
             else:
-                self.acted += 1
-                archived[job_id] = retirement
-        self._check_holders(archived, second=True)
-        for job_id, retirement in archived.items():
-            # The deadline limits starts; verified archives finish this pass.
-            self.ctx.check()
-            if retirement.state == "archived":
-                self._finish(retirement, protected)
+                self.acted += 1           # archived: its check 2 is the next pass's listing
+        # An archived job waits for the next pass's listing: the pass reports
+        # more work and progress, so the daemon comes back in seconds, not the hour.
+        awaiting = [job_id for job_id, retirement in retirements.items() if retirement.state == "archived"]
+        self.progress["awaiting_check2"] = awaiting
+        self.progress["in_flight"].extend(job_id for job_id in awaiting if job_id not in self.progress["in_flight"])
         after = {name: pools[name]["bytes_before"] for name in pools}
         jobs_after = {name: pools[name]["jobs_before"] for name in pools}
         for job_id in self.progress["pruned"]:
@@ -684,8 +725,8 @@ class _Pass:
         remaining = [job["job_id"] for job in jobs if job["job_id"] not in self.progress["pruned"]]
         result = {**self.progress, "protected": sorted(protected - set(self.progress["pruned"])),
                 "bytes_before": before, "bytes_after": sum(after.values()),
-                "jobs_after": len(remaining), "pools": pools, "more": more, "progressed": self.acted > 0,
-                "pin_reasons": reasons}
+                "jobs_after": len(remaining), "pools": pools, "more": more,
+                "progressed": self.acted > 0 or bool(awaiting), "pin_reasons": reasons}
         if more and self.deadline is not None and self.clock() >= self.deadline:
             result["interrupted"] = "deadline"
         return result
@@ -714,6 +755,9 @@ class _Pass:
         with self.store.transaction("retention.fence_released", data={"reason": "stale"}) as conn:
             conn.execute("DELETE FROM leases WHERE lease_key LIKE 'retire:%' AND holder LIKE 'resume:%' "
                          "AND acquired_at<?", (stale,))
+        for journal in found.values():
+            if not isinstance(journal, Exception):
+                self.ctx.saw(journal)              # every stamp given from now on is later
         for job_id, journal in found.items():
             self.ctx.check()
             if isinstance(journal, Exception):
@@ -936,46 +980,131 @@ class _Pass:
             return None
         return retirement
 
-    def _check_holders(self, retirements: dict[str, rarch.Retirement], *, second: bool) -> None:
-        wanted = {job_id: r for job_id, r in retirements.items()
-                  if r.state == ("archived" if second else "quarantined") and (second or not r.journal.get("check1"))}
+    def _holder_listing(self, retirements: dict[str, rarch.Retirement]) -> list[str]:
+        """The pass's one holder listing (design 8, D-HOLDERS-LSOF1).
+
+        It serves check 1 for every quarantined job not yet checked, and check 2
+        (also matching the archived inodes) for every archived job, but only a
+        job whose event (its quarantine; the end of its archive) is stamped
+        before the listing's own stamp, taken first: a listing serves no check
+        on anything that happened after it started. None is taken when no job
+        needs a check. A busy job is put back; a failed listing (or cwd scan)
+        puts back every job it was to serve. Returns the jobs whose check 2 it
+        passed, in batch order: only they may take the final check this pass.
+        """
+        started = self.ctx.stamp()
+        first = {job_id: r for job_id, r in retirements.items() if r.state == "quarantined"
+                 and not r.journal.get("check1") and _stamped(r.journal, "quarantined_stamp") < started}
+        second = {job_id: r for job_id, r in retirements.items() if r.state == "archived"
+                  and _stamped(r.journal, "archived_stamp") < started}
+        wanted = {**first, **second}
         if not wanted:
-            return
+            return []
+        #: Jobs whose watch could not be built (check 2 reads the job's manifest
+        #: for its archived inodes): each is put back alone, as an error, and
+        #: never fails the listing for the rest (review r1, finding 4).
+        unreadable: dict[str, str] = {}
         try:
             # Recheck the moved owned tree too, including a resumed retirement.
-            # A cwd hold needs no lsof and never includes its command strings.
+            # A cwd hold needs no listing and never includes its command strings.
             busy = {}
             for job_id, retirement in wanted.items():
                 if retirement.journal.get("worktree"):
                     pids = procs.worktree_cwd_pids(retirement.q_worktree)
                     if pids:
                         busy[job_id] = [f"pid {pid}: cwd in worktree" for pid in sorted(pids)]
-            watches = {job_id: r.watch(inodes=second) for job_id, r in wanted.items() if job_id not in busy}
+            watches = {}
+            for job_id, retirement in wanted.items():
+                if job_id in busy:
+                    continue
+                try:
+                    watches[job_id] = retirement.watch(inodes=job_id in second)
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    unreadable[job_id] = f"manifest: {type(exc).__name__}: {exc}"
             if watches:
-                busy.update(self.holders(watches, cancel=self.cancel))
+                checks = {"first" if job_id in first else "second" for job_id in watches}
+                self.progress["listing"] = {
+                    "stamp": started,
+                    "first": {job_id: _stamped(first[job_id].journal, "quarantined_stamp")
+                              for job_id in watches if job_id in first},
+                    "second": {job_id: _stamped(second[job_id].journal, "archived_stamp")
+                               for job_id in watches if job_id in second}}
+                busy.update(self._listing(watches, "both" if len(checks) == 2 else checks.pop()))
         except (ScanFailed, procs.InspectionError) as exc:
             if self.cancel is not None and self.cancel.is_set():
                 raise rarch.Interrupted("cancelled") from exc
-            self.progress["holder_scan_failed"] = True
-            for job_id, retirement in wanted.items():
-                self._rollback(retirement, "holder scan failed", rarch.DEFER_SCAN_FAILED_S, str(exc))
-                retirements.pop(job_id, None)
-            return
+            self._unreadable(unreadable, wanted, retirements)
+            self._scan_failed(wanted, retirements, str(exc))
+            return []
         except (OSError, ValueError) as exc:
-            self.progress["holder_scan_failed"] = True
-            for job_id, retirement in wanted.items():
-                self._rollback(retirement, "holder scan failed", rarch.DEFER_SCAN_FAILED_S, str(exc))
-                retirements.pop(job_id, None)
-            return
+            self._unreadable(unreadable, wanted, retirements)
+            self._scan_failed(wanted, retirements, str(exc))
+            return []
+        self._unreadable(unreadable, wanted, retirements)
+        passed = []
         for job_id, retirement in wanted.items():
             if busy.get(job_id):
                 self._rollback(retirement, "busy", rarch.DEFER_BUSY_S, "; ".join(busy[job_id][:3]))
                 retirements.pop(job_id, None)
-            elif not second:
+            elif job_id in first:
                 retirement.save(check1=True)
+            else:
+                self.check2.add(job_id)
+                passed.append(job_id)
+        return passed
+
+    def _unreadable(self, unreadable: dict[str, str], wanted: dict[str, rarch.Retirement],
+                    retirements: dict[str, rarch.Retirement]) -> None:
+        """Put back each job whose watch could not be built, alone: an error of
+        that job (the final check treats an unreadable manifest the same way),
+        not a failed listing, so the batch goes on and `holder_scan_failed`
+        stays unset (review r1, finding 4)."""
+        for job_id, detail in unreadable.items():
+            retirement = wanted.pop(job_id)
+            self._rollback(retirement, "error", rarch.DEFER_ERROR_S, detail)
+            retirements.pop(job_id, None)
+
+    def _scan_failed(self, wanted: dict[str, rarch.Retirement], retirements: dict[str, rarch.Retirement],
+                     detail: str) -> None:
+        """Fail closed: every job the listing was to serve is busy."""
+        self.progress["holder_scan_failed"] = True
+        for job_id, retirement in wanted.items():
+            self._rollback(retirement, "holder scan failed", rarch.DEFER_SCAN_FAILED_S, detail)
+            retirements.pop(job_id, None)
+
+    def _listing(self, watches: dict[str, Any], check: str) -> dict[str, list[str]]:
+        """One whole-machine holder listing for `watches`: counted, timed (wall
+        seconds, whatever the pass's clock) and logged in exactly one line, ok
+        or failed with the reason (D-HOLDERS-LSOF1; nothing logged a successful
+        listing before, so nobody could count them)."""
+        reader = reader_name(self.holders)
+        started = time.perf_counter()
+        outcome, busy = "ok", None
+        try:
+            busy = self.holders(watches, cancel=self.cancel)
+            return busy
+        except BaseException as exc:
+            # Scrubbed as the daemon's other retention error lines are (review
+            # r1, finding 5): `lsof`'s stderr tail, a timeout or an OS error.
+            outcome = "failed: " + refusals.scrubbed_line(" ".join(str(exc).split()) or type(exc).__name__, 300)
+            raise
+        finally:
+            seconds = time.perf_counter() - started
+            self.progress["listings"] += 1
+            self.progress["listing_s"] = round(self.progress["listing_s"] + seconds, 3)
+            stats = getattr(busy, "stats", None) or {}
+            detail = "".join(f" {key}={value}" for key, value in stats.items())
+            self.log.log(logging.INFO if outcome == "ok" else logging.WARNING,
+                         "retention: holder listing check=%s jobs=%d reader=%s seconds=%.2f %s%s",
+                         check, len(watches), reader, seconds, outcome, detail if outcome == "ok" else "")
 
     def _finish(self, retirement: rarch.Retirement, protected: set[str]) -> None:
         job_id = retirement.job_id
+        if job_id not in self.check2:
+            # No job reaches its final check without check 2 from a listing that
+            # started after its archive ended (D-HOLDERS-LSOF1, invariant 4).
+            self.progress["in_flight"].append(job_id)
+            return
         try:
             retirement.final_check()
             # C-12.10 (P3-2): a cleared allocation pins nothing, so a job can go
@@ -1090,6 +1219,13 @@ class _Pass:
             self.errors.append({"job_id": job_id, "error": f"rollback failed: {type(exc).__name__}: {exc}"})
         self.state.defer(job_id, seconds, reason, self.clock())
         self.progress["deferred"][job_id] = reason + (f": {detail}" if detail else "")
+
+
+def _stamped(journal: dict[str, Any] | None, key: str) -> int:
+    """A journal's stamp (`rarch.STAMPS`); 0 for one written before stamps
+    existed, which a listing started in this pass necessarily follows."""
+    value = (journal or {}).get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 #: Rollback reasons after which the job is in use again: its cache is dropped.

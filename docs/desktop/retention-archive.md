@@ -328,7 +328,8 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    back. A gone tree must still be absent, including from a sibling
    quarantine. `git worktree move` refuses a locked tree (the sweep never
    forces); these checks also cover a move already in flight before the lock.
-5. **Holder check 1** (one `lsof` for the whole batch, section 8).
+5. **Holder check 1** (the pass's one listing, after the batch's quarantines,
+   section 8).
 6. **Archive**, within the job's time slice (default 120 s): list, with git,
    the worktree's tracked and untracked-unignored paths (again after the
    walk, section 7); walk the trees
@@ -340,7 +341,10 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    sha256. A job whose slice runs out is parked in quarantine with its progress
    and continues in the next pass. A slice stops only between files and only
    after it has written new progress, so every pass moves a parked job forward.
-7. **Holder check 2** (one `lsof`, also matching the archived inodes).
+7. **Holder check 2** (the next pass's listing, also matching the archived
+   inodes, section 8). A job archived in a pass waits archived for that
+   listing, which must have started after its archive ended; steps 8 and 9
+   follow it in the same pass. No job takes step 8 without check 2.
 8. **Final check**: walk every tree again; every entry must still be there with
    its archived signature (a file that had other links and whose ctime alone
    moved: with its archived bytes, section 9), and nothing may have been
@@ -567,7 +571,26 @@ about 50. The per-file rules keep the relief the whole-entry rule gave.
 
 ## 8. Holder check
 
-`lsof -n -P -w -F pcftaDin` once per check per pass, for the whole batch. A
+One listing (`lsof -n -P -w -F pcftaDin`) a pass at most, for the whole batch,
+after the pass's quarantines and none when no job needs a check
+(D-HOLDERS-LSOF1). It serves check 1 for the jobs quarantined before it and check
+2 for the jobs archived in an earlier pass; a job archived in this pass waits for
+the next pass's listing. A listing serves a check only if it started after the
+check's event (the quarantine; the end of the archive): each event's stamp is
+saved in the job's journal (`quarantined_stamp`, `archived_stamp`), and the
+listing takes its own stamp before its cwd scan. Stamps are nanoseconds, each
+above every stamp the daemon has seen in a journal (`Context.stamp`), so a clock
+stepped back or a restart cannot order a listing before an event that preceded
+it; a journal written before stamps existed reads as 0, which only says it was
+saved before this pass. The comparison is defence the code's order already
+guarantees, and no test can reach it (review r1, finding 2): every quarantine a
+listing could serve ran before the listing took its stamp, every archive it could
+serve ended in an earlier pass (this pass archives only after its listing), and
+recovery raises the floor above every journal's stamps before the listing stamps,
+so the comparison never refuses a job; replaced by `True`, it survives every test
+(fix round 1's mutant 1). It stays so a future caller that lists earlier, or a
+journal stamped by a clock it never saw, still can't be served by a listing that
+began first. The cwd scan of moved worktrees still runs first. A
 process holds a job if it has its current or root directory, a text or memory
 mapping, any directory descriptor, or a descriptor open for writing, under the
 job's quarantine, its original paths, or its admin directory, or at the second
@@ -575,7 +598,27 @@ check on one of the archived (device, inode) pairs (regenerable ones
 included: a process running from the job's virtualenv holds it). A read-only
 descriptor on a file is not a hold. The check fails closed: `lsof` missing,
 failing or timing out (15 minutes) defers the batch. `lsof` runs under the
-retention clamp (section 12).
+retention clamp (section 12). Check 2 reads each job's manifest for its archived
+inodes, one job at a time: a manifest that can't be read puts back that job
+alone, as an error (`error: manifest: ...`, the error backoff), before the
+listing, which still serves the rest. It neither fails the listing nor sets
+`holder_scan_failed` (review r1, finding 4); the final check treats an
+unreadable manifest the same way.
+
+Every listing a pass takes writes one line to `daemon.log` (D-HOLDERS-LSOF1):
+`retention: holder listing check=<first|second|both> jobs=<n> reader=<name>
+seconds=<s>`, then `ok` (with what the reader asked about, counts only, such as
+`processes=`) or `failed: <reason>`, the reason scrubbed by
+`refusals.scrubbed_line` as the daemon's other retention error lines are (review
+r1, finding 5). A pass's result counts its listings (`listings`) and their wall
+seconds (`listing_s`), with the last listing's stamps (`listing`) and the jobs
+waiting for check 2 (`awaiting_check2`). The read-only survey (`subfleet
+retention survey`, section 13) takes its own listing in the CLI's process and
+writes no such line (review r1, finding 3): it has no `daemon.log`, its report
+already gives the listing's seconds (`holders.scan_seconds`) and any failure
+(`notes`), and the line exists to count the daemon's listings, which the survey's
+is not. Its estimate counts one listing a pass, and one more pass for the last
+batch's check 2.
 
 ## 9. Verified deletion
 
@@ -817,7 +860,10 @@ until they expire.
 
 ## 12. Progress
 
-- **Oldest first, a bounded batch** (32 jobs, in-flight ones included).
+- **Oldest first, a bounded batch** (32 jobs, in-flight ones included, except
+  those archived in an earlier pass: they finish under this pass's listing, so
+  each pass commits the last pass's archives and starts the next batch under
+  one listing).
 - **No sizing before acting.** A pool over its job count needs no sizes. Sizes
   are measured lazily, oldest first, cached for six hours, and only until a
   pool's lower bound passes its byte budget. A stale size is a scheduling input
@@ -830,13 +876,15 @@ until they expire.
   finishes. In-flight jobs are sliced least recently sliced first (never
   sliced first, oldest first among those), so jobs that park take turns
   instead of queueing behind the first.
-- **Deadlines.** A started batch finishes committing its verified archives,
-  even past the deadline. Slow pre-selection work still permits the first job
-  and at least one archive slice; subsequent starts and slices remain bounded.
+- **Deadlines.** The jobs whose check 2 the pass's listing passed finish
+  committing, even past the deadline. Slow pre-selection work still permits the
+  first job (unless only jobs archived earlier are in flight) and at least one
+  archive slice; subsequent starts and slices remain bounded.
 - **Deferral.** A busy, changed or failing job is put back and skipped until its
   deferral ends, so the queue never waits on it.
 - **Pacing.** The daemon runs a pass hourly. While a batch reports more waiting
-  (a parked job, a full batch, undecided sizes) and advances, the next runs 5 s
+  (a parked job, a full batch, undecided sizes, a job archived and waiting for
+  its check 2, which also counts as advancement) and advances, the next runs 5 s
   later ("retention catch-up: ..." in the daemon log). A newly cached size,
   archive work, publication, deferral or verified deletion is advancement, even
   before the first prune or while a committed journal has a blocked remnant.
@@ -847,7 +895,11 @@ until they expire.
   precedence, marks `CancelledError` and rearms the hour. A completed or
   non-advancing batch also waits the hour. A failed batch holder scan marks
   `ScanFailed` and waits the hour even after quarantine or rollback, since another
-  batch would need the same unavailable listing. Status is marked before the hour is
+  batch would need the same unavailable listing, unless a job archived in that
+  pass waits for its check 2 (a scan failed for another job, or the listing failed
+  before a parked job archived): then the next pass comes 5 s later, still marked
+  `ScanFailed`, so that job takes the next listing; if that listing fails too, it
+  puts the job back and the hour applies (review r1, finding 1). Status is marked before the hour is
   rearmed; failed bookkeeping leaves retention due. The service-notice prune
   runs first, once per retention call (one bounded batch), and its failure is
   logged without failing job retention. The worker pool has one more thread for retention.
@@ -941,7 +993,9 @@ Each is tested (section 16).
   trees at their original paths.
 - **I7, quiescence.** No commit while a process holds a cwd, root, directory
   descriptor, writable descriptor or mapping in the job's trees; a failed
-  listing counts as busy.
+  listing counts as busy. No job takes its final check without check 2 from a
+  listing that started after its archive ended, and a pass takes at most one
+  listing (D-HOLDERS-LSOF1).
 - **I8, verified before deletion.** No deletion is authorized by an archive
   whose stored files, bundle or omitted blobs did not read back.
 - **I9, progress.** Every pass retires, parks with new progress, measures, or
@@ -1154,6 +1208,7 @@ finding:
 | B1, salvage a remote holds | `test_salvage_a_network_remote_already_holds_retires[with-registration, without-registration]`, `test_salvage_is_bundled_and_its_ref_kept`, `test_an_anchor_a_network_remote_already_holds_needs_no_bundle` |
 | N12, bundle cache | `test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move` |
 | Nothing written after the final check deleted | `test_file_written_after_the_final_check_is_kept_in_conflicts`, `test_new_file_before_commit_rolls_back_the_job`, `test_a_swapped_directory_sends_nothing_outside`, `test_a_file_written_into_regenerable_output_after_the_check_is_kept` |
+| One listing a pass, counted and logged; check 2 from a later listing (D-HOLDERS-LSOF1) | `test_retention_listings.py` (every listing one line; `first`, `both`, `second`; a job archived waits for the next listing; stamps; restart with the clock stepped back; a failed listing makes every job busy; `parse`'s per-process rule), `test_retention_listings_properties.py` (invariants 3 to 5 against a plain model) |
 | Slow or interrupted checks defer, no livelock | `test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass`, `test_a_busy_oldest_job_does_not_block_the_queue`, `test_a_failed_process_listing_defers_the_batch`, `test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree`, `test_a_slice_moves_forward_when_one_file_outlasts_it`, `test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it`, `test_parked_jobs_take_turns_at_the_pass_time` |
 | N2, unmeasurable job; daemon backoff | `test_an_unmeasurable_job_is_decided_and_backs_off`, `test_retention_catch_up_waits_the_hour_only_when_a_pass_changes_nothing` |
 | N10, cache kept on error | `test_a_persistent_error_keeps_the_cache_and_backs_off`, `test_an_archive_that_does_not_read_back_authorizes_nothing` |

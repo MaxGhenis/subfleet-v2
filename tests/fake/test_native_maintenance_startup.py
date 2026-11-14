@@ -1,5 +1,6 @@
 """Operator maintenance waits for recovery; failed retention follows its retry clock."""
 import json
+import time
 
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
@@ -7,6 +8,10 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 from subfleet import cli, daemon as daemon_module
 from tests.fake.test_state_contract import state_daemon
 from tests.fake.test_admission_visibility import Inline
+
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +82,12 @@ class _Clock:
 #: sizing; `sized-deadline` got past sizing and ran out of time before its first
 #: prune; `pruning-deadline` ran out of time after pruning a job.
 _OUTCOMES = {'ok': 5.0, 'deadline': 60.0, 'sized-deadline': 60.0, 'pruning-deadline': 60.0, 'cancelled': 1.0,
-             'raise': 0.25, 'advancing-batch': 2.0, 'stalled-batch': 2.0, 'scan-failed': 2.0}
+             'raise': 0.25, 'advancing-batch': 2.0, 'stalled-batch': 2.0, 'scan-failed': 2.0,
+             'scan-failed-waiting': 2.0}
+#: Outcomes after which the next pass comes at `RETENTION_CATCH_UP_S`: an advancing
+#: batch, and a failed holder scan that left a job archived and waiting for its
+#: check 2 from the next pass's listing (D-HOLDERS-LSOF1, review r1 finding 1).
+_CATCH_UP = ('advancing-batch', 'scan-failed-waiting')
 
 
 def _drive(service, monkeypatch, start, gaps, outcomes):
@@ -117,6 +127,9 @@ def _drive(service, monkeypatch, start, gaps, outcomes):
             return {'interrupted': 'deadline', 'pruned': ['job-1'], 'jobs_after': 2, 'bytes_before': 4096}
         if outcome == 'scan-failed':
             return {'more': True, 'progressed': True, 'holder_scan_failed': True, 'jobs_after': 3}
+        if outcome == 'scan-failed-waiting':
+            return {'more': True, 'progressed': True, 'holder_scan_failed': True, 'jobs_after': 3,
+                    'awaiting_check2': ['job-1'], 'in_flight': ['job-1']}
         if outcome in ('advancing-batch', 'stalled-batch'):
             return {'more': True, 'progressed': outcome == 'advancing-batch', 'pruned': []}
         return {}
@@ -193,6 +206,36 @@ def test_a_failed_holder_scan_does_not_reoffer_batches_on_the_catch_up_clock(sta
     assert passes == [(7200.0, 7202.0, 'scan-failed'), (10802.0, 10807.0, 'ok')]
     assert 'retention' not in service._worker_failures
     assert 'retention' not in service._worker_retry_at
+
+
+def test_a_failed_holder_scan_keeps_a_job_waiting_for_check_2_on_the_catch_up_clock(state_daemon, monkeypatch):
+    """C-8.4 (D-HOLDERS-LSOF1, review r1 finding 1): a pass whose scan failed (a cwd
+    inspection, or the listing before a parked job archived) but left a job archived
+    and waiting for its check 2 comes back at `RETENTION_CATCH_UP_S`, still marked
+    `ScanFailed`; before, it rearmed the hour and the job sat archived in quarantine."""
+    service, _ = state_daemon
+    warnings = []
+    monkeypatch.setattr(service.log, 'warning', lambda message, *args: warnings.append(message % args))
+    passes = _drive(service, monkeypatch, 7200.0, [5, 1], ['scan-failed-waiting'])
+    assert passes == [(7200.0, 7202.0, 'scan-failed-waiting'), (7207.0, 7212.0, 'ok')]
+    assert any('1 jobs wait for their holder check 2' in line and 'next pass in 5 seconds' in line
+               for line in warnings), warnings
+    assert not any('next pass in an hour' in line for line in warnings), warnings
+    assert 'retention' not in service._worker_failures and 'retention' not in service._worker_retry_at
+
+
+def test_a_failed_holder_scan_with_a_waiting_job_is_marked_scan_failed(state_daemon, monkeypatch):
+    service, _ = state_daemon
+    service._last_maintenance = 0
+    monkeypatch.setattr(daemon_module, 'maintenance',
+                        lambda *a, **k: {'more': True, 'progressed': True, 'holder_scan_failed': True,
+                                         'awaiting_check2': ['a'], 'jobs_after': 1})
+    service._retention()
+    status = service.timers.status()['retention']
+    assert status['last_error_type'] == 'ScanFailed'
+    # The catch-up clock: due `RETENTION_CATCH_UP_S` after the pass, not the hour after it.
+    assert time.monotonic() - service._last_maintenance >= (daemon_module.RETENTION_INTERVAL_S
+                                                            - daemon_module.RETENTION_CATCH_UP_S)
 
 
 def test_a_raise_after_a_sizing_deadline_starts_its_backoff_over(state_daemon, monkeypatch):
@@ -274,8 +317,10 @@ def _old_jobs(service, *names, kind="dispatch"):
 
 
 def test_the_real_pass_with_slow_selection_still_prunes_and_is_retried(state_daemon, monkeypatch):
-    """Slow pre-selection work must still permit one archive slice and commit;
-    the deadline between batches then retries on the worker clock."""
+    """Slow pre-selection work must still permit one archive slice; the deadline
+    between batches then retries on the worker clock. One listing a pass
+    (D-HOLDERS-LSOF1): the slice's job waits archived for its holder check 2,
+    which the retry's listing gives it, and the retry commits it."""
     from subfleet import retention
     service, _ = state_daemon
     _old_jobs(service, "old-a", "old-b")
@@ -285,6 +330,12 @@ def test_the_real_pass_with_slow_selection_still_prunes_and_is_retried(state_dae
                         lambda *a, **k: (clock.jumped.set(), real_reasons(*a, **k))[1])
     _budget(service, jobs=0)
     service._last_maintenance = 0
+    with pytest.raises(TimeoutError):
+        service._retention()
+    assert service._last_maintenance == 0
+    assert not (service.root / "jobs" / "old-a").exists(), "old-a was quarantined and archived"
+    assert service.store.get_job("old-a") is not None and service.store.get_job("old-b") is not None
+    clock.jumped.clear()                     # the retry: slow pre-selection again
     with pytest.raises(TimeoutError):
         service._retention()
     assert service._last_maintenance == 0
@@ -402,7 +453,7 @@ def test_retention_runs_exactly_when_its_two_clocks_allow(state_daemon, monkeypa
             failures += 1
             retry_at = now + min(60, .5 * 2 ** (failures - 1))
         else:
-            due_in = 5 if outcome == 'advancing-batch' else 3600
+            due_in = 5 if outcome in _CATCH_UP else 3600
             ended, retry_at, failures = now - 3600 + due_in, 0.0, 0
     assert passes == expected
     # The bound itself, stated without the model: a pass that did not fail is
@@ -410,7 +461,7 @@ def test_retention_runs_exactly_when_its_two_clocks_allow(state_daemon, monkeypa
     for (_began_at, ended_at, outcome), (next_began, *_rest) in zip(passes, passes[1:]):
         if outcome in ('raise', 'pruning-deadline', 'sized-deadline'):
             assert next_began - ended_at >= .5
-        elif outcome == 'advancing-batch':
+        elif outcome in _CATCH_UP:
             assert next_began - ended_at >= 5
         else:
             assert next_began - ended_at >= 3600
@@ -491,6 +542,7 @@ def test_retention_log_lines_report_what_the_archives_added(state_daemon, monkey
     {'interrupted': 'deadline', 'progressed': False, 'jobs_after': 3},
     {'more': True, 'progressed': True}, {},
     {'more': True, 'progressed': True, 'holder_scan_failed': True},
+    {'more': True, 'progressed': True, 'holder_scan_failed': True, 'awaiting_check2': ['a']},
 ])
 def test_every_rearm_records_its_status_before_setting_last_maintenance(state_daemon, monkeypatch, result):
     """Bookkeeping failure leaves every outcome due; cancellation wins over progress."""
