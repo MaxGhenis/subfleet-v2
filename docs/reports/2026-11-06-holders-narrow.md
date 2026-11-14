@@ -616,3 +616,168 @@ CI runs the whole suite on push.
 
 Git let me commit every step. HEAD is detached in this job's worktree. The hub
 should move `fix/holders-narrow-217` to the commit that adds this section.
+
+## Fix round 2
+
+Fix job `20261114-125706-hn-fix-r2`, at ec6d40517 (round 1's head plus the
+hub's merge of release/217 at adf66f2e5). It started at 21:08 UTC on
+2026-11-14. Host load ran from 108 to 251, mostly above 175. Tests that take
+seconds in CI took minutes here, so several runs hit my tool's 10-minute limit.
+Each one is listed below with what it reached.
+
+### Cause
+
+CI run 43537300647 (3.12, shard 1/5) failed
+`tests/unit/test_retention_delete_apply.py::test_the_normal_pass_never_takes_a_job_whose_deletion_is_in_flight`
+with `assert ('n-flight' not in [] and 'n-normal' in [])`. I reproduced it at
+ec6d40517: **1 failed** in 61 s.
+
+The injected holder function is read correctly. A diagnostic test (not
+committed) ran the same world and called the normal pass twice at the
+`renamed` step, with one `RetentionState` and a stub that recorded each call
+and returned `{}`:
+
+- **Pass 1.** `holders` was called once. `watches` held only `n-normal`, with
+  no inodes (check 1), and the only keyword was `cancel`. `n-flight` was never
+  watched: it was `protected` (`tree-delete in flight`) at selection. The
+  stub's `{}` meant nothing was busy, so `n-normal` got `check1`, and then
+  its archive in the slice loop. The pass returned `pruned: []`,
+  `awaiting_check2: ["n-normal"]`, `more: true`, `progressed: true`,
+  `listings: 1`, and `holder_scan_failed: false`.
+- **Pass 2.** `holders` was called once, for `n-normal` with its archived
+  inodes (check 2). It returned `{}`, so the check passed, and the final check
+  and the commit followed. The pass returned `pruned: ["n-normal"]`, with
+  `n-flight` still `protected`.
+- **After both passes.** `("retire:n-flight", "retention:n-flight")` was still
+  held.
+
+So an empty mapping still means "nothing holds these files", at both checks.
+`_listing` calls `self.holders(watches, cancel=...)`. It reads the answer as a
+mapping of job id to busy reasons, and it reads `stats` only through
+`getattr(busy, "stats", None) or {}`. A plain `dict` therefore works. The
+test pruned nothing because its one call is one pass. Under #297, a job
+archived in a pass takes check 2, its final check and its commit after the
+next pass's listing.
+
+### Which side was wrong: the test, against a deliberate contract change
+
+#297 changed C-8.4 on purpose. Its 2026-11-07 change-log line says "a job
+archived in a pass finishes after the next pass's listing and keeps catch-up
+due". The clause says: "A job archived in a pass takes check 2, the final
+check and the commit after the next pass's listing; while it waits the pass
+reports more work and progress, so the next pass comes at
+`RETENTION_CATCH_UP_S`, and no job takes its final check without check 2."
+Design §8 (`docs/desktop/retention-archive.md`, step 7) says the same.
+
+C-8.7 and design §18 say only that the pass keeps a marked job, and leaves a
+job whose deletion journal exists to the delete path
+(`retention_marks.kept_for_good`). Neither assumes a job retires in one pass.
+The test came with d2660 (#302) through the release merge, after round 1
+marked the modules whose tests expect one call to retire a job (b9f70bafa).
+It was written against the old one-pass rule.
+
+The holder reader's contract didn't change. `git grep -n "holders=" tests`
+finds 127 sites. Every stub returns a mapping (`{}`, or `{"busy": [...]}`),
+raises `ScanFailed` through a reader, or is `holders=False` for the
+survey. **None needed an update**, and I changed none.
+
+**Fix (2295ecaaf).** `tests/unit/test_retention_delete_apply.py` now carries
+`pytestmark = pytest.mark.retention_catch_up`, with a comment saying why: the
+same fix round 1 gave its six modules. **No assertion changed**: the diff adds
+the marker and its comment only. Invariant 6 is no weaker:
+
+- The in-flight test now keeps `n-flight` through every follow-up pass, not
+  one.
+- `n-normal in pruned` is again a working positive control. Under the one-pass
+  call, nothing could be pruned, so `n-flight not in pruned` held for any
+  code.
+- The module's other `maintenance` caller, the rich test's invariant-6 check,
+  also runs the catch-up. Without a mutant, no job waits for check 2 there,
+  so the catch-up adds no pass, and the call is the one CI passed at
+  ec6d40517. Under mutant 9, it does add passes (below).
+
+The delete path calls no `maintenance` (`grep maintenance
+subfleet/retention_delete*.py` finds nothing), so the marker can't change any
+other test in the module.
+
+**Contract (f050f91fa).** A new change-log line, "C-8.7, C-8.4 (2026-11-14,
+D-HOLDERS-LSOF1 fix round 2 …)", says:
+
+- no clause text changes;
+- beside a deletion in flight, a normal pass archives an unmarked job and
+  retires it after the next pass's listing, and keeps the journalled job and
+  its `retention:<job>` leases through every pass;
+- the holder reader's contract is unchanged, and an empty mapping means
+  nothing holds the watched files;
+- C-8.7's tests that call the normal pass now run the catch-up.
+
+`docs/desktop/retention-archive.md` needed no edit: §8 and §18 already say this.
+
+### Mutants
+
+Both mutants were applied in place, with `git hash-object` checks on every
+file they touched. I didn't use `git checkout` or `git stash`.
+
+| Mutant | State (`git hash-object`) | Test | Result |
+|---|---|---|---|
+| Undo the fix (the test file as at ec6d40517) | `e34f25f1…` = `ec6d40517:` blob | the in-flight test | **failed** in 55 s: `assert ('n-flight' not in [] and 'n-normal' in [])` |
+| Restore the fix | `7c806c26…` = `2295ecaaf:` blob; `git status` clean | the in-flight test | **passed** in 48 s |
+| d2660's mutant 9 (`marks.kept_for_good(...)` → `{}` in `retention.py`), fix in place | `retention.py` `d24f0e6e…`, restored to `331ed567…` = HEAD blob | the in-flight test and the rich test, `-n 2` | **killed, 2 failed** in 393 s. In-flight: `assert 'failed' == 'deleted'` (the normal pass took `n-flight` during its deletion). Rich: `assert ('job-rich' not in ['job-rich'])` (a catch-up pass pruned the marked job) |
+
+So the marker alone turns the test from failing to passing. With it in place,
+invariant 6 still kills mutant 9 in both tests. Under mutant 9, the rich test
+also passed every delete-path assertion before its invariant-6 check, with the
+marker in place.
+
+### Commands and results
+
+Every run used `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`,
+`UV_CACHE_DIR=$TMPDIR/uv-cache`, `uv sync --group dev` (Python 3.15.2),
+`uv run --no-sync [--with 'pytest-xdist>=3.6'] python -m pytest -p
+no:cacheprovider`, and a new `--basetemp` under `$TMPDIR` for each run, with at
+most four workers. The long runs went through a small wrapper, kept in scratch
+and not committed. It started pytest in its own process group, ended that group
+at a deadline under my tool's 10-minute limit, and logged every finished node
+id, so a cut-off run says exactly what passed.
+
+| Command | Result |
+|---|---|
+| the in-flight test alone at ec6d40517 | **1 failed** in 61 s (the CI assertion) |
+| the diagnostic (two passes, recording stub) at ec6d40517 | as in "Cause" above; deleted afterwards |
+| the in-flight test alone with the fix | **1 passed** in 142 s; again **1 passed** in 48 s (the mutant restore) |
+| mutants | as in the table above |
+| `tests/unit/test_census_recycled_pid.py::test_e_recycled_root_never_becomes_a_new_kill_target`, 3 runs | **passed 3 of 3**: 21.6 s, 19.0 s, 58.4 s. I didn't touch census code |
+| `tests/fake/test_state_contract.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py tests/unit/test_test_module_names.py`, plus every test that reads `docs/acceptance-contract.md` (`test_desktop_ledger.py`, `test_protocol_registry.py`, `test_retention_turn_contract.py`, and the four contract tests in `test_live_store_guard_round8/9/10.py`), `-n 4` | cut at 520 s: **427 passed, 0 failed**; the 22 left (by `--deselect` of the 427), `-n 2`: **22 passed** in 381 s. **All 449 passed**: state contract 37, invariants index 25, handler refusals 372, module names 1, the contract readers 14 |
+| every `tests/unit/test_retention_delete_*.py` (211 tests), `-n 4` | cut at 572 s: **2 passed, 0 failed** (load 176 to 236) |
+| `test_retention_delete_apply.py` whole (13), `-n 2` | cut at 541 s: none finished (the rich and dry-run tests were still running) |
+| the other 12 apply tests, `-n 4` | cut at 547 s: none finished (load 251) |
+| the rich test alone, `--timeout 500 --timeout-method thread` | cut at 562 s: didn't finish. pytest-timeout's timer, which starts after collection, hadn't fired, so it was slow, not shown hung |
+
+### What didn't run
+
+- **Every `tests/unit/test_retention_delete_*.py`.** Only 2 of 211 finished.
+  The in-flight test passed alone (twice), and the rich test reached its last
+  invariant-6 assertion under mutant 9. The rich test didn't complete without
+  a mutant. The 11 apply tests that call no `maintenance` can't see the
+  marker. The other 16 delete modules don't carry it. On ec6d40517, CI failed
+  only the in-flight test in this set.
+- **Every `tests/unit/test_retention*.py` and `tests/fake/*retention*.py`**
+  (2,243 tests in 96 modules, by `--collect-only`). Not run. This round
+  changed no code under `subfleet/`, and only one test module, so no other
+  retention test can see the change.
+- **Mutant 9 without the fix.** Not run, so I can't say which assertion of
+  the one-pass rich test would have caught it.
+- **A review of this round.**
+
+CI runs the whole suite on push.
+
+### Commits
+
+- 2295ecaaf: `test_retention_delete_apply.py` marked `retention_catch_up`.
+- f050f91fa: the C-8.7, C-8.4 change-log line.
+- This report section is the next commit.
+
+Git let me commit every step. HEAD is detached in this job's worktree. The hub
+should move `fix/holders-narrow-217` to the commit that adds this section.
+
+Head built: the commit that adds this section, whose parent is f050f91fa.
