@@ -2,7 +2,7 @@
 
 Brief: `~/reviews/subfleet-hub/guard-sync-2026-11-11/brief-build-r1-filled.md` (build r1). An in-session Opus agent ran it in place of lane job 20261111-110910-gs-build-r1. It worked in the worktree `~/subfleet-v2-lanes/guard-sync`, on branch `fix/guard-sync-217`, from `b51f08f961e1b1dcfb93347eb080f9ddd9a9260d` (`origin/release/217`).
 
-Start: 2026-11-11T18:19:54Z (`date -u`, first command). Status: **partial**. Changes 1 and 3 are done, tested and mutation-checked. Change 2 stopped as the brief directs: the repository holds no copy of the two Axiom blocks, so the hub has to supply their text. Only part of test step 2 ran (see Commands).
+Start: 2026-11-11T18:19:54Z (`date -u`, first command). Status: **partial**. Changes 1 and 3 are done, tested and mutation-checked. Change 2 stopped as the brief directs: the repository holds no copy of the two Axiom blocks, so the hub has to supply their text. Only part of test step 2 ran (see Commands). **r2 (2026-11-14): change 2 is done**: the two Axiom blocks are in the overlay, and the pins, tests and mutants are done. Some r2 test runs stopped at their wall caps; see "r2: the two Axiom blocks".
 
 ## The changes
 
@@ -195,3 +195,215 @@ Not run from step 2's 69 files, which CI runs: the other 55 files, among them `t
 - The scripts' originals sit in this session's scratchpad.
 
 Head built: see the commit that adds this report (`git log -1` on `fix/guard-sync-217`). The code head under test is `9f32c6ef003a10e1703d8e1c53c41a869a32a5e6`.
+
+## r2: the two Axiom blocks
+
+Brief: `~/reviews/subfleet-hub/guard-sync-2026-11-11/brief-build-r2-filled.md`, finished under `brief-continue-20261113.md`. Two sessions did the work:
+- **2026-11-12**, an in-session Opus build. It started at 15:46:15Z and a usage limit cut it off. It made commits `c0fa5d1e5`, `de5f8749a` and `f9c83e05a`, and left an uncommitted test file (`wip-20261112/tracked.patch`).
+- **2026-11-14**, lane job 20261113-092038-gs-build-r2c, in a detached checkout at `f9c83e05a`. It started at 2026-11-14T20:45:06Z (`date -u`, first command).
+
+Status: **done; some test runs incomplete.**
+- All five changes are in, and all four mutants are killed.
+- Step 2's four files passed in full.
+- Step 1's file passed in full (51) on the WIP bytes. Those bytes differ from the committed file only in its docstring.
+- At head, a 560 s wall cap stopped the re-run of step 1's file, step 3's `-k` run and step 4, at load 140-250. Each had no failure when stopped (see Commands). CI runs them.
+
+### Supply check
+
+At 20:45Z each supplied file matched:
+
+| File | SHA-256 |
+| --- | --- |
+| `axiom-brief-regime.sh` | `77002282d3c865f10e1f640595ebcbd9a244a024d97e8df97dba9496941bd571` (brief's value) |
+| `hand-authored-rulespec.sh` | `f870acdf650677c3fea2856e1b1044668bad043152b9f7273099353c3595558c` (brief's value) |
+| `claude-prefilter-line.txt` | `c46d8eec748c649daaae06b0982bb5fc0cf6011918a35144d0ea1de06596781f` (recorded) |
+| `claude-harness-excerpt.sh` | `54614037662ce2b2f94827edd4a51f55cadbcce6bf4f0955f33526f47316aa51` (recorded) |
+
+`cmp` shows the three fixtures byte-identical to the supply: the two blocks and `prefilter.txt`.
+
+### The WIP patch
+
+- `git apply` succeeded. `tests/unit/test_guard_sync.py` then matched `SHA256SUMS` (`5cdf815b…f67179`).
+- I read it, and it passed in full as-is (51 tests).
+- I changed two things: the docstring's invariants were out of order (I1, I2, I4, I3), and its r2 bullet was dated 2026-11-12. Both edits went into the commit that adds it (`65b1ee2e5`).
+
+### The changes
+
+1. **Fixtures** (`c0fa5d1e5`, 2026-11-12).
+   - Added `tests/fixtures/guard/claude-blocks/axiom-brief-regime.sh` (21 lines) and `hand-authored-rulespec.sh` (29 lines), byte for byte.
+   - `DriftTests` picked them up with no code change, according to the earlier session's notes: before the overlay edit it failed `axiom-brief-regime 0 != 1`. I did not re-run that state.
+2. **The overlay** (`de5f8749a`, 2026-11-12). Both blocks were pasted byte for byte into `private/guard/never-rules-hook.sh`:
+   - `[axiom-brief-regime]` at `:357-377` and `[hand-authored-rulespec]` at `:378-406`;
+   - after trust-root (`:350`) and before corpus-squash (`:407`), which is the Claude hook's order.
+   - The blocks run unmodified. They use `$command`, `$cwd`, `$HOME`, `block`, `git`, `grep`, `sed`, `awk` and `head`, and the overlay defines each the same way (next section).
+   - Under the overlay's `set -u` every variable the blocks read is assigned first.
+   - `done < <(…)` needs bash, and the overlay runs as `/bin/bash`.
+3. **The prefilter** (`f9c83e05a`, 2026-11-12).
+   - The first literal (`:326`) is again the Claude hook's line 138, up to its `|| exit 0`. It is pinned as `claude-blocks/prefilter.txt`.
+   - The drift note at `:312-325` says what the re-copy adds.
+   - The header also changed: `:3` eleven rules, `:8` nine Bash rule blocks, `:16-20` the drift note, `:70-73` the two rules. So did `:136` and `:2879` ("nine").
+4. **Rule lists** (`65b1ee2e5`).
+   - `RULE_BLOCKS` in `tests/unit/test_guard_sync.py` now holds nine rule blocks in the Claude hook's order.
+   - r1's seven-block order test is now `test_the_overlay_keeps_its_nine_rule_blocks_in_order`.
+5. **Pins** (`17e70955e`).
+   - `private/guard/TRUST`: the new `hook_sha256`, plus one provenance sentence dated 2026-11-14 that ends "installed only after the hub's review and a live hooks/list preflight." `hooks_trust_hash` and `override` did not move.
+   - `tests/unit/test_guard_overlay.py`: the pair, and its docstring ("six dated provenance additions").
+   - `tests/unit/test_guard_subfleet_root.py`:
+     - `GS_HOOK_SHA256` keeps r1's hook and `NEW_HOOK_SHA256` takes the new one.
+     - `GS2_TEXT` is the undo step, run ahead of `GS_TEXT`. It removes the two blocks (read from the fixtures) and restores 8 r1 texts: the prefilter line and its comment, the header's counts, its rule list and its drift note. The pairs were generated from `git diff 4a6482250` and checked to give r1's bytes exactly.
+     - With the step, `rebuild_r2` and `rebuild_old` still hash to `R2_HOOK_SHA256` and `OLD_HOOK_SHA256`.
+     - The new `test_gs_undoing_the_r2_step_gives_the_guard_sync_hook` checks that the step alone gives r1's hook.
+   - `tools/guard_subfleet_root_mutations.py:38`.
+   - `docs/private-guard-overlay.md`: one r2 paragraph, the table, and "six … the guard sync's two".
+
+The re-copied prefilter adds more than the two Axiom terms. It also adds the words of Claude-only rules (`pending_deployments`, `deployment_protection_rule`, `approveDeployments`, `pkill`, `killall`, `pgrep`) and a wider searcher term (`gfind|bfs|fd|fdfind|…|ugrep`, bounded by `[^[:alnum:]_.-]`). The old term admitted a subset of what the new one admits.
+- No overlay block reads those words, so such commands now reach the rule blocks and the unscoped-search region, which judges its own searcher list.
+- The brief's byte identity requires this.
+- I did not measure the extra hook cost on the commands it now admits. Every `git commit` and `pgrep` now runs the full Bash branch.
+
+### How `$command`, `$cwd`, `$HOME` and `git` behave in a lane
+
+- **`$command` and `$cwd`.** The overlay reads `.tool_input.command` and `.cwd` from the payload with jq (`:131-134`), the fields the Claude harness's `run_bash` sets. The tests' Claude-side harness reads them the same way. `$cwd` is the Codex turn's cwd. Each block falls back to it when the command has no `-C`.
+- **`$HOME`.** The overlay keeps the inherited `HOME` (`:112`, `: "${HOME:=/var/empty}"`).
+  - A Codex lane's launch environment is the allowlisted ambient environment. `HOME` is in `OBSERVED_NAMES` (`subfleet/launch_env.py:19-25`).
+  - The Codex adapter then adds `CODEX_HOME`, `SUBFLEET_ATTEMPT` and `SUBFLEET_JOB` but never sets `HOME` (`subfleet/adapters/codex.py:609-612`).
+  - So `~` in `-C ~/…`, `-p ~/…` or `git -C ~/…` expands to the daemon's home, as it does in a Claude session.
+  - If `HOME` were unset, `~` would become `/var/empty`. `[axiom-brief-regime]` would still match the word `TheAxiomFoundation` in a `-C` path, but would miss a `-p ~/…` brief. That is a fail-open the Claude hook shares only if its own `HOME` is unset.
+- **`git -C "$gdir"` in a lane.**
+  - The overlay header (`:94-95`) says the hook runs on the host, outside the sandbox.
+  - Four existing blocks already run `git -C "$cwd"`: corpus-squash, corpus-push, stash-shared and local-main (`:410-465`).
+  - TRUST's provenance records two live lane turns, under codex 0.158.0 and 0.159.0, that `[stash-shared]` denied in a two-worktree scratch repo. That rule denies only when `git -C "$cwd" worktree list` (`:449`) prints more than one line, so a lane's hook has run `git -C` on its cwd.
+  - The two new blocks only read. They run `remote get-url`, `cat-file -e` and `diff --cached --name-only`, and `grep` the brief file. Nothing in either block writes, so a read-only sandbox would not stop them either.
+  - `git` resolves to `/usr/bin/git`, because the hook puts `/usr/bin:/bin` first (`:110`).
+  - Not checked: a live lane run of these two blocks. The brief bars running the installed guard or `subfleet` against live state.
+
+### Invariants and their tests
+
+All of these are in `tests/unit/test_guard_sync.py`.
+1. **Byte identity.**
+   - `DriftTests::test_every_pinned_block_is_in_the_overlay_byte_for_byte`: keychain-dump, axiom-brief-regime and hand-authored-rulespec, each cut by the sync contract.
+   - `::test_each_pinned_block_occurs_once_in_the_overlay`: a raw byte count of 1 for each, plus the two Axiom fixtures' SHA-256.
+   - `::test_the_first_prefilter_literal_is_the_claude_hooks_line`.
+2. **Same decisions.** Both sides read the same Bash payload, the overlay hook (under an empty `CODEX_GUARD_TEST_FSROOT`) and the pinned block alone under a harness whose `block` prints the reason. Each case has its own temporary HOME and git fixtures, rebuilt from the harness excerpt's lines 15-42.
+   - `test_same_decisions_axiom_brief_regime`, 13 cases:
+     - the harness's 4;
+     - a lower-case `encoding` only brief (denied);
+     - a brief path relative to `-C` (allowed: both sides read a relative `-p` against the payload cwd, never `-C`);
+     - a `subfleet run` with no `-p` (allowed);
+     - the regime in another case (denied);
+     - a relative `-p` found in the cwd (denied);
+     - no `-C` with the cwd inside `TheAxiomFoundation` (denied);
+     - a `-p ~/…` brief (denied);
+     - a missing brief (allowed);
+     - `cd <dir> && subfleet run` (allowed: the payload cwd decides).
+   - `test_same_decisions_axiom_hand_authored_rulespec`, 15 cases:
+     - the harness's 5;
+     - a `git -C ~/…` form (denied);
+     - a `.yml` file (denied);
+     - a `regulations/` path (denied);
+     - a manifest in HEAD (allowed);
+     - only the files without a manifest named, in git's order;
+     - a non-rulespec origin (allowed);
+     - `-C` to a missing folder (allowed);
+     - paths outside `<cc>/<kind>/` (allowed);
+     - `git add … && git commit` (allowed: the index is read before the command runs);
+     - `cd /tmp; git -C <repo> commit` (denied).
+   - `test_same_decisions_on_generated_staged_files` (Hypothesis, 40 derandomized examples):
+     - staged lists of up to 6 paths: `<cc>/(statutes|regulations|policies|legislation|programs|notes)/…`, with `.yaml`, `.yml`, `.test.yaml`, `.json`, `.md` or `.YAML` endings;
+     - `composed/` and `.axiom/` paths, each with or without its manifest staged, plus one manifest in HEAD;
+     - each in the cwd, `-C <abs>` and `-C ~/…` forms.
+     - Both hooks must name the files an independent Python oracle names, in its order.
+3. **Order.** `DriftTests::test_the_overlay_keeps_its_nine_rule_blocks_in_order` checks the nine heads in the Claude hook's order, and that both Axiom blocks sit back to back directly before `# --- corpus-squash:`. The file labels this I4, because r1's I3 is the denial invariant.
+
+The pins:
+- `test_guard_overlay.py::test_private_overlay_bytes_remain_the_original_reviewed_pair`;
+- in `test_guard_subfleet_root.py`: `test_gs_undoing_the_r2_step_gives_the_guard_sync_hook`, `test_only_the_roots_the_header_and_the_message_changed`, the `hooks` fixture's rebuild hashes, and `test_trust_*`.
+
+### Mutants
+
+Each mutant was applied alone to the hook in a `git archive` copy of `17e70955e`, never the worktree, and the killer tests were run. The hook was then restored from a pristine copy and checked byte-identical before the next mutant.
+- Copies: `sf-gs-b2/mut-a` and `mut-b`.
+- Selection, in `test_guard_sync.py`, `test_guard_overlay.py` and `test_guard_subfleet_root.py`: `-k "DriftTests or test_private_overlay_bytes or test_gs_undoing or test_only_the_roots"`, plus the rule's `blocked` decision cases for mutants 1-3.
+- Script: `gs_mutants.py`.
+
+| Mutant | Result | Killed by |
+| --- | --- | --- |
+| 1. Drop the hand-authored-rulespec block | 12 failed, 3 passed | `DriftTests::test_every_pinned_block_is_in_the_overlay_byte_for_byte`, `::test_the_overlay_keeps_its_nine_rule_blocks_in_order`, 6 `hand_authored … blocked` decision cases, the overlay pin, `test_gs_undoing_…`, `test_only_the_roots_…` |
+| 2. One byte in axiom-brief-regime (`This brief` → `this brief`) | 12 failed, 3 passed | `DriftTests::test_every_pinned_block_…`, `::test_the_overlay_keeps_its_nine_rule_blocks_in_order` (the adjacency check), 6 `axiom_brief_regime … blocked` cases, the overlay pin, `test_gs_undoing_…`, `test_only_the_roots_…` |
+| 3. The `git([[:space:]]+-C…)?[[:space:]]+commit` term left out of the first prefilter literal | 10 failed, 5 passed | `DriftTests::test_the_first_prefilter_literal_is_the_claude_hooks_line`, 6 `hand_authored … blocked` cases (the overlay allows what the Claude block denies), the overlay pin, `test_gs_undoing_…`, `test_only_the_roots_…` |
+| 4. Swap the two blocks | 4 failed, 5 passed | `DriftTests::test_the_overlay_keeps_its_nine_rule_blocks_in_order`, the overlay pin, `test_gs_undoing_…`, `test_only_the_roots_…` (no decision moves) |
+
+The same selection on the unmutated copy ("mutant-control") passed 11 of 21 before a cap stopped it. Every killer passed at head in another run: quick-pins, step 2, and the full WIP run of the sync file.
+
+### Commands and results
+
+Environment:
+- `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, `PYTHONPATH` unset, scratch `$TMPDIR/sf-gs-b2`.
+- Each pytest run had a fresh `--basetemp`, `-p no:cacheprovider` and `--timeout-method=thread`.
+- The runner (`gs_run.py`) kills the process group at a wall cap.
+- `.venv` uses CPython 3.15.2. pytest-xdist is not in the dev group, so every run was serial.
+- Load ran from 35 to 254.
+
+| Command | Result |
+| --- | --- |
+| `shasum -a 256 supply/*`, `wip-20261112/tracked.patch` | all match (above); patch `2da7bab8…` |
+| `git apply --check` then `git apply tracked.patch`; `shasum` | applied; `5cdf815b…` matches `SHA256SUMS` |
+| `cmp` of the supply against the three fixtures | identical |
+| `uv sync --group dev` | ok (51 s) |
+| `pytest tests/unit/test_guard_sync.py`, WIP bytes, 21:11-21:21Z | **51 passed**, rc 0, 9 min 41 s at load ~148. It ran past the tool's 580 s limit, so the tool moved it to the background, where it finished; nothing outlived it |
+| `gen_undo.py`: the r1 hook from the head hook through `GS2_TEXT` | exact (`34682488…`) |
+| a direct import check of `rebuild_old`, `rebuild_r2` and the strict R3 chain | all three hash to `OLD_HOOK_SHA256` / `R2_HOOK_SHA256` |
+| Step 2: `test_guard_overlay.py test_guard_trust.py test_hooks_native_guard.py test_keychain_exec_guard_properties.py`, one serial run | **148 passed**, rc 0, 175 s |
+| Mutants 1-4 (`gs_mutants.py`) | 4 of 4 killed; each restore identical |
+| Step 1 at head: `test_guard_sync.py` | capped at 560 s (load 141): 32 passed, 0 failed. Collection order puts these first: DriftTests 6, keychain 11, all 13 brief cases, 2 hand cases |
+| Step 3: `test_guard_subfleet_root.py -k "test_gs_ or trust or test_only_the_roots or test_s3_other_rules or overlay_doc"` | capped at 560 s (load 254): 6 passed, 0 failed. These were `test_gs_the_pinned_…` (the `hooks` fixture built, its rebuild hashes held), `test_gs_undoing_…`, the three `test_trust_*` and `test_only_the_roots_…`. `test_s3_other_rules_give_identical_output` was running at the cap |
+| Step 4: `test_state_contract.py test_test_module_names.py test_invariants_index.py test_handler_refusals.py` | capped at 560 s (load 232): 233 passed, 0 failed. In file order that is state_contract 37, module_names 1, invariants_index 25, then 170 of handler_refusals' 362 |
+| mutant-control (unmutated copy) | capped at 400 s: 11 passed, 0 failed |
+| quick-pins: `test_guard_sync.py` and `test_guard_subfleet_root.py -k "DriftTests or test_gs_undoing or test_only_the_roots or test_trust_pins or test_trust_changed or test_trust_keeps or test_r5_the_overlay_doc or test_denial or test_an_override"` | **17 passed**, rc 0, 94 s |
+
+The step 1, 3 and 4 runs and mutant-control ran at once (four processes) while the host's load rose to about 250; that is why all four hit their caps. Not run to completion at head:
+- test_guard_sync.py's last 19 tests (13 hand-authored cases, the staged-file Hypothesis test and the 5 denial tests). They passed in the WIP run, and the 5 denial tests passed again in quick-pins.
+- `test_s3_other_rules_give_identical_output`.
+- 192 of `test_handler_refusals.py`'s 362.
+
+CI runs them.
+
+### Hash pairs
+
+- **New:** hook `6c1beb64d961b0f0225853c7ec3e2434d90026897e3f2dc9627aab5143634d04`, TRUST `2955f02bc22b88e57ee72fc92e7bef61f07d349f2d53d5d156f908e240f2316c`.
+- **Rollback (r1):** hook `34682488eea6a6ef8049407e1c2ecc24fbef3e9eb399236f072f4f7e9e0f3983`, TRUST `680f864e8eea198099b89570914af8348203d53663d5c7b2f80ad193f86b12d9`.
+- At install, the hub stages the new pair into a fresh state root and swaps it in after a live `hooks/list` preflight, as `docs/private-guard-overlay.md` describes. The Claude hook needs no edit for r2.
+
+### Contract
+
+No clause in `docs/acceptance-contract.md` lists the overlay's rules, so I amended nothing. C-14.1 covers the private pair's bytes as a class, and C-26.11 covers which turns run the hook.
+
+`docs/invariants.md` row 49 ("Arm the nine NEVER rules") is v1's inventory, citing `bin/subfleet-guard` lines, so I left it. `test_invariants_index.py` passed (25) inside step 4's capped run.
+
+### Review of the earlier session's commits
+
+I checked `c0fa5d1e5`, `de5f8749a` and `f9c83e05a` against the supply and the r1 hook:
+- the fixtures and the prefilter fixture are `cmp`-identical to the supply;
+- the overlay holds each block once, byte for byte, in the Claude order;
+- the prefilter literal equals the Claude line;
+- the header's counts are right: nine Bash blocks, plus unscoped-search and hf-dest, make eleven rules.
+
+I found nothing wrong and made no fix commit. Its WIP test file needed the two docstring edits above.
+
+### Deviations
+
+1. **Test runs incomplete.** Steps 1 (at head), 3 and 4 hit their wall caps; what each covered is above. Starting four runs at once during a load spike cost these runs. The brief's 2-hour stop left no time to re-run them.
+2. **One run outlived its tool call.** The WIP sync run went past the tool's 580 s limit and was moved to the background. It finished by itself (rc 0) ten minutes after it started, before any other run began. Later runs used a 560 s in-process wall cap.
+3. **Concurrency.** Step 2 ran serially in one process, but up to four pytest processes (different steps, and mutants in archive copies) ran at once. That stays within the brief's four-worker cap.
+4. **The re-copied prefilter admits more commands.** It carries more than the two Axiom terms (above). The brief's byte identity requires this; the extra cost was not measured.
+5. **The provenance date** is 2026-11-14, the build, and it names the brief of 2026-11-11.
+6. **No live lane check of the blocks**, which the brief bars; the lane evidence above is from the repository.
+
+### Folders outside the job's scratch
+
+`$TMPDIR/sf-gs-b2` (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-gs-b2`) held the basetemps, the two archive copies, the pristine hooks, the junit XML and the logs.
+- I copied `results.tsv`, `logs/` and the four scripts to the job's attempt folder, `gs-build-r2-evidence/`.
+- Then I deleted `sf-gs-b2` with a guarded `shutil.rmtree` that asserts `sf-gs-b2` is in the path.
+- I kept `$TMPDIR/uv-cache` (shared) and the worktree's git-ignored `.venv`.
+
+Head built: the commit that adds this section, on top of code head `17e70955e6efc811987a92af371788e31d9f217f`.
