@@ -46,6 +46,9 @@ def desktop(state_daemon, tmp_path, monkeypatch):  # noqa: F811 - the fixture ab
     from subfleet import capacity
     named = capacity.read_desktop_account
     monkeypatch.setattr("subfleet.capacity.read_desktop_account", lambda path=None: named(path or login))
+    named_usage = desktop_app.read_app_usage          # conftest blanks only the default path
+    monkeypatch.setattr("subfleet.desktop_app.read_app_usage",
+                        lambda path=None, **kwargs: named_usage(path or usage, **kwargs))
     capacity.forget_desktop_account()
     desktop_app.forget_app_usage()
     original = daemon.store.get_lane("codex-1")

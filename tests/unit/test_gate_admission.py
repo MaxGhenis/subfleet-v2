@@ -45,6 +45,9 @@ def core(tmp_path, monkeypatch):
     daemon._reset_admission_state()                       # C-6.10, C-6.11: what admission remembers between passes
     daemon.log = logging.getLogger("subfleet.test.gate-admission")
     daemon._desktop_cache = (0.0, daemon_module._UNSET)   # C-10.3: the identity lane's per-window profile cache
+    daemon._desktop_accounts = None                       # C-10.9: parsed desktop.account events, as __init__
+    daemon._desktop_accounts_lock = threading.Lock()
+    daemon._desktop_report_lock = threading.Lock()
     daemon._notify = lambda: None
     daemon._boundary = lambda *args: None
     daemon._publish = lambda role, path, contents: atomic_publish(path, contents)

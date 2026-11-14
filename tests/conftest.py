@@ -56,8 +56,11 @@ def pytest_configure(config):
     config._subfleet_original_home_env = {
         name: None if credential_shaped(name) else os.environ.get(name)
         for name in ("HOME", "PATH", "UV_CACHE_DIR", PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
-                     *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS, *DESKTOP_SESSION_NAMES)
+                     *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
     }
+    # Kept apart from the snapshot above: test_session_credential_env prints that dict,
+    # and a name sorted ahead of its credential names would push them past pytest's cut.
+    config._subfleet_original_desktop_env = {name: os.environ.get(name) for name in DESKTOP_SESSION_NAMES}
     # D-PRR1: the credentials the session inherited leave its environment, and
     # every child's that inherits it, until unconfigure; the store that keeps
     # them prints their names only.
@@ -130,6 +133,14 @@ def pytest_unconfigure(config):
             else:
                 os.environ[name] = value
         del config._subfleet_original_home_env
+    desktop = getattr(config, "_subfleet_original_desktop_env", None)
+    if desktop is not None:
+        for name, value in desktop.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        del config._subfleet_original_desktop_env
     removed = getattr(config, "_subfleet_removed_credentials", None)
     if removed is not None:
         restore_credentials(os.environ, removed)
@@ -377,6 +388,12 @@ def no_desktop_login(monkeypatch):
                         lambda path=None: None if path is None else account(path))
     monkeypatch.setattr("subfleet.capacity.cached_desktop_identity",
                         lambda path=None: {} if path is None else identity(path))
+    # C-10.9: the app's usage file is the same kind of personal record; the default
+    # path is blanked, and a test that names its own file still reads it.
+    from subfleet import desktop_app
+    usage = desktop_app.read_app_usage
+    monkeypatch.setattr("subfleet.desktop_app.read_app_usage",
+                        lambda path=None, **kwargs: None if path is None else usage(path, **kwargs))
     monkeypatch.setattr(ClaudeAdapter, "probe_desktop_profile",
                         lambda self: ProfileResult(PROFILE_UNAVAILABLE, detail="no desktop in tests"))
 

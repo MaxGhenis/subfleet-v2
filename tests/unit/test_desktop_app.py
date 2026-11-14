@@ -191,7 +191,8 @@ def test_c10_9_the_path_is_the_tests_own_and_injectable(tmp_path, monkeypatch):
     monkeypatch.setenv("SUBFLEET_DESKTOP_USAGE", str(target))
     target.write_bytes(usage([raw(ORGS[2], T0)]))
     desktop_app.forget_app_usage()
-    assert desktop_app.read_app_usage().org == ORGS[2]
+    # conftest blanks the default-path read; the resolved path is the session's own
+    assert desktop_app.read_app_usage(desktop_app.app_usage_path()).org == ORGS[2]
     monkeypatch.delenv("SUBFLEET_DESKTOP_USAGE")
     with pytest.raises(RuntimeError, match="SUBFLEET_DESKTOP_USAGE"):
         home_paths.desktop_usage_path()
