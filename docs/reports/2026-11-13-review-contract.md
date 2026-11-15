@@ -575,3 +575,101 @@ Scratch was `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rv-f1` (`$(getc
 **End state.** No process of mine remained (`ps` showed no pytest under these basetemps). The worktree holds no untracked or ignored files, and HEAD moved only by the commits listed at the top.
 
 Code head: 0689f895b79cc11ea1db5111116751825dd53be5.
+
+
+## Fix round 2
+
+Round 2 of PR #313 (d2937, advisory phase), from checkpoint `952c7901923fe884c79f4046258bbfbe8c882eb2`. Started **2026-11-15 19:50:50 UTC**, from `date -u` in the first command; deadline **22:50:50 UTC**. This section supersedes the earlier reports' JSON-stream claim. Final results and cleanup are recorded below.
+
+All three formal findings are fixed. The initial workspace contained an unstaged change to `tools/review_contract_mutations.py`, including the anchor repairs; those changes were preserved and validated. No other initial changes were reported by Git.
+
+- **P1, list-item fences.** `_FENCE` recognized only whitespace and blockquotes before a fence. It missed `- ```text`, then mistook the closer for an opener and hid the actual finding. It now consumes bullet and ordered-list containers, including nested quotes, for both opening and closing fences, preserving the same-character/length and backtick-info-string rules. `test_list_item_fences_hide_examples_and_close_before_real_findings` covers seven container prefixes and both fence characters. The exact review case is also in `test_review_regressions_keep_explicit_counts_in_every_view[list-fence]`: acceptance, evidence, the event, all four online/offline views and restart must retain P1=1, valid=true, consistent=false. All **15 cases failed before** the fix and **passed after**.
+- **P1, numeric finding summaries.** `_TALLY.match` accepted a numeric/count-word prefix and stopped at punctuation without examining the rest of the line. `_TALLY.fullmatch` now requires a complete count expression; any continuation must be another complete level/count pair, with optional terminal punctuation. `test_numeric_or_count_word_summaries_are_findings` covers the three review summaries (`1,000 jobs…`, `500 (Internal Server Error)…`, `Zero (0) requests…`) and four further partial-tally/prose forms. The three review cases also pass through accepted evidence, event, every view and restart, using explicit expected counts rather than a fresh parse as the oracle. All **10 cases failed before** and **passed after**. Existing tally exclusions remain covered by the full parser file.
+- **Quoted indented code, also observed in r2.** The finding container matcher consumed unlimited whitespace after `>`. `_INDENTED_CODE` now excludes four spaces after a quote's separator space, or a tab. `test_indented_code_in_a_quote_is_not_a_finding` covers single and nested quotes: **2 failed before, 2 passed after**.
+- **P2, stale mutation anchors.** The preserved helper changes replace the old gate-review preamble anchor with `is_review_job(...)`, and the inline parse/storage anchor and mutant fallback with `review_result`. Static comparison finds zero matches for those two HEAD anchors and exactly one for every repaired anchor; all five replacements compile. The helper keeps source-byte restoration and named-test/exit-1 kill checks. Its existing scratch/cache changes were preserved; its private pytest plugin now also redirects `tempfile.tempdir` into each mutation directory so fixtures stay inside job scratch. All five execution results and killers appear below.
+
+C-12.11 and a change-log line in `docs/acceptance-contract.md` now specify the container fences, quoted indentation, complete tallies and JSON behavior. No finding is left open.
+
+The PR body's “leaving the JSON and artifact streams as they were” needs correction. Read-only comparison with the checkpoint's merged base (`952c79019^2`, `a4aded885`) and the list/show/wait/notice paths establishes:
+
+- `runs --json` keeps one JSON object per job but adds `review` to every emitted row. Current online show adds the same value at top-level `review` and `job.review`; offline show stays flat and adds `review`. Bare show's metadata object gains those fields too, before its existing delimiter and artifact stream.
+- The saved object has `verdict` (`approve`, `request_changes` or null), integer P0–P3 `levels`, boolean `valid`, string-or-null `reason`, and boolean `consistent`. It is selected from the accepted terminal `task=review` attempt. Other jobs, gate rounds, unfinished/unaccepted reviews and records without a saved dictionary return null. The CLI supplies null in list rows and at the top of show when an older daemon omits the field; it does not add `job.review` inside that older daemon's job object. Reads never reparse artifacts, and a CLI upgrade alone creates no stored results.
+- The new review template changes hashes and sizes of existing `prompt-sent` artifacts, and of manifest artifacts where new preamble metadata is added (read-only reviews and reviews that previously omitted a preamble). There is no new prompt-prepared artifact row; the submitted prompt bytes, prompt path and digest input remain unchanged. Manifest preamble fields are not directly embedded in show metadata.
+- Full show's existing `attempts[].evidence_json` string gains an encoded `review` member on accepted reviews. `wait --json` likewise changes `attempt.evidence_json`, with no new top-level `review`. Acceptance records one new `job.review_result` event whose `data_json` is the encoded result. This round corrects counts/validity/consistency in newly parsed reviews without adding further fields or rewriting saved results.
+- `notices --json`, `notice.pending` and the notice arrays in show keep their JSON shapes and contents; notice text is unchanged. Bare show keeps its metadata/delimiter/artifact framing, with the expanded metadata and a readable review line on stderr. `--out` and `--err` retain their artifact behavior. The PR body itself was read only, for the hub to correct.
+
+Sources: `subfleet/cli.py` list/show/wait/notices handlers; `subfleet/daemon.py` list/show, `_wait_answer`, `_finalize` and notice handlers; `subfleet/offline.py`; `subfleet/review_record.py`; `subfleet/store.py::notice_rows`; `subfleet/render.py::notice_text`. Existing JSON tests in `tests/unit/test_review_result_cli.py` exercise online/offline parity, nested show, bare metadata and old-daemon null handling.
+
+### Round-two command ledger
+
+Read-only discovery and repeated output polls are grouped by command family. Every test invocation is listed individually, in execution order. `S` below means `/private/tmp/sf-rv-fix2`.
+
+| Command / family | Result |
+| --- | --- |
+| First `date -u`; `cat` the named review and PR report; `gh pr view 313 --repo MaxGhenis/subfleet-v2` and its `--json title,body,baseRefName,headRefName` form | exit 0; start above, review REQUEST_CHANGES with two P1s and one P2, stale PR-body JSON claim confirmed |
+| `git status --short --branch`, `git rev-parse HEAD`, `cat .git`; confined `rg --files`, `rg -n`, `git grep -l`, `cat`, `sed`, `tail`, `wc`, `git show`, `git diff` | read-only discovery/audits; initial HEAD above; initial helper edit preserved. No AGENTS.md found (no-match exit 1). Parser importer search found exactly three files; no test imports the mutation helper (no-match exit 1). A stale local release-ref comparison was replaced by the checkpoint's merged-base comparison, isolating 13 PR files |
+| `getconf DARWIN_USER_TEMP_DIR`; `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" UV_CACHE_DIR="$(getconf DARWIN_USER_TEMP_DIR)uv-cache" uv sync --group dev` | getconf exit 0; sync exit 2, cache `sdists-v9/.git` denied |
+| Python mkdir of `$TMPDIR/sf-rv-fix2` | PermissionError; no folder created; fallback `S` created |
+| `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" UV_CACHE_DIR=S/uv-cache uv sync --group dev` | exit 0; CPython 3.15.2, 9 packages installed, `.venv` created |
+| Python scratch runner/private-plugin creation, named `apply_patch` and Python file edits | exit 0; fixtures/pruning and Hypothesis storage confined to S; no environment snapshot written |
+| AST checks / helper anchor extraction and replacement compilation | four Python files parse; both old anchors have 0 matches, all five repaired anchors have 1 and compile. An exploratory dataclass exec import failed on its synthetic namespace; AST literal extraction replaced it successfully, with no source effect |
+| Named `git diff --check` | initial source/docs check passed; one report-draft EOF blank-line failure (exit 2) was corrected; subsequent checks passed |
+| Named parser/contract `git add`; named-file `git commit -m 'Fix review finding counts in Markdown containers and numeric summaries' -- ...` | both exit 128, `index.lock: Operation not permitted`; no commit created |
+| `git add tools/review_contract_mutations.py`; `git commit -m 'Repair review contract mutation anchors and scratch isolation' -- tools/review_contract_mutations.py` | both exit 128, index.lock denied; no commit |
+| `git add docs/reports/2026-11-13-review-contract.md`; `git commit -m 'Document review verdict fix round two and verification' -- docs/reports/2026-11-13-review-contract.md` | both exit 128, index.lock denied; no commit |
+| `python3 S/append_results.py`; `python3 S/cleanup.py`; final Python AST / `git diff --check` / status / HEAD checks | consolidated seven ordinary test runs and five mutants; cleanup and final checks recorded below |
+
+All ordinary test commands set `TMPDIR` from getconf, `UV_CACHE_DIR=S/uv-cache` (sandbox fallback), `PYTHONDONTWRITEBYTECODE=1`, `HYPOTHESIS_STORAGE_DIRECTORY=S/hypothesis`, and `PYTHONPATH=S`. The private plugin sets `tempfile.tempdir=S/tmp` and `tests.failed_keep.ROOT=S/failed` before conftest starts. Each new basetemp contains `pytest`. The scratch runner expands `python3 S/run_tests.py LABEL TARGETS` to:
+
+```sh
+uv run --no-sync --with 'pytest-xdist>=3.6' pytest -q -n 4 \
+  -p sf_rv_fix2_temp -p no:cacheprovider --timeout=180 --timeout-method=thread \
+  --basetemp S/pytest-LABEL TARGETS
+```
+
+| LABEL / TARGETS | Result | Exit | Wall seconds |
+| --- | --- | ---: | ---: |
+| `fence-before`: `tests/unit/test_review_result.py::test_list_item_fences_hide_examples_and_close_before_real_findings tests/unit/test_review_result_storage.py::test_review_regressions_keep_explicit_counts_in_every_view` | 15 failed in 224.43s (0:03:44) | 1 | 366.5 |
+| `numeric-quote-before`: `tests/unit/test_review_result.py::test_numeric_or_count_word_summaries_are_findings tests/unit/test_review_result.py::test_indented_code_in_a_quote_is_not_a_finding tests/unit/test_review_result_storage.py::test_review_regressions_keep_explicit_counts_in_every_view -k 'numeric or indented'` | 12 failed in 121.48s (0:02:01) | 1 | 148.46 |
+| `regressions-after`: `tests/unit/test_review_result.py::test_list_item_fences_hide_examples_and_close_before_real_findings tests/unit/test_review_result.py::test_numeric_or_count_word_summaries_are_findings tests/unit/test_review_result.py::test_indented_code_in_a_quote_is_not_a_finding tests/unit/test_review_result_storage.py::test_review_regressions_keep_explicit_counts_in_every_view` | 27 passed in 180.38s (0:03:00) | 0 | 224.88 |
+| `changed-files`: `tests/unit/test_review_result.py tests/unit/test_review_result_storage.py` | 661 passed in 383.60s (0:06:23) | 0 | 447.68 |
+| `importer-cli`: `tests/unit/test_review_result_cli.py` | 24 passed in 216.14s (0:03:36) | 0 | 324.2 |
+| `guards`: `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py` | 435 passed in 569.45s (0:09:29) | 0 | 663.85 |
+| `mutant-baseline`: `tests/unit/test_review_contract_prompt.py` | 117 passed in 326.42s (0:05:26) | 0 | 367.39 |
+
+
+The required order was preserved: new failing regressions, those regressions passing after the fix, complete changed test files, the remaining importing file, then the four guards. The unchanged prompt file supplies passing baselines for the prompt mutants. No required file was omitted and the whole suite was not run; CI owns it.
+
+Mutation command: `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" UV_CACHE_DIR=S/uv-cache PYTHONDONTWRITEBYTECODE=1 python3 tools/review_contract_mutations.py --scratch-root S --timeout 600`. Each generated command is `uv --cache-dir S/uv-cache run --no-sync pytest -q -x -p sf_rv_review_mutation -p no:cacheprovider --tb=short KILLER --basetemp S/mutations/run-*/MUTANT/pytest`. Each mutant has a unique directory and private tempfile/pruning/plugin state; none runs concurrently with another test or source edit.
+
+| Mutant | Named killer | Result | Seconds | Restored |
+| --- | --- | --- | ---: | --- |
+| `preamble-all-jobs` | `tests/unit/test_review_contract_prompt.py::test_non_review_prompts_never_get_the_review_contract` | exit 1, killed; 1 failed in 152.98s (0:02:32) | 239.438 | byte-equal SHA-256 |
+| `level-anywhere-in-line` | `tests/unit/test_review_result.py::test_levels_in_prose_and_malformed_prefixes_are_not_findings` | exit 1, killed; 1 failed in 72.44s (0:01:12) | 129.73 | byte-equal SHA-256 |
+| `valid-ignores-verdict` | `tests/unit/test_review_result.py::test_first_nonempty_line_must_be_a_verdict_even_with_findings` | exit 1, killed; 1 failed in 103.07s (0:01:43) | 205.711 | byte-equal SHA-256 |
+| `first-attempt-review` | `tests/unit/test_review_result_storage.py::test_retry_reports_only_accepted_attempt_review` | exit 1, killed; 1 failed in 107.38s (0:01:47) | 189.984 | byte-equal SHA-256 |
+| `p0-definition-shortened` | `tests/unit/test_review_contract_prompt.py::test_preamble_definitions_are_verbatim_and_under_130_words` | exit 1, killed; 1 failed in 94.13s (0:01:34) | 141.57 | byte-equal SHA-256 |
+
+All five mutants failed in their named tests, not collection/setup, and all source bytes were restored. Run directory: `/private/tmp/sf-rv-fix2/mutations/run-078pcixx`.
+Restored `subfleet/daemon.py` SHA-256: `95281aa5b65b8a655502766b7f096f9cc166dc67d127a2c24ed577f25545d6b8`.
+Restored `subfleet/review_result.py` SHA-256: `b99f353c829313e226538faa21351062fc959e33c506c74a0df4bedc4e01b919`.
+
+### Completion, deviations and cleanup
+
+Post-fix checks: **1,264 passes including repeats** (1,237 distinct test cases across eight files), plus five expected mutant failures. Before the fix, all 27 added regression cases failed. No required file was omitted. No whole-suite, live-provider or CI-rerun check was run, and no CI-green claim is made.
+
+The only scope/setup deviations are the preserved pre-existing helper edit, the additional two quoted-indentation regression cases from r2's observation, the sandbox-denied getconf scratch/cache requiring `/private/tmp/sf-rv-fix2` and its private cache, and denied commits. TMPDIR itself stayed the required getconf value; the pytest plugins redirected actual fixture allocations and pruning into scratch. One exploratory static import failed before the AST-based check; one redundant output poll addressed an already-closed tool session; one report EOF whitespace error was corrected. None affected production source or test results.
+
+Named-file staging and commit attempts for the parser/contract step, mutation-helper step and final report step all exited 128 because Git could not create `index.lock`. No commit was created, no history rewritten and nothing pushed. All six changed files remain in this assigned workspace for hub collection; the caller's checkout was never written. The PR body was not changed.
+
+Folders outside job scratch were recorded here **before deletion**:
+
+- `/Users/maxghenis/.subfleet/worktrees/20261115-100032-rv-a1-fix-r2/.venv`
+
+Cleanup completed: 1 outside-scratch folder moved into `sf-rv-fix2/cleanup` and deleted with guarded `shutil.rmtree`; job scratch, including logs, private caches and mutation copies, was also guardedly removed. Permission-repair callbacks: 0. The command ledger above preserves the results. All test and mutation commands returned before cleanup; no work that outlives this session was started.
+
+Completed **2026-11-15 21:25:20 UTC**, before the **22:50:50 UTC** deadline. Final AST, whitespace, status and HEAD checks passed as recorded below. HEAD is unchanged because commits were denied; the tested changes are uncommitted.
+
+Closeout verification: four Python AST checks and both restored-source SHA-256 checks passed; `git diff --check` passed; Git lists exactly the six named modified files and no untracked or ignored files; HEAD remains the checkpoint. All checks exited 0. Scratch and `.venv` are absent.
+
+Head built: 952c7901923fe884c79f4046258bbfbe8c882eb2

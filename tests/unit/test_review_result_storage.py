@@ -66,6 +66,37 @@ def test_accepted_review_equals_fresh_parse_after_restart(state_daemon, text):
         with_restarted.close()
 
 
+@pytest.mark.parametrize(("text", "verdict", "consistent"), [
+    pytest.param(b"VERDICT: APPROVE\nFINDINGS: none\n\nExample:\n- ```text\n"
+                 b"  sample\n  ```\n\nP1: Actual regression\n", "approve", False, id="list-fence"),
+    pytest.param(b"VERDICT: REQUEST_CHANGES\nP1: 1,000 jobs are dropped when the index rolls over\n",
+                 "request_changes", True, id="numeric-comma"),
+    pytest.param(b"VERDICT: REQUEST_CHANGES\nP1: 500 (Internal Server Error) on every runs request\n",
+                 "request_changes", True, id="numeric-status"),
+    pytest.param(b"VERDICT: REQUEST_CHANGES\nP1: Zero (0) requests reach the handler after restart\n",
+                 "request_changes", True, id="numeric-zero"),
+])
+def test_review_regressions_keep_explicit_counts_in_every_view(state_daemon, text, verdict, consistent):
+    """Check stored counts against the contract, independently of a fresh parse."""
+    service, harness = state_daemon
+    job_id, attempt, adir = reserve(service, harness, task="review")
+    service._finalize(receipt_fixture(service, attempt, adir, stdout=text))
+    expected = {"verdict": verdict, "levels": {"P0": 0, "P1": 1, "P2": 0, "P3": 0},
+                "valid": True, "reason": None, "consistent": consistent}
+    assert service.store.get_job(job_id)["accepted_attempt_id"] == attempt["attempt_id"]
+    assert json.loads(service.store.get_attempt(attempt["attempt_id"])["evidence_json"])["review"] == expected
+    [event] = review_events(service, job_id)
+    assert json.loads(event["data_json"]) == expected
+    assert_views(service, job_id, expected)
+    service.close()
+    restarted = Daemon(harness.root)
+    try:
+        assert_views(restarted, job_id, expected)
+        assert len(review_events(restarted, job_id)) == 1
+    finally:
+        restarted.close()
+
+
 def test_retry_reports_only_accepted_attempt_review(state_daemon, monkeypatch):
     """I6/M4: an earlier attempt's opposite verdict cannot become the job's review."""
     service, harness = state_daemon

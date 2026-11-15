@@ -151,6 +151,40 @@ def test_a_fence_closes_only_on_its_own_marker():
     assert parse_review_result("VERDICT: REQUEST_CHANGES\n``` a`b\nP1: counted")["levels"] == {**NONE, "P1": 1}
 
 
+@pytest.mark.parametrize("prefix", ["- ", "* ", "+ ", "1. ", "12) ", "> 1. - ", "- > "])
+@pytest.mark.parametrize("marker", ["```", "~~~~"])
+def test_list_item_fences_hide_examples_and_close_before_real_findings(prefix, marker):
+    """A1 review r2 P1: a list marker must not hide the opening fence."""
+    text = (f"VERDICT: APPROVE\nFINDINGS: none\n\nExample:\n{prefix}{marker}text\n"
+            f"  P0: only an example\n  {marker}\n\nP1: Actual regression\n")
+    result = parse_review_result(text)
+    assert result == {"verdict": "approve", "levels": {**NONE, "P1": 1},
+                      "valid": True, "reason": None, "consistent": False}
+
+
+@pytest.mark.parametrize("prefix", [">     ", "> >     "])
+def test_indented_code_in_a_quote_is_not_a_finding(prefix):
+    result = parse_review_result(f"VERDICT: APPROVE\nFINDINGS: none\n{prefix}P1: code example")
+    assert result["levels"] == NONE
+    assert result["consistent"] is True
+
+
+@pytest.mark.parametrize("summary", [
+    "1,000 jobs are dropped when the index rolls over",
+    "500 (Internal Server Error) on every runs request",
+    "Zero (0) requests reach the handler after restart",
+    "None, because every request fails",
+    "2. Calls fail after restart",
+    "0, jobs disappear",
+    "0, P2: 2 jobs disappear",
+])
+def test_numeric_or_count_word_summaries_are_findings(summary):
+    """A1 review r2 P1: only a complete tally expression is a tally."""
+    result = parse_review_result(f"VERDICT: REQUEST_CHANGES\nP1: {summary}")
+    assert result == {"verdict": "request_changes", "levels": {**NONE, "P1": 1},
+                      "valid": True, "reason": None, "consistent": True}
+
+
 @pytest.mark.parametrize("prefix", ["\ufeff", "\u200b", "\ufeff\u200b\u2060", "\u200b\n", "\ufeff\n\u200c\u200d\n",
                                     "\n\u200b \t\n"])
 @pytest.mark.parametrize("verdict", ["approve", "request_changes"])

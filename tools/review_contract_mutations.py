@@ -1,11 +1,11 @@
 """Run D-REVIEW-CONTRACT1's five mutants, restoring pristine source bytes.
 
 Run after the ordinary tests, while nothing else edits or tests these sources:
-    python3 tools/review_contract_mutations.py
+    python3 tools/review_contract_mutations.py --scratch-root "$TMPDIR/sf-rv-fix2"
 
 Only the selected unit tests run. Each mutant gets its own pytest process and
 scratch directory; logs, pristine copies, commands, hashes and results remain
-under /private/tmp/sf-rv-a1/mutations. A collection error is not a killed mutant.
+under $TMPDIR/sf-rv-fix2/mutations. A collection error is not a killed mutant.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class Mutant:
 MUTANTS = (
     Mutant(
         "preamble-all-jobs", "subfleet/daemon.py",
-        '            review = args.task == "review" or args.kind == "gate-review"\n',
+        '            review = is_review_job({"task": args.task, "kind": args.kind})\n',
         '            review = True  # mutation: every job is treated as a review\n',
         "tests/unit/test_review_contract_prompt.py::test_non_review_prompts_never_get_the_review_contract",
     ),
@@ -57,10 +57,10 @@ MUTANTS = (
     ),
     Mutant(
         "first-attempt-review", "subfleet/daemon.py",
-        '                evidence["review"] = parse_review_result(payload.decode("utf-8", "replace"))\n',
+        '                evidence["review"] = review_result\n',
         '                evidence["review"] = (json.loads(\n'
         '                    self.store.list_attempts(job["job_id"])[0]["evidence_json"] or "{}"\n'
-        '                ).get("review") or parse_review_result(payload.decode("utf-8", "replace")))\n',
+        '                ).get("review") or review_result)\n',
         "tests/unit/test_review_result_storage.py::test_retry_reports_only_accepted_attempt_review",
     ),
     Mutant(
@@ -82,7 +82,9 @@ def write_private_pytest_plugin(case_dir: Path) -> str:
     plugin = case_dir / f"{name}.py"
     plugin.write_text(
         "from pathlib import Path\n"
+        "import tempfile\n"
         "import tests.failed_keep\n"
+        f"tempfile.tempdir = {str(case_dir)!r}\n"
         f"tests.failed_keep.ROOT = Path({str(case_dir / 'failed')!r})\n"
     )
     return name
@@ -129,7 +131,7 @@ def run_mutant(mutant: Mutant, pristine: dict[str, bytes], copies: Path,
     command = ["uv", "--cache-dir", str(cache), "run", "--no-sync", "pytest", "-q", "-x",
                "-p", plugin, "-p", "no:cacheprovider",
                "--tb=short", mutant.killer, "--basetemp", str(case_dir / "pytest")]
-    env = {**os.environ, "TMPDIR": str(case_dir), "UV_CACHE_DIR": str(cache),
+    env = {**os.environ, "UV_CACHE_DIR": str(cache),
            "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPYCACHEPREFIX": str(case_dir / "pycache"),
            "HYPOTHESIS_STORAGE_DIRECTORY": str(case_dir / "hypothesis"),
            "PYTHONPATH": os.pathsep.join(part for part in (
@@ -165,17 +167,17 @@ def run_mutant(mutant: Mutant, pristine: dict[str, bytes], copies: Path,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scratch-root", type=Path, default=Path("/private/tmp/sf-rv-a1"))
+    parser.add_argument("--scratch-root", type=Path, default=Path(tempfile.gettempdir()) / "sf-rv-fix2")
     parser.add_argument("--only", choices=[mutant.name for mutant in MUTANTS], nargs="+")
     parser.add_argument("--timeout", type=float, default=300)
     args = parser.parse_args()
     scratch = args.scratch_root.resolve()
-    assert "sf-rv-a1" in str(scratch), "mutation scratch must belong to sf-rv-a1"
+    assert "sf-rv-fix2" in str(scratch), "mutation scratch must belong to sf-rv-fix2"
     assert args.timeout > 0
     mutations = scratch / "mutations"
     mutations.mkdir(parents=True, exist_ok=True)
-    # The Rules require the OS temp root to be read; a denied default cache or
-    # top-level allocation uses the already permitted job scratch instead.
+    # Preserve the caller's OS TMPDIR and UV_CACHE_DIR while keeping every
+    # mutant's generated state below the job scratch.
     system_tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], cwd=ROOT,
                                 capture_output=True, text=True, check=True).stdout.strip()
     lock = mutations / "source-mutation.lock"
@@ -191,7 +193,7 @@ def main() -> int:
             copy.parent.mkdir(parents=True, exist_ok=True)
             copy.write_bytes(original)
             assert copy.read_bytes() == original
-        cache = scratch / "uv-cache"
+        cache = Path(os.environ.get("UV_CACHE_DIR", str(Path(system_tmp) / "uv-cache")))
         report = {"system_tmpdir": system_tmp, "scratch_fallback": str(scratch), "results": []}
         report_path = run_dir / "results.json"
         for mutant in selected:

@@ -35,9 +35,14 @@ _FINDING = re.compile(
 )
 #: What follows a level in a count or tally, not a finding: `P0: 0`,
 #: `P1: none`, `P0: 0, P1: 2`, `P2: no findings`. A number that starts a
-#: sentence (`P1: 2 tests fail`) is a finding's summary.
-_TALLY = re.compile(r"(?:(?:\d+|none|zero)(?:[ \t]+findings?)?|no[ \t]+findings?)\b[ \t*_]*"
-                    r"(?:$|[,;|/\u00b7(]|\.(?=[ \t]|$)|P[0-3]\b)", re.IGNORECASE)
+#: sentence (`P1: 2 tests fail`) is a finding's summary. Match the complete
+#: expression: punctuation alone cannot turn a numeric summary into a tally.
+_COUNT = r"(?:(?:\d++|none|zero)(?:[ \t]++findings?)?|no[ \t]++findings?)\b"
+_TALLY = re.compile(
+    rf"{_COUNT}[ \t*_]*+"
+    rf"(?:(?:[,;|/\u00b7][ \t*_]*+)?P[0-3][ \t*_]*+:[ \t*_]*+{_COUNT}[ \t*_]*+)*"
+    r"[.,;]?[ \t*_]*+", re.IGNORECASE,
+)
 #: A dash between two levels is a range (`P0 - P1: none`), not a finding.
 _RANGE = re.compile(r"P[0-3]\b")
 #: The opening of each level's own definition (C-12.11). A levelled line that
@@ -50,7 +55,10 @@ DEFINITION_OPENINGS = {
 }
 #: A fenced code block's opening or closing line, inside a blockquote or a list
 #: item too: three or more backticks or tildes.
-_FENCE = re.compile(r"[ \t>]*(`{3,}|~{3,})(.*)$")
+_FENCE = re.compile(r"(?:[ \t>]|[-*+][ \t]++|\d{1,9}[.)][ \t]++)*+(`{3,}|~{3,})(.*)$")
+#: A quote marker removes at most one separator space. Four further spaces,
+#: or a tab, introduce code, just as they do outside a quote (review r2).
+_INDENTED_CODE = re.compile(r"(?: {0,3}> ?)*+(?: {4}|\t)")
 _NO_FINDINGS = re.compile(r" {0,3}FINDINGS: none[ \t]*$")
 
 
@@ -60,12 +68,15 @@ def _finding_level(line: str) -> str | None:
     A level in the middle of a sentence, a tally, a range and an echoed
     definition are not findings.
     """
-    match = _FINDING.match(line[:FINDING_PREFIX_CHARS])
+    prefix = line[:FINDING_PREFIX_CHARS]
+    if _INDENTED_CODE.match(prefix):
+        return None
+    match = _FINDING.match(prefix)
     if match is None:
         return None
     level = match.group(1)
     rest = line[match.end():].lstrip(" \t*_")
-    if _TALLY.match(rest):
+    if _TALLY.fullmatch(rest):
         return None
     if match.group("separator") not in (":", ".") and _RANGE.match(rest):
         return None
