@@ -946,3 +946,25 @@ def test_c15_9_a_pass_examines_a_bounded_number_of_callers_and_reaches_them_all(
         callers.pass_once()
     assert len(callers.sent) == len(sids)
 
+
+def test_c15_9_a_header_that_cannot_render_leaves_no_claim_behind(callers, monkeypatch):
+    """Review r1, the P3 at caller_wakes.py:212: headers render before the claim, so a
+    failure there leaves the notice unread and retried, never `claimed` until a restart."""
+    sid = "unrenderable"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    header = render.notice_header
+
+    def broken(*_args, **_kwargs):
+        raise KeyError("a job row without a field")
+
+    monkeypatch.setattr(render, "notice_header", broken)
+    callers.pass_once()
+    row = callers.row(notice)
+    assert (row["state"], row["wake_state"], row["wake_reason"]) == ("pending", None, "header-unavailable")
+    assert callers.attempts == []
+    monkeypatch.setattr(render, "notice_header", header)
+    callers.now = row["wake_next_at"]
+    callers.pass_once()
+    assert callers.counts()[notice] == 1
+
