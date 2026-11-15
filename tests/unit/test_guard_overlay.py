@@ -168,19 +168,22 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     r2 (2026-11-14) pasted the Claude hook's [axiom-brief-regime] and
     [hand-authored-rulespec] blocks byte for byte and re-copied its
     prefilter line. Both were built on hook e869dd4c… and merged on
-    2026-11-14 (hook ed31bcac…); TRUST pins those bytes. That TRUST is the
+    2026-11-14 (hook ed31bcac…). The guard sync fix r1 (2026-11-15) pinned
+    core.fsmonitor off for the hook's git calls, batched the rulespec index
+    reads and rewrote both Axiom blocks' command parsing (hook 51c31b4b…);
+    TRUST pins those bytes. That TRUST is the
     installed one of 2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with
-    hook a60d1c51… it is the rollback) with the new hook hash and six dated provenance
+    hook a60d1c51… it is the rollback) with the new hook hash and seven dated provenance
     additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
-    r3b's one, whose mount clause r3c corrected, and the guard sync's two).
+    r3b's one, whose mount clause r3c corrected, and the guard sync's three).
     The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
     staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
     rebuilds the original from this one."""
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "ed31bcaca0800e611cda54642abd8245a8316e3fc11638be30cf1effca3d65f3",
-        "TRUST": "990dcbb8c1eefad6d4db8f710a83f8c41759c0df59d5e4307df74accaca0d31c",
+        "never-rules-hook.sh": "51c31b4b0399426e33ba680f479a17cc089081256b4ddbab872e30e3088d2f2e",
+        "TRUST": "53554448083e2e6eeb725ebe2dfcdc694e79b318168bb1c70dc57f351093361e",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

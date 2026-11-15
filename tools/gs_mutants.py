@@ -1,5 +1,6 @@
-"""Mutants of the guard sync r2's hook edit (the two Axiom blocks and the Claude prefilter line), each to be
-killed by a named test.
+"""Mutants of the guard sync r2's hook edit (the two Axiom blocks and the Claude prefilter line) and of its fix
+r1 (the git config pin, the batched reads and the blocks' parsing, plus review r1's M3), each to be killed by
+a named test.
 
     python tools/gs_mutants.py --scratch <dir containing /sf->
 
@@ -34,10 +35,15 @@ OVERLAY = "tests/unit/test_guard_overlay.py"
 BASE = "tests/unit/test_guard_subfleet_root.py"
 FILES = [SYNC, OVERLAY, BASE]
 SELECTION = ("DriftTests or test_private_overlay_bytes or test_gs_undoing or test_merge_undoing"
-             " or test_only_the_roots or (axiom_brief_regime and blocked) or (hand_authored_rulespec and blocked)")
+             " or test_only_the_roots or (axiom_brief_regime and blocked) or (hand_authored_rulespec and blocked)"
+             " or test_fix_r1 or fsmonitor or staged_file_count or later_rules")
 #: The first prefilter literal's line, which the Claude hook's prefilter line (claude-blocks/prefilter.txt) heads.
 PREFILTER_HEAD = "printf '%s' \"$command\" | grep -qE 'pending_deployments|"
-COMMIT_TERM = "|git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit"
+#: The first literal's git term since the fix r1 (2026-11-15); before it, `git([[:space:]]+-C…)?[[:space:]]+commit`.
+COMMIT_TERM = "|git[[:space:]].*(commit|\\\\$)"
+#: The fix r1's git config pin (tests/fixtures/guard/claude-blocks/git-config-pin.txt).
+PIN = "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false\n"
+SQUASH_HEAD = "# --- corpus-squash: signed-manifest repos merge-commit, never squash ---\n"
 
 DRIFT = f"{SYNC}::DriftTests::"
 #: name -> (what it does, the named test that must kill it)
@@ -51,6 +57,14 @@ MUTATIONS = {
                                            DRIFT + "test_the_first_prefilter_literal_is_the_claude_hooks_line"),
     "4-swap-the-two-blocks": ("[hand-authored-rulespec] before [axiom-brief-regime]",
                               DRIFT + "test_the_overlay_keeps_its_nine_rule_blocks_in_order"),
+    # the fix r1 (2026-11-15): the review r1's M3, then the fix's own
+    "5-m3-corpus-squash-reads-the-hand-blocks-folder": (
+        "`cwd=${gdir:-$cwd}` at the top of corpus-squash (review r1's M3)",
+        f"{SYNC}::test_later_rules_decide_alike_after_an_axiom_command[corpus-squash]"),
+    "6-no-git-config-pin": ("the core.fsmonitor pin line removed",
+                            f"{SYNC}::test_no_git_call_runs_the_repositorys_fsmonitor[git -C names the checkout]"),
+    "7-the-supplied-hand-block": ("[hand-authored-rulespec] back to the hub's 2026-11-11 cut (per-file reads)",
+                                  f"{SYNC}::test_the_staged_file_count_does_not_multiply_git_processes"),
 }
 
 #: What the selection needs of HEAD.
@@ -89,6 +103,15 @@ def mutate(tree: Path, name: str) -> None:
     elif name == "4-swap-the-two-blocks":
         assert text.count(brief + hand) == 1
         text = text.replace(brief + hand, hand + brief)
+    elif name == "5-m3-corpus-squash-reads-the-hand-blocks-folder":
+        assert text.count(SQUASH_HEAD) == 1
+        text = text.replace(SQUASH_HEAD, SQUASH_HEAD + "cwd=${gdir:-$cwd}\n")
+    elif name == "6-no-git-config-pin":
+        assert text.count(PIN) == 1
+        text = text.replace(PIN, "")
+    elif name == "7-the-supplied-hand-block":
+        assert text.count(hand) == 1
+        text = text.replace(hand, (tree / BLOCKS / "hand-authored-rulespec.before.sh").read_text(encoding="utf-8"))
     else:
         raise KeyError(name)
     path.write_text(text, encoding="utf-8")

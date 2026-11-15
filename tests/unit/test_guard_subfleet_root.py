@@ -192,8 +192,11 @@ GS_HOOK_SHA256 = "34682488eea6a6ef8049407e1c2ecc24fbef3e9eb399236f072f4f7e9e0f39
 #: hook at 1dd95f551 before the merge.
 GS2_HOOK_SHA256 = "6c1beb64d961b0f0225853c7ec3e2434d90026897e3f2dc9627aab5143634d04"
 #: The overlay's hook after the merge of release/217 (82d3dd819) into the guard sync (2026-11-14): r12d with
-#: D-SEARCH-REL1's edits and the guard sync's two steps, and nothing else; TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "ed31bcaca0800e611cda54642abd8245a8316e3fc11638be30cf1effca3d65f3"
+#: D-SEARCH-REL1's edits and the guard sync's two steps, and nothing else; the fix r1's rollback hook.
+GSM_HOOK_SHA256 = "ed31bcaca0800e611cda54642abd8245a8316e3fc11638be30cf1effca3d65f3"
+#: The overlay's hook after the guard sync fix r1 (2026-11-15: the git config pin, the batched rulespec reads and
+#: both Axiom blocks' command parsing); TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "51c31b4b0399426e33ba680f479a17cc089081256b4ddbab872e30e3088d2f2e"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -550,7 +553,7 @@ R3_TEXT = GS_TEXT + R3_TEXT
 #: trust-root and corpus-squash; the Claude hook's prefilter line as the first prefilter literal, with its
 #: comment; and the header's counts, rule list and drift note, as (r2 text, guard-sync text). Undone before
 #: GS_TEXT, the blocks first.
-GS2_BLOCKS = "".join((REPO / f"tests/fixtures/guard/claude-blocks/{rule}.sh").read_text(encoding="utf-8")
+GS2_BLOCKS = "".join((REPO / f"tests/fixtures/guard/claude-blocks/{rule}.before.sh").read_text(encoding="utf-8")
                      for rule in ("axiom-brief-regime", "hand-authored-rulespec"))
 GS2_TEXT = [
     (GS2_BLOCKS, ""),
@@ -585,6 +588,47 @@ GS2_TEXT = [
      '# all run for real. Runs AFTER the seven Bash rules and the shared region;\n'),
 ]
 R3_TEXT = GS2_TEXT + R3_TEXT
+#: The guard sync fix r1 (2026-11-15, review r1 of #303): the two Axiom blocks' new text (tests/fixtures/guard/
+#: claude-blocks/<rule>.sh) in place of the hub's 2026-11-11 cut (<rule>.before.sh); the git config pin and its
+#: comment after the input read; the prefilter line's widened git term; and three comments, as (fix r1 text,
+#: merged text). Undone before GS2_TEXT, the blocks first.
+_FIX = REPO / "tests/fixtures/guard/claude-blocks"
+GS3_BLOCKS = "".join((_FIX / f"{rule}.sh").read_text(encoding="utf-8")
+                     for rule in ("axiom-brief-regime", "hand-authored-rulespec"))
+GS3_TEXT = [
+    (GS3_BLOCKS, GS2_BLOCKS),
+    ('input=$(cat 2>/dev/null) || input=""\n'
+     "# Every git call below runs with core.fsmonitor pinned off (the guard sync fix r1,\n"
+     "# 2026-11-15): reading a repository's index makes git run that repository's\n"
+     "# core.fsmonitor command, and this hook runs on the host, outside the lane\n"
+     "# sandbox. Command-scope config outranks the system, global and repository\n"
+     "# files. The Claude hook carries the same line after its own input read\n"
+     "# (tests/fixtures/guard/claude-blocks/git-config-pin.txt).\n"
+     + (_FIX / "git-config-pin.txt").read_text(encoding="utf-8"),
+     'input=$(cat 2>/dev/null) || input=""\n'),
+    ((_FIX / "prefilter.txt").read_text(encoding="utf-8")[:-len(" || exit 0\n")] + " \\\n",
+     (_FIX / "prefilter.before.txt").read_text(encoding="utf-8")[:-len(" || exit 0\n")] + " \\\n"),
+    ("#     The guard sync r2 (2026-11-11) ported axiom-brief-regime and\n"
+     "#     hand-authored-rulespec, which follow trust-root in the Claude hook;\n"
+     "#     its fix r1 (2026-11-15) rewrote both blocks' command parsing, batched\n"
+     "#     the rulespec index reads and pinned core.fsmonitor off. The hub makes\n"
+     "#     the same three edits in the Claude hook.\n",
+     "#     The guard sync r2 (2026-11-11) ported axiom-brief-regime and\n"
+     "#     hand-authored-rulespec, which follow trust-root in the Claude hook.\n"),
+    ("# (fail-open, like the Claude hook). The hook runs on the host, outside the\n"
+     '# sandbox, so `git -C "$cwd" ...` works in read-only lanes too; for that\n'
+     "# reason every git call runs with core.fsmonitor pinned off (see below).\n",
+     "# (fail-open, like the Claude hook). The hook runs on the host, outside the\n"
+     '# sandbox, so `git -C "$cwd" ...` works in read-only lanes too.\n'),
+    ("# its tail; tests/unit/test_guard_sync.py pins it against\n"
+     "# tests/fixtures/guard/claude-blocks/prefilter.txt; the fix r1, 2026-11-15,\n"
+     "# widened its git term to `git <words> commit` on one line, or a line\n"
+     "# ending in a continuation, so git -c, --no-pager and the like reach the\n"
+     "# hand-authored-rulespec block); the second is the\n",
+     "# its tail; tests/unit/test_guard_sync.py pins it against\n"
+     "# tests/fixtures/guard/claude-blocks/prefilter.txt); the second is the\n"),
+]
+R3_TEXT = GS3_TEXT + R3_TEXT
 
 
 def rebuild_r2(text: str) -> str:
@@ -1050,9 +1094,10 @@ def test_gs_undoing_the_r2_step_gives_the_guard_sync_hook():
     (GS_HOOK_SHA256, the rollback hook) from the guard sync r2's; the two Axiom blocks sit back to back before
     corpus-squash. Since the merge (2026-11-14) this hook also holds D-SEARCH-REL1, so it is first removed as
     tests/unit/test_guard_search_rel.py removes it (its parser block whole, SR_TEXT and its flag undone), which
-    gives #303's hook before the merge (GS2_HOOK_SHA256): the merge kept every byte of the guard sync's line."""
+    gives #303's hook before the merge (GS2_HOOK_SHA256): the merge kept every byte of the guard sync's line.
+    Since the fix r1 (2026-11-15) its step (GS3_TEXT) is undone first."""
     from tests.unit.test_guard_search_rel import rebuild_r12d   # that module imports this one at its top
-    text = HOOK.read_text(encoding="utf-8")
+    text = undo(HOOK.read_text(encoding="utf-8"), GS3_TEXT)
     assert text.count(GS2_BLOCKS + "# --- corpus-squash:") == 1
     gs2 = rebuild_r12d(text)
     assert hashlib.sha256(gs2).hexdigest() == GS2_HOOK_SHA256
@@ -1063,9 +1108,19 @@ def test_merge_undoing_the_guard_sync_gives_the_d_search_rel1_hook():
     """The merge of release/217 into the guard sync (2026-11-14) kept every byte of release/217's line: undoing
     the guard sync's two steps (GS2_TEXT, then GS_TEXT) gives D-SEARCH-REL1's hook (SR_HOOK_SHA256), release/217's
     before the merge. With the test above, which gives #303's from this one, the merged hook is r12d with both
-    lines' edits and nothing else."""
+    lines' edits and nothing else. Since the fix r1 (2026-11-15) its step (GS3_TEXT) is undone first."""
     text = HOOK.read_text(encoding="utf-8")
-    assert hashlib.sha256(undo(text, GS2_TEXT + GS_TEXT).encode("utf-8")).hexdigest() == SR_HOOK_SHA256
+    assert hashlib.sha256(undo(text, GS3_TEXT + GS2_TEXT + GS_TEXT).encode("utf-8")).hexdigest() == SR_HOOK_SHA256
+
+
+def test_fix_r1_undoing_its_step_gives_the_merged_hook():
+    """The guard sync fix r1 (2026-11-15) changed the merged hook (GSM_HOOK_SHA256, its rollback) only by its step:
+    undoing GS3_TEXT, each edit found exactly once, gives the merged hook byte for byte. Its two blocks sit back to
+    back before corpus-squash, and the git config pin comes once, before the Bash branch."""
+    text = HOOK.read_text(encoding="utf-8")
+    assert text.count(GS3_BLOCKS + "# --- corpus-squash:") == 1
+    assert text.count(GS3_TEXT[1][0]) == 1 and text.index(GS3_TEXT[1][0]) < text.index("# ---------- Bash branch")
+    assert hashlib.sha256(undo(text, GS3_TEXT).encode("utf-8")).hexdigest() == GSM_HOOK_SHA256
 
 
 # ---------------------------------------------------------------- TRUST
