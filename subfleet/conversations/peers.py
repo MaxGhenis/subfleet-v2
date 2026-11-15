@@ -231,9 +231,6 @@ def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = proce
             return Verdict(False, "the caller's process/image changed between accept and the person-only request "
                                   "(audit token pid or pid version differs); "
                                   "reconnect from the Subfleet app", pid)
-    procs = chain(pid)
-    if not procs:
-        return Verdict(False, "the caller's process could not be inspected", pid)
     # `ps` prints the environment in vis(3) notation, so the root is looked for as
     # it prints (C-25.6): `é` is `M-CM-)`.
     try:
@@ -243,6 +240,9 @@ def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = proce
         # cannot be looked for, so the veto cannot clear anyone: a refusal (exit 7),
         # never a request error.
         return Verdict(False, UNHOLDABLE_ROOT, pid)
+    procs = chain(pid)
+    if not procs:
+        return Verdict(False, "the caller's process could not be inspected", pid)
     for proc in procs:
         if "subfleet.guardian" in proc.command:
             return Verdict(False, "the caller runs under a Subfleet guardian", pid)

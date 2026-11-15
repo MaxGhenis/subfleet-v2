@@ -1,4 +1,4 @@
-# The containment marker under a state root that is not printable ASCII (2026-09-27, revised 2026-10-10 and 2026-11-13)
+# The containment marker under a state root that is not printable ASCII (2026-09-27, revised 2026-10-10, 2026-11-13 and 2026-11-15)
 
 C-5.5's third source reads `ps -axEww -o pid=,command=` and keeps the processes whose environment carries `SUBFLEET_ATTEMPT=<attempt id>` and `SUBFLEET_ROOT=<state root>`. It matched the root as written. `procs._read` runs `ps` with `LC_ALL=C`, and in the C locale `ps` prints every byte that is not printable ASCII in vis(3) notation, so under `/tmp/subfleet-José-root` the root marker never matched, a marked process that had left its group and its parent chain was in no source, and a census could come back verified empty while it lived. The shipped root, `~/.subfleet`, is ASCII, so this was latent for the one installation, and live for any user whose home path is not ASCII.
 
@@ -31,11 +31,13 @@ Why (a) is the smallest change that is correct for every root:
 What (a) accepts:
 
 - A caller's line counts as carrying the root when it holds `SUBFLEET_ROOT=` and the printed root as a substring, wherever they come from. That covers two roots that print alike (`é` and the text `M-CM-)`; a newline and the text `\012`), a root that begins a longer one, a marker inside another variable's value, and a marker in argv. Roots that print alike predated this change in one direction: a check for the ASCII root `/tmp/aM-CM-)` already matched a process whose root is `/tmp/aé` (review r2 finding 4); the change adds the reverse. Since D-CEN1 these cases are C-25.6's alone, where each errs toward refusing a person-only request. The census compares bytes whole and has none of them (section of 2026-11-13).
-- If a later macOS changed the vis flags `ps` passes, matching would break for roots whose bytes those flags treat differently. The process tests fail on such a machine. Nothing makes them run there before a daemon starts, though: CI runs on another host, an installed daemon keeps running across a macOS update, and `daemon install` runs no tests. A runtime canary at daemon start would close that gap: spawn a child with known bytes, compare its `ps` line with `ps_text`, and on a mismatch make the marker source unavailable, so censuses are unverifiable rather than silently empty. It is left as a follow-up, because it adds a process start and a fail-closed lever to every daemon start.
+- The runtime-canary proposal in this paragraph records the September census design; D-CEN1 superseded its census response, and the current C-25.6-only follow-up is in the 2026-11-13 section below. If a later macOS changed the vis flags `ps` passes, matching would break for roots whose bytes those flags treat differently. The process tests fail on such a machine. Nothing makes them run there before a daemon starts, though: CI runs on another host, an installed daemon keeps running across a macOS update, and `daemon install` runs no tests. A runtime canary at daemon start would close that gap: spawn a child with known bytes, compare its `ps` line with `ps_text`, and on a mismatch make the marker source unavailable, so censuses are unverifiable rather than silently empty. It is left as a follow-up, because it adds a process start and a fail-closed lever to every daemon start.
 
-A root or an attempt id that no environment can hold (one with a NUL, or one `os.fsencode` cannot encode) is carried by no process. `ps_text` raises for it, so the census reports its marker source unavailable and the result is unverifiable rather than empty.
+A root or an attempt id that no environment can hold (one with a NUL, or one `os.fsencode` cannot encode) is carried by no process. In the September design, `ps_text` raised for it, so the census reported its marker source unavailable and the result was unverifiable rather than empty. Since D-CEN1, `procs.marker_strings` performs that validation for the census; `peers.ps_text` validates the root for C-25.6, where an unholdable root refuses a person-only request (exit 7).
 
 ## Change
+
+The following list records the September design. D-CEN1 superseded its census changes: the census now compares raw marker bytes, and `PS_BYTES` and `ps_text` live in `peers.py` for C-25.6 alone (see the 2026-11-13 section below).
 
 - `procs.PS_BYTES` and `procs.ps_text`: the notation, from the measured rules.
 - `procs.containment`: builds both marker patterns from `ps_text` and strips only a row's leading padding.
@@ -80,3 +82,9 @@ It also suggested a test of the attempt id's rendering (368cf3c) and a refusal o
   6. `judge` returns a refusal for an unholdable root; `_person` answers exit 7.
   7. Wording fixed in the tests and this record.
 - **Follow-up.** Switching C-25.6 to the raw reader would retire both the notation and the runtime canary. Until then the canary is C-25.6's alone: at daemon start, compare one child's `ps` line with `ps_text`, and on a mismatch refuse person-only requests with a named reason. It is not in this branch, because #88 rewrites the same reader and a new reader for a person-only check deserves its own review.
+
+## Fix round 1 (2026-11-15)
+
+The root is validated before `judge` inspects the process chain, so a root no environment can hold is refused with exit 7 even if `ps` would time out. The code was changed to meet C-25.6; the timeout is not an exception to the contract.
+
+The rendering tests now launch the currently loaded Python binary directly, using dyld's `_NSGetExecutablePath`, so a framework launcher cannot append variables after the supplied root. A native `KERN_PROCARGS2` check pins that the synthetic environment ends with the root, and the real-`ps` root-last test requires that precondition instead of skipping on framework Python. Host process-inspection restrictions can still skip the real-`ps` tests.

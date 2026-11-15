@@ -13,7 +13,7 @@ Between the second and third sessions, the hub merged release/217 at 85769b826 i
 ## Headline
 
 - **No live census bug.** b51f08f96 and 85769b826 (release/217) already match every root a process can carry, byte for byte. This branch changes no census code: `subfleet/procs.py` is identical to 85769b826's (and to b51f08f96's).
-- **C-25.6 is the fix.** `peers.py` now holds the vis(3) notation and keeps the line's trailing space. It looks for the root as `ps` prints it, and it refuses a root that no environment can hold with exit 7, where it used to answer exit 2. The contract now says this.
+- **C-25.6 is the fix.** `peers.py` now holds the vis(3) notation and keeps the line's trailing space. It looks for the root as `ps` prints it, and it refuses a root that no environment can hold with exit 7, where release/217 let the app's caller past the check. The contract now says this.
 - **Evidence.** On b51f08f96, the 29 new census cases pass and the 26 new C-25.6 cases fail. All 11 mutants are killed.
 
 ## Commits
@@ -200,16 +200,17 @@ Switch C-25.6 to the raw `KERN_PROCARGS2` reader. That would retire both `ps_tex
 > **The fix (C-25.6).**
 > - `peers.ps_text`/`PS_BYTES` (moved from procs) render the root as `ps` prints it.
 > - `process_chain` strips only the newline.
-> - `judge` refuses a root that no environment can hold with exit 7, where it used to answer exit 2.
+> - `judge` validates the root before inspecting the process chain, so a root that no environment can hold is refused with exit 7 even if `ps` would time out; release/217 let the app's caller past the check.
+> - The real-`ps` root-last test launches the loaded Python binary directly and asserts the root is last, including under framework Python.
 > - The match is a substring, which leans toward refusing.
 >
 > C-5.5 gains one sentence (byte-for-byte `os.fsencode` comparison). C-25.6 gains the notation, and the change list gains one line.
 >
 > **Evidence.**
-> - Unit and real-process tests for every root. The notation was checked against the real `ps` under a framework Python (3 passed, the root-last case skipped) and a non-framework Python (4 passed), locally on macOS 26.
+> - Unit and real-process tests for every root. Earlier macOS 26 measurements matched under framework Python (3 passed, root-last skipped) and non-framework Python (4 passed). Fix round 1 removes that framework skip and adds a native-buffer root-last regression: 1 failed before the helper fix, 1 passed after. This round's sandbox denied the four real-`ps` cases, so unrestricted CI/round 2 must run them.
 > - On b51f08f96 the 29 new census cases pass, as expected, and the 26 new C-25.6 cases fail.
 > - 11 of 11 mutants are killed.
-> - CI has not yet measured the notation on this head. Some step-2 regression files were not run locally because of host load; CI runs the whole suite.
+> - The Fix round 1 section below records this round's complete command results and any remaining local verification. CI runs the whole suite.
 >
 > **Environment note.** The kernel shows no environment for platform, hardened-runtime binaries (C-5.5, D-KILL2), so neither reader finds a marker on them. `fix/containment-marker-gap` was never merged.
 >
@@ -221,3 +222,58 @@ Switch C-25.6 to the raw `KERN_PROCARGS2` reader. That would retire both `ps_tex
 > 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 Head built: the commit that last changed this report, on top of 24123d6f9 and 414b0c0b7 (detached in the job workspace).
+
+
+## Fix round 1
+
+All five findings are addressed in the code, tests and documentation. Started **2026-11-15T19:16:44Z**, from the first command's `date -u`; the three-hour deadline was **22:16:44Z**. This round addresses the five findings in the hub's `marker-non-ascii-rebase-2026-11-11/review-r1.md`. The checkout started clean at `d1f6ed52334c1a77ec23f0c6545e7893c1a41bb2`.
+
+1. **P2: release/217 did not answer exit 2 at the person check.** The change-log line conflated the handler's later `unknown-approval` response, and an intermediate PR version's exception, with release/217's verdict. The contract, this report's headline and its proposed PR body now say release/217 let the app's caller past the check. A read-only probe of `c8b61c95f:subfleet/conversations/peers.py`, with a synthetic token, clean chain and app executable, admitted all three roots: NUL, lone high surrogate and low surrogate below U+DC80. Those verdicts contradict the old prose and support the replacement. No daemon can actually start on those paths; the filesystem rejects them.
+2. **P3: the trailing-space statement omitted its condition.** The change-log line now says stripping prevented the match when `SUBFLEET_ROOT` ended the line. The release/217 probe admitted the app with that root last and refused it for attempt markers with another variable after it. The existing peers tests cover both positions; the changed real-process test requires the root-last condition explicitly.
+3. **P3: exit 7 could lose to a process-inspection timeout.** `judge` previously called `chain(pid)` before validating the root. I changed the code to meet the contract: root rendering/validation now precedes chain inspection. C-25.6 and its existing change-log item explicitly describe that ordering. Two new parametrized tests cover NUL and an unencodable surrogate, through both `judge` and the service response. All **four cases failed before** the reorder: two raised `TimeoutExpired`, and two answered exit 1. All **four passed after**, returning the named unholdable-root refusal and exit 7.
+4. **P3: framework Python skipped the only real-`ps` root-last case.** The child helper now resolves the loaded Python Mach-O through dyld's `_NSGetExecutablePath` and launches it directly. The framework launcher therefore cannot append variables after the supplied root. The real-`ps` test now asserts the suffix instead of skipping on framework Python. A new native-buffer test reads only its own synthetic child's initial `KERN_PROCARGS2` buffer and checks that the supplied environment ends with the root; it prints no buffer. That test **failed before** the helper change and **passed after** under Homebrew framework CPython 3.14.7. This sandbox denies `/bin/ps`, so the four real-`ps` cases skipped for the host restriction; they still require unrestricted CI/round-2 verification.
+5. **P3: the fixture and decision record retained September census ownership.** The fixture's `what` field now names `peers._ps` and C-25.6. Its **255 byte renderings are unchanged**, verified against HEAD. The decision record explicitly marks the September change list and census-canary response as superseded by D-CEN1, distinguishes current `procs.marker_strings` validation from `peers.ps_text`, and records this round's ordering and framework-test changes. The existing fixture/notation unit tests check the rendering table. No census code changed.
+
+All five requested changes are implemented; local verification limits are listed below. The remote PR body was read only; the corrected proposed body is in this report for the hub to publish.
+
+Tests ran in the requested order: new/changed tests, the remaining direct importers of the changed module, then the four mandatory files. `git grep -l -E '(import.*peers|peers.*import)' -- tests` found **17 test files** plus `tests/frontend/daemon_harness.py`, which is a helper rather than a collectable test file. The two changed test files satisfy two importer entries; the next batch contains all other 15. Exact file lists, command arguments, per-module counts, temporary-directory records and runner sources are in [the round-1 command data](2026-11-13-marker-non-ascii-root-217-fix-r1-data.json).
+
+Each test command used `uv run --no-sync --with 'pytest-xdist>=3.6' python /private/tmp/sf-mr-fix1/run_pytest.py LABEL ...`, a fresh `pytest-LABEL` basetemp, disabled pytest cache, isolated Hypothesis storage and `--timeout-method=thread`. Parallel batches used `-n 4`; the importer retry used `-n 2 --dist=loadscope` to share module fixtures. The first runs used a 120-second per-test timeout; after two worker losses in existing Hypothesis tests, subsequent runs used 600 seconds, with 1,800 seconds per test and a 40-minute batch budget for the importer retry. Test example/step settings were unchanged. The runner redirects test scratch and retained failure state into this job's scratch; its worker plugin applies the same isolation in xdist workers.
+
+| Command label / scope | Result |
+|---|---|
+| `fail-before` — New timeout cases before reorder | 4 failed; exit 1 |
+| `fail-before-child` — Discarded post-start environment comparison | 1 failed, 1 skipped; exit 1 |
+| `fail-before-child-native` — Native-buffer case before helper fix | 1 failed; exit 1 |
+| `changed-person` — Changed person-boundary file, first run | 103 passed, 2 errors; exit 1 |
+| `changed-person-retry` — Two existing person-boundary properties, retry | 2 passed; exit 0 |
+| `changed-ps-rendering` — Changed process file, framework Python | 1 passed, 4 skipped; exit 0 |
+| `importers` — Other 15 importer files, first run | 449 passed; 3 worker losses, 3 child timeouts, 9 compiler setup errors; 1 case not reported; interrupted (exit 130) |
+| `importers-collection` — Collection-only accounting for importer cases | 465 collected, 0 executed; exit 0 |
+| `importers-retry` — Failed or unfinished importer cases, retry | 15 passed; interrupted to reserve time for required checks and cleanup; exit 2 |
+| `mandatory` — Four mandatory files, in the requested order | 435 passed; exit 0 |
+
+The mandatory command's file counts: `test_state_contract.py`: 37 passed; `test_test_module_names.py`: 1 passed; `test_invariants_index.py`: 25 passed; `test_handler_refusals.py`: 372 passed.
+
+Other commands and checks:
+
+- `gh pr view 177 --repo MaxGhenis/subfleet-v2`, the supplied review/report reads, and focused `rg`/`sed`/`cat` source inspection succeeded. No `AGENTS.md` was found in the worktree. The exact operation groups and outcomes are recorded in the command data.
+- The required `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, `mkdir` and `uv sync --group dev` setup failed with sandbox permission errors; the existing cache was already present and was left untouched. Retrying `uv sync --group dev --python /opt/homebrew/bin/python3.14` with the job's writable scratch/cache succeeded: 10 packages resolved, 9 installed.
+- The release/217 probes passed their factual checks: three unholdable roots admitted, root-last admitted, root-middle refused. The fixture comparison confirmed 255 unchanged entries. Synthetic child probes established that the initial environment, rather than Python's subsequently modified `os.environ`, is the correct precondition to test.
+- A read-only independent diff review found no blocking issue. `git diff --check` passed throughout. The selected test files contained no execution-shaped uses of the brief's forbidden write commands.
+
+Commit attempts used named files only, after each coherent step: documentation/history, root-validation ordering, and framework-process coverage. Every `git add` and `git commit` attempt failed because the sandbox denied the shared worktree's `index.lock`. A final named-file report/evidence commit was also attempted. No history was rewritten and nothing was pushed. The hub must collect the modified files; HEAD remains the starting commit.
+
+**Setup, cleanup and deviations.** The sandbox required two task scratch roots: `/private/tmp/sf-mr-fix1` for short socket paths/logs, and `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1` for the dependency cache and final pytest basetemps. Initial short basetemps were replaced by Darwin-temp basetemps; checkout fallback workdirs were redirected there too. The observed first importer errors were compiler/child timeouts; the cause of each worker loss was not proven.
+
+The first xdist person run installed temporary isolation only in its controller. Its workers used the repository's default `/tmp/sf-failed` startup/pruning hook; those effects were not audited, so that initial run was not fully confined to job scratch. Its existing native-app test also created one `/tmp/sf-pb1-*` directory which the fixture removed; its exact generated name was not recorded. Later workers loaded the job isolation plugin before pytest hooks. Queued waiters were interrupted before executing tests while the pipeline was corrected. The first importer batch was interrupted, and a second SIGINT interrupted pytest traceback formatting; its command metadata was recovered from JUnit/log. A collection-only run identified every failed or unfinished case for retry.
+
+The command data lists every recorded outside directory and guarded removal (72 directories/trees), including the newly installed worktree `.venv` and generated bytecode caches. Paths without the job marker were renamed to contain `sf-mr-fix1` before guarded `shutil.rmtree`; task scratch roots were also removed with that assertion. The pre-existing, denied Darwin uv cache was left untouched. No process listing was used for cleanup; child helpers kill and wait for their own children.
+
+**Not run / remaining verification.** The whole suite was not run, as requested. Four real-`ps` cases skipped because this sandbox denies process inspection; unrestricted CI and round 2 must execute them. No remote PR write or push was performed.
+
+One importer case remains unverified because it did not finish before the time reserved for mandatory checks and cleanup; its node ID is in the command data: `tests/unit/test_suggestion_properties.py::TestSuggestionMachine::runTest`.
+
+Finished **2026-11-15T22:11:07Z** (174 minutes after start), before the three-hour deadline.
+
+Head built: `d1f6ed52334c1a77ec23f0c6545e7893c1a41bb2`.

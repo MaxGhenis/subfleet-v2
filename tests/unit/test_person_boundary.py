@@ -29,6 +29,7 @@ import hypothesis
 import pytest
 from hypothesis import strategies as st
 
+from subfleet import protocol
 from subfleet.conversations import peers
 from subfleet.conversations import service as service_module
 from subfleet.conversations.peers import APP_EXECUTABLES, AuditToken, Proc, allowed_executable_paths, judge
@@ -265,6 +266,37 @@ def test_a_root_no_environment_can_hold_is_refused_with_exit_7_not_exit_2(svc, m
     error = refused.value
     assert (error.reason, error.code) == ("person-only", 7), error
     assert str(error) == f"answering an approval is a person's decision: {peers.UNHOLDABLE_ROOT}"
+
+
+@pytest.mark.parametrize("root", UNHOLDABLE_ROOTS.values(), ids=UNHOLDABLE_ROOTS.keys())
+def test_an_unholdable_root_is_refused_before_ps_can_time_out(monkeypatch, root):
+    """C-25.6: an impossible root needs no process inspection to refuse it."""
+    def timeout(argv):
+        raise subprocess.TimeoutExpired(argv, 5)
+
+    monkeypatch.setattr(peers, "_ps", timeout)
+    verdict = judge(token(10), root=root, executable=exe(APP))
+    assert (verdict.person, verdict.reason, verdict.pid) == (False, peers.UNHOLDABLE_ROOT, 10)
+
+
+@pytest.mark.parametrize("root", UNHOLDABLE_ROOTS.values(), ids=UNHOLDABLE_ROOTS.keys())
+def test_an_unholdable_root_answers_exit_7_even_when_ps_would_time_out(svc, monkeypatch, root):
+    """The wire response is person-only exit 7, rather than a timeout's exit 1."""
+    def timeout(argv):
+        raise subprocess.TimeoutExpired(argv, 5)
+
+    monkeypatch.setattr(peers, "_ps", timeout)
+    monkeypatch.setattr(service_module, "judge", functools.partial(peers.judge, executable=exe(APP)))
+    monkeypatch.setattr(svc, "root", Path(root))
+    replies = []
+    monkeypatch.setattr(service_module.descriptors, "send_reply",
+                        lambda conn, lock, response, **kwargs: replies.append(response))
+    svc.respond(None, None, protocol.Request("approval.respond", {"approval_id": "nonexistent", "choice": "allow"}),
+                token(10))
+    assert len(replies) == 1
+    response = replies[0]
+    assert not response.ok and response.error.code == 7
+    assert peers.UNHOLDABLE_ROOT in response.error.message
 
 
 # --- property: only the app, and never under a veto ---------------------------------------

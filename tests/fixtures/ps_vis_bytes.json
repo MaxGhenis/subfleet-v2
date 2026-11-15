@@ -1,5 +1,5 @@
 {
- "what": "How /bin/ps -Ewwp <pid> -o command= printed each byte of an environment value, run with LC_ALL=C as procs._read runs it (C-5.5).",
+ "what": "How /bin/ps -Ewwp <pid> -o command= printed each byte of an environment value, run with LC_ALL=C as peers._ps runs it (C-25.6).",
  "measured": "2026-09-27, macOS 26.6.2 (25G83), with a child whose environment held only PATH and B01..BFF, each value the byte between '<' and '>'.",
  "source": "adv_cmds-237 ps/print.c (byte-identical to 199.0.1): getproclline joins the argv and environment strings with spaces; get_command_and_or_args then calls strvis(vis_args, cmd, VIS_TAB | VIS_NL | VIS_NOSLASH)",
  "bytes": {
