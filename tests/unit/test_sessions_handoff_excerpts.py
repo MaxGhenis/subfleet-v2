@@ -652,6 +652,12 @@ GROWTH_SHAPES = {
     "reminder-many": ("<system-reminder>note</system-reminder>\nx = 1\n", True),
     "datauri-key-many": ("data:image/png;base64," + "QUJD" * 8 + '\ntoken = "Zq9x1"\n', False),
     "datauri-longword-many": ("data:image/png;base64," + "A" * 20_000 + 'password = "Zq9x2"\n', False),
+    # Issue #325's step: keys in reminders whose last closer a value holds (one chain of run-ons that
+    # never closes), and in reminders whose opener a value holds (a check per reminder).
+    "reminder-open-key-many": ('<system-reminder>\n-----BEGIN PRIVATE KEY-----\npassword = "</system-reminder>"\n'
+                               "Zq9x3\n-----END PRIVATE KEY-----\n", True),
+    "reminder-held-key-many": ('password = "<system-reminder>"\n-----BEGIN PRIVATE KEY-----\n</system-reminder>\n'
+                               "Zq9x4\n-----END PRIVATE KEY-----\n", True),
 }
 
 
@@ -706,14 +712,24 @@ BLOCK_PARTS = st.sampled_from([
     'password = "', 'token = "', '"', "'", "\n", "x = 1\n", "Zq7x100001 ", "data:image/png;base64,", "QUJD" * 10,
     "api_key = ", "  ", "=",
 ])
+#: Issue #325: a later layer's opener (a private key's, a data URI's) inside a reminder whose closer a
+#: quoted value holds, with a later reminder closer or none, or inside one whose opener a value holds.
+ERASED_PARTS = st.builds(
+    lambda opener, held, later: (
+        ('password = "<system-reminder>"\n' + opener + "</system-reminder>\n" if held
+         else "<system-reminder>\n" + opener + 'password = "</system-reminder>"\n')
+        + "Zq7x100002\n" + ("</system-reminder>\n" if later else "")),
+    st.sampled_from(["-----BEGIN PRIVATE KEY-----\n", "data:image/png;base64," + "QUJD" * 10 + "\n"]),
+    st.booleans(), st.booleans())
 
 
 @hypothesis.settings(max_examples=300, deadline=None, derandomize=True, database=None)
-@hypothesis.given(parts=st.lists(BLOCK_PARTS, max_size=40), strip=st.booleans())
+@hypothesis.given(parts=st.lists(st.one_of(BLOCK_PARTS, ERASED_PARTS), max_size=40), strip=st.booleans())
 def test_the_head_resolves_drawn_blocks_as_release_does(parts, strip):
     """D-SCRUB-BOUNDARY1 fix round 1 (differential, invariant 6): over drawn blocks of every layer,
     the head's guarded block step resolves exactly the text and count release's `_resolve_blocks`
-    does, and its masks lie in that text, sorted and apart; it only adds masks."""
+    does, and its masks lie in that text, sorted and apart; it only adds masks. Issue #325 adds
+    `ERASED_PARTS`, whose later-layer openers a reminder's removal erases."""
     text = "".join(parts)
     tally, mine = scrub_release._Tally(), handoff._Tally()
     released = scrub_release._resolve_blocks(text, strip, tally)
@@ -734,6 +750,91 @@ def test_the_head_resolves_each_cascade_as_release_does(name, strip):
     resolved, masks = handoff._split_masks(text, strip, mine)
     assert resolved == released and mine.total == tally.total
     assert all(0 <= a < b <= len(resolved) for a, b in masks)
+
+
+# --- Issue #325: a key whose opener a reminder's removal erased ----------------------------------
+#
+# #300's round-2 review: the whole-text scrub masks quoted values first, so it keeps a reminder whose
+# last closer a value holds (no closer follows) and one whose opener a value holds, and resolves a
+# private key that opens inside it. Release's removal of the reminder erases the key's opener, so the
+# excerpt rules found no key, and its value showed. Row A is the review's; row B is rebuilt from its
+# description ("the reminder opener inside a quoted password value", 115 characters); row C adds a
+# later reminder that takes the key's first closer in the whole-text scrub.
+
+ERASED = {
+    "a-closer-in-a-value": '<system-reminder>\n-----BEGIN PRIVATE KEY-----\npassword = "</system-reminder>"\n'
+                           "Zq9x100001\n-----END PRIVATE KEY-----\n",
+    "b-opener-in-a-value": 'password = "<system-reminder>"\n-----BEGIN PRIVATE KEY-----\n</system-reminder>\n'
+                           "Zq9x100002\n-----END PRIVATE KEY-----\n",
+    "c-a-later-reminder-takes-a-closer": 'password = "<system-reminder>"\n-----BEGIN PRIVATE KEY-----\n'
+                                         "</system-reminder>\nZq9x100003\n<system-reminder>\n"
+                                         "-----END PRIVATE KEY-----\n</system-reminder>\nZq9x100004\n"
+                                         "-----END PRIVATE KEY-----\nZq9x100005\n",
+}
+#: A data URI in the same places needs no mask: its body stops at the reminder's closer, or at the quote
+#: of the value that holds it, inside the text release removes.
+ERASED_DATA_URIS = {
+    "a-closer-in-a-value": "<system-reminder>\ndata:image/png;base64," + "QUJD" * 10 + "\nZq9x100006\n"
+                           'password = "</system-reminder>"\nZq9x100007\n',
+    "b-opener-in-a-value": 'password = "<system-reminder>"\ndata:image/png;base64,' + "QUJD" * 10
+                           + "\nZq9x100008\n</system-reminder>\nZq9x100009\n",
+}
+
+
+def erased_text(shape: str, place: str) -> str:
+    """A row alone, or at budget + 4,096 ending at the head excerpt's edge or starting the tail's
+    first line (the placements of `cascade_text`)."""
+    if place == "alone":
+        return shape
+    total = BUDGET + 4_096
+    return around(HEAD - 1 - len(shape) if place == "head-edge" else total - TAIL, shape, total)
+
+
+@pytest.mark.parametrize("place", ["alone", "head-edge", "tail-first-line"])
+@pytest.mark.parametrize("name", sorted(ERASED))
+def test_a_key_a_reminder_s_removal_erased_keeps_only_what_the_whole_scrub_keeps(name, place):
+    """C-23.14, C-25.5 (issue #325): with reminders stripped, the whole-text scrub hides the key's
+    value, and so does every excerpt mode now; a4aded885 showed row A's `Zq9x100001` at output
+    offset 11 alone (limits None and 2,048), 130,964 at the head's edge and 131,122 on the tail's
+    first line (limit None). Every limit, both reminder modes."""
+    text = erased_text(ERASED[name], place)
+    assert (len(text) <= BUDGET) == (place == "alone")
+    whole = handoff.scrub_secrets(text, strip_reminders=True, whole=True)[0]
+    assert re.search(r"Zq9x10000[1-3]", text).group() not in whole
+    assert_keeps_only_what_the_whole_scrub_keeps(text)
+
+
+def test_row_a_is_the_review_s():
+    """Review r2's row A, as the issue gives it: 115 characters, the value at offset 78."""
+    text = ERASED["a-closer-in-a-value"]
+    assert len(text) == 115 and text.index("Zq9x100001") == 78
+    assert len(ERASED["b-opener-in-a-value"]) == 115
+
+
+@pytest.mark.parametrize("name", sorted(ERASED_DATA_URIS))
+def test_a_data_uri_a_reminder_s_removal_erased_keeps_only_what_the_whole_scrub_keeps(name):
+    """Issue #325, data URIs: the whole-text scrub's data URI takes the value in its body inside the
+    reminder (release removes it with the reminder) and stops before the value holding a closer."""
+    text = ERASED_DATA_URIS[name]
+    first, last = re.findall(r"Zq9x\d+", text)
+    whole = handoff.scrub_secrets(text, strip_reminders=True, whole=True)[0]
+    assert first not in whole and last in whole
+    assert_keeps_only_what_the_whole_scrub_keeps(text)
+
+
+@pytest.mark.parametrize("name", sorted(ERASED) + sorted(CASCADES) + sorted(SPLITS))
+def test_the_erased_key_step_only_adds_masks(name, monkeypatch):
+    """Issue #325 (invariant 3, superset): `_split_masks` with the step resolves the same text and
+    masks every character it masks without the step, which is a4aded885's code path: the step reads
+    its windows last, out of what the other layers left of the read budget."""
+    text = ERASED.get(name) or SPLITS.get(name) or cascade_text(name, "short")
+    for strip in (False, True):
+        resolved, masks = handoff._split_masks(text, strip, handoff._Tally())
+        with monkeypatch.context() as patched:
+            patched.setattr(handoff, "_erased_keys", lambda *_args: [])
+            before, base = handoff._split_masks(text, strip, handoff._Tally())
+        covered = {i for a, b in masks for i in range(a, b)}
+        assert resolved == before and all(i in covered for a, b in base for i in range(a, b)), (name, strip)
 
 
 GAINED = "Zq5x123456"
