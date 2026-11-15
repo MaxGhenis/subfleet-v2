@@ -156,7 +156,8 @@ _FORMAT = ("\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-
 #: are not whitespace to the scrubber (`\s`); the information separators `\x1c` to `\x1f`,
 #: which are whitespace to it but which a terminal ignores (ECMA-48); and the format
 #: characters. The controls left (tab, line feed, vertical tab, form feed, carriage
-#: return and NEL) move the cursor, so they separate runs in either reading.
+#: return and NEL) are whitespace to the scrubber and space or break a terminal's line,
+#: so they separate runs in either reading.
 _INVISIBLE = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f" + _FORMAT + "]")
 #: A text holding any of these is also read as a terminal shows it (`_terminal_safe`,
 #: the formatter): a control character or a format character.
