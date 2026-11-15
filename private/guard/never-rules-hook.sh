@@ -17,7 +17,10 @@
 #     repository tests/unit/test_guard_sync.py::DriftTests pins each block
 #     held in tests/fixtures/guard/claude-blocks/ and the prefilter literal.
 #     The guard sync r2 (2026-11-11) ported axiom-brief-regime and
-#     hand-authored-rulespec, which follow trust-root in the Claude hook.
+#     hand-authored-rulespec, which follow trust-root in the Claude hook;
+#     its fix r1 (2026-11-15) rewrote both blocks' command parsing, batched
+#     the rulespec index reads and pinned core.fsmonitor off. The hub makes
+#     the same three edits in the Claude hook.
 #   - The unscoped-search rule is the region between the marker lines
 #         (# >>> unscoped-search: shared region begin … >>>)
 #         (# <<< unscoped-search: shared region end <<<)
@@ -101,7 +104,8 @@
 #            "permissionDecision":"deny","permissionDecisionReason":"..."}}, exit 0
 # Any parse failure, missing jq, or a tool other than Bash/apply_patch -> allow
 # (fail-open, like the Claude hook). The hook runs on the host, outside the
-# sandbox, so `git -C "$cwd" ...` works in read-only lanes too.
+# sandbox, so `git -C "$cwd" ...` works in read-only lanes too; for that
+# reason every git call runs with core.fsmonitor pinned off (see below).
 # Telemetry: each denial appends one line to
 #   ${CODEX_GUARD_LOG:-$HOME/.cache/subfleet-codex/guard-denials.log}
 #   <ISO8601>\t<cwd>\t<command-or-patch, first 300 chars, tabs/newlines -> spaces>
@@ -122,6 +126,13 @@ export PATH="/usr/bin:/bin:${PATH:-/usr/sbin:/sbin}"
 : "${HOME:=/var/empty}"
 
 input=$(cat 2>/dev/null) || input=""
+# Every git call below runs with core.fsmonitor pinned off (the guard sync fix r1,
+# 2026-11-15): reading a repository's index makes git run that repository's
+# core.fsmonitor command, and this hook runs on the host, outside the lane
+# sandbox. Command-scope config outranks the system, global and repository
+# files. The Claude hook carries the same line after its own input read
+# (tests/fixtures/guard/claude-blocks/git-config-pin.txt).
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
 
 JQ=""
 if command -v jq >/dev/null 2>&1; then JQ=$(command -v jq)
@@ -324,7 +335,10 @@ fi
 # `git [-C <dir>] commit` term the two Axiom blocks need, words of
 # Claude-only rules that no block here reads, and a wider searcher term at
 # its tail; tests/unit/test_guard_sync.py pins it against
-# tests/fixtures/guard/claude-blocks/prefilter.txt); the second is the
+# tests/fixtures/guard/claude-blocks/prefilter.txt; the fix r1, 2026-11-15,
+# widened its git term to `git <words> commit` on one line, or a line
+# ending in a continuation, so git -c, --no-pager and the like reach the
+# hand-authored-rulespec block); the second is the
 # codex addition that lets the fenced hf-dest heredoc scan below run; the
 # third (D-LANE-SCOPE1 r3c) lets a searcher named by a path, after a quote or
 # a backslash, through $(which …), or as egrep, fgrep, rgrep or ugrep reach the
@@ -332,7 +346,7 @@ fi
 # backslash inside its name (r''g, f\ind, $'rg'), and a $'...' holding an
 # escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep,
 # also right after a backtick (r6).
-printf '%s' "$command" | grep -qE 'pending_deployments|deployment_protection_rule|approveDeployments|pkill|killall|pgrep|stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|subfleet[[:space:]]+run|git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit|(^|[^[:alnum:]_.-])(find|gfind|bfs|fd|fdfind|rg|grep|egrep|fgrep|rgrep|ggrep|ugrep)([^[:alnum:]_.-]|$)' \
+printf '%s' "$command" | grep -qE 'pending_deployments|deployment_protection_rule|approveDeployments|pkill|killall|pgrep|stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|subfleet[[:space:]]+run|git[[:space:]].*(commit|\\$)|(^|[^[:alnum:]_.-])(find|gfind|bfs|fd|fdfind|rg|grep|egrep|fgrep|rgrep|ggrep|ugrep)([^[:alnum:]_.-]|$)' \
   || printf '%s' "$command" | grep -qE '\*\*\* Begin Patch' \
   || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
   || printf '%s' "$command" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
@@ -368,49 +382,153 @@ fi
 # to mess up again we need to fix it." A brief dispatched into the Axiom mirror that mentions
 # RuleSpec/rulespec/encoding must carry the ENCODING REGIME block verbatim (ops/il-lane/COMMON-RULES.md
 # / TheAxiomFoundation/CLAUDE.md). Lanes do not read CLAUDE.md; the brief is their law.
+# Guard sync fix r1 (2026-11-15): every `subfleet run` in the command is judged, from each folder the shell
+# can be in there (the payload cwd and every cd/pushd target before it). Every -C and -p counts, attached
+# (-Cdir, -pfile, -p=file) or not, and a relative one resolves against that folder, as subfleet resolves
+# it; more than 16 briefs to read is refused.
 if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
-  seg=$(printf '%s' "$command" | sed -E 's/.*subfleet[[:space:]]+run//')
-  wd=$(printf '%s' "$seg" | grep -oE '(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' | head -1 | awk '{print $2}')
-  [ -z "$wd" ] && wd="$cwd"
-  wd_abs=$(printf '%s' "$wd" | sed "s|^~|$HOME|")
-  if printf '%s' "$wd_abs" | grep -q 'TheAxiomFoundation'; then
-    pf=$(printf '%s' "$seg" | grep -oE '(^|[[:space:]])-p[[:space:]]+[^[:space:]]+' | head -1 | awk '{print $2}')
-    if [ -n "$pf" ]; then
-      pf_abs=$(printf '%s' "$pf" | sed "s|^~|$HOME|"); case "$pf_abs" in /*) ;; *) pf_abs="$cwd/$pf_abs" ;; esac
-      if [ -f "$pf_abs" ] && grep -qiE 'rulespec|RuleSpec|encod' "$pf_abs" && ! grep -q 'ENCODING REGIME' "$pf_abs"; then
-        block "[axiom-brief-regime] This brief touches RuleSpec/encoding but has no ENCODING REGIME block. Modules come only from 'axiom-encode encode --apply' with apply manifests; hand-authored YAML is never a module (Max 9/6). Prepend the block from ~/TheAxiomFoundation/ops/il-lane/COMMON-RULES.md (or TheAxiomFoundation/CLAUDE.md 'Encoding regime') verbatim, then dispatch."
-      fi
-    fi
+  ab_list=$(printf '%s' "$command" | LC_ALL=C awk -v cwd="$cwd" -v home="$HOME" '
+    function expand(p) {
+      if (p == "~" || p == "$HOME") return home
+      if (substr(p, 1, 2) == "~/") return home substr(p, 2)
+      if (substr(p, 1, 6) == "$HOME/") return home substr(p, 6)
+      return p
+    }
+    function join(base, p) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }
+    { text = text $0 "\n" }
+    END {
+      if (cwd == "") cwd = "."
+      gsub(/\\\n/, "", text); gsub(/\$\{HOME\}/, "$HOME", text); gsub(/["'\''\\]/, "", text)
+      gsub(/[;&|()`{}<>\n]/, " ; ", text)
+      n = split(text, w, /[ \t]+/)
+      nd = 1; dirs[1] = cwd; known[cwd] = 1; cur = cwd; prev = cwd; no = 0
+      for (i = 1; i <= n; i++) {
+        t = w[i]
+        if (t == "cd" || t == "pushd" || t == "popd") {
+          for (k = i + 1; k <= n && (w[k] ~ /^-[LPe@]+$/ || w[k] == "--"); k++) ;
+          v = (t == "popd") ? "-" : w[k]
+          if (v == "-") { v = cur; cur = prev; prev = v; continue }
+          prev = cur; cur = (k > n || v == ";" || v == "") ? home : join(cur, v)
+          if (!(cur in known)) { known[cur] = 1; dirs[++nd] = cur }
+          continue
+        }
+        if ((t != "subfleet" && t !~ /\/subfleet$/) || w[i + 1] != "run") continue
+        nc = 0; np = 0
+        for (j = i + 2; j <= n && w[j] != ";"; j++) {
+          o = w[j]
+          if (o == "-C" || o == "-p") { v = w[++j]; if (v == ";") break }
+          else if (o ~ /^-[Cp]=/) v = substr(o, 4)
+          else if (o ~ /^-[Cp]./) v = substr(o, 3)
+          else continue
+          if (substr(o, 2, 1) == "C") cs[++nc] = v; else ps[++np] = v
+        }
+        for (k = 1; k <= nd && np; k++) {
+          ax = !nc && index(dirs[k], "TheAxiomFoundation")
+          for (c = 1; c <= nc; c++) if (index(join(dirs[k], cs[c]), "TheAxiomFoundation")) ax = 1
+          if (!ax) continue
+          for (q = 1; q <= np; q++) {
+            f = join(dirs[k], ps[q])
+            if (f in seen) continue
+            seen[f] = 1
+            if (++no > 16) { print "TOOMANY"; exit }
+            out[no] = f
+          }
+        }
+      }
+      for (k = 1; k <= no; k++) print out[k]
+    }')
+  if [ "$ab_list" = "TOOMANY" ]; then
+    block "[axiom-brief-regime] This command names more than 16 briefs to read (each -p from each folder the shell can be in); the guard cannot read them all in time. Dispatch one subfleet run per command."
   fi
+  while IFS= read -r pf_abs; do
+    if [ -n "$pf_abs" ] && [ -f "$pf_abs" ] && grep -qiE 'rulespec|RuleSpec|encod' "$pf_abs" && ! grep -q 'ENCODING REGIME' "$pf_abs"; then
+      block "[axiom-brief-regime] This brief touches RuleSpec/encoding but has no ENCODING REGIME block. Modules come only from 'axiom-encode encode --apply' with apply manifests; hand-authored YAML is never a module (Max 9/6). Prepend the block from ~/TheAxiomFoundation/ops/il-lane/COMMON-RULES.md (or TheAxiomFoundation/CLAUDE.md 'Encoding regime') verbatim, then dispatch."
+    fi
+  done <<< "$ab_list"
 fi
 
 # --- hand-authored-rulespec: rule YAML staged in a rulespec-* checkout needs its encoder apply manifest ---
 # Companion tests (*.test.yaml) and composed pipelines (…/composed/…) are exempt; everything else under
 # <cc>/(statutes|regulations|policies|legislation|programs)/ must have .axiom/encoding-manifests/<mirror>.json
 # staged or tracked. The CI guard is the second wall; this is the first.
-if printf '%s' "$command" | grep -qE 'git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit'; then
-  gdir=$(printf '%s' "$command" | grep -oE 'git[[:space:]]+-C[[:space:]]+[^[:space:]]+' | head -1 | awk '{print $3}')
-  [ -z "$gdir" ] && gdir="$cwd"
-  gdir=$(printf '%s' "$gdir" | sed "s|^~|$HOME|")
-  origin_url=$(git -C "$gdir" remote get-url origin 2>/dev/null)
-  if printf '%s' "$origin_url" | grep -qiE 'TheAxiomFoundation/rulespec-'; then
-    missing=""
-    while IFS= read -r f; do
-      [ -z "$f" ] && continue
-      case "$f" in
-        *.test.yaml|*/composed/*|.axiom/*) continue ;;
-      esac
-      if printf '%s' "$f" | grep -qE '^[a-z]{2}(-[a-z0-9-]+)?/(statutes|regulations|policies|legislation|programs)/.+\.ya?ml$'; then
-        m=".axiom/encoding-manifests/${f%.*}.json"
-        if ! git -C "$gdir" cat-file -e ":$m" 2>/dev/null && ! git -C "$gdir" cat-file -e "HEAD:$m" 2>/dev/null; then
-          missing="$missing $f"
-        fi
-      fi
-    done < <(git -C "$gdir" diff --cached --name-only --diff-filter=ACMR 2>/dev/null)
+# Guard sync fix r1 (2026-11-15): every `git … commit` in the command is judged. git's global options (-C, -c,
+# --no-pager, --git-dir, …) may come before `commit`, and GIT_DIR=… before git. Its folder is each one the
+# shell can be in there: the payload cwd and every cd/pushd target before it (a relative one resolved
+# against the folder before it), with each -C applied. One cat-file --batch-check reads every manifest, so a
+# large index costs a few processes, not four per file; more than 16 folders to check is refused.
+if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
+  hr_list=$(printf '%s' "$command" | LC_ALL=C awk -v cwd="$cwd" -v home="$HOME" '
+    function expand(p) {
+      if (p == "~" || p == "$HOME") return home
+      if (substr(p, 1, 2) == "~/") return home substr(p, 2)
+      if (substr(p, 1, 6) == "$HOME/") return home substr(p, 6)
+      return p
+    }
+    function join(base, p) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }
+    { text = text $0 "\n" }
+    END {
+      if (cwd == "") cwd = "."
+      gsub(/\\\n/, "", text); gsub(/\$\{HOME\}/, "$HOME", text); gsub(/["'\''\\]/, "", text)
+      gsub(/[;&|()`{}<>\n]/, " ; ", text)
+      n = split(text, w, /[ \t]+/)
+      nd = 1; dirs[1] = cwd; known[cwd] = 1; cur = cwd; prev = cwd; gd_env = ""; no = 0
+      for (i = 1; i <= n; i++) {
+        t = w[i]
+        if (t == ";") { gd_env = ""; continue }
+        if (t == "cd" || t == "pushd" || t == "popd") {
+          for (k = i + 1; k <= n && (w[k] ~ /^-[LPe@]+$/ || w[k] == "--"); k++) ;
+          v = (t == "popd") ? "-" : w[k]
+          if (v == "-") { v = cur; cur = prev; prev = v; continue }
+          prev = cur; cur = (k > n || v == ";" || v == "") ? home : join(cur, v)
+          if (!(cur in known)) { known[cur] = 1; dirs[++nd] = cur }
+          continue
+        }
+        if (t ~ /^GIT_DIR=/) { gd_env = substr(t, 9); continue }
+        if (t != "git" && t !~ /\/git$/) continue
+        nc = 0; gd = gd_env
+        for (j = i + 1; j <= n; j++) {
+          o = w[j]
+          if (o == "-C") { cs[++nc] = w[++j]; continue }
+          if (o == "--git-dir") { gd = w[++j]; continue }
+          if (o ~ /^--git-dir=/) { gd = substr(o, 11); continue }
+          if (o == "-c" || o == "--work-tree" || o == "--namespace" || o == "--config-env" || o == "--attr-source") { j++; continue }
+          if (o !~ /^-/) break
+        }
+        if (w[j] != "commit") continue
+        for (k = 1; k <= nd; k++) {
+          d = dirs[k]
+          for (c = 1; c <= nc; c++) if (cs[c] != "" && cs[c] != ";") d = join(d, cs[c])
+          key = d "\037" expand(gd)
+          if (key in seen) continue
+          seen[key] = 1
+          if (++no > 16) { print "TOOMANY"; exit }
+          out[no] = key
+        }
+      }
+      for (k = 1; k <= no; k++) print out[k]
+    }')
+  if [ "$hr_list" = "TOOMANY" ]; then
+    block "[hand-authored-rulespec] This command commits from more than 16 folders (each cd/pushd target, with each git -C applied); the guard cannot check every staged index in time. Commit from one checkout per command."
+  fi
+  while IFS=$'\037' read -r hr_d hr_gd; do
+    [ -n "$hr_d" ] || continue
+    gdir=$hr_d
+    origin_url=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} remote get-url origin 2>/dev/null)
+    printf '%s' "$origin_url" | grep -qiE 'TheAxiomFoundation/rulespec-' || continue
+    hr_files=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} diff --cached --name-only --diff-filter=ACMR 2>/dev/null \
+      | LC_ALL=C awk '/\.test\.yaml$/ || /\/composed\// || /^\.axiom\// { next }
+          /^[a-z][a-z](-[a-z0-9-]+)?\/(statutes|regulations|policies|legislation|programs)\/.+\.ya?ml$/')
+    [ -n "$hr_files" ] || continue
+    missing=$( { printf '%s\n--\n' "$hr_files"
+                 printf '%s\n' "$hr_files" \
+                   | LC_ALL=C awk '{ sub(/\.[^.]*$/, ""); print ":.axiom/encoding-manifests/" $0 ".json"; print "HEAD:.axiom/encoding-manifests/" $0 ".json" }' \
+                   | git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} cat-file --batch-check 2>/dev/null; } \
+      | LC_ALL=C awk '!s { if ($0 == "--") s = 1; else f[++n] = $0; next } { r[++k] = $0 }
+          END { for (i = 1; i <= n; i++) if (r[2 * i - 1] !~ /^[0-9a-f]+ / && r[2 * i] !~ /^[0-9a-f]+ /) printf " %s", f[i] }')
     if [ -n "$missing" ]; then
       block "[hand-authored-rulespec] Staged RuleSpec content with no encoder apply manifest:$missing. RuleSpec modules come only from 'axiom-encode encode <corpus citation> --backend codex --apply', which writes .axiom/encoding-manifests/<mirror path>.json; hand-authored YAML is never a module (Max 9/6). Repairs go through --review-findings / --repair-candidate-* replay. Unstage the files and run the encoder."
     fi
-  fi
+  done <<< "$hr_list"
 fi
 
 # --- corpus-squash: signed-manifest repos merge-commit, never squash ---

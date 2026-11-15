@@ -26,6 +26,16 @@ Two changes, each held to an invariant below:
   (after trust-root, before corpus-squash). The overlay's first prefilter literal is again the
   Claude hook's line (``claude-blocks/prefilter.txt``), whose ``subfleet run`` and ``git … commit``
   terms let the two blocks run.
+* Fix r1 (2026-11-15, review r1 of #303): the hand-authored-rulespec block read the index of a folder the
+  command names, which makes git run that repository's ``core.fsmonitor`` command on the host; both hooks
+  now pin it off right after their input read (``claude-blocks/git-config-pin.txt``). The block read two
+  manifests per staged file (about 0.1 s each at load, so 700 files passed the 60 s timeout, which allows);
+  one ``cat-file --batch-check`` now reads them all. Both blocks' command parsing missed ``git -c …``,
+  ``--no-pager``, ``cd <rs> && git commit``, a relative ``-C`` and ``-p<brief>``; each block now walks the
+  command's words, every ``git … commit`` and every ``subfleet run`` in it, from every folder the shell can
+  be in, and refuses more than 16 places to check. The supplied blocks and prefilter line are kept as
+  ``<name>.before.*``; ``<rule>.sh``, ``prefilter.txt`` and the pin are what the hub installs in the Claude
+  hook.
 
 Invariants:
 
@@ -50,6 +60,16 @@ I3 (the denial names every task and tier) For every offender the hook detects, t
 I4 (order) The overlay's nine Bash rule blocks appear in the Claude hook's order
    (``DriftTests.test_the_overlay_keeps_its_nine_rule_blocks_in_order``), the two Axiom blocks
    adjacent, directly before corpus-squash.
+I5 (no configured command runs) Neither hook makes git run a repository's ``core.fsmonitor``: the pin
+   sits once in the overlay, after the input read and before any git call, outside every block
+   (``DriftTests.test_the_git_config_pin_…``), and a checkout whose fsmonitor writes a marker leaves it
+   absent while the decision stands (``test_no_git_call_runs_the_repositorys_fsmonitor``, with git's own
+   index read and the unpinned Claude block as controls that write it).
+I6 (bounded work) The hand-authored-rulespec block's git processes do not grow with the staged files, and
+   a command with more than 16 folders or briefs to check is refused on both sides
+   (``test_the_staged_file_count_…``, ``test_more_than_16_…``).
+I7 (later rules' inputs) Each rule after the two blocks gives the same denial, reason for reason, when a
+   command the blocks run on and allow comes first (``test_later_rules_decide_alike_…``).
 """
 
 from __future__ import annotations
@@ -90,10 +110,19 @@ AFTER_SHA256 = "b7e8c83695a309ace6de9acdb34e63b4e23d74480034751749e08512ea80e818
 RULE_BLOCKS = ["tg-getupdates", "keychain-dump", "trust-root", "axiom-brief-regime", "hand-authored-rulespec",
                "corpus-squash", "corpus-push", "stash-shared", "local-main"]
 #: The hub's cut of the two Axiom blocks (supply/<rule>.sh, checked before use) and of the Claude hook's
-#: prefilter line (hook line 138).
-AXIOM_SHA256 = {"axiom-brief-regime": "77002282d3c865f10e1f640595ebcbd9a244a024d97e8df97dba9496941bd571",
-                "hand-authored-rulespec": "f870acdf650677c3fea2856e1b1044668bad043152b9f7273099353c3595558c"}
-PREFILTER_SHA256 = "c46d8eec748c649daaae06b0982bb5fc0cf6011918a35144d0ea1de06596781f"
+#: prefilter line (hook line 138), on 2026-11-11: since the fix r1 (2026-11-15) the ``.before`` fixtures.
+AXIOM_BEFORE_SHA256 = {"axiom-brief-regime": "77002282d3c865f10e1f640595ebcbd9a244a024d97e8df97dba9496941bd571",
+                       "hand-authored-rulespec": "f870acdf650677c3fea2856e1b1044668bad043152b9f7273099353c3595558c"}
+PREFILTER_BEFORE_SHA256 = "c46d8eec748c649daaae06b0982bb5fc0cf6011918a35144d0ea1de06596781f"
+#: The fix r1's blocks and prefilter line (2026-11-15), which the hub installs in the Claude hook, and the git
+#: config pin both hooks carry after their input read.
+AXIOM_SHA256 = {"axiom-brief-regime": "45775b4dd77fcac19c71c3e341559dcd129ad634e2848b8b74d2380dfe2781d4",
+                "hand-authored-rulespec": "a27ea96525a1a05272a8a70d18fc3f602ecbc300b8b55b2ddbb720ff0439c8bb"}
+PREFILTER_SHA256 = "2acb063ed0efa2a3c87b671bbd43fda4bf72436e72372ab8156f349540aff678"
+PIN_SHA256 = "f653d463e57190edd5f5405978e0a20d749e5bebced6b8536f241a4fb88b6389"
+#: The prefilter's git term, before the fix r1 and after it.
+COMMIT_TERM_BEFORE = "git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit"
+COMMIT_TERM = "git[[:space:]].*(commit|\\\\$)"
 
 needs_jq = pytest.mark.skipif(not guard._jq_available(),
                               reason="the never-rules hook needs jq (its preflight refuses without it)")
@@ -158,8 +187,46 @@ class DriftTests(unittest.TestCase):
         first = next(row for row in branch.splitlines() if not row.startswith("#") and row.strip())
         self.assertEqual(first + "\n", claude[:-len(" || exit 0\n")] + " \\\n")
         self.assertEqual(text.count(claude[:-len(" || exit 0\n")]), 1)
-        for term in ("subfleet[[:space:]]+run", "git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit"):
+        for term in ("subfleet[[:space:]]+run", COMMIT_TERM):
             self.assertIn("|" + term + "|", first)
+
+    def test_the_fix_changed_only_the_blocks_parsing_and_the_prefilters_git_term(self):
+        """The fix r1's Claude-side text against the hub's 2026-11-11 cut: the ``.before`` fixtures hash to
+        the supplied bytes; each new block keeps its header line, the old block's comment lines and its
+        denial text; the new prefilter line is the old one with only the git term widened."""
+        for rule, digest in AXIOM_BEFORE_SHA256.items():
+            before = (BLOCKS / f"{rule}.before.sh").read_text(encoding="utf-8")
+            self.assertEqual(hashlib.sha256(before.encode()).hexdigest(), digest, rule)
+            after = (BLOCKS / f"{rule}.sh").read_text(encoding="utf-8")
+            old_lines, new_lines = before.splitlines(), [line.strip() for line in after.splitlines()]
+            self.assertEqual(after.splitlines()[0], old_lines[0])
+            for line in old_lines:
+                if line.startswith("#") or line.lstrip().startswith("block "):
+                    self.assertEqual(new_lines.count(line.strip()), 1, (rule, line))
+        before = (BLOCKS / "prefilter.before.txt").read_text(encoding="utf-8")
+        self.assertEqual(hashlib.sha256(before.encode()).hexdigest(), PREFILTER_BEFORE_SHA256)
+        self.assertEqual(before.count("|" + COMMIT_TERM_BEFORE + "|"), 1)
+        self.assertEqual(before.replace(COMMIT_TERM_BEFORE, COMMIT_TERM),
+                         (BLOCKS / "prefilter.txt").read_text(encoding="utf-8"))
+
+    def test_the_git_config_pin_precedes_every_git_call_outside_the_blocks(self):
+        """I5: the pin is one line, once in the overlay, right after the input read (after its comment), before
+        any git call, and in no rule block, so neither block's bytes carry it."""
+        pin = (BLOCKS / "git-config-pin.txt").read_text(encoding="utf-8")
+        self.assertEqual(hashlib.sha256(pin.encode()).hexdigest(), PIN_SHA256)
+        self.assertEqual(pin, PIN_LINE)
+        text = HOOK.read_text(encoding="utf-8")
+        self.assertEqual(text.count(pin), 1)
+        at = text.index(pin)
+        read = text.index('\ninput=$(cat 2>/dev/null) || input=""\n')
+        between = text[read + 1:at].splitlines()[1:]
+        self.assertTrue(between and all(line.startswith("# ") for line in between), between)
+        code = [(n, line) for n, line in enumerate(text.splitlines(keepends=True)) if not line.lstrip().startswith("#")]
+        first_git = next(n for n, line in code if re.search(r"(^|[\s($])git\s", line))
+        self.assertLess(text[:at].count("\n"), first_git)
+        for found in blocks(text).values():
+            for block_text in found:
+                self.assertNotIn("GIT_CONFIG", block_text)
 
     def test_the_pinned_blocks_differ_by_the_one_sentence(self):
         before = (BLOCKS / "keychain-dump.before.sh").read_bytes()
