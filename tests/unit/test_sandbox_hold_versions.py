@@ -92,3 +92,17 @@ def test_a_new_cli_and_daemon_hold_and_release_the_sandbox_through_the_socket(da
         assert server.ops() == ["capabilities", "tasks", "capabilities", "tasks"]
         actions = [request.args["action"] for request in server.requests if request.op == "tasks"]
         assert actions == (["hold-if", "release-if"] if prefix else ["hold", "release"])
+
+
+def test_an_older_clis_release_hint_for_a_sandbox_hold_releases_nothing():
+    """p7: a CLI from before #309 shows a sandbox hold's job as held by task `?` and hints
+    `subfleet tasks release -- '?'` (C-11.10 states this). That request is refused
+    `unknown-task` (exit 2), and the sandbox hold and every row stay as they were."""
+    from tests.task_hold_support import refused, store_image
+    with fresh_daemon() as (service, harness, clock, signals):
+        service.dispatch("tasks", {"action": "hold", "sandbox": "workspace-write", "until": UNTIL,
+                                   "note": "disk brake"})
+        before = store_image(service)
+        error = refused(service, {"action": "release", "task": "?"})
+        assert (error.code, error.reason) == (Exit.INVALID_INPUT, "unknown-task")
+        assert store_image(service) == before
