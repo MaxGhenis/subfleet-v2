@@ -1,0 +1,251 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [ 11%]
+........................................................................ [ 23%]
+........................................................................ [ 35%]
+........................................................................ [ 47%]
+......................................................F.F............... [ 59%]
+........................................................................ [ 71%]
+........................................................................ [ 83%]
+....FFFFFFF............................................................. [ 95%]
+.........................                                                [100%]
+=================================== FAILURES ===================================
+__________ test_sandbox_condition_reuses_note_prefix_capability[hold] __________
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108a00080>
+capsys = <_pytest.capture.CaptureFixture object at 0x108a3d760>
+argv = ['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2026-11-12T18:00:00Z', ...]
+
+    @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
+    def test_sandbox_condition_reuses_note_prefix_capability(monkeypatch, capsys, argv):
+        calls = client_for(monkeypatch, {"task_hold": HOLD},
+                           capabilities=[protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY])
+>       assert cli.main([*argv, "--if-note-prefix", " disk: ", "--json"]) == 0
+E       AssertionError: assert 2 == 0
+E        +  where 2 = <function main at 0x10977fe20>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2026-11-12T18:00:00Z', ...])
+E        +    where <function main at 0x10977fe20> = cli.main
+
+tests/unit/test_sandbox_hold_cli.py:83: AssertionError
+----------------------------- Captured stderr call -----------------------------
+subfleet: task-hold-note: --if-note-prefix must be one line of printable characters, at most 160, with no credential or surrounding spaces
+________ test_sandbox_condition_reuses_note_prefix_capability[release] _________
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108a31310>
+capsys = <_pytest.capture.CaptureFixture object at 0x108a2eed0>
+argv = ['tasks', 'release', '--sandbox', 'workspace-write']
+
+    @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
+    def test_sandbox_condition_reuses_note_prefix_capability(monkeypatch, capsys, argv):
+        calls = client_for(monkeypatch, {"task_hold": HOLD},
+                           capabilities=[protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY])
+>       assert cli.main([*argv, "--if-note-prefix", " disk: ", "--json"]) == 0
+E       AssertionError: assert 2 == 0
+E        +  where 2 = <function main at 0x10977fe20>(['tasks', 'release', '--sandbox', 'workspace-write', '--if-note-prefix', ' disk: ', ...])
+E        +    where <function main at 0x10977fe20> = cli.main
+
+tests/unit/test_sandbox_hold_cli.py:83: AssertionError
+----------------------------- Captured stderr call -----------------------------
+subfleet: task-hold-note: --if-note-prefix must be one line of printable characters, at most 160, with no credential or surrounding spaces
+_ test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid0] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+invalid = {'sandbox': 'read-only', 'until': '2026-10-09T16:34:40Z', 'note': 'disk brake', 'since': '2026-10-09T16:33:00Z'}
+
+    @pytest.mark.parametrize("invalid", [
+        {**HOLD, "sandbox": "read-only"},
+        {**HOLD, "sandbox": ""},
+        {**HOLD, "sandbox": None},
+        {**HOLD, "sandbox": 1},
+        {**HOLD, "task": "review"},
+        {**HOLD, "extra": "value"},
+        {key: value for key, value in HOLD.items() if key != "sandbox"},
+    ])
+    def test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators(invalid):
+        details = {"task_hold": invalid}
+        assert refusals.task_hold_condition_details(details) is None
+        error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+                                       details=details)
+        response = protocol.decode_response(protocol.encode(protocol.refuse("sandbox-condition", error)))
+        assert response.error.code == 7
+>       assert response.error.reason is None and response.error.details is None
+E       AssertionError: assert ('task-hold-condition' is None)
+E        +  where 'task-hold-condition' = ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None).reason
+E        +    where ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None) = Response(id='sandbox-condition', ok=False, result=None, error=ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None), v=1).error
+
+tests/unit/test_sandbox_hold_contract.py:174: AssertionError
+_ test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid1] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+invalid = {'sandbox': '', 'until': '2026-10-09T16:34:40Z', 'note': 'disk brake', 'since': '2026-10-09T16:33:00Z'}
+
+    @pytest.mark.parametrize("invalid", [
+        {**HOLD, "sandbox": "read-only"},
+        {**HOLD, "sandbox": ""},
+        {**HOLD, "sandbox": None},
+        {**HOLD, "sandbox": 1},
+        {**HOLD, "task": "review"},
+        {**HOLD, "extra": "value"},
+        {key: value for key, value in HOLD.items() if key != "sandbox"},
+    ])
+    def test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators(invalid):
+        details = {"task_hold": invalid}
+        assert refusals.task_hold_condition_details(details) is None
+        error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+                                       details=details)
+        response = protocol.decode_response(protocol.encode(protocol.refuse("sandbox-condition", error)))
+        assert response.error.code == 7
+>       assert response.error.reason is None and response.error.details is None
+E       AssertionError: assert ('task-hold-condition' is None)
+E        +  where 'task-hold-condition' = ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None).reason
+E        +    where ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None) = Response(id='sandbox-condition', ok=False, result=None, error=ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None), v=1).error
+
+tests/unit/test_sandbox_hold_contract.py:174: AssertionError
+_ test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid2] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+invalid = {'sandbox': None, 'until': '2026-10-09T16:34:40Z', 'note': 'disk brake', 'since': '2026-10-09T16:33:00Z'}
+
+    @pytest.mark.parametrize("invalid", [
+        {**HOLD, "sandbox": "read-only"},
+        {**HOLD, "sandbox": ""},
+        {**HOLD, "sandbox": None},
+        {**HOLD, "sandbox": 1},
+        {**HOLD, "task": "review"},
+        {**HOLD, "extra": "value"},
+        {key: value for key, value in HOLD.items() if key != "sandbox"},
+    ])
+    def test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators(invalid):
+        details = {"task_hold": invalid}
+        assert refusals.task_hold_condition_details(details) is None
+        error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+                                       details=details)
+        response = protocol.decode_response(protocol.encode(protocol.refuse("sandbox-condition", error)))
+        assert response.error.code == 7
+>       assert response.error.reason is None and response.error.details is None
+E       AssertionError: assert ('task-hold-condition' is None)
+E        +  where 'task-hold-condition' = ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None).reason
+E        +    where ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None) = Response(id='sandbox-condition', ok=False, result=None, error=ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None), v=1).error
+
+tests/unit/test_sandbox_hold_contract.py:174: AssertionError
+_ test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid3] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+invalid = {'sandbox': 1, 'until': '2026-10-09T16:34:40Z', 'note': 'disk brake', 'since': '2026-10-09T16:33:00Z'}
+
+    @pytest.mark.parametrize("invalid", [
+        {**HOLD, "sandbox": "read-only"},
+        {**HOLD, "sandbox": ""},
+        {**HOLD, "sandbox": None},
+        {**HOLD, "sandbox": 1},
+        {**HOLD, "task": "review"},
+        {**HOLD, "extra": "value"},
+        {key: value for key, value in HOLD.items() if key != "sandbox"},
+    ])
+    def test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators(invalid):
+        details = {"task_hold": invalid}
+        assert refusals.task_hold_condition_details(details) is None
+        error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+                                       details=details)
+        response = protocol.decode_response(protocol.encode(protocol.refuse("sandbox-condition", error)))
+        assert response.error.code == 7
+>       assert response.error.reason is None and response.error.details is None
+E       AssertionError: assert ('task-hold-condition' is None)
+E        +  where 'task-hold-condition' = ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None).reason
+E        +    where ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None) = Response(id='sandbox-condition', ok=False, result=None, error=ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None), v=1).error
+
+tests/unit/test_sandbox_hold_contract.py:174: AssertionError
+_ test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid4] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+invalid = {'sandbox': 'workspace-write', 'until': '2026-10-09T16:34:40Z', 'note': 'disk brake', 'since': '2026-10-09T16:33:00Z', ...}
+
+    @pytest.mark.parametrize("invalid", [
+        {**HOLD, "sandbox": "read-only"},
+        {**HOLD, "sandbox": ""},
+        {**HOLD, "sandbox": None},
+        {**HOLD, "sandbox": 1},
+        {**HOLD, "task": "review"},
+        {**HOLD, "extra": "value"},
+        {key: value for key, value in HOLD.items() if key != "sandbox"},
+    ])
+    def test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators(invalid):
+        details = {"task_hold": invalid}
+        assert refusals.task_hold_condition_details(details) is None
+        error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+                                       details=details)
+        response = protocol.decode_response(protocol.encode(protocol.refuse("sandbox-condition", error)))
+        assert response.error.code == 7
+>       assert response.error.reason is None and response.error.details is None
+E       AssertionError: assert ('task-hold-condition' is None)
+E        +  where 'task-hold-condition' = ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None).reason
+E        +    where ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None) = Response(id='sandbox-condition', ok=False, result=None, error=ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None), v=1).error
+
+tests/unit/test_sandbox_hold_contract.py:174: AssertionError
+_ test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid5] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+invalid = {'sandbox': 'workspace-write', 'until': '2026-10-09T16:34:40Z', 'note': 'disk brake', 'since': '2026-10-09T16:33:00Z', ...}
+
+    @pytest.mark.parametrize("invalid", [
+        {**HOLD, "sandbox": "read-only"},
+        {**HOLD, "sandbox": ""},
+        {**HOLD, "sandbox": None},
+        {**HOLD, "sandbox": 1},
+        {**HOLD, "task": "review"},
+        {**HOLD, "extra": "value"},
+        {key: value for key, value in HOLD.items() if key != "sandbox"},
+    ])
+    def test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators(invalid):
+        details = {"task_hold": invalid}
+        assert refusals.task_hold_condition_details(details) is None
+        error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+                                       details=details)
+        response = protocol.decode_response(protocol.encode(protocol.refuse("sandbox-condition", error)))
+        assert response.error.code == 7
+>       assert response.error.reason is None and response.error.details is None
+E       AssertionError: assert ('task-hold-condition' is None)
+E        +  where 'task-hold-condition' = ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None).reason
+E        +    where ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None) = Response(id='sandbox-condition', ok=False, result=None, error=ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None), v=1).error
+
+tests/unit/test_sandbox_hold_contract.py:174: AssertionError
+_ test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid6] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+invalid = {'until': '2026-10-09T16:34:40Z', 'note': 'disk brake', 'since': '2026-10-09T16:33:00Z'}
+
+    @pytest.mark.parametrize("invalid", [
+        {**HOLD, "sandbox": "read-only"},
+        {**HOLD, "sandbox": ""},
+        {**HOLD, "sandbox": None},
+        {**HOLD, "sandbox": 1},
+        {**HOLD, "task": "review"},
+        {**HOLD, "extra": "value"},
+        {key: value for key, value in HOLD.items() if key != "sandbox"},
+    ])
+    def test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators(invalid):
+        details = {"task_hold": invalid}
+        assert refusals.task_hold_condition_details(details) is None
+        error = protocol.ProtocolError("private diagnostic", Exit.REFUSED, reason="task-hold-condition",
+                                       details=details)
+        response = protocol.decode_response(protocol.encode(protocol.refuse("sandbox-condition", error)))
+        assert response.error.code == 7
+>       assert response.error.reason is None and response.error.details is None
+E       AssertionError: assert ('task-hold-condition' is None)
+E        +  where 'task-hold-condition' = ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None).reason
+E        +    where ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None) = Response(id='sandbox-condition', ok=False, result=None, error=ErrorBody(code=7, message='tasks: hold note does not match --if-note-prefix', fix=None, reason='task-hold-condition', details=None), v=1).error
+
+tests/unit/test_sandbox_hold_contract.py:174: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_sandbox_hold_cli.py::test_sandbox_condition_reuses_note_prefix_capability[hold]
+FAILED tests/unit/test_sandbox_hold_cli.py::test_sandbox_condition_reuses_note_prefix_capability[release]
+FAILED tests/unit/test_sandbox_hold_contract.py::test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid0]
+FAILED tests/unit/test_sandbox_hold_contract.py::test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid1]
+FAILED tests/unit/test_sandbox_hold_contract.py::test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid2]
+FAILED tests/unit/test_sandbox_hold_contract.py::test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid3]
+FAILED tests/unit/test_sandbox_hold_contract.py::test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid4]
+FAILED tests/unit/test_sandbox_hold_contract.py::test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid5]
+FAILED tests/unit/test_sandbox_hold_contract.py::test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators[invalid6]
+9 failed, 592 passed in 174.44s (0:02:54)
