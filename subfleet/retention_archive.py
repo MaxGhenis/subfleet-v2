@@ -313,6 +313,11 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _wall_now() -> float:
+    """The wall clock, which file times are on (a test fixes it)."""
+    return time.time()
+
+
 def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
 
@@ -2136,6 +2141,14 @@ class _Builder:
         info.update(bundle="commits.bundle", bundle_heads=expected, bundle_bytes=bundle.stat().st_size)
         return info
 
+    #: How old git's `commits.bundle.tmp.lock` must be, by its modification
+    #: time, before a pass removes it as an earlier attempt's leftover
+    #: (D-RET-STALE-LOCK1, the hub's ruling). A `git bundle create` still
+    #: running, such as one a hard-killed daemon left in its own session,
+    #: keeps writing the lock, so its time stays fresh: a younger lock defers
+    #: the job ("bundle lock in use") and the step removes nothing.
+    BUNDLE_LOCK_STALE_S = 600
+
     def _clear_bundle_leftovers(self, temporary: Path) -> None:
         """Remove what an earlier bundle attempt left: `commits.bundle.tmp`
         and the `commits.bundle.tmp.lock` git writes beside it and leaves when
@@ -2143,16 +2156,30 @@ class _Builder:
         refuses to start while the lock exists, so a leftover one blocked the
         job's bundle for good. Only the pass holding the job's retention lease
         writes this folder; every bundle is read back (`verify_bundle`) before
-        it counts. The lock's size and age go into the progress notes."""
+        it counts.
+
+        The lock goes only once it is `BUNDLE_LOCK_STALE_S` old (a time in
+        the future is young). A younger one raises `Defer` naming the lock,
+        its age and size, before anything here is removed. Either way the
+        lock's size and age are logged; a removal also goes into the
+        progress notes."""
         lock = temporary.with_name(temporary.name + ".lock")
         try:
             found = os.lstat(lock)
         except FileNotFoundError:
             found = None
         if found is not None:
+            age = _wall_now() - found.st_mtime
+            stale = age >= self.BUNDLE_LOCK_STALE_S
+            logging.getLogger(__name__).warning(
+                "Retention %s the bundle lock of %s: %d bytes, %.0f s old (removed at %d s)",
+                "removes" if stale else "keeps", self.r.job_id, found.st_size, age, self.BUNDLE_LOCK_STALE_S)
+            if not stale:
+                raise Defer("bundle lock in use", DEFER_BUSY_S,
+                            f"{lock.name} is {age:.0f} s old, under {self.BUNDLE_LOCK_STALE_S} s "
+                            f"({found.st_size} bytes): a git may still be writing it")
             lock.unlink()                # unlink never follows a link
-            self._note({"k": "bundle-lock", "size": found.st_size,
-                        "age_s": round(max(0.0, time.time() - found.st_mtime), 1), "removed_at": _now()})
+            self._note({"k": "bundle-lock", "size": found.st_size, "age_s": round(age, 1), "removed_at": _now()})
         temporary.unlink(missing_ok=True)
 
     def _over_the_limit(self, bundle: Path, common: Path, held: list[str]) -> None:

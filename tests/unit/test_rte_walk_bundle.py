@@ -11,11 +11,15 @@ that names the directory; nothing changes the tree's modes.
 D-RET-STALE-LOCK1: git leaves `commits.bundle.tmp.lock` when it is killed,
 and refuses every later `bundle create` while it exists. The bundle step
 removes it with `commits.bundle.tmp` (invariant 4: under the job's lease the
-bundle step succeeds whichever of the two an earlier attempt left).
+bundle step succeeds whichever of the two an earlier attempt left), once the
+lock is `BUNDLE_LOCK_STALE_S` (10 minutes) old by its modification time; a
+younger lock may be a running git's, and defers the job with nothing removed
+(the hub's ruling). The wall clock is fixed in these tests.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import stat
 from pathlib import Path
@@ -168,24 +172,48 @@ def test_an_admin_directory_walk_refusal_is_a_deferral_not_an_escape(world, monk
 
 # --- the bundle lock ---------------------------------------------------------------------------
 
+#: The fixed wall clock the bundle step reads (`rarch._wall_now`); lock times are set from it.
+WALL = 2_000_000_000.0
+
+
+def killed_bundle(left: str, lock_age: float):
+    """`create_bundle` as an attempt killed mid-bundle leaves it: the temporary
+    bundle, git's lock (`lock_age` seconds old by `WALL`), both or neither."""
+    def killed(git_dir, path, refs, held, **kwargs):
+        if left in ("tmp", "both"):
+            Path(path).write_bytes(b"# v2 git bundle\npartial")
+        if left in ("lock", "both"):
+            lock = Path(str(path) + ".lock")
+            lock.write_bytes(b"x" * 254)
+            os.utime(lock, (WALL - lock_age, WALL - lock_age))
+        raise rgit.GitError("git bundle create timed out after 3600 s")
+    return killed
+
+
+def leftovers(archive: Path) -> dict[str, tuple[bytes, int, int]]:
+    """Bytes, mode and mtime (ns) of what the killed attempt left."""
+    out = {}
+    for name in ("commits.bundle.tmp", "commits.bundle.tmp.lock"):
+        path = archive / name
+        if os.path.lexists(path):
+            st = path.lstat()
+            out[name] = (path.read_bytes(), st.st_mode, st.st_mtime_ns)
+    return out
+
+
 @pytest.mark.parametrize("left", ["neither", "tmp", "lock", "both"])
 def test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left(world, monkeypatch, left):
     """Invariant 4, and mutant 2's witness: an attempt killed during `git bundle
     create` (as a timeout, a cancel or a reboot does) leaves the lock, the
     temporary bundle, both or neither. The next attempt under the job's lease
-    removes them and retires the job; the lock's size and age are noted."""
+    removes them and retires the job; the lock's size and age are noted. The
+    lock here is exactly `BUNDLE_LOCK_STALE_S` old by the fixed clock: the
+    old side of the line includes it."""
     w = world
     w.job("job-b")
     real_create = rgit.create_bundle
-
-    def killed(git_dir, path, refs, held, **kwargs):
-        if left in ("tmp", "both"):
-            Path(path).write_bytes(b"# v2 git bundle\npartial")
-        if left in ("lock", "both"):
-            Path(str(path) + ".lock").write_bytes(b"x" * 254)
-        raise rgit.GitError("git bundle create timed out after 3600 s")
-
-    monkeypatch.setattr(rgit, "create_bundle", killed)
+    monkeypatch.setattr(rarch, "_wall_now", lambda: WALL)
+    monkeypatch.setattr(rgit, "create_bundle", killed_bundle(left, rarch._Builder.BUNDLE_LOCK_STALE_S))
     state, clock = retention.RetentionState(), Clock()
     first = run(w, state=state, clock=clock)
     assert first["pruned"] == [] and first["deferred"]["job-b"].startswith("error")
@@ -200,10 +228,59 @@ def test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left(world, monkey
     assert second["pruned"] == ["job-b"], second["deferred"]
     locks = [n for n in notes if n.get("k") == "bundle-lock"]
     if left in ("lock", "both"):
-        assert len(locks) == 1 and locks[0]["size"] == 254 and locks[0]["age_s"] >= 0, locks
+        assert len(locks) == 1 and locks[0]["size"] == 254, locks
+        assert locks[0]["age_s"] == rarch._Builder.BUNDLE_LOCK_STALE_S and locks[0]["removed_at"], locks
     else:
         assert locks == []
     assert rarch.check_archive(w.root, "job-b")["ok"]
+
+
+def test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing(world, monkeypatch, caplog):
+    """The hub's ruling on D-RET-STALE-LOCK1, both sides of the line on a fixed
+    clock: a lock 599 s old may still be a running git's (one a hard-killed
+    daemon left keeps writing it, so its time stays fresh). The pass defers
+    with a reason that names the lock and its age, and the lock and the
+    temporary bundle keep their bytes, mode and time; size and age are
+    logged. One second later the lock is 600 s old and goes; the job retires.
+    The age mutant's witness."""
+    w = world
+    w.job("job-y")
+    real_create = rgit.create_bundle
+    wall = [WALL]
+    monkeypatch.setattr(rarch, "_wall_now", lambda: wall[0])
+    monkeypatch.setattr(rgit, "create_bundle", killed_bundle("both", 599))
+    state, clock = retention.RetentionState(), Clock()
+    first = run(w, state=state, clock=clock)
+    assert first["deferred"]["job-y"].startswith("error"), first["deferred"]
+    archive = w.root / "retention" / "job-y" / "archive"
+    before = leftovers(archive)
+    assert sorted(before) == ["commits.bundle.tmp", "commits.bundle.tmp.lock"]
+    notes = []
+    real_note = rarch._Builder._note
+    monkeypatch.setattr(rarch._Builder, "_note", lambda self, record: (notes.append(record), real_note(self, record)))
+    monkeypatch.setattr(rgit, "create_bundle", real_create)
+    clock.advance(2 * rarch.DEFER_ERROR_S)
+    with caplog.at_level(logging.WARNING, logger=rarch.__name__):
+        young = run(w, state=state, clock=clock)
+    assert young["pruned"] == [], young
+    reason = young["deferred"]["job-y"]
+    assert reason.startswith("bundle lock in use: commits.bundle.tmp.lock is 599 s old, under 600 s"), reason
+    assert "254 bytes" in reason
+    assert leftovers(archive) == before, "a young lock and the temporary bundle are left as they were"
+    assert [n for n in notes if n.get("k") == "bundle-lock"] == []
+    kept = [r.getMessage() for r in caplog.records if "bundle lock" in r.getMessage()]
+    assert kept == ["Retention keeps the bundle lock of job-y: 254 bytes, 599 s old (removed at 600 s)"], kept
+    caplog.clear()
+    wall[0] = WALL + 1                       # now 600 s old
+    clock.advance(2 * rarch.DEFER_BUSY_S)
+    with caplog.at_level(logging.WARNING, logger=rarch.__name__):
+        old = run(w, state=state, clock=clock)
+    assert old["pruned"] == ["job-y"], old["deferred"]
+    removed = [r.getMessage() for r in caplog.records if "bundle lock" in r.getMessage()]
+    assert removed == ["Retention removes the bundle lock of job-y: 254 bytes, 600 s old (removed at 600 s)"], removed
+    locks = [n for n in notes if n.get("k") == "bundle-lock"]
+    assert len(locks) == 1 and locks[0]["size"] == 254 and locks[0]["age_s"] == 600.0, locks
+    assert rarch.check_archive(w.root, "job-y")["ok"]
 
 
 def test_a_real_git_refuses_a_bundle_while_its_lock_exists(world):
