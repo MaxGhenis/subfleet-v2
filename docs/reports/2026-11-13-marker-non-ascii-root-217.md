@@ -150,9 +150,9 @@ Setup:
 | `test_conversation_peers_attachments.py` | 62 passed (36 s) |
 | `test_procs.py` | 48 passed |
 | `test_ps_rendering.py` framework / non-framework | 3 passed + 1 skipped / 4 passed |
-| **Step 2 at head**, one file at a time (the step-1 files above are also step-2 files) | `test_person_boundary_identity.py` 25 passed; `test_conversation_steer_service.py` 45 passed; `test_conversation_handoff.py` 48 passed; `test_suggestions.py` 30 passed; `test_suggest_cli.py` 7 passed; `test_hidden_environment.py` 7 passed; `test_guard_overlay.py` 22 passed |
+| **Step 2 at head**, one file at a time (the step-1 files above are also step-2 files) | `test_person_boundary_identity.py` 25 passed; `test_conversation_steer_service.py` 45 passed; `test_conversation_handoff.py` 48 passed; `test_suggestions.py` 30 passed; `test_suggest_cli.py` 7 passed; `test_hidden_environment.py` 7 passed; `test_guard_overlay.py` 22 passed; after the report commit: `test_hooks.py` 81 passed; `test_launch_env_round2.py` 67 passed; `test_census_recycled_pid.py` 25 passed; `test_quar_start1_census.py` 21 passed + 17 xfailed; `test_timers_busy_read.py` 115 passed; `test_review_publish_env_round8.py` 17 passed; `test_census_boot_seeds.py` 36 passed |
 | Step 2, cut by the 565 s alarm | `test_suggestion_secret_properties.py`: 4 passed, then interrupted, none failed. `test_suggestion_properties.py`: interrupted before any test finished. |
-| Step 2, stopped | `test_guard_subfleet_root.py`: the tool's background limit stopped its shell and no result was written. Afterwards no process under `sf-mnar-b2` was left (`ps` check). |
+| Step 2, stopped | `test_guard_subfleet_root.py`: the first run's shell was stopped by the tool's background limit, with no result written. The rerun hit the 565 s alarm at 26 passed and 2 skipped, with none failed. Afterwards no process under `sf-mnar-b2` was left (`ps` check). |
 | **Step 3:** `tests/fake/test_state_contract.py` | 37 passed |
 | `tests/unit/test_test_module_names.py` | 1 passed |
 | `tests/unit/test_invariants_index.py` | 25 passed |
@@ -179,15 +179,15 @@ Earlier sessions' commands (second session, on 355e295c1's code, which this head
 
 - **Test step 2, partly.** The following files did not run at this head, for lack of time at this load:
   - process: `test_census_hidden_environment_process.py`, `test_census_parent_chain_process.py`, `test_census_raw_markers_process.py`, `test_census_responsibility_process.py`, `test_guardian_process.py`, `test_kill4_fix1_process.py`, `test_quar_start1_process.py`;
-  - unit: `test_census_boot_seeds.py`, `test_census_recycled_pid.py`, `test_hooks.py`, `test_launch_env_round2.py`, `test_quar_start1_census.py`, `test_retention_location_review_r13.py`, `test_review_publish_env_round8.py`, `test_sessions_headless_properties.py`, `test_timers_busy_read.py`;
+  - unit: `test_retention_location_review_r13.py`, `test_sessions_headless_properties.py`;
   - fake: `test_census_boot_seeds_daemon.py`, `test_census_escapers_daemon.py`, `test_enrollment_guardian.py`, `test_suggestions_fake.py`;
   - e2e: `test_conversations.py`, `test_suggestions_r1b_peer_e2e.py`;
   - frontend: `test_core_live_steer.py`, `test_core_protocol.py`, `test_core_queue_engine.py`.
 
-  Also unfinished: `test_guard_subfleet_root.py` (stopped), `test_suggestion_properties.py` and `test_suggestion_secret_properties.py` (cut). None of these files is changed by this branch. The census ones test `procs.py`, which is identical to release/217's. CI runs them all.
+  Also unfinished: `test_guard_subfleet_root.py` (stopped once, then cut at 26 passed), `test_suggestion_properties.py` and `test_suggestion_secret_properties.py` (cut). None of these files is changed by this branch. The census ones test `procs.py`, which is identical to release/217's. CI runs them all.
 - The PR body is not set and nothing is pushed. The hub does both.
 
-Scratch is `$TMPDIR/sf-mnar-b2`: the non-framework venv, the b51f08f96 archive, the mutant trees, the pristine copies, the scripts, and `out/` with every run's text and JUnit XML. No folder outside it was created, apart from the worktree's ignored `.venv`. No process was left running.
+Scratch is `$TMPDIR/sf-mnar-b2`. It keeps the scripts (`run1.sh`, `mutants.py`, `edit_contract.py`, `junit_summary.py`), `out/` (every run's text and JUnit XML, and `mutant-NN.json`), the Hypothesis directories, and the stopped run's basetemp. At the end, a guarded `shutil.rmtree` (asserting `sf-mnar-b2` and the scratch parent) removed the non-framework venv, the b51f08f96 archive, both mutant trees and the pristine copies. No folder outside it was created, apart from the worktree's ignored `.venv`. No process was left running.
 
 ## Follow-up
 
