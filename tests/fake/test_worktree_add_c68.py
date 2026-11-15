@@ -240,7 +240,14 @@ def test_reproducer_a_the_cap_stops_the_whole_checkout(state_daemon, held, real_
     job_id = submit(daemon, harness)
     held.hold()
     try:
-        daemon._admit()
+        # A whole-host census that cannot be verified (a newborn's unreadable marker on a busy
+        # host) defers the job before any add, as C-6.8 says; three passes each (six of the eight
+        # tries `workspace_retry_max` allows) leave room for it.
+        for _ in range(3):
+            daemon._admit()
+            if held.filter_pids():
+                break
+            due(daemon, job_id)
         filters = held.filter_pids()
         assert filters, "the add reached its filter"
         assert [pid for pid in filters if alive(pid)] == []
@@ -249,8 +256,11 @@ def test_reproducer_a_the_cap_stops_the_whole_checkout(state_daemon, held, real_
     finally:
         held.release()
     daemon.policy["caps"]["worktree_add_timeout_s"] = normal
-    due(daemon, job_id)
-    daemon._admit()
+    for _ in range(3):
+        due(daemon, job_id)
+        daemon._admit()
+        if daemon.store.list_attempts(job_id):
+            break
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
     assert_finished(daemon.root / "worktrees" / job_id, held.head)
 
