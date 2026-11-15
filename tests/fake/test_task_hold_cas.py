@@ -26,7 +26,7 @@ def image(service):
 
 
 def request(service, action, *, prefix=PREFIX, note=OWN_NOTE, until=600):
-    args = {"action": action, "task": "build"}
+    args = {"action": action + "-if" if prefix is not None else action, "task": "build"}
     if action == "hold":
         args.update(until=stamp(until), note=note)
     if prefix is not None:
@@ -72,17 +72,62 @@ def test_expired_foreign_hold_allows_conditional_hold_but_blocks_release(expired
             "CAS-expiry: an expired row blocked replacement or preserved its since"
 
 
-def test_matching_hold_can_be_renewed_and_released_with_trimmed_prefix():
+def test_matching_hold_can_be_renewed_and_released_and_notes_still_trim():
     with fresh_daemon() as (service, harness, clock, signals):
-        first = request(service, "hold", prefix="  battery-backoff:  ", note="  battery-backoff: hot  ", until=100)
+        first = request(service, "hold", note="  battery-backoff: hot  ", until=100)
         clock[0] = 25
         second = request(service, "hold", note=PREFIX + " still hot", until=200)
         assert second["replaced"] == first["task_hold"]
         assert second["task_hold"]["since"] == stamp(0)
         assert second["task_hold"]["note"] == PREFIX + " still hot"
-        released = request(service, "release", prefix=" battery-backoff: ")
+        released = request(service, "release")
         assert released == {"released": "build", "was_held": True, "woken": 0, "task_holds": []}
         assert service.store.query("SELECT * FROM leases") == []
+
+
+@pytest.mark.parametrize("action", ["hold", "release", "hold-if", "release-if"])
+@pytest.mark.parametrize("prefix", [" battery-backoff:", "battery-backoff: ", "  battery-backoff:  "])
+def test_raw_protocol_spaced_prefix_is_refused_without_changes_for_both_encodings(action, prefix):
+    """A raw sender cannot broaden a prefix through trimming, even on its own row."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        submit(service, harness, "build", "held-build")
+        hold(service, "build", stamp(500), note=OWN_NOTE)
+        args = {"action": action, "task": "build", "if_note_prefix": prefix}
+        if action in ("hold", "hold-if"):
+            args.update(until=stamp(600), note=OWN_NOTE)
+        before = image(service)
+        with pytest.raises(protocol.ProtocolError) as captured:
+            service.dispatch("tasks", args)
+        assert captured.value.reason == "task-hold-note"
+        assert captured.value.code == Exit.INVALID_INPUT
+        assert image(service) == before
+
+
+@pytest.mark.parametrize("action", ["hold-if", "release-if"])
+def test_conditional_actions_require_prefix_before_any_write(action):
+    with fresh_daemon() as (service, harness, clock, signals):
+        hold(service, "build", stamp(500), note=OWN_NOTE)
+        before = image(service)
+        with pytest.raises(protocol.ProtocolError) as captured:
+            service.dispatch("tasks", {"action": action, "task": "build", "until": stamp(600), "note": OWN_NOTE})
+        assert captured.value.reason == "task-hold-note"
+        assert captured.value.code == Exit.INVALID_INPUT
+        assert image(service) == before
+
+
+@pytest.mark.parametrize("action", ["hold", "release"])
+def test_legacy_conditional_encoding_still_checks_foreign_rows(action):
+    with fresh_daemon() as (service, harness, clock, signals):
+        hold(service, "build", stamp(500), note="operator booking")
+        before = image(service)
+        args = {"action": action, "task": "build", "if_note_prefix": PREFIX}
+        if action == "hold":
+            args.update(until=stamp(600), note=OWN_NOTE)
+        with pytest.raises(protocol.ProtocolError) as captured:
+            service.dispatch("tasks", args)
+        assert captured.value.reason == "task-hold-condition"
+        assert captured.value.code == Exit.REFUSED
+        assert image(service) == before
 
 
 @pytest.mark.parametrize("action", ["hold", "release"])
@@ -110,8 +155,10 @@ def test_conditional_hold_note_must_start_its_prefix():
 def test_conditional_release_with_no_row_is_successful_and_writes_nothing():
     with fresh_daemon() as (service, harness, clock, signals):
         submit(service, harness, "build", "queued-build")
+        review = hold(service, "review", stamp(500), note="operator review")["task_hold"]
         before = image(service)
-        assert request(service, "release") == {"released": "build", "was_held": False, "woken": 0, "task_holds": []}
+        assert request(service, "release") == {"released": "build", "was_held": False, "woken": 0,
+                                                "task_holds": [review]}
         assert image(service) == before
 
 
