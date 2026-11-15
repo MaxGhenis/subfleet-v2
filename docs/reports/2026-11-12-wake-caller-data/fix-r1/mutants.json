@@ -1,0 +1,252 @@
+[
+ {
+  "name": "f1a-scan-offered",
+  "finding": 1,
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_notice_posttooluse_offered_is_never_woken"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_notice_posttooluse_offered_is_never_woken",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 21.71s"
+  ],
+  "seconds": 32.8,
+  "load_at_start": 129.42138671875,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ },
+ {
+  "name": "f1b-wait-marks-nothing",
+  "finding": 1,
+  "file": "subfleet/cli.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_result_wait_printed_is_never_woken"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_result_wait_printed_is_never_woken[ordinary]",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 26.94s"
+  ],
+  "seconds": 35.2,
+  "load_at_start": 122.8544921875,
+  "sha256_before": "869893739b906753f8ed29090383493fd7e73f1a8e4e424972c4cc7c3a3f8ce4",
+  "sha256_after_restore": "869893739b906753f8ed29090383493fd7e73f1a8e4e424972c4cc7c3a3f8ce4"
+ },
+ {
+  "name": "f2a-envelope-resets-online",
+  "finding": 2,
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_the_wakes_own_prompt_leaves_the_streak_bound_in_force"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_the_wakes_own_prompt_leaves_the_streak_bound_in_force[wake-prompt]",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 26.09s"
+  ],
+  "seconds": 37.1,
+  "load_at_start": 109.3212890625,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ },
+ {
+  "name": "f2b-envelope-resets-offline",
+  "finding": 2,
+  "file": "subfleet/notice_claims.py",
+  "killers": [
+   "tests/unit/test_notice_claims.py::test_c15_9_an_offline_wake_prompt_is_activity_but_not_personal_input"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/unit/test_notice_claims.py::test_c15_9_an_offline_wake_prompt_is_activity_but_not_personal_input",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 28.44s"
+  ],
+  "seconds": 41.1,
+  "load_at_start": 105.20361328125,
+  "sha256_before": "beef0266b4675f1c070bf2079f25e9caacc2a6e794ed58a754f7de5d1fb6560b",
+  "sha256_after_restore": "beef0266b4675f1c070bf2079f25e9caacc2a6e794ed58a754f7de5d1fb6560b"
+ },
+ {
+  "name": "f3a-first-attempt-no-age-limit",
+  "finding": 3,
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_notice_older_than_the_window_is_stale_on_its_first_attempt",
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_backlog_never_wakes_for_stale_notices_and_wakes_at_most_the_cap_per_pass"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_notice_older_than_the_window_is_stale_on_its_first_attempt",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 50.69s"
+  ],
+  "seconds": 58.5,
+  "load_at_start": 129.4853515625,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ },
+ {
+  "name": "f3b-migration-keeps-old-notices-due",
+  "finding": 3,
+  "file": "subfleet/store.py",
+  "killers": [
+   "tests/unit/test_store_notice_wake_migration.py::test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/unit/test_store_notice_wake_migration.py::test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 13.37s"
+  ],
+  "seconds": 18.8,
+  "load_at_start": 147.83837890625,
+  "sha256_before": "7c599dae9e6a3654a0a5a045e6e09781121d7828de177cf0238407f9004cd607",
+  "sha256_after_restore": "7c599dae9e6a3654a0a5a045e6e09781121d7828de177cf0238407f9004cd607"
+ },
+ {
+  "name": "f4-lane-refusal-consumes",
+  "finding": 4,
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_lane_refusal_leaves_the_notice_for_the_hook"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_lane_refusal_leaves_the_notice_for_the_hook",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 13.36s"
+  ],
+  "seconds": 18.5,
+  "load_at_start": 146.18505859375,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ },
+ {
+  "name": "f5-late-claim-marks",
+  "finding": 5,
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_surface_claim_after_its_client_gave_up_marks_nothing"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_surface_claim_after_its_client_gave_up_marks_nothing",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 15.35s"
+  ],
+  "seconds": 20.6,
+  "load_at_start": 130.595703125,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ },
+ {
+  "name": "f6-missing-session-terminal",
+  "finding": 6,
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_absent_or_closed_session_is_undeliverable_without_starting_it",
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_caller_back_from_an_app_restart_is_woken_within_the_window"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_absent_or_closed_session_is_undeliverable_without_starting_it[None]",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 13.66s"
+  ],
+  "seconds": 19.2,
+  "load_at_start": 132.85009765625,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ },
+ {
+  "name": "f7-compact-holds",
+  "finding": 7,
+  "file": "subfleet/sessions/nudge.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_compaction_keeps_completion_wakes_and_clear_holds_them",
+   "tests/unit/test_sessions_notice_wake.py::test_notice_wake_off_switch_source_and_retirement_are_respected"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_compaction_keeps_completion_wakes_and_clear_holds_them[compact-True]",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 15.37s"
+  ],
+  "seconds": 20.9,
+  "load_at_start": 126.74609375,
+  "sha256_before": "31f8674de05a9502d5c267df69f43cba05a272c34ffb919dcef5c5426175600a",
+  "sha256_after_restore": "31f8674de05a9502d5c267df69f43cba05a272c34ffb919dcef5c5426175600a"
+ },
+ {
+  "name": "f8a-unbounded-groups",
+  "finding": 8,
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_pass_examines_a_bounded_number_of_callers_and_reaches_them_all"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_pass_examines_a_bounded_number_of_callers_and_reaches_them_all",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 14.29s"
+  ],
+  "seconds": 20.8,
+  "load_at_start": 119.62158203125,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ },
+ {
+  "name": "f8b-no-held-memo",
+  "finding": 8,
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_held_caller_is_not_read_again_until_something_changes"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_held_caller_is_not_read_again_until_something_changes",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 18.19s"
+  ],
+  "seconds": 24.0,
+  "load_at_start": 115.8798828125,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ },
+ {
+  "name": "p3-render-after-claim",
+  "finding": "P3 (caller_wakes.py:212)",
+  "file": "subfleet/caller_wakes.py",
+  "killers": [
+   "tests/fake/test_caller_notice_wakes.py::test_c15_9_a_header_that_cannot_render_leaves_no_claim_behind"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": [
+   "FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_header_that_cannot_render_leaves_no_claim_behind",
+   "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "1 failed in 11.09s"
+  ],
+  "seconds": 15.5,
+  "load_at_start": 113.470703125,
+  "sha256_before": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c",
+  "sha256_after_restore": "5a28726503566bed2764e07d0fcef06f8a1c2ae7840158b7f81af3a02dc4be6c"
+ }
+]
