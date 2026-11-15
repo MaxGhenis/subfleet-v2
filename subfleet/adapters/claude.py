@@ -1466,6 +1466,7 @@ class ClaudeAdapter(Adapter):
         self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
         credential_env: dict[str, str], native_session_id: str,
         prompt_path: Path, guard_override: str | None, model_id: str | None = None,
+        effort: str | None = None,
     ) -> Launch | None:
         """`claude -p --resume <session id>` on the same lane, same model, same
         permission flags. `--session-id` is not passed: `--resume` names the session.
@@ -1473,6 +1474,10 @@ class ClaudeAdapter(Adapter):
         `model_id` is keyword-optional because the base signature has none; an attempt
         never changes model (C-4.6), so the daemon passes the attempt's model and the
         fallbacks are the job's pin, then the session's own recorded model.
+
+        `effort` is pinned exactly as `build_launch` pins it: `--effort` and the same
+        `CLAUDE_CODE_EFFORT_LEVEL` in the one `--settings` (C-12.4, D-EFFORT-ENV1), so a
+        resumed or revived attempt runs at its named effort, not the user's settings.
         """
         attempt_dir = Path(attempt_dir)
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -1483,13 +1488,15 @@ class ClaudeAdapter(Adapter):
         if model:
             argv += ["--model", model]
         argv += ["--output-format", "stream-json", "--verbose"]
+        if effort:
+            argv += ["--effort", effort]
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Claude session",
                                fix="submit a fresh isolated review job", reason="isolation-resume-claude")
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
             tmpdir=credential_env.get("TMPDIR")))
-        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings(effort=effort))  # C-12.4, D-EFFORT-ENV1
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 

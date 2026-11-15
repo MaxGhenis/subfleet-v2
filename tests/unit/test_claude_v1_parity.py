@@ -5,14 +5,18 @@ That encoding is only trustworthy if it is tied to v1's bytes, so these tests re
 v1's shell source and rebuild the launch line from it — the flag list, the tool
 surface, the isolated branch, and the environment it unsets — then compare.
 
-Set `SUBFLEET_V1_RUNNER` to an explicitly selected v1 runner to validate that source.
-They skip otherwise, so collection never reads another checkout or live user state.
+They skip when the v1 tree is not present, so the suite stays portable; on this Mac
+they run, and they are the thing that fails when either side drifts. A non-empty
+`SUBFLEET_V1_RUNNER` overrides where the v1 runner is looked for: it names another
+copy of `bin/subfleet-claude`, or a path that does not exist to skip these tests.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import os
+import pwd
 import shlex
 from pathlib import Path
 
@@ -23,17 +27,17 @@ from subfleet.adapters.claude import (
 )
 from subfleet.contracts import Sandbox
 
-V1_RUNNER = Path(os.environ["SUBFLEET_V1_RUNNER"]) if os.environ.get("SUBFLEET_V1_RUNNER") else None
+#: The user's own v1 tree, as before D-EFFORT-ENV1; `SUBFLEET_V1_RUNNER` overrides it.
+DEFAULT_V1_RUNNER = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff" / "subfleet" / "bin" / "subfleet-claude"
+V1_RUNNER = Path(os.environ["SUBFLEET_V1_RUNNER"]) if os.environ.get("SUBFLEET_V1_RUNNER") else DEFAULT_V1_RUNNER
 
 pytestmark = pytest.mark.skipif(
-    V1_RUNNER is None or not V1_RUNNER.is_file(),
-    reason="set SUBFLEET_V1_RUNNER to an available v1 runner to check source parity",
+    not V1_RUNNER.is_file(), reason=f"the v1 runner is not present at {V1_RUNNER}"
 )
 
 
 @pytest.fixture(scope="module")
 def v1_source() -> str:
-    assert V1_RUNNER is not None
     return V1_RUNNER.read_text(encoding="utf-8")
 
 
@@ -131,6 +135,43 @@ def test_the_base_launch_line_matches_v1s_apart_from_the_documented_changes(v1_s
     assert argv[7:9] == ("stream-json", "--verbose")
     assert argv[9:-2] == ClaudeAdapter.permission_args(Sandbox.READ_ONLY)
     assert list(argv[-2:]) == lane_settings_args()
+
+
+V1_LAUNCH_LINE = (r'"\$CLAUDE_BIN" -p --model "\$MODEL" \\\n\s*'
+                  r'--session-id "\$SID" --output-format (\w+) '
+                  r'\$\{PERM_ARGS\[@\]\+"\$\{PERM_ARGS\[@\]\}"\}')
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+@pytest.mark.parametrize("sandbox", [Sandbox.READ_ONLY.value, Sandbox.WORKSPACE_WRITE.value])
+def test_a_named_effort_is_the_fifth_documented_change(v1_source, sandbox, effort):
+    """C-12.4, D-EFFORT-ENV1 v1 names no effort: its launch line goes straight from
+    `--output-format json` to PERM_ARGS, its PERM_ARGS arrays carry no `--effort`, and
+    it assigns no `CLAUDE_CODE_EFFORT_LEVEL`. The fifth documented change adds
+    `--effort <effort>` right after `--verbose` and the same effort in the one
+    `--settings` env; with both taken out the line is the effort-free reconstruction
+    byte for byte, so the permission flags are still v1's own."""
+    launch_line = re.search(V1_LAUNCH_LINE, v1_source)
+    assert launch_line, "v1's launch line has moved; re-read bin/subfleet-claude"
+    assert "--effort" not in _v1_workspace_write_perm_args(v1_source)
+    assert "--effort" not in _v1_read_only_perm_args(v1_source, isolated=False)
+    assert not re.search(r"^\s*(?:export\s+|local\s+|declare\s+(?:-\w+\s+)*)?CLAUDE_CODE_EFFORT_LEVEL=",
+                         v1_source, re.MULTILINE), \
+        "v1 assigns the effort variable; the fifth documented change no longer describes a difference"
+
+    plain = reconstruct_v1_argv("claude", "claude-opus-5", "sid", sandbox)
+    named = reconstruct_v1_argv("claude", "claude-opus-5", "sid", sandbox, effort=effort)
+    assert named[7:11] == ("stream-json", "--verbose", "--effort", effort)
+    assert named[:9] + named[11:-2] == plain[:-2]
+    if sandbox == Sandbox.READ_ONLY.value:
+        assert list(named[11:-2]) == _v1_read_only_perm_args(v1_source, isolated=False)
+    else:
+        assert list(named[11:-2]) == (_v1_workspace_write_perm_args(v1_source)
+                                      + ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'])
+    assert list(named[-2:]) == lane_settings_args(effort=effort)
+    payload = json.loads(named[-1])
+    assert payload["env"].pop("CLAUDE_CODE_EFFORT_LEVEL") == effort
+    assert ["--settings", json.dumps(payload, separators=(",", ":"))] == list(plain[-2:])
 
 
 def test_v1_unsets_the_same_api_key_variables_this_adapter_removes(v1_source):

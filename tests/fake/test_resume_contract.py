@@ -29,10 +29,16 @@ def finished_source(daemon, harness, *, writable=False, cancelled=False, **overr
     return job_id, daemon.store.get_attempt(attempt["attempt_id"])
 
 
+@pytest.mark.parametrize("effort", [None, "medium"])
 @pytest.mark.parametrize("provider,model", [("codex", "astra"), ("claude", "haiku")])
-def test_c12_resume_invokes_native_launch_on_original_lane(state_daemon, monkeypatch, provider, model):
-    """C-12.3, C-12.4 resumes call the adapter's native continuation with the frozen source session."""
+def test_c12_resume_invokes_native_launch_on_original_lane(state_daemon, monkeypatch, provider, model, effort):
+    """C-12.3, C-12.4 resumes call the adapter's native continuation with the frozen source session,
+    and with the effort the attempt's model entry names, as a fresh launch gets it (D-EFFORT-ENV1)."""
     daemon, harness = state_daemon
+    if effort is None:
+        monkeypatch.delitem(daemon.policy["models"][model], "effort", raising=False)
+    else:
+        monkeypatch.setitem(daemon.policy["models"][model], "effort", effort)
     if provider == "claude":
         lane = daemon.store.get_lane("codex-1")
         daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude",
@@ -57,8 +63,8 @@ def test_c12_resume_invokes_native_launch_on_original_lane(state_daemon, monkeyp
     calls = []
 
     class ObserveResume(FakeAdapter):
-        def resume_launch(self, spec, aid, adir, lane, env, native, prompt, guard, model_id=None):
-            calls.append((lane.lane_id, native, model_id, spec.workdir))
+        def resume_launch(self, spec, aid, adir, lane, env, native, prompt, guard, model_id=None, effort=None):
+            calls.append((lane.lane_id, native, model_id, spec.workdir, effort))
             raise AdapterError("stopped after observing native launch")
 
         def build_launch(self, *args):
@@ -67,7 +73,7 @@ def test_c12_resume_invokes_native_launch_on_original_lane(state_daemon, monkeyp
     monkeypatch.setattr(module, "get_adapter", lambda _: ObserveResume())
     Daemon._launch(daemon, attempt)
     assert calls == [(source_attempt["lane_id"], "native-source-session",
-                      source_attempt["model_requested"], resumed["workdir"])]
+                      source_attempt["model_requested"], resumed["workdir"], effort)]
     assert daemon._children == {}
 
 
@@ -94,7 +100,7 @@ def test_c12_resume_follows_its_lane_through_a_reenrolment(state_daemon, monkeyp
     calls = []
 
     class ObserveResume(FakeAdapter):
-        def resume_launch(self, spec, aid, adir, lane, env, native, prompt, guard, model_id=None):
+        def resume_launch(self, spec, aid, adir, lane, env, native, prompt, guard, model_id=None, effort=None):
             calls.append((lane.lane_id, native))
             raise AdapterError("stopped after observing native launch")
 

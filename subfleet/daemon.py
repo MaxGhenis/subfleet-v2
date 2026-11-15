@@ -9794,10 +9794,11 @@ class Daemon:
                 # named by `caller_session`, which for a revive IS the session
                 # being revived. `build_launch` would start a NEW conversation
                 # under a fresh `--session-id`, which looks like a revive and is
-                # not one.
+                # not one. The model entry's effort is pinned as on a fresh
+                # launch (C-12.4, D-EFFORT-ENV1).
                 launch = adapter.resume_launch(spec, a["attempt_id"], adir, lane,
                                                credential_env, resume["native_session_id"] if resume else job["caller_session"],
-                                               prompt_path, guard_override, model["id"])
+                                               prompt_path, guard_override, model["id"], effort=model.get("effort"))
                 if launch is None:
                     raise AdapterError(
                         f"{lane.provider} cannot resume a session in place", code=7,
