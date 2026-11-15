@@ -252,3 +252,183 @@ Report completed 2026-11-13 15:09:23 UTC, within the three-hour limit. Git refus
 Final delivery attempt: `git add --` with 50 explicitly named files, then `git commit -m 'Fix idle admission review r1 and record validation'`, both exited 128 at the same denied worktree `index.lock`. Exact named-file argv and errors are in `fix-r1-final-checks.json`; no commit was created.
 
 Head built: `9e753f8fb7eff14f2cbabb5e871b4b38ed509a96`
+
+
+## Fix r2
+
+Started 2026-11-15 01:41:37 UTC (`date -u`, first command); deadline 04:41:37 UTC. I worked in the assigned detached workspace at 69dedd906 (review r2's head 2335320f4 plus the hub's merge of release/217). The merge shifted r2's `daemon.py` line numbers by +15 from line 6035 on; every line number below is this head's. All daemons ran on synthetic state roots. Nothing was pushed, and no branch was created or moved.
+
+### Finding 1 (P2): a carried 600 s clock outlasted its verdict
+
+**What changed.** `subfleet/daemon.py:7574` adds `_clip_carried_clock`. A look that ends in a wait setting no clock of its own keeps the clock its job carried, but only up to 30 s from that look:
+- A nearer clock is returned as it is, with no transaction and no event.
+- A further one is rewritten to `after(CAPACITY_RECHECK_CEILING_S)`. The write is conditional on `state='waiting'`, `wait_reason='capacity'`, no cancel request and the stored clock still beyond the ceiling. It records `job.capacity_clock_clipped` with `{"hold", "carried", "next_check_at"}`.
+- The write first reads the job's task hold (`_task_held_at_write`, C-11.10's R3-1), so a hold committed since the door's read takes the job instead, as every other admission write does.
+
+It is called from two places:
+- `daemon.py:8602`, the `probe-pending` branch that `clocked` reached through `current["next_check_at"]` (r2's path). The clip applies only when no probe set the clock on this look (`"next_check_at" not in hold`), so a probe's own `PROBE_RETRY_S` clock is never touched.
+- `daemon.py:9154`, the `route-moved` path. The audit below found it as a second path with the same flaw.
+
+**Choice: clip, not reset.**
+- **Clip changes only the new state.** Before 600 s clocks existed, every capacity clock a look could carry was at most 30 s ahead, so on every state the base could reach the clip does nothing: no write, no event, the same clock. Only a clock beyond 30 s, which only an event-only verdict writes, changes, and it changes to exactly the base's bound.
+- **Reset would change what the base already did.** It would treat a brought-forward look as unclocked. Its `probe-pending` signature would restart the doubling at 1 s, and it would write a `job.probe_deferred` row and event on every brought-forward look that ends `probe-pending`, including all the cases the base handled with no write. That goes against C-6.10's purpose of writing less, and changes the base's cadence. For `route-moved`, a reset would need a recheck signature with no verdict behind it.
+
+**Paths checked.** Only two places write a clock beyond 30 s: the unprepared wait (`daemon.py:8323`) and the prepared verdict wait (`:8851`), both through `scheduler.capacity_recheck_ceiling`. So a non-event-only verdict can inherit an event-only clock only where a look ends without writing its own clock. I checked every exit from the job loop:
+- **Before the capacity-clock check** (task hold, stale pin, route wait, conversation hold, stuck pin, unadmittable retry, machine/disk/ramp door, saturated pool or FIFO predecessor, approval or uncertain): no look is made and the news flag is not consumed. Fix r1's retained flag brings the job forward once the guard permits.
+- **Not-due path** (`:8255`): no look, so no new verdict. The clock is the last look's.
+- **`attempt-live`** (`:8291`, and `:8684` inside the reservation): the job has a live attempt. Reservation makes it running and finalization sets its retry clock; it is not a capacity verdict.
+- **Unprepared C-6.20 wait** (`:8293-8336`): always writes `waiting_metadata` with its verdict's ceiling.
+- **`_rediscovered` failure, early fence holds, `_workspace` failure, folder absent:** `_fence_hold` writes at most 30 s; `_workspace_failed` writes C-6.8's `workspace` clock, or fails the job.
+- **`_push_workspace_ready` returning False** (`:8409`): it writes `wait_reason='workspace'` with no clock. Its two early returns that write nothing need a mid-pass future for a job with no `jobs.worktree`. A push job reaches any capacity clock only after readiness has recorded `jobs.worktree`, and nothing clears it (its only writer is `job.workspace_built`, `:6278`). This path cannot carry an event-only clock, so I added no case (r2 also found no way to reach it).
+- **`AdapterError`** fails the job. **Retry let-go `behind-older-job`** writes at most 30 s. **`Unroutable`** writes C-6.12's `route` clock or fails the job.
+- **`approved is None`:**
+  - terminal or cancelled: skipped;
+  - `approval` or `uncertain`: waits on a person;
+  - `task-held`: the hold;
+  - a probe ran: its own 60 s clock, never brought forward (`expedite=False`);
+  - unclocked: at most 30 s;
+  - **clocked by the carried clock: r2's P2, fixed.**
+- **Inside the reserving transaction:** rotation `probe-pending`, the verdict wait, `probe-pending` after an identity change and `lease-held` each write their own clock. Gone, settled, attempt-live and task-held write no capacity clock. The reservation-time ramp hold keeps the stored clock but restores the news flag (Fix r1), so the next pass looks again whatever the clock; the effective wait is one pass, not the carried clock.
+- **Route failed in `_isolated_route`, or moved with an error:** `_unroutable`.
+- **`route-moved`** (ROUTE_TRIES reservations overtaken, `:9146-9167`): **kept the carried clock; fixed.**
+- **The turn pool** shares `_admit_pass`. It never carries a probe, but it does reach `route-moved`, which the fix covers.
+
+**Tests.** `tests/fake/test_idle_capacity_carried_clock.py` (the name passes `test_test_module_names.py`):
+- `test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long|short]` is r2's case: `held_fleet` and `long_wait`, `_needs_probe` true for the job, only the probe's `:slot:0` lease refused, the closure released, then `_admit`. It asserts:
+  - the release brought the job forward;
+  - the hold is `probe-pending` with no `behind`;
+  - the clock is at most 30 s away;
+  - one clip event (long), or the unchanged 30 s clock and no event (short control, a `provider-limit` verdict);
+  - a second look 31 s later.
+- `test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long|short]`: `_route_stands` reports `moved` on every try, so 3 reservations are overtaken, the hold is `{"reason": "route-moved", "tries": 3}`, and the same assertions follow.
+- `test_clipping_a_carried_clock_lets_a_task_hold_take_the_job`: a hold at write takes the job and nothing is clipped; a nearer clock comes back without a transaction; a further one is clipped once.
+
+**Contract.**
+- `docs/acceptance-contract.md:507` (C-6.10) now says only a look that reaches an event-only verdict sets a clock beyond 30 s. A look ending in any other wait without its own clock (`route-moved`, or `probe-pending` with no probe reserved) keeps at most 30 s of the clock it carried, and a probe's own clock is not carried.
+- Change-log line 11, formerly line 10 (change 2), now reads "Only a look whose verdict rejects every lane solely for … may set a 600 s clock; mixed and unknown verdicts keep 30 s, and a look ending in any other wait keeps at most 30 s of the clock it carried (fix r2)".
+
+### Finding 2 (P2): the self-wake guard and the lane census had no test
+
+**Self-wake guard (`daemon.py:7408`).** `tests/fake/test_idle_admission_self_wake.py`:
+- `test_a_real_pass_requeuing_its_own_job_still_rests[none|workspace-ready]` runs a real `_admit` on `held_fleet`. The pass's own `job.workspace_ready` requeue reaches the store watch as a `jobs` notice on the pass thread (a recorder wraps `Store._admission_watch`). The pass still rests, and `_admission_thread.active` is restored afterwards.
+- `test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue|other-thread-requeue|own-thread-lease|own-thread-requeue-after-pass]` uses the fake-clock `paced` fixture. Only the pass thread's own `jobs` notice keeps the rest. The same requeue from another thread, a lease release on the pass thread, and a requeue on that thread after the pass all wake the next tick.
+
+**Lane census (`previous[1] != lanes`, `daemon.py:7801`).** `tests/fake/test_idle_capacity_news_sources.py::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[none|enrolled|disabled|removed]` writes through a second `Store` connection. It has no TEMP trigger and no watch, and the test asserts that `_admission_capacity_revision` and `_admission_wake_seq` are unchanged. The next pass then looks at every backed-off wait; with no change (`none`) it looks at none.
+
+### Finding 3 (P3): closure additions
+
+**The case.** `test_c6_10_a_closure_added_brings_every_eligible_wait_forward[provider-limit-on-the-held-lane|operator-hold-on-another-lane]` (same file) confirms the code: a closure inserted on the daemon's connection bumps the revision (`daemon.py:7412`), and the next pass looks at every eligible wait, related or not.
+
+**I corrected the clause rather than the code.** An added closure can turn an event-only verdict into a mixed one, or bring a known reset nearer, and only a look applies either. The first case shows this: a `provider-limit` added beside the operator hold makes the next look reclassify the 600 s wait to at most 30 s. Without that look, a 600 s clock would outlast its verdict, which is finding 1's class of fault.
+
+**The clause now:**
+- lists "a closure added, released or expired (or replaced)";
+- says the addition arrives through the committed revision, which every closure or lane write on the daemon's own store connection bumps. The operator's handlers and the timers write there: `Timers` receives `self.store`, and the only closure writers are `daemon.py`, `timers.py` and `actions.py`, through that store.
+- says the census compares only the closures gone, plus lanes and the policy hash in full. So a lane change from another connection is seen, and a closure added there is not.
+
+The change 2 change-log line now says "when a closure is added or ends".
+
+### Mutants
+
+`tools/idle_admission_r2_mutations.py` copies `subfleet/` and `tests/` to scratch. It applies each mutant alone to `subfleet/daemon.py` and runs its killers and controls with `-n 4`. It counts a kill only when a killer fails an assertion, no case errors, and every named control passes. It then restores the file from the pristine bytes and compares them. Before anything runs, it checks that every anchor applies exactly once to this head. It loads Fix r1's six mutants and anchors from `tools/idle_admission_r1_mutations.py` unchanged: my change moved none of them, so I updated no anchor. All 12 mutants were killed.
+
+| Mutant | Killed by | Controls that passed |
+| --- | --- | --- |
+| 1. Keep the carried clock (finding 1 undone, in the helper) | `test_probe_pending_…[long]`, `test_route_moved_…[long]`: the 600 s clock fails `<= after(30)` | both `[short]` |
+| 1a. Keep it on `probe-pending` only | `test_probe_pending_…[long]` | `test_probe_pending_…[short]`, `test_route_moved_…[long]` |
+| 1b. Keep it on `route-moved` only | `test_route_moved_…[long]` | `test_route_moved_…[short]`, `test_probe_pending_…[long]` |
+| 2. r2's M1: drop the self-wake guard | `test_a_real_pass_requeuing_its_own_job_still_rests[workspace-ready]` (rest 0.0), `test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue]` | `[none]`, `[other-thread-requeue]`, `[own-thread-lease]`, `[own-thread-requeue-after-pass]` |
+| 3. r2's M2: drop `previous[1] != lanes` | the other-connection cases `[enrolled]`, `[disabled]`, `[removed]` (nothing looked at) | `[none]` |
+| Extra: no closure write is capacity news (`if source == "lane"`) | both `test_c6_10_a_closure_added_…` cases | none |
+| r1: acknowledge news before waiter checks | `test_release_news_survives_temporary_door_hold[long-machine]`, `[long-ramp]`, `[long-disk]` | (6 short controls passed) |
+| r1: retain route error history | `test_successful_route_resets_prior_error_count[True]`, `test_intervening_success_should_not_delay_start_after_release[True]` | none |
+| r1: discard skipped waiter news | `test_release_news_survives_temporary_door_hold[long-machine]` | none |
+| r1: read expiries after the pass | `test_closure_expiring_during_the_first_pass_is_not_lost`, `test_closure_expiring_during_a_slow_pass_survives_its_completion` | none |
+| r1: share the detached and turn censuses | `test_capacity_news_censuses_are_independent_for_each_pool[detached-turn]`, `[turn-detached]` | none |
+| r1: drop unprepared known-reset clipping | `test_c6_10_known_operator_reset_still_beats_the_long_clock[True]` | none |
+
+Each mutant's JSON (`fix-r2-mutation-keep-carried-event-only-clock.json`, `fix-r2-mutations-batch-2.json` to `-5.json`) records the argv, the mutated and restored hashes, `restored_bytes_match`, the killers and the controls. Each mutant's log is `r2-mutation-<name>.log`, all in `2026-11-07-idle-admission-data/`.
+
+### Commands and results
+
+All commands ran from the workspace root with `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)` and `UV_CACHE_DIR=$TMPDIR/uv-cache`. Scratch was `$TMPDIR/sf-ia-f2`.
+
+- **`uv sync --group dev`:** succeeded with the default temp cache, so no fallback was needed. `--with 'pytest-xdist>=3.6'` supplied xdist 3.8.0.
+- **Focused runs while building, serial:**
+  - `uv run --no-sync pytest tests/fake/test_idle_capacity_carried_clock.py -q -x --tb=short -p no:cacheprovider --basetemp $TMPDIR/sf-ia-f2/pytest-carried-01`: 5 passed in 53.60 s (load 107.77 → 173.58).
+  - The self-wake and news-source files together, `--basetemp …/pytest-sources-01`: 12 passed in 27.79 s (load 119.08 → 130.47).
+- **Mutants:** `uv run --no-sync --with 'pytest-xdist>=3.6' python tools/idle_admission_r2_mutations.py --skip-baseline --only … --output docs/reports/2026-11-07-idle-admission-data --scratch-root $TMPDIR/sf-ia-f2/mutations --report …`, in five invocations (02:10–02:19 UTC). Each exited 0, and 12/12 mutants were killed.
+- **Per-file runs:** every file ran alone through `fix-r2-run-one.py`, kept in the data folder, which runs `uv run --no-sync --with 'pytest-xdist>=3.6' pytest -q --tb=short -p no:cacheprovider -n 4 --basetemp=$TMPDIR/sf-ia-f2/pytest-<group>-<stem> --junitxml=…/fix-r2-<group>-<stem>.xml FILE`. It runs in its own process group under a bound below the tool's 600 s limit; no run reached it. Every run below finished with exit 0. The ledger, with argv and `uptime` at each start and end, is `fix-r2-validation.json`.
+
+| File | Result | Wall s | UTC | Load (1 min) start → end |
+| --- | --- | ---: | --- | --- |
+| `tests/fake/test_idle_capacity_carried_clock.py` (new) | 5 passed | 17.4 | 02:21:06–02:21:24 | 141.91 → 126.10 |
+| `tests/fake/test_idle_capacity_news_sources.py` (new) | 6 passed | 19.4 | 02:21:24–02:21:44 | 126.10 → 119.37 |
+| `tests/fake/test_idle_admission_self_wake.py` (new) | 6 passed | 19.3 | 02:21:44–02:22:04 | 119.37 → 95.87 |
+| `tests/fake/test_capacity_wait_backoff.py` | 30 passed | 30.4 | 02:22:16–02:22:47 | 97.95 → 113.64 |
+| `tests/fake/test_admission_latency.py` | 14 passed | 102.0 | 02:23:00–02:24:42 | 126.29 → 148.32 |
+| `tests/fake/test_admission_properties.py` | 27 passed, 1 xfailed | 28.5 | 02:24:42–02:25:11 | 148.32 → 158.48 |
+| `tests/fake/test_admission_visibility.py` | 43 passed | 23.8 | 02:25:12–02:25:35 | 158.48 → 165.34 |
+| `tests/fake/test_admission_stateful.py` | 17 passed | 536.5 | 02:25:48–02:34:45 | 176.05 → 171.02 |
+| `tests/fake/test_admission_liveness.py` | 32 passed | 285.9 | 02:34:59–02:39:45 | 180.85 → 186.16 |
+| `tests/fake/test_admission_route_isolation.py` | 93 passed | 56.9 | 02:39:57–02:40:54 | 176.21 → 171.00 |
+| `tests/fake/test_task_hold_admission.py` | 49 passed | 24.2 | 02:40:54–02:41:19 | 171.00 → 172.97 |
+| `tests/fake/test_reset_credit_incident.py` | 19 passed | 25.7 | 02:41:28–02:41:53 | 166.64 → 174.98 |
+| `tests/fake/test_unadmittable_pin_review.py` | 7 passed | 20.9 | 02:41:54–02:42:15 | 174.98 → 165.89 |
+| `tests/fake/test_unrun_worktrees.py` | 98 passed | 195.7 | 02:42:15–02:45:31 | 165.89 → 186.72 |
+| `tests/fake/test_probe_cancel.py` | 24 passed | 190.0 | 02:45:58–02:49:08 | 215.99 → 115.45 |
+| `tests/unit/test_daemon_verbs.py` | 20 passed | 41.3 | 02:49:23–02:50:04 | 110.59 → 134.28 |
+| `tests/fake/test_state_contract.py` | 37 passed | 48.9 | 02:50:05–02:50:54 | 134.28 → 114.80 |
+| `tests/unit/test_test_module_names.py` | 1 passed | 12.3 | 02:50:54–02:51:06 | 114.80 → 109.27 |
+| `tests/unit/test_invariants_index.py` | 25 passed | 24.7 | 02:51:06–02:51:31 | 109.27 → 119.13 |
+| `tests/fake/test_idle_admission_pacing.py` | 23 passed | 32.9 | 02:51:51–02:52:24 | 111.64 → 124.19 |
+| `tests/fake/test_idle_capacity_events.py` | 56 passed | 37.5 | 02:52:25–02:53:03 | 124.19 → 120.30 |
+| `tests/fake/test_idle_capacity_guard_news.py` | 16 passed | 28.2 | 02:53:03–02:53:31 | 120.30 → 110.63 |
+| `tests/fake/test_idle_capacity_pools.py` | 3 passed | 16.0 | 02:53:32–02:53:48 | 110.63 → 109.81 |
+| `tests/fake/test_idle_capacity_queue_news.py` | 2 passed | 11.5 | 02:53:48–02:53:59 | 109.81 → 102.95 |
+| `tests/fake/test_idle_capacity_refresh_bound.py` | 2 passed | 18.1 | 02:54:09–02:54:28 | 101.88 → 99.33 |
+| `tests/fake/test_idle_route_deferrals.py` | 4 passed | 28.1 | 02:54:28–02:54:56 | 99.33 → 101.66 |
+| `tests/unit/test_admission_store_wakes.py` | 16 passed | 29.7 | 02:54:57–02:55:27 | 101.66 → 102.84 |
+| `tests/fake/test_probe_turn.py` | 61 passed | 182.1 | 02:55:27–02:58:29 | 102.84 → 184.37 |
+| `tests/fake/test_probe_deadline.py` | 17 passed | 52.3 | 02:58:30–02:59:22 | 184.37 → 180.00 |
+| `tests/fake/test_turn_wait_reasons.py` | 7 passed | 25.6 | 03:00:00–03:00:26 | 171.41 → 171.12 |
+| `tests/fake/test_admission_disk.py` | 27 passed | 13.5 | 03:00:26–03:00:39 | 171.12 → 166.07 |
+| `tests/fake/test_admission_ramp.py` | 19 passed | 65.1 | 03:00:39–03:01:45 | 166.07 → 169.97 |
+
+Totals, all 32 runs finished:
+- The 3 new files: 17 passed.
+- The brief's 16 end-of-work files: 536 passed and 1 xfailed, no failure or error.
+- 13 further files, chosen because they hold Fix r1's mutant killers or exercise the `probe-pending`, `route-moved` and ramp paths: 253 passed.
+
+Other checks:
+- `git diff --check HEAD~3` and `python -m py_compile` on the daemon, the three new test files and the runner passed.
+- **The new event kind.** No test registers event kinds. Of the six test files that read event kinds (`SELECT kind FROM events`), only `test_admission_route_isolation.py` also drives the probe and route paths, and it passed (93). The event appears only when a clock beyond 30 s is clipped.
+- **No refusal was added,** so I did not run `tests/unit/test_handler_refusals.py`.
+- **Final `daemon.py` sha256:** `136a3cf79b51a5629371b47babc608c8f1352bc8745a7d58e0cda9e235337168`. The file has been unchanged since 88fa781ee, so the mutant runs and every per-file run used these bytes.
+
+**Commits.** I added named files only, and git committed each step:
+- 88fa781ee: the fix and its tests.
+- 263c7d0e2: the finding 2 and 3 tests.
+- 4e47ec5cd: the contract.
+- f53aafb5c: the runner and 82 named evidence files (83 paths). The list came from `git ls-files --others --exclude-standard` on the data folder and the runner, and was passed to `git add --`.
+
+No commit hit a denied `index.lock`.
+
+### Deviations
+
+- **No mutation baseline inside the runner.** One runner invocation over every mutant would exceed the tool's 600 s limit, so it ran in five `--only` batches with `--skip-baseline`. The baseline is the per-file runs above on the same `daemon.py` bytes, and they include every killer file. The runner's own pristine copy is checked against the workspace's `daemon.py`.
+- **Two mutants beyond the brief.** 1a and 1b show that each call site's test is needed. The closure-addition mutant pins finding 3.
+- **No host suite lock.** I did not take `/private/tmp/claude-501/subfleet-suites-2.lock`, because the brief does not name it. Another session's subfleet suite hold (`sf-rn-r1`, `test_admission_stateful.py`) and other test jobs ran during my runs, and the 1-minute load ranged from 95 to 216.
+- **Existing blank lines in the change-log list.** The list already had blank lines (lines 14, 27, 29, 40, 61, 66, 71, 77 and 79). I left them as they were; my line adds none.
+- **I edited a historical change-log entry.** The change 2 line (now line 11) was rewritten as the brief asked.
+- **The two focused build runs ran serially,** without xdist.
+
+### Cleanup
+
+The folders created outside scratch were these 12, all under `/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2`:
+- `.hypothesis` and `.venv`;
+- `__pycache__` in `subfleet/`, `subfleet/adapters/`, `subfleet/conversations/`, `subfleet/gate/`, `subfleet/guard/`, `subfleet/sessions/`, `tests/`, `tests/fake/`, `tests/unit/` and `tools/`.
+
+I moved each to `$TMPDIR/sf-ia-f2/workspace-generated/` and deleted it there with `shutil.rmtree` after asserting that `sf-ia-f2` is in the path. I then deleted the scratch folder `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2` the same way. All 12 folders and the scratch folder are gone; `fix-r2-cleanup.json` records the paths. The mutation runner removed its own `run-*` folders, guarded the same way. A `pgrep` after the last run found none of my processes; the pytest processes it listed belong to other sessions (`sf-rn-r1`, `uk-hub`). The tree is clean apart from this report and the cleanup files committed with it.
+
+Code, tests and evidence: f53aafb5c136382d95d0e21859323d90eedd811c. This section and `fix-r2-cleanup.json` are committed on top of it.
